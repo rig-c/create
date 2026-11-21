@@ -909,6 +909,7 @@ describe('frozen rig registration', () => {
     process.env.TMPDIR = join(aliasRoot, 'alias');
     try {
     const external = mkdtempSync(join(os.tmpdir(), 'external-'));
+    roots.push(external);
     const maskBytes = readFileSync(join(dir, 'source/rig/images/rectangle.png'));
     writeFileSync(join(dir, 'mask.png'), maskBytes);
     put(dir, 'source/requirements.json', { spec: 'spine-parts-requirements/1', fps: 4, requirements: [], setup_painting: {

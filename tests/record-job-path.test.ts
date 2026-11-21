@@ -1,7 +1,7 @@
 /** Public CLI -> authenticated Review HTTP API -> CLI ingest, using synthetic records only. */
 import { afterEach, expect, test } from 'bun:test';
 import { randomUUID } from 'node:crypto';
-import { appendFileSync, cpSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { appendFileSync, cpSync, existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { collectItems } from '../src/check.ts';
 import { interviewAnswerCommand } from '../src/choice-writers.ts';
@@ -25,14 +25,16 @@ const clean = (value: string, root: string) => value.replaceAll(root, '<syntheti
 const opened: { proc: Bun.Subprocess; root: string }[] = [];
 afterEach(async () => {
   for (const { proc, root } of opened.splice(0)) {
-    if (readWriterBinding(root)) await cli(root, ['job', 'close', root]);
+    if (existsSync(root) && readWriterBinding(root)) await cli(root, ['job', 'close', root]);
     if (proc.exitCode === null) proc.kill();
     receipt({ command: ['foreground host', 'exit'], exit: await proc.exited });
   }
   for (const root of roots.splice(0)) {
-    rmSync(jobPrivateRoot(root), { recursive: true, force: true });
-    rmSync(jobHostStateRoot(root), { recursive: true, force: true });
-    rmSync(root, { recursive: true, force: true });
+    if (existsSync(root)) {
+      rmSync(jobPrivateRoot(root), { recursive: true, force: true });
+      rmSync(jobHostStateRoot(root), { recursive: true, force: true });
+      rmSync(root, { recursive: true, force: true });
+    }
   }
 });
 

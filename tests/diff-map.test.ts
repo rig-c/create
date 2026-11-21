@@ -1,5 +1,5 @@
 import { preparePartsApproval } from './parts-receipt-fixture.ts';
-import { afterEach, beforeAll, describe, expect, test } from 'bun:test';
+import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test';
 import { createHash } from 'node:crypto';
 import { mkdirSync, readFileSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -22,16 +22,22 @@ import { checkProject, advanceCommand, signoffCommand, testClock } from './clock
 
 const sha = (bytes: string | Buffer): string => createHash('sha256').update(bytes).digest('hex');
 const reports: Record<string, string> = {};
+const reportInputs: string[] = [];
 let emptyStack: Buffer;
 beforeAll(() => {
   for (const [name, floor, threshold, other, identical, owners] of [
     ['normal', 2, 40, false, false, false], ['owners', 2, 40, false, false, true], ['other', 2, 40, true, false, false],
     ['floor', 3, 40, false, false, false], ['threshold', 2, 41, false, false, false], ['empty', 2, 40, false, true, false],
   ] as const) {
-    const inputs = join(tempDir(), name);
+    const root = tempDir();
+    reportInputs.push(root);
+    const inputs = join(root, name);
     reports[name] = generateDiffFixture(inputs, floor, threshold, other, identical, owners);
     if (identical) emptyStack = readFileSync(join(inputs, 'recomposite_rig.png'));
   }
+});
+afterAll(() => {
+  for (const root of reportInputs.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 afterEach(() => testClock.reset());
 

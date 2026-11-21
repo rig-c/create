@@ -13,7 +13,7 @@ import { OWNER_CHAT_SOURCE } from '../src/owner-chat.ts';
  * template) written to a fresh folder under the OS temp dir, mutated in place
  * first. Nothing is copied into the repository.
  */
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
 import type { CheckReport } from '../src/check.ts';
@@ -124,37 +124,41 @@ function legacySetupAdvances(): Json[] {
   const now = testClock.now();
   try {
     const dir = fixture();
-    const file = join(dir, 'project.json');
-    const original = JSON.parse(readFileSync(file, 'utf8')) as JsonObject;
-    const words = join(dir, 'setup-approval.txt');
-    writeFileSync(words, 'Migrate the synthetic legacy stage setup through advance.');
-    const result: Json[] = [];
-    // One move per transition forms the chain each later move links to.
-    const chain: Json[] = [];
-    for (const target of LEGACY_STAGES.slice(1)) {
-      const from = LEGACY_STAGES[LEGACY_STAGES.indexOf(target) - 1]!;
-      const owner = LEGACY_STAGES.slice(0, LEGACY_STAGES.indexOf(target)).filter(s => s.closed_by === 'signoff').at(-1)!;
-      for (const approval of asArray(original.signoffs).filter(isObject).filter(s => s.stage === owner.id && s.checkpoint === null)) {
-        const project = structuredClone(original);
-        project.stage = from.id;
-        project.advances = structuredClone(chain);
-        project.signoffs = asArray(project.signoffs).filter(isObject).filter(s => stageIndex(String(s.stage)) <= stageIndex(from.id)
-          && (s.stage !== owner.id || Date.parse(String(s.at)) <= Date.parse(String(approval.at))));
-        for (const raw of asArray(isObject(project.plan) ? project.plan.steps : undefined).filter(isObject)) {
-          if ((raw.phase === 'rig' || raw.phase === 'post') && stageIndex(stageOfStep(raw.phase, String(raw.id))) >= stageIndex(target.id)) raw.status = 'pending';
+    try {
+      const file = join(dir, 'project.json');
+      const original = JSON.parse(readFileSync(file, 'utf8')) as JsonObject;
+      const words = join(dir, 'setup-approval.txt');
+      writeFileSync(words, 'Migrate the synthetic legacy stage setup through advance.');
+      const result: Json[] = [];
+      // One move per transition forms the chain each later move links to.
+      const chain: Json[] = [];
+      for (const target of LEGACY_STAGES.slice(1)) {
+        const from = LEGACY_STAGES[LEGACY_STAGES.indexOf(target) - 1]!;
+        const owner = LEGACY_STAGES.slice(0, LEGACY_STAGES.indexOf(target)).filter(s => s.closed_by === 'signoff').at(-1)!;
+        for (const approval of asArray(original.signoffs).filter(isObject).filter(s => s.stage === owner.id && s.checkpoint === null)) {
+          const project = structuredClone(original);
+          project.stage = from.id;
+          project.advances = structuredClone(chain);
+          project.signoffs = asArray(project.signoffs).filter(isObject).filter(s => stageIndex(String(s.stage)) <= stageIndex(from.id)
+            && (s.stage !== owner.id || Date.parse(String(s.at)) <= Date.parse(String(approval.at))));
+          for (const raw of asArray(isObject(project.plan) ? project.plan.steps : undefined).filter(isObject)) {
+            if ((raw.phase === 'rig' || raw.phase === 'post') && stageIndex(stageOfStep(raw.phase, String(raw.id))) >= stageIndex(target.id)) raw.status = 'pending';
+          }
+          const at = Math.max(...asArray(project.signoffs).filter(isObject).map(s => Date.parse(String(s.at)))) + LEGACY_STAGES.indexOf(target) + 1;
+          testClock.set(new Date(at));
+          writeFileSync(file, JSON.stringify(project));
+          advanceCommand([target.id, dir, ...(target.id === 'parts-review' ? withPartsCheck(dir) : [])]);
+          const advanced = JSON.parse(readFileSync(file, 'utf8')) as JsonObject;
+          result.push(asArray(advanced.advances).at(-1)!);
         }
-        const at = Math.max(...asArray(project.signoffs).filter(isObject).map(s => Date.parse(String(s.at)))) + LEGACY_STAGES.indexOf(target) + 1;
-        testClock.set(new Date(at));
-        writeFileSync(file, JSON.stringify(project));
-        advanceCommand([target.id, dir, ...(target.id === 'parts-review' ? withPartsCheck(dir) : [])]);
-        const advanced = JSON.parse(readFileSync(file, 'utf8')) as JsonObject;
-        result.push(asArray(advanced.advances).at(-1)!);
+        const first = result.find(raw => isObject(raw) && raw.stage === target.id);
+        if (first !== undefined) chain.push(first);
       }
-      const first = result.find(raw => isObject(raw) && raw.stage === target.id);
-      if (first !== undefined) chain.push(first);
+      legacyAdvances = result;
+      return result;
+    } finally {
+      rmSync(dirname(dir), { recursive: true, force: true });
     }
-    legacyAdvances = result;
-    return result;
   } finally { buildingLegacyAdvances = false; testClock.set(new Date(now)); }
 }
 

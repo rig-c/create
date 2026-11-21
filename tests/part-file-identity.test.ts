@@ -16,7 +16,7 @@ import { advanceCommand, checkProject, diffClassesCommand, reviewCommand, handof
 const roots: string[] = [];
 afterEach(() => {
   testClock.reset();
-  for (const root of roots.splice(0)) rmSync(root, { recursive: true });
+  for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 const sha = (bytes: string | Uint8Array): string => createHash('sha256').update(bytes).digest('hex');
 function put(dir: string, path: string, bytes: string | Uint8Array): void {

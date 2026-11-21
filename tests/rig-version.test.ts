@@ -2340,9 +2340,71 @@ describe('#514 producer depth bindings in frozen registration', () => {
       expect(move?.field).toBe('plan.steps[turn].status_history[].note');
       expect(move?.act).toContain('RIG_TURN_EXTRA_GROUP');
       expect(move?.act).toContain('body_yaw_dial');
+      expect(move?.act).toContain('--groups head');
+      expect(move?.act).toContain('turn.body');
+      expect(move?.act).toContain('DEPTH_GROUP_LEFT_OUT');
       obj(arr(obj(project.plan).steps).map(obj).find(s => s.id === 'turn')).status = 'done';
       expect(turnExtraGroupMoves(dir, project)).toEqual([]);
       expect(codes(dir, project)).toHaveLength(1);
+    });
+
+    test('#792 selection.leftOut in the sha256-bound depth-report.json clears RIG_TURN_EXTRA_GROUP', () => {
+      const { dir, project, recipe } = bodySetup({ bone: 'rectangle', pivot: 15, roles: { rectangle: 'surface', torso: 'surface' } });
+      const registration = obj(obj(arr(project.versions)[0]).registration);
+      const reportBinding = obj(obj(registration.depth).report);
+      const resealReport = (selection: JsonObject | undefined): void => {
+        const report = JSON.parse(readFileSync(join(dir, String(reportBinding.path)), 'utf8')) as JsonObject;
+        if (selection === undefined) delete report.selection;
+        else report.selection = selection;
+        const bytes = Buffer.from(`${JSON.stringify(report)}\n`);
+        writeFileSync(join(dir, String(reportBinding.path)), bytes);
+        reportBinding.sha256 = jobHash(bytes);
+        for (const file of arr(registration.files).map(obj)) if (file.path === reportBinding.path) file.sha256 = reportBinding.sha256;
+      };
+      // A report without selection or with only a subset of body roles left out keeps today's WARN.
+      expect(codes(dir, project)).toHaveLength(1);
+      resealReport({ groups: ['head'], leftOut: ['rectangle'] });
+      expect(codes(dir, project)).toHaveLength(1);
+      expect(turnExtraGroup(dir, project)?.recorded).toBe(false);
+      // Once selection.leftOut contains the body group, RIG_TURN_EXTRA_GROUP clears without a step note.
+      resealReport({ groups: ['head'], leftOut: ['rectangle', 'torso'] });
+      expect(codes(dir, project)).toEqual([]);
+      expect(turnExtraGroup(dir, project)).toEqual({ version: 1, dial: 'body_yaw_dial', recorded: true });
+      expect(turnExtraGroupMoves(dir, project)).toEqual([]);
+      expect(JSON.parse(readFileSync(join(dir, String(reportBinding.path)), 'utf8')).recipeSha256).toBe(recipe);
+      // Tampering with the report without updating the sha256 binding does not clear the WARN.
+      writeFileSync(join(dir, String(reportBinding.path)), `${JSON.stringify({ spec: 'rig-parts-depth-report/1', selection: { groups: ['head'], leftOut: ['rectangle', 'torso'] }, parts: [] })}\n`);
+      expect(codes(dir, project)).toHaveLength(1);
+      expect(turnExtraGroup(dir, project)?.recorded).toBe(false);
+    });
+
+    test('#792 registration accepts a head-only depth-report selection and refuses a left-out part that keeps a sheet', () => {
+      const { dir, args, load } = boundDepthSetup();
+      const manifest = JSON.parse(readFileSync(join(dir, 'source/manifest.json'), 'utf8'));
+      manifest.parts.push({ ...manifest.parts[0], part: 'torso' });
+      put(dir, 'source/manifest.json', manifest);
+      const report = JSON.parse(readFileSync(join(dir, 'source/parts/depth-report.json'), 'utf8'));
+      report.manifestSha256 = jobHash(readFileSync(join(dir, 'source/manifest.json')));
+      report.selection = { groups: ['head'], leftOut: ['torso'] };
+      put(dir, 'source/parts/depth-report.json', report);
+      const parts = JSON.parse(readFileSync(join(dir, 'source/parts/parts.json'), 'utf8'));
+      parts.parts.push({ ...structuredClone(parts.parts[0]), name: 'torso', from: 'full:author:torso' });
+      delete parts.parts[1].depth;
+      put(dir, 'source/parts/parts.json', parts);
+      writeFileSync(join(dir, 'source/parts/parts/torso.png'), readFileSync(join(dir, 'source/parts/parts/rectangle.png')));
+      approveFrozenParts(dir, load(), args);
+      testClock.set(new Date(DEPTH_MAP_BINDING_SINCE));
+      expect(rigVersionCommand(args).exit).toBe(0);
+      expect(rigRegistrationFindings(dir, load())).toEqual([]);
+      // If a left-out part still carries a depth declaration in assembled parts, registration check refuses.
+      const registeredParts = JSON.parse(readFileSync(join(dir, 'outputs/v1/out/parts.json'), 'utf8'));
+      registeredParts.parts[1].depth = registeredParts.parts[0].depth;
+      const bytes = Buffer.from(`${JSON.stringify(registeredParts)}\n`);
+      writeFileSync(join(dir, 'outputs/v1/out/parts.json'), bytes);
+      const p = load(), v = obj(arr(p.versions)[0]);
+      for (const f of arr(v.outputs).map(obj)) if (f.path === 'outputs/v1/out/parts.json') { f.sha256 = jobHash(bytes); f.bytes = bytes.length; }
+      obj(obj(v.registration).copied).bytes = arr(v.outputs).map(obj).reduce((sum, f) => sum + Number(f.bytes), 0);
+      expect(rigRegistrationFindings(dir, p).map(f => f.code)).toContain('RIG_DEPTH_BINDING_INVALID');
     });
 
     test.each([['head only', undefined, 'depth'], ['fixed view', { bone: 'rectangle', pivot: 15, roles: { rectangle: 'surface' } }, 'fixed'], ['empty body roles', { bone: 'rectangle', pivot: 15, roles: {} }, 'depth']] as const)('%s raises no RIG_TURN_EXTRA_GROUP', (_name, body, mode) => {

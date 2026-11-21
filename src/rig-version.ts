@@ -579,7 +579,16 @@ function depthBindingFindings(dir: string, version: JsonObject, config: JsonObje
       }
       const prepared = namedRows(manifest.parts, 'prepared parts');
       const applied = namedRows(report.parts, 'applied parts');
-      if (!isDeepStrictEqual(prepared.map(row => row.part).sort(), applied.map(row => row.part).sort())) throw Error('prepare/apply part sets disagree');
+      let leftOut: string[] = [];
+      if (report.selection !== undefined) {
+        if (!isObject(report.selection) || !Array.isArray(report.selection.groups) || report.selection.groups.length === 0
+          || report.selection.groups.some(g => typeof g !== 'string' || !g) || new Set(report.selection.groups).size !== report.selection.groups.length
+          || !Array.isArray(report.selection.leftOut) || report.selection.leftOut.some(p => typeof p !== 'string' || !p)
+          || new Set(report.selection.leftOut).size !== report.selection.leftOut.length) throw Error('invalid report selection');
+        leftOut = report.selection.leftOut as string[];
+        if (leftOut.some(part => applied.some(row => row.part === part) || mappedParts.some(p => p.name === part && p.depth !== undefined))) throw Error('left-out part cannot be applied or retain a depth sheet');
+      }
+      if (!isDeepStrictEqual(prepared.map(row => row.part).sort(), [...applied.map(row => row.part), ...leftOut].sort())) throw Error('prepare/apply part sets disagree');
       const bindings = depth.map_bindings === undefined ? [] : depth.map_bindings;
       if (!Array.isArray(bindings) || bindings.some(b => !isObject(b) || !applied.some(row => row.part === b.part))
         || new Set(bindings.map(b => (b as JsonObject).part)).size !== bindings.length) throw Error('expected unique map bindings for applied parts');
@@ -1665,7 +1674,7 @@ export function depthPlanMoves(project: JsonObject, collection: JsonObject | nul
   if (rig) return [];
   const steps = ["Record the chosen depth route and reason in the turn plan step text. Default per-part sequence: rig-parts depth-prepare --parts <accepted assembled parts> --config <depth recipe> --out <inference directory>",
     "Run the supplied depth model on each prepared image; retain raw rig-parts-map/1 maps (face normals, scalar depth for other parts). Immediately after each inference run rig-parts depth-bind --map <numeric-map.json> --input <prepared.png> --part <name>. Reuse a map and its existing receipt only when the prepared inputSha256 is unchanged. If input changes, re-infer and bind a new map filename; never bind an old map to a freshly prepared input or overwrite a receipt.",
-    "rig-parts depth-apply --parts <accepted assembled parts> --manifest <inference/manifest.json> --config <depth recipe> --rig-config <config.json> --out <mapped directory>; then rig-parts rig --parts <mapped directory> --config <mapped/config.json> --out <rig directory>. Register with rig-version --parts <mapped directory> --rig <rig directory> --config <mapped/config.json> --depth-manifest <inference/manifest.json> and repeat --depth-map-binding <map.binding.json> for each applied map."];
+    "rig-parts depth-apply --parts <accepted assembled parts> --manifest <inference/manifest.json> --config <depth recipe> --rig-config <config.json> --out <mapped directory> (when the depth recipe also has a body group, pass --groups head and remove turn.body from the working config, because Parts refuses DEPTH_GROUP_LEFT_OUT otherwise); then rig-parts rig --parts <mapped directory> --config <mapped/config.json> --out <rig directory>. Register with rig-version --parts <mapped directory> --rig <rig directory> --config <mapped/config.json> --depth-manifest <inference/manifest.json> and repeat --depth-map-binding <map.binding.json> for each applied map."];
   return steps.map((act, i) => ({ role: 'agent', field: `plan.steps[turn].moves[${i}]`, awaits: 'versions[].registration.depth', command: null, act }));
 }
 
@@ -1697,25 +1706,40 @@ export function depthPlanFindings(project: JsonObject, warnings: Finding[], coll
 }
 
 /**
- * The turn question's one depth option is a head turn. Parts depth-apply needs config.turn.body for every recipe
- * group, so a recipe prepared with a body group keeps that group's dial; dropping it changes the recipe and its
- * sha256. Create reads the registered config's declaration and names the dial instead (#563).
+ * The turn question's one depth option is a head turn. When a recipe prepared with a body group applies only the
+ * head group (`depth-apply --groups head`) without `config.turn.body`, the report's `selection.leftOut` records the
+ * left-out body parts while `recipeSha256` and `manifestSha256` stay unchanged. When a registered rig still declares
+ * `config.turn.body`, Create reads the registered config's declaration and names the dial (#563, #792).
  */
 export function turnExtraGroup(dir: string, project: JsonObject, collection: JsonObject | null = null): { version: number; dial: string; recorded: boolean } | null {
   if (depthAnswer(project, collection).mode !== 'depth') return null;
   const rig = asArray(project.versions).filter(isObject).filter(v => v.kind === 'rig' && isObject(v.registration)).at(-1);
   if (rig === undefined || typeof rig.n !== 'number') return null;
+  const record = rig.registration as JsonObject;
   let config: Json;
-  try { config = JSON.parse(bytesAt(dir, (rig.registration as JsonObject).config_source).toString('utf8')); }
+  try { config = JSON.parse(bytesAt(dir, record.config_source).toString('utf8')); }
   catch { return null; } // Registration checks own unreadable config evidence.
   const turn = isObject(config) && isObject(config.turn) ? config.turn : {};
   const body = isObject(turn.body) ? turn.body : {};
-  if (!isObject(body.roles) || Object.keys(body.roles).length === 0) return null;
+  const bodyRoles = isObject(body.roles) ? Object.keys(body.roles) : [];
+  if (bodyRoles.length === 0) return null;
   const dial = typeof body.slider === 'string' && body.slider !== '' ? body.slider : BODY_YAW_DIAL_BONE;
   const plan = isObject(project.plan) ? project.plan : {};
   const step = asArray(plan.steps).filter(isObject).find(s => s.id === 'turn');
-  const recorded = asArray(step?.status_history).some(e => isObject(e) && typeof e.note === 'string' && e.note.includes(dial));
-  return { version: rig.n, dial, recorded };
+  const noteRecorded = asArray(step?.status_history).some(e => isObject(e) && typeof e.note === 'string' && e.note.includes(dial));
+  let reportCleared = false;
+  try {
+    const depth = record.depth;
+    const reportBinding = isObject(depth) && isObject(depth.report) ? depth.report : undefined;
+    if (reportBinding && asArray(record.files).filter(isObject).some(f => f.path === reportBinding.path && f.sha256 === reportBinding.sha256)) {
+      const report: Json = JSON.parse(bytesAt(dir, reportBinding).toString('utf8'));
+      const leftOut = isObject(report) && report.spec === 'rig-parts-depth-report/1' && isObject(report.selection) && Array.isArray(report.selection.leftOut)
+        ? report.selection.leftOut.filter((p): p is string => typeof p === 'string' && p !== '')
+        : [];
+      reportCleared = bodyRoles.every(role => leftOut.includes(role));
+    }
+  } catch { /* Registration checks own unreadable depth report evidence. */ }
+  return { version: rig.n, dial, recorded: noteRecorded || reportCleared };
 }
 
 /** `next` names the unused dial while the turn step can still carry a note. */
@@ -1726,14 +1750,14 @@ export function turnExtraGroupMoves(dir: string, project: JsonObject, collection
   if (extra === null || extra.recorded || step === undefined || step.status === 'done') return [];
   const field = 'plan.steps[turn].status_history[].note';
   return [{ role: 'agent', field, awaits: field, command: null,
-    act: `RIG_TURN_EXTRA_GROUP: the head-turn answer leaves dial ${extra.dial} of rig v${extra.version} unused; keep the depth recipe and record it with the turn step's next status move: rig-create step-status turn <next status> <project dir> --by agent --note-file <file naming ${extra.dial} as unused>` }];
+    act: `RIG_TURN_EXTRA_GROUP: the head-turn answer leaves dial ${extra.dial} of rig v${extra.version} unused; either remove turn.body from the working config and re-run rig-parts depth-apply --parts <accepted assembled parts> --manifest <inference/manifest.json> --config <depth recipe> --rig-config <config.json> --out <mapped directory> --groups head (Parts refuses DEPTH_GROUP_LEFT_OUT if turn.body remains) and register a new rig version, or keep the depth recipe and record it with the turn step's next status move: rig-create step-status turn <next status> <project dir> --by agent --note-file <file naming ${extra.dial} as unused>` }];
 }
 
 function turnExtraGroupFindings(dir: string, project: JsonObject, warnings: Finding[], collection: JsonObject | null): void {
   const extra = turnExtraGroup(dir, project, collection);
   if (extra === null || extra.recorded) return;
   const path = 'plan.steps[turn]';
-  warnings.push({ code: 'RIG_TURN_EXTRA_GROUP', path, message: `${path}: the turn answer asks for a head turn, but rig v${extra.version}'s registered config.turn.body also turns a body group on dial ${extra.dial}; Parts depth-apply keeps every recipe group, and dropping one changes the depth recipe, so keep the recipe and name ${extra.dial} as unused in a turn step note: rig-create step-status turn <next status> --by <operator> --note-file <file naming ${extra.dial}>` });
+  warnings.push({ code: 'RIG_TURN_EXTRA_GROUP', path, message: `${path}: the turn answer asks for a head turn, but rig v${extra.version}'s registered config.turn.body also turns a body group on dial ${extra.dial}; remove turn.body from the working config and re-run rig-parts depth-apply ... --groups head (Parts refuses DEPTH_GROUP_LEFT_OUT otherwise) so depth-report.json records selection.leftOut for the body group, or keep the depth recipe and name ${extra.dial} as unused in a turn step note: rig-create step-status turn <next status> --by <operator> --note-file <file naming ${extra.dial}>` });
 }
 
 /** Depth-apply may enrich only depth declarations; accepted art/geometry/measurements stay identical. */

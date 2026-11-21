@@ -19,6 +19,9 @@ test('#514 per-part depth names prepare, the external model and apply before rig
   expect(moves[0]!.act).toContain('rig-parts depth-prepare');
   expect(moves[1]!.act).toContain('face normals');
   expect(moves[2]!.act).toContain('rig-parts depth-apply');
+  expect(moves[2]!.act).toContain('--groups head');
+  expect(moves[2]!.act).toContain('turn.body');
+  expect(moves[2]!.act).toContain('DEPTH_GROUP_LEFT_OUT');
   expect(moves[2]!.act).toContain('--depth-manifest');
   expect(moves.every(m => m.command === null && m.role === 'agent')).toBe(true);
 });

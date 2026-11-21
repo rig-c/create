@@ -2857,3 +2857,22 @@ test('#656 after a reopen to rigging-interview with a lapsed post-interview sign
   const rigMoves = report.moves.filter(m => m.awaits === 'signoffs[stage=rigging-interview]');
   expect(rigMoves.some(m => m.role === 'agent' && m.command?.includes('job open') && m.command.includes('--plan'))).toBe(true);
 });
+
+test.each([
+  { label: 'an unmet motion bar', motion: 'in-progress', advance: false },
+  { label: 'every bar met', motion: 'done', advance: true },
+])('#754 next at rigging with $label does not offer job open --rig', ({ motion, advance }) => {
+  const dir = join(tempDir(), 'rigging-rig-open');
+  cpSync(join(CHECKPOINTS_DIR, '3-rig-review'), dir, { recursive: true });
+  const file = join(dir, 'project.json');
+  const project = JSON.parse(readFileSync(file, 'utf8')) as JsonObject;
+  project.stage = 'rigging';
+  project.advances = arr(project.advances).filter(entry => obj(entry).stage !== 'rig-review');
+  arr(obj(project.plan).steps).map(obj).find(step => step.id === 'motion')!.status = motion;
+  writeFileSync(file, `${JSON.stringify(project, null, 2)}\n`);
+  const report = nextProject(dir, CHAIN_NOW);
+  expect(report.effective_stage).toBe('rigging');
+  expect(report.moves.some(move => (move.command ?? '').includes('job open') && (move.command ?? '').includes('--rig'))).toBe(false);
+  expect(report.moves.some(move => move.command === `rig-create advance rig-review ${dir}`)).toBe(advance);
+  if (!advance) expect(report.moves.map(move => move.command)).toContain(`rig-create step-status motion at-checkpoint ${dir} --by agent`);
+});

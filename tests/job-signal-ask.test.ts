@@ -305,19 +305,23 @@ test('#690 draft-rig --json reports a deferred update of the open page', async (
   expect(read(root).drafts).toContainEqual(expect.not.objectContaining({ publication: expect.anything() }));
 }, 30_000);
 
-test('#690 advance updates the same rig with its review verdict ask', async () => {
+test('#690 #754 advance publishes the rig verdict ask that job open --rig refuses before rig-review', async () => {
   const root = copyCheckpoint('3-rig-review', project => {
     project.stage = 'rigging';
     project.advances = (project.advances as JsonObject[]).filter(entry => entry.stage !== 'rig-review');
   });
-  const opening = await open(root, ['--rig', '1']);
-  expect(opening.lines).toEqual(['job: rig v1 published', 'job: asked review-verdict rig-review']);
-  const before = publicationId(root);
+  const opening = await open(root);
+  expect(opening.lines).toEqual(['job: stage rigging shows no draft; name one with --draft <id>']);
+  const record = read(root);
+  const early = await cli(root, ['job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner', '--rig', '1']);
+  expect(early.exit).toBe(1);
+  // Every rigging bar is met, so the refusal names only the move.
+  expect(early.stderr).toStartWith(`JOB_RIG_VERDICT_UNASKABLE: project.json.stage: stage rigging cannot ingest a rig-review verdict on rig v1; run rig-create advance rig-review ${root} and retry `);
+  expect(read(root)).toEqual(record);
   const advanced = await cli(root, ['advance', 'rig-review', root]);
   const after = publicationId(root);
   expect({ exit: advanced.exit, stderr: advanced.stderr }).toEqual({ exit: 0, stderr: '' });
-  expect(after).not.toBe(before);
-  expect(advanced.stdout).toContain(`updated the open page: publication ${after}, ask review-verdict rig-review`);
+  expect(advanced.stdout).toContain('job: asked review-verdict rig-review');
   const binding = readWriterBinding(root)!;
   expect(readAcknowledgedPublication(root, binding.jobId, after)?.subjects).toEqual([{ kind: 'review-verdict', stage: 'rig-review' }]);
 }, 30_000);

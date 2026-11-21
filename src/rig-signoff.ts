@@ -9,9 +9,41 @@ import { assertSignoffCandidate } from './parts-signoff.ts';
 import { refuse } from './refusal.ts';
 import { matchesActProjectSource, rigVerdictSignoff, type ReviewVerdictAct } from './review-act.ts';
 import { assertRigReviewSignable } from './review.ts';
+import { effectiveBar } from './plan-bar-amendments.ts';
+import { livePublicationSubjects } from './job-publication.ts';
+import { shellWord } from './job-acts.ts';
+import { stageIndex, stageOfStep } from './stages.ts';
+import type { JobSelector } from '@rig-c/review/job-host';
 import { selectSignoffTarget } from './signoff-target.ts';
 import { signoffPairFinding } from './signoff-pair.ts';
 import type { JsonObject } from './templates.ts';
+
+/** An approved rig-review verdict act ingests only at effective rig-review: `review --from-review` and `job open --rig` share this rule (#754). */
+export function rigVerdictIngestible(effectiveStage: string | null): boolean {
+  return effectiveStage === 'rig-review';
+}
+
+/**
+ * `job open --rig <n>` refuses before it publishes when its rig-review verdict ask
+ * could not be ingested at the record's effective stage. It names the stage and the
+ * rigging bars that still block the move to rig-review.
+ */
+export function assertRigVerdictAskable(root: string, project: JsonObject, effectiveStage: string | null, selector: Extract<JobSelector, { kind: 'rig' }>, now: number): void {
+  if (rigVerdictIngestible(effectiveStage)) return;
+  if (!livePublicationSubjects(root, project, selector).some(subject => subject.kind === 'review-verdict' && subject.stage === 'rig-review')) return;
+  const shown = `stage ${String(project.stage)}${effectiveStage !== project.stage ? ` (effective ${String(effectiveStage)})` : ''}`;
+  const open = `rig-create job open ${shellWord(root)} --rig ${selector.version}`;
+  let remedy: string;
+  if (stageIndex(String(effectiveStage)) < stageIndex('rig-review')) {
+    const unmet = asArray(isObject(project.plan) ? project.plan.steps : undefined).filter(isObject)
+      .filter(step => (step.phase === 'rig' || step.phase === 'post') && stageOfStep(step.phase, String(step.id)) === 'rigging' && step.status !== 'done')
+      .map(step => `plan.steps[${String(step.id)}] is ${String(step.status ?? 'pending')}, bar ${JSON.stringify(effectiveBar(project, step, now))}`);
+    remedy = `${unmet.length ? `unmet bars before rig-review: ${unmet.join('; ')}; meet them, then ` : ''}run rig-create advance rig-review ${shellWord(root)} and retry ${open}`;
+  } else {
+    remedy = `the rig verdict is asked only at rig-review; follow rig-create next ${shellWord(root)} before ${open}`;
+  }
+  refuse('JOB_RIG_VERDICT_UNASKABLE', `project.json.stage: ${shown} cannot ingest a rig-review verdict on rig v${selector.version}; ${remedy}`);
+}
 
 /** Missing retained subjects and the old two-subject publication keep their separate signing contract. */
 export function foldsRigVerdict(root: string, project: JsonObject, act: ReviewVerdictAct, now: number): CheckReport | null {
@@ -21,7 +53,7 @@ export function foldsRigVerdict(root: string, project: JsonObject, act: ReviewVe
     || publication.subjects.some(subject => subject.kind === 'signoff' && subject.stage === 'rig-review')) return null;
   if (!matchesActProjectSource(act, readFileSync(join(root, 'project.json')))) refuse('REVIEW_ACT_SOURCE_STALE', 'project.json: rig approval predates the current record; publish the current rig-review record and ask again');
   const asRead = checkProject(root, project, { now });
-  if (asRead.effective_stage !== 'rig-review') refuse('REVIEW_ACT_TARGET_MISMATCH', 'project.json.stage: this rig approval requires effective rig-review; restore the ready rig-review stage, publish its current record and ask again');
+  if (!rigVerdictIngestible(asRead.effective_stage)) refuse('REVIEW_ACT_TARGET_MISMATCH', 'project.json.stage: this rig approval requires effective rig-review; restore the ready rig-review stage, publish its current record and ask again');
   return asRead;
 }
 

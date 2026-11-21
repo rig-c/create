@@ -4,6 +4,7 @@ import { closeSync, linkSync, mkdirSync, mkdtempSync, openSync, renameSync, rmdi
 import { existsSync, lstatSync, readFileSync, readdirSync, realpathSync } from './check-reads.ts';
 import { acquireBoundJobWrite, beginJobProgress, prepareVersionIntent, publishCommittedVersion } from './job-writer.ts';
 import { cancelUncommittedIntent, type PendingPublication } from './job-outbox.ts';
+import { shellWord } from './job-acts.ts';
 import { partsFileReferences } from '@rig-c/parts/src/parts.ts';
 import { BODY_YAW_DIAL_BONE } from '@rig-c/parts/src/turn.ts';
 import { tmpdir } from 'node:os';
@@ -1118,16 +1119,23 @@ function mapRegistrationAssets(
 }
 
 const RIG_VERSION_ADAPTER_USAGE = 'rig-version adapter [<dir>] --config <file> --out <file>';
+export const RIG_VERSION_INPUTS = '--parts <dir> --rig <dir> --build <dir> --idle <dir> --config <file> --path-adapter <file> --compile-report <file> --check-report <check.json> --toolchain-lock <file> --run-record <run.json> --at-source <file> --at-pointer <pointer> --by <agent>';
+export const NO_DRAFT_VERDICT = '--no-draft-verdict';
+
+export function rigRegistrationCommand(args: readonly string[]): string {
+  return ['rig-create', 'rig-version', ...args].map(shellWord).join(' ');
+}
 
 export const RIG_VERSION_HELP = `rig-version <n> [<dir>] --parts <dir> --rig <dir> --build <dir> --idle <render dir>
   --config <file> --path-adapter <file> --compile-report <file> --toolchain-lock <bun.lock|package-lock.json>
   --at-source <dated JSON file> --at-pointer </pointer> --by <registrant> [--run-record <run.json>]... [--citations <sections JSON>] [--depth-manifest <prepare manifest>] [--depth-map-binding <map.binding.json>]... [--json]
-  [--check-report <check.json>]
+  [--check-report <check.json>] [${NO_DRAFT_VERDICT}]
   Copy and hash frozen producer outputs. Retain an explicitly declared toolchain lock, producer run records and UTC not-after date.
   For --build check/build from rig-parts check, --compile-report is check/build-report.json beside it (Parts 2.47.0 and later).
   Accept specific failed bars or unmet requirement lines from --check-report with repeatable --accept-check-bar <id> or --accept-check-line <name>.
   Acceptance requires --check-accepted-by <owner> --owner-chat <words file> --said-at <ISO date> --relayed-by <operator>.
   Idle requires rigc render's frames.json. No build, acceptance or stage advance runs.
+  Use ${NO_DRAFT_VERDICT} to register without carrying an accepted draft verdict.
   Repeat --answers <version>:<verdict> to answer earlier human bounced feedback.
   Source arguments resolve against the project directory; external frozen sources are permitted.
 
@@ -1321,10 +1329,12 @@ export function rigVersionCommand(args: string[], now: number): { stdout: string
   const flags = [...requiredFlags, '--citations', '--depth-manifest', '--check-report', ...checkAuthorityFlags];
   let json = false;
   let preflight = false;
+  let carryDraftVerdict = true;
   for (let i = 0; i < args.length; i++) {
     const arg = args[i]!;
     if (arg === '--json') json = true;
     else if (arg === '--preflight') preflight = true;
+    else if (arg === NO_DRAFT_VERDICT) carryDraftVerdict = false;
     else if (arg === '--answers') {
       const value = args[++i];
       if (!value || value.startsWith('--')) fail('RIG_REGISTRATION_USAGE', 'versions', '--answers needs version:verdict');
@@ -1621,11 +1631,18 @@ export function rigVersionCommand(args: string[], now: number): { stdout: string
     created.push(join(dir, pkg));
     progress?.('Preparing and checking the retained rig package', { i: 1, n: 2 });
     prepareRigReviewPackage([String(n), dir, '--config', String(configBinding.path), '--from', `${out}/out`], candidate, partReferences.map(reference => reference.path));
-    if (asRead.effective_stage === 'rigging') {
+    if (carryDraftVerdict && asRead.effective_stage === 'rigging') {
       const carried = carryRigDraftVerdict(dir, project, version, resolve(dir, options['--config']!), configInputSources, now);
       if (carried) {
         assertFigureMaskApproval(dir, candidate, n);
-        assertCorrectionApproval(dir, candidate, 'rig-review', now);
+        try {
+          assertCorrectionApproval(dir, candidate, 'rig-review', now);
+        } catch (error) {
+          if (!(error instanceof Refusal) || error.code !== 'CORRECTION_PENDING') throw error;
+          const retryArgs = positional.length === 1 ? [...args, dir] : args;
+          const plain = rigRegistrationCommand([...retryArgs, NO_DRAFT_VERDICT]);
+          refuse(error.code, `${error.message}; to register without carrying the draft verdict, run ${plain}`, error.exitCode);
+        }
         version.verdicts = [carried.verdict];
         version.evidence = [carried.evidence];
       }

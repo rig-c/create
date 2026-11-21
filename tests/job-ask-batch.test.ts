@@ -252,4 +252,40 @@ describe('askDeclaredSubjects batch ask (#658)', () => {
     expect(calls[2]!.expectedGeneration).toBe(65);
     expect(outcomes).toEqual(manySubjects.map(subject => ({ subject, status: 'asked' })));
   });
+
+  test('#743 keeps only the JOB_ASK_SUPERSEDED message and strips non-superseded messages', async () => {
+    const singleHost = makeStubHost({
+      askBatch: false,
+      onAsk: (_call, index) => index === 0
+        ? { ok: false, error: { code: 'JOB_ASK_SUPERSEDED', message: 'ask ask-1 is superseded; head pub-2' } }
+        : { ok: false, error: { code: 'JOB_ASK_INVALID', message: 'subject is not declared' } },
+    });
+    const singleOutcomes = await askDeclaredSubjects(singleHost.host, 'pub-1', sampleSubjects.slice(0, 2), false);
+    expect(singleOutcomes).toEqual([
+      { subject: sampleSubjects[0]!, status: 'refused', code: 'JOB_ASK_SUPERSEDED', message: 'ask ask-1 is superseded; head pub-2' },
+      { subject: sampleSubjects[1]!, status: 'refused', code: 'JOB_ASK_INVALID' },
+    ]);
+    let singleThrown: unknown;
+    try { refuseAskOutcomes(singleOutcomes); } catch (error) { singleThrown = error; }
+    expect(singleThrown).toMatchObject({ code: 'JOB_ASK_REFUSED' });
+    expect((singleThrown as Error).message).toContain('signoff plan-approved (JOB_ASK_SUPERSEDED: ask ask-1 is superseded; head pub-2)');
+    expect((singleThrown as Error).message).toContain('reopen interview (JOB_ASK_INVALID)');
+    expect((singleThrown as Error).message).not.toContain('subject is not declared');
+
+    const batchHost = makeStubHost({
+      askBatch: true,
+      onAskBatch: () => ({
+        ok: false,
+        error: { code: 'JOB_ASK_SUPERSEDED', message: 'subjects[1]: ask ask-2 is superseded; head pub-2' },
+      }),
+    });
+    const batchOutcomes = await askDeclaredSubjects(batchHost.host, 'pub-1', sampleSubjects, true);
+    expect(batchOutcomes).toEqual([
+      { subject: sampleSubjects[1]!, status: 'refused', code: 'JOB_ASK_SUPERSEDED', message: 'ask ask-2 is superseded; head pub-2' },
+    ]);
+    let batchThrown: unknown;
+    try { refuseAskOutcomes(batchOutcomes); } catch (error) { batchThrown = error; }
+    expect(batchThrown).toMatchObject({ code: 'JOB_ASK_REFUSED' });
+    expect((batchThrown as Error).message).toContain('reopen interview (JOB_ASK_SUPERSEDED: ask ask-2 is superseded; head pub-2)');
+  });
 });

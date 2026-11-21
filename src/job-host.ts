@@ -274,7 +274,8 @@ export async function publishPending(
 }
 
 /** One declared subject after the ask step: asked now, asked before on this publication, or refused by Review. */
-export type AskOutcome = { readonly subject: PublicationSubject; readonly status: 'asked' | 'already' } | { readonly subject: PublicationSubject; readonly status: 'refused'; readonly code: string };
+export type AskOutcome = { readonly subject: PublicationSubject; readonly status: 'asked' | 'already' }
+  | { readonly subject: PublicationSubject; readonly status: 'refused'; readonly code: string; readonly message?: string };
 
 /**The subjects already asked on this publication, from the same event reader as job acts, plus host capabilities from the `next` response. */
 async function askedSubjects(host: JobOwnerHost, publicationId: string): Promise<{ asked: PublicationSubject[]; askBatch: boolean }> {
@@ -329,6 +330,13 @@ export async function listCreateJobActs(
 
 const ASK_BATCH_LIMIT = 64;
 
+function refusedAskOutcome(subject: PublicationSubject, code: string, message?: string): AskOutcome {
+  const trimmed = code === 'JOB_ASK_SUPERSEDED' && typeof message === 'string'
+    ? message.replace(/^subjects\[\d+\]: /, '').trim()
+    : '';
+  return { subject, status: 'refused', code, ...(trimmed ? { message: trimmed } : {}) };
+}
+
 /**
  * Ask each declared subject of a publication once. A subject already asked on that
  * publication, pending or answered, is not asked again, so a re-open never shows a second
@@ -347,7 +355,7 @@ export async function askDeclaredSubjects(host: JobOwnerHost, publicationId: str
         reply = await agentCall(host, { verb: 'ask', expectedGeneration, publicationId, subject,
           idempotencyKey: jobHash(JSON.stringify([publicationId, subject, expectedGeneration])) });
       } catch { reply = { ok: false }; }
-      outcomes.push(reply.ok ? { subject, status: 'asked' } : { subject, status: 'refused', code: reply.error?.code ?? 'JOB_ASK_INVALID' });
+      outcomes.push(reply.ok ? { subject, status: 'asked' } : refusedAskOutcome(subject, reply.error?.code ?? 'JOB_ASK_INVALID', reply.error?.message));
     }
     return outcomes;
   }
@@ -369,12 +377,13 @@ export async function askDeclaredSubjects(host: JobOwnerHost, publicationId: str
       continue;
     }
     const code = reply.error?.code ?? 'JOB_ASK_INVALID';
-    const match = typeof reply.error?.message === 'string' ? /^subjects\[(\d+)\]: /.exec(reply.error.message) : null;
+    const message = reply.error?.message;
+    const match = typeof message === 'string' ? /^subjects\[(\d+)\]: /.exec(message) : null;
     const failedIndex = match ? Number(match[1]) : -1;
     if (failedIndex >= 0 && failedIndex < chunk.length) {
-      outcomes[chunk[failedIndex]!.index] = { subject: chunk[failedIndex]!.subject, status: 'refused', code };
+      outcomes[chunk[failedIndex]!.index] = refusedAskOutcome(chunk[failedIndex]!.subject, code, message);
     } else {
-      for (const item of chunk) outcomes[item.index] = { subject: item.subject, status: 'refused', code };
+      for (const item of chunk) outcomes[item.index] = refusedAskOutcome(item.subject, code, message);
     }
     break;
   }
@@ -402,9 +411,9 @@ export function askOutcomeLines(outcomes: readonly AskOutcome[]): string[] {
 
 /** Name every ask Review refused. The publications themselves are acknowledged. */
 export function refuseAskOutcomes(outcomes: readonly AskOutcome[]): void {
-  const refused = outcomes.filter(outcome => outcome.status === 'refused');
+  const refused = outcomes.filter((outcome): outcome is Extract<AskOutcome, { status: 'refused' }> => outcome.status === 'refused');
   if (!refused.length) return;
-  const named = refused.map(outcome => `${subjectLabel(outcome.subject)} (${outcome.status === 'refused' ? outcome.code : ''})`).join(', ');
+  const named = refused.map(outcome => `${subjectLabel(outcome.subject)} (${outcome.code}${outcome.message ? `: ${outcome.message}` : ''})`).join(', ');
   refuse('JOB_ASK_REFUSED', `project.json: the publication is acknowledged but review refused the ask for ${named}; restore the published record bytes and run rig-create job open to ask again`);
 }
 

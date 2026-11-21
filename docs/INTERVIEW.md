@@ -588,10 +588,12 @@ After the owner re-signs as prompted by `next`, the next rig version can cite
 the comment and answer the verdict with `rig-version --answers <version>:<verdict-index>`.
 
 The same command can attach the route to an already-ingested act while its
-live job can still serve it and its verdict remains current. Repeating the
-same route adds no second sentence. A different target is refused. Omit
-`--item` to ingest without routing, including when the verdict has multiple
-page-level comments. The live route takes its words from Review.
+verdict remains current, even after `job close`. It takes the words from the
+act bytes in `review_acts[]` and verifies their SHA-256. Repeating the same
+route adds no second sentence. A different target is refused. Omit `--item`
+to ingest without routing, including when the verdict has multiple page-level
+comments. First ingest and replay without `--item` still use the live Review
+job.
 
 An item id that is no framing, waypoint or post item is refused
 (`FEEDBACK_ITEM_UNKNOWN`); `review` does not create an `x_` prompt. A prompt

@@ -15,7 +15,7 @@ import type { JsonObject } from '../src/templates.ts';
 import { arr, fixture, obj, waypoint } from './fixtures.ts';
 import { clockedCli, run } from './helpers.ts';
 import { openCreateJob, reconcileCreateJob } from '../src/job-host.ts';
-import { jobHash, jobHostStateRoot, jobPrivateRoot, pendingPublications, readWriterBinding } from '../src/job-outbox.ts';
+import { acquireJobLock, jobHash, jobHostStateRoot, jobPrivateRoot, pendingPublications, readWriterBinding } from '../src/job-outbox.ts';
 import { readRecordPublished } from '../src/job-publication.ts';
 
 const roots: string[] = [];
@@ -2076,7 +2076,7 @@ describe('frozen rig registration', () => {
 });
 
 describe('#812 page-level rig feedback', () => {
-  test.each(['no route', 'first ingest', 'already ingested', 'ambiguous comments', 'approved verdict'] as const)('%s: page-level motion comment and the next rig version', async mode => {
+  test.each(['no route', 'first ingest', 'already ingested', 'closed receipt', 'ambiguous comments', 'approved verdict'] as const)('%s: page-level motion comment and the next rig version', async mode => {
     const { dir: fixtureDir, args, load } = setup(true);
     const dir = realpathSync(fixtureDir);
     const words = '  Add a keyed wind motion.\r\n';
@@ -2143,18 +2143,49 @@ describe('#812 page-level rig feedback', () => {
       const reviewArgs = ['review', '1', dir, '--from-review', act.value.actId, '--json'];
       const projectFile = join(dir, 'project.json');
       const recordBytes = () => readFileSync(projectFile);
-      const refusedRoute = async (code: string, ...flags: string[]) => {
-        const before = recordBytes();
-        const result = await runCli(...reviewArgs, ...flags);
-        expect(result.exit).toBeGreaterThan(0);
+      const refusedReview = async (argv: string[], code: string, file = projectFile) => {
+        const before = readFileSync(file);
+        const result = await runCli(...argv);
+        expect(result.exit).toBe(code === 'REVIEW_OPTION_INVALID' ? 2 : 1);
         expect(result.stderr).toContain(`${code}:`);
-        expect(recordBytes()).toEqual(before);
+        expect(readFileSync(file)).toEqual(before);
       };
+      const refusedRoute = (code: string, ...flags: string[]) => refusedReview([...reviewArgs, ...flags], code);
       if (mode === 'ambiguous comments' || mode === 'approved verdict') {
         await refusedRoute('REVIEW_FEEDBACK_ROUTE_INVALID', '--item', 'motion:not-asked');
         return;
       }
+      const preIngest = mode === 'closed receipt' ? recordBytes() : undefined;
       const prior = mode === 'first ingest' ? undefined : await cli(...reviewArgs);
+      const receipt = () => arr(load().review_acts).map(obj).find(row => row.actId === act.value.actId)!;
+      if (mode === 'closed receipt') {
+        const before = recordBytes();
+        const close = await runCli('job', 'close', dir);
+        expect(close).toEqual({ exit: 0, stdout: 'job: closed\n', stderr: '' });
+        expect(readWriterBinding(dir)).toBeNull();
+        expect(recordBytes()).toEqual(before);
+
+        // The same real act has no authority in the copy of the record from before ingest.
+        const copy = join(dirname(dir), 'receipt-control');
+        mkdirSync(copy);
+        const copyFile = join(copy, 'project.json');
+        writeFileSync(copyFile, preIngest!);
+        const copyArgs = ['review', '1', copy, ...reviewArgs.slice(3), '--item', 'motion:not-asked'];
+        await refusedReview(copyArgs, 'JOB_BINDING_INVALID', copyFile);
+
+        const corrupt = load();
+        arr(corrupt.review_acts).map(obj).find(row => row.actId === act.value.actId)!.sha256 = '0'.repeat(64);
+        put(copy, 'project.json', corrupt);
+        await refusedReview(copyArgs, 'REVIEW_ACT_LEDGER_INVALID', copyFile);
+
+        const release = acquireJobLock(dir)!;
+        try {
+          await refusedRoute('JOB_WRITE_BUSY', '--item', 'motion:not-asked');
+        } finally {
+          release();
+        }
+        expect(receipt()).not.toHaveProperty('feedback_route');
+      }
       put(dir, 'source/config-next.json', { key: 'synthetic', requirements: 'requirements.json', motion: { animations_from: 'animations.json' } });
       put(dir, 'source/animations.json', { wind: { duration: 1, tracks: [] } });
       put(dir, 'source/citations.json', { motion: [{ entry: 'animations_from', guide: 'motion', quote: words }] });
@@ -2169,7 +2200,6 @@ describe('#812 page-level rig feedback', () => {
         return;
       }
 
-      const receipt = () => arr(load().review_acts).map(obj).find(row => row.actId === act.value.actId)!;
       const motion = () => obj(waypoint(load(), 'motion').guide);
       await refusedRoute('REVIEW_OPTION_INVALID', '--item', 'motion');
       await refusedRoute('REVIEW_OPTION_INVALID', '--item', 'motion:not-asked', '--quote', 'motion=paraphrase');
@@ -2180,7 +2210,7 @@ describe('#812 page-level rig feedback', () => {
           '--said-at', testClock.iso(), '--relayed-by', 'agent', '--json');
       };
       const priorReceipt = prior ? structuredClone(receipt()) : undefined;
-      if (prior) {
+      if (mode === 'already ingested') {
         testClock.set(testClock.now() + 1000);
         await sign(); // The route's later time must lapse even this post-comment approval.
       }
@@ -2209,7 +2239,8 @@ describe('#812 page-level rig feedback', () => {
       const afterRoute = recordBytes();
       testClock.set(testClock.now() + 1000);
       expect((await cli(...routeArgs)).feedback_route).toEqual(route);
-      expect((await cli(...reviewArgs)).feedback_route).toEqual(route);
+      if (mode === 'closed receipt') await refusedRoute('JOB_BINDING_INVALID');
+      else expect((await cli(...reviewArgs)).feedback_route).toEqual(route);
       expect(recordBytes()).toEqual(afterRoute);
       await refusedRoute('REVIEW_FEEDBACK_ROUTE_CONFLICT', '--item', 'bones:not-asked');
       const next = await cli('next', dir, '--json');
@@ -2220,6 +2251,7 @@ describe('#812 page-level rig feedback', () => {
       await sign();
       expect(arr((await cli('next', dir, '--json')).refusals)).toEqual([]);
       const version = await cli('rig-version', ...second);
+      expect(version.answers_feedback).toEqual([{ version: 1, verdict: 0 }]);
       expect(obj(obj(version.provenance!).sections!).motion).toEqual([{ entry: 'animations_from', guide: 'motion', quote: words }]);
       expect(checkProject(dir).refusals).toEqual([]);
     } finally {

@@ -17,7 +17,7 @@ import { assertInterviewRecordSignable, checkpointProblem } from './signable.ts'
 import { checkpointReceipt, commitIngestedSignoff, ingestCheckpointAct, type CheckpointIngest, type SignoffHooks } from './signoff-checkpoint-act.ts';
 import { resolve } from 'node:path';
 import { jobHash } from './job-outbox.ts';
-import { assertActSubjectDeclared, decodeReviewAct, fetchReviewActBytes, isRecordDirectionSignoff, isRecordInterviewSignoff, partsVerdictSignoff, recordSignoffActVersion, PLAN_BOUND_SIGNOFF_STAGES, reviewActFindings, reviewActSignoff, reviewActTransport, SIGNOFF_TARGET_KINDS, signoffActIdentity, signoffActVersion, type ReviewActTransport, type SignoffAct } from './review-act.ts';
+import { assertActSubjectDeclared, decodeReviewAct, fetchReviewActBytes, isRecordDirectionSignoff, isRecordInterviewSignoff, matchesActProjectSource, partsVerdictSignoff, recordSignoffActVersion, PLAN_BOUND_SIGNOFF_STAGES, reviewActFindings, reviewActSignoff, reviewActTransport, SIGNOFF_TARGET_KINDS, signoffActIdentity, signoffActVersion, type ReviewActTransport, type SignoffAct } from './review-act.ts';
 
 import { asArray, checkProject, classify, collectItems, isObject, loadCollection, postNotPassed, type Finding } from './check.ts';
 import { readProject } from './feedback.ts';
@@ -218,7 +218,7 @@ function recordSignoff(stage: string, positional: string[], opts: Record<string,
     if (pending) refuse('SIGNOFF_REASK_PENDING', `project.json.${pendingInterviewOptionsPath(pending)}: ${stage} has a pending option set for ${pending.id}; open it with rig-create job open --question ${pending.id} and record the owner's pick with interview-answer before signing`);
   }
   if (review !== undefined) {
-    if (review.act.schema === 'rig-review/act@4' && review.act.source.projectHash !== jobHash(original!)) refuse('REVIEW_ACT_SOURCE_STALE', 'project.json: displayed signoff record differs; publish the current plan and ask again');
+    if (review.act.schema === 'rig-review/act@4' && !matchesActProjectSource(review.act, original!)) refuse('REVIEW_ACT_SOURCE_STALE', 'project.json: displayed signoff record differs; publish the current plan and ask again');
     if (isRecordDirectionSignoff(review.act)) {
       const shown = recordSignoffActVersion(review.act, original!.toString('utf8'));
       if (shown === null) refuse('REVIEW_ACT_RECORD_TARGET_INVALID', 'project.json.versions: the frozen sign-off record has no single current live post with an accepted direction-review verdict; publish the corrected record after reviewing that post');

@@ -635,4 +635,4 @@ export async function openDraftPublication(root: string, host: JobOwnerHost, now
   return lines;
 }
 
-export { closeCreateJob } from './job-close.ts';
+export { closeCreateJob, withdrawCreateJobAct } from './job-close.ts';

@@ -101,6 +101,85 @@ const object = (value: unknown): value is JsonObject => value !== null && typeof
 export function isDiscardReceipt(value: unknown): value is JsonObject & { kind: 'discarded' } {
   return object(value) && value.schema === 'rig-create/review-act@1' && value.kind === 'discarded';
 }
+export function buildDiscardActReceipt(jobId: string, actId: string, evidence: JsonObject): JsonObject {
+  return { schema: 'rig-create/review-act@1', kind: 'discarded', jobId, actId, ...evidence };
+}
+
+/** Locate token ends in already validated JSON without reserializing the project. */
+function recordLedgerOffsets(text: string) {
+  let depth = 0;
+  let previous = '';
+  let end = 0;
+  let memberStart = 0;
+  let property = '';
+  let ledger: { start: number; end: number; entries: number[] } | undefined;
+  let readingLedger = false;
+  for (const match of text.matchAll(/"(?:[^"\\]|\\[\s\S])*"|[{}[\],:]|[^\s{}[\],:"]+/g)) {
+    const [token] = match;
+    if (depth === 1 && (previous === '{' || previous === ',') && token.startsWith('"')) property = JSON.parse(token) as string;
+    if (depth === 1 && previous === ':' && property === 'review_acts' && token === '[') {
+      ledger = { start: memberStart, end: 0, entries: [match.index + 1] };
+      readingLedger = true;
+    } else if (depth === 2 && readingLedger && (token === ',' || token === ']')) {
+      if (previous !== '[') ledger!.entries.push(end);
+      if (token === ']') {
+        ledger!.end = match.index + 1;
+        readingLedger = false;
+      }
+    }
+    if (depth === 1 && token === '}') return { ledger, lastValueEnd: end, empty: previous === '{' };
+    if (token === '[' || token === '{') depth++;
+    if (token === ']' || token === '}') depth--;
+    // Start an appended member before the comma and after the preceding value.
+    if (depth === 1 && token === ',') memberStart = end;
+    if (depth === 1 && token === '{') memberStart = match.index + 1;
+    end = match.index + token.length;
+    previous = token;
+  }
+  throw new Error('expected a JSON project record');
+}
+
+/** Single withdrawal preserves the exact bytes from which pending acts were made. */
+export function appendWithdrawalReceipt(original: Buffer, receipt: JsonObject): string {
+  const text = original.toString('utf8');
+  if (!Buffer.from(text).equals(original)) refuse('REVIEW_ACT_LEDGER_INVALID', 'project.json: record is not valid UTF-8; restore its original record before withdrawing the act');
+  const { ledger, lastValueEnd, empty } = recordLedgerOffsets(text);
+  const entry = JSON.stringify(receipt, null, 2).replaceAll('\n', '\n    ');
+  if (!ledger) {
+    return `${text.slice(0, lastValueEnd)}${empty ? '' : ','}\n  "review_acts": [\n    ${entry}\n  ]${text.slice(lastValueEnd)}`;
+  }
+  const offset = ledger.entries.at(-1)!;
+  return `${text.slice(0, offset)}${ledger.entries.length > 1 ? ',' : ''}\n    ${entry}${text.slice(offset)}`;
+}
+
+/** Bind the exact source, or undo only a trailing sequence of same-job owner withdrawals. */
+export function matchesActProjectSource(act: { jobId: string; source: { projectHash: string | null } }, record: Buffer | string): boolean {
+  const { source: { projectHash }, jobId } = act;
+  if (projectHash === null) return false;
+  if (jobHash(record) === projectHash) return true;
+  const text = record.toString();
+  if (Buffer.isBuffer(record) && !Buffer.from(text).equals(record)) return false;
+  let project: unknown;
+  try { project = JSON.parse(text); } catch { return false; }
+  if (!object(project) || !Array.isArray(project.review_acts) || project.review_acts.length === 0) return false;
+  const entries = project.review_acts;
+  const { ledger } = recordLedgerOffsets(text);
+  if (!ledger || ledger.entries.length !== entries.length + 1) return false;
+  const suffixEnd = ledger.entries[entries.length]!;
+  for (let index = entries.length - 1; index >= 0; index--) {
+    const entry = entries[index];
+    if (!isDiscardReceipt(entry) || entry.jobId !== jobId || entry.source !== OWNER_CHAT_SOURCE) return false;
+    try { validateDiscardReceipt(entry, `review_acts[${index}]`); } catch { return false; }
+    if (jobHash(text.slice(0, ledger.entries[index]!) + text.slice(suffixEnd)) === projectHash) return true;
+  }
+  // A record that had no ledger can acquire its first one during withdrawal.
+  const withoutLedger = text.slice(0, ledger.start) + text.slice(ledger.end);
+  if (jobHash(withoutLedger) !== projectHash) return false;
+  try {
+    const source: unknown = JSON.parse(withoutLedger);
+    return object(source) && source.review_acts === undefined;
+  } catch { return false; }
+}
 const sha = (value: unknown): value is string => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
 const id = (value: unknown): value is string => typeof value === 'string' && /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(value);
 const file = (value: unknown): value is JsonObject => object(value) && typeof value.path === 'string' && sha(value.sha256);
@@ -374,7 +453,7 @@ export function fetchReviewActBytes(transport: ReviewActTransport): string {
 export function reviewActTransport(root: string, actId: string): ReviewActTransport {
   const project = JSON.parse(readFileSync(join(root, 'project.json'), 'utf8')) as JsonObject;
   const discarded = asArray(project.review_acts).findIndex(entry => isDiscardReceipt(entry) && entry.actId === actId);
-  if (discarded !== -1) refuse('REVIEW_ACT_DISCARDED', `project.json.review_acts[${discarded}]: Review act ${actId} was discarded; open a new job and obtain a fresh act`);
+  if (discarded !== -1) refuse('REVIEW_ACT_DISCARDED', `project.json.review_acts[${discarded}]: Review act ${actId} was discarded; publish the current target and obtain a fresh act`);
   const binding = readWriterBinding(root);
   if (!binding) failure('JOB_BINDING_INVALID', 'writer binding is absent, open the live job first');
   if (binding.identity.root !== realpathSync(root) || !object(project.review_job)
@@ -599,7 +678,7 @@ export function isRecordDirectionSignoff(act: SignoffAct): boolean {
 }
 
 export function recordSignoffActVersion(act: SignoffAct, recordBytes: string): number | null {
-  if (!isRecordDirectionSignoff(act) || jobHash(recordBytes) !== act.source.projectHash) return null;
+  if (!isRecordDirectionSignoff(act) || !matchesActProjectSource(act, recordBytes)) return null;
   if (!('record' in act.source) || !act.source.record || act.source.record.sha256 !== act.source.projectHash) return null;
   try {
     const project: unknown = JSON.parse(recordBytes);

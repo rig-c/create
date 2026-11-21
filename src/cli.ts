@@ -56,6 +56,7 @@ Usage:
                                               list finalized acts and their ingest commands
                                               wait 1–600000 ms (default 600000), timeout exit 3
   rig-create job reconcile [<dir>]
+  rig-create job withdraw-act <actId> [<dir>] --by <owner> --owner-chat <file> --said-at <ISO> --relayed-by <operator>
   rig-create job close [<dir>] [--retire-refused]
   rig-create job close [<dir>] --discard-acts <reason> --by agent
   rig-create job close [<dir>] --discard-acts --by <owner> --owner-chat <file> --said-at <ISO> --relayed-by <operator>
@@ -313,7 +314,7 @@ export function main(argv: string[], now: number): number {
   try {
     if (first === 'job') {
       const [action, ...args] = rest;
-      if (!['open', 'acts', 'reconcile', 'close'].includes(action ?? '')) refuse('JOB_BINDING_INVALID', 'project.json: use job open|acts|reconcile|close', USAGE_EXIT);
+      if (!['open', 'acts', 'reconcile', 'withdraw-act', 'close'].includes(action ?? '')) refuse('JOB_BINDING_INVALID', 'project.json: use job open|acts|reconcile|withdraw-act|close', USAGE_EXIT);
       const positional: string[] = [];
       const options: Record<string, string> = {};
       for (let index = 0; index < args.length; index++) {
@@ -324,9 +325,9 @@ export function main(argv: string[], now: number): number {
           options[arg] = value;
         } else if (action === 'open' && arg === '--plan' && !options[arg]) options[arg] = 'true';
         else if (action === 'close' && arg === '--retire-refused' && !options[arg]) options[arg] = 'true';
-        else if (action === 'close' && ['--by', ...OWNER_CHAT_FLAGS].includes(arg) && options[arg] === undefined) {
+        else if ((action === 'close' || action === 'withdraw-act') && ['--by', ...OWNER_CHAT_FLAGS].includes(arg) && options[arg] === undefined) {
           const value = args[++index];
-          if (!value || value.startsWith('-') || !value.trim()) refuse('JOB_BINDING_INVALID', `project.json.review_acts: ${arg} requires a value; see job close help`, USAGE_EXIT);
+          if (!value || value.startsWith('-') || !value.trim()) refuse('JOB_BINDING_INVALID', `project.json.review_acts: ${arg} requires a value; see job ${action} help`, USAGE_EXIT);
           options[arg] = value;
         }
         else if (action === 'close' && arg === '--discard-acts' && options[arg] === undefined) {
@@ -358,6 +359,14 @@ export function main(argv: string[], now: number): number {
         refuse('JOB_BINDING_INVALID', 'project.json: --timeout-ms requires job acts --wait', USAGE_EXIT);
       }
       const timeoutMs = options['--wait'] ? Number(options['--timeout-ms'] ?? '600000') : undefined;
+      if (action === 'withdraw-act') {
+        if (positional.length === 0 || positional.length > 2 || !positional[0]!.trim()) {
+          refuse('JOB_BINDING_INVALID', 'project.json.review_acts: job withdraw-act needs <actId>, one optional project directory and --by <owner> --owner-chat <file> --said-at <ISO> --relayed-by <operator>', USAGE_EXIT);
+        }
+        if (!options['--by'] || OWNER_CHAT_FLAGS.some(flag => !options[flag])) {
+          refuse('OWNER_CHAT_INVALID', 'project.json.review_acts: job withdraw-act requires --by <owner> --owner-chat <file> --said-at <ISO> --relayed-by <operator>', USAGE_EXIT);
+        }
+      }
       if (options['--reason'] !== undefined) {
         if (options['--discard-acts'] !== '') refuse('JOB_BINDING_INVALID', 'project.json: --reason goes with job close --discard-acts', USAGE_EXIT);
         options['--discard-acts'] = options['--reason'];
@@ -365,16 +374,17 @@ export function main(argv: string[], now: number): number {
       if (options['--discard-acts'] === '' && !OWNER_CHAT_FLAGS.some(flag => options[flag] !== undefined)) {
         refuse('JOB_BINDING_INVALID', 'project.json.review_acts: job close --discard-acts requires a reason or relayed owner words', USAGE_EXIT);
       }
-      if (options['--discard-acts'] === undefined && ['--by', ...OWNER_CHAT_FLAGS].some(flag => options[flag] !== undefined)) {
+      if (action !== 'withdraw-act' && options['--discard-acts'] === undefined && ['--by', ...OWNER_CHAT_FLAGS].some(flag => options[flag] !== undefined)) {
         refuse('JOB_BINDING_INVALID', 'project.json.review_acts: discard attribution flags require job close --discard-acts', USAGE_EXIT);
       }
-      if (positional.length > 1 || action === 'open' && (!options['--reviewer'] || !['owner', 'delegate'].includes(options['--role'] ?? ''))) {
+      if ((action !== 'withdraw-act' && positional.length > 1) || action === 'open' && (!options['--reviewer'] || !['owner', 'delegate'].includes(options['--role'] ?? ''))) {
         refuse('JOB_BINDING_INVALID', 'project.json: job open needs --reviewer <id> --role owner|delegate and one optional directory', USAGE_EXIT);
       }
       if (['--draft', '--rig', '--question', '--plan'].filter(flag => options[flag] !== undefined).length > 1) {
         refuse('JOB_BINDING_INVALID', 'project.json: job open takes one of --draft, --rig, --question or --plan; choose one recorded result', USAGE_EXIT);
       }
-      const stdin = Buffer.from(JSON.stringify({ root: positional[0] ?? process.cwd(), reviewer: options['--reviewer'], role: options['--role'], draft: options['--draft'], rig: options['--rig'], question: options['--question'], plan: options['--plan'] === 'true', json: options['--json'] === 'true', timeoutMs, retireRefused: options['--retire-refused'] === 'true', discardActs: options['--discard-acts'] === undefined ? undefined : options, now }));
+      const rootArg = action === 'withdraw-act' ? (positional[1] ?? process.cwd()) : (positional[0] ?? process.cwd());
+      const stdin = Buffer.from(JSON.stringify({ root: rootArg, actId: action === 'withdraw-act' ? positional[0] : undefined, reviewer: options['--reviewer'], role: options['--role'], draft: options['--draft'], rig: options['--rig'], question: options['--question'], plan: options['--plan'] === 'true', json: options['--json'] === 'true', timeoutMs, retireRefused: options['--retire-refused'] === 'true', discardActs: action === 'withdraw-act' || options['--discard-acts'] !== undefined ? options : undefined, now }));
       const runtime = join(import.meta.dir, 'job-runtime.ts');
       if (action === 'open' || timeoutMs !== undefined) {
         const child = Bun.spawn(jobRuntimeCommand(action, runtime), {

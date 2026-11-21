@@ -14,8 +14,7 @@ import { PARTS_REVIEW, hasStageOrder } from './stages.ts';
 import { checkStructure, structurePathIsIgnored } from './structure.ts';
 import { assertCorrectionApproval } from './correction-writers.ts';
 import { partsStructureSnapshot } from './job-acts.ts';
-import { jobHash } from './job-outbox.ts';
-import { partsVerdictSignoff, type PartsVerdictAct } from './review-act.ts';
+import { matchesActProjectSource, partsVerdictSignoff, type PartsVerdictAct } from './review-act.ts';
 import type { JsonObject } from './templates.ts';
 
 export function bindPartsSignoff(dir: string, project: JsonObject, signoff: JsonObject, structureFile?: string, recorded?: RecordedPartsVerdict): void {
@@ -87,7 +86,7 @@ export function assertSignoffCandidate(dir: string, asRead: CheckReport, project
 
 /** Build and validate in memory. The ingestion writer owns the single project.json rename. */
 export function foldPartsSignoff(dir: string, before: JsonObject, candidate: JsonObject, act: PartsVerdictAct, original: Buffer, now: number): void {
-  if (act.source.projectHash !== jobHash(original)) refuse('REVIEW_ACT_SOURCE_STALE', 'project.json: parts verdict predates the current record; publish after evidence and advance parts-review, then ask again');
+  if (!matchesActProjectSource(act, original)) refuse('REVIEW_ACT_SOURCE_STALE', 'project.json: parts verdict predates the current record; publish after evidence and advance parts-review, then ask again');
   const asRead = checkProject(dir, before, { now });
   if (asRead.effective_stage !== PARTS_REVIEW) refuse('PARTS_REVIEW_FOLD_NOT_READY', 'project.json.stage: approved parts verdict needs effective parts-review; retain evidence and advance parts-review before publishing and asking for approval');
   const advances = asArray(before.advances);

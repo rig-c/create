@@ -155,7 +155,7 @@ export function pendingJobActs(project: JsonObject, acts: readonly ActV3[], root
       case 'reopen':
         return [{ actId: act.actId, kind: act.kind, subject: `stage ${act.value.stage}`, at: act.at, args: null, command: null,
           unavailable: { code: 'REOPEN_ACT_RETIRED',
-            message: `project.json.review_acts: reopen act ${act.actId} is retired; correct an earlier answer with rig-create interview-options and interview-answer, then re-sign each stale approval. For an artifact change, use rig-create amend. After handling any other pending acts, close with rig-create job close --discard-acts <reason> --by agent` } }];
+            message: `project.json.review_acts: reopen act ${act.actId} is retired; correct an earlier answer with rig-create interview-options and interview-answer, then re-sign each stale approval. For an artifact change, use rig-create amend. Withdraw this act with rig-create job withdraw-act ${act.actId} and the owner’s relayed words` } }];
       case 'signoff': {
         subject = `stage ${act.value.stage}`;
         args = ['signoff', act.value.stage, root];

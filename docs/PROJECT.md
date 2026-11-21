@@ -284,7 +284,7 @@ rig-create amend parts --kind part --target panel --change inputs/replacement.sv
 `amendments[]` retains `{ target, by, at, verbatim, source?, changes }`.
 `target` contains `{ stage, kind, id }`, where `kind` is `part`, `config-field`,
 `motion-track`, `interview-answer` or `draft`. `id` names the artifact, config
-pointer, track, answer question id or registered draft. A draft target belongs to
+pointer, track, answer (question id or answer path) or registered draft. A draft target belongs to
 parts-review.
 `changes` contains `{ path, sha256 }` for every repeated `--change` file.
 The writer reads and hashes those files under the project. These are declared
@@ -336,8 +336,8 @@ This table identifies missing proof for the approval kind. It does not assert
 that one gap alone suffices to prove independence.
 
 The extension point is `keepByBinding()` and the report field is
-`keep_by_binding`. An `interview-answer` amendment names a question id of the
-interview. It resets only the plan steps whose `rests_on` names that answer.
+`keep_by_binding`. An `interview-answer` amendment names a question of the
+interview by id or answer path. It resets only the plan steps whose `rests_on` names that answer.
 The other steps keep their status, and their own approvals stay live for them.
 Its report moves a checkpoint approval of such a step to `keep_by_binding`.
 Stage signatures and verdicts at or after the amended stage still lapse.

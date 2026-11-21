@@ -21,7 +21,7 @@ import {
   type Finding,
   type Item,
 } from './check.ts';
-import { amendmentLapsedSteps, collectAmendments } from './amend.ts';
+import { amendedAnswerId, amendmentLapsedSteps, collectAmendments } from './amend.ts';
 import { pendingMeshDeltaRevision } from './corrections.ts';
 import {
   DIFF_MAP_AGENT_SINCE,
@@ -1567,13 +1567,13 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
         field: amendField,
         awaits: awaitTarget,
         command: null,
-        act: `redo plan.steps[${stepId}] at ${stepStage}; it rests on ${String(amendment.target.id)}, changed by ${amendField}`,
+        act: `redo plan.steps[${stepId}] at ${stepStage}; it rests on ${amendedAnswerId(amendment.target)}, changed by ${amendField}`,
         lapse: {
           code: 'AMENDED_STEP',
           source_field: amendField,
           target_field: `plan.steps[${stepId}]`,
           ...(targetId ? { amendment_id: targetId } : {}),
-          message: `rests on ${String(amendment.target.id)}`,
+          message: `rests on ${amendedAnswerId(amendment.target)}`,
         },
       });
     }

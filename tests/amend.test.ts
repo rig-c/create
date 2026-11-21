@@ -290,10 +290,10 @@ describe('forward human amendments', () => {
     };
     const stepAwaits = (dir: string, now: number): string[] => nextProject(dir, now).awaits.filter(target => target.startsWith('plan.steps['));
 
-    test('only bones and constraints reset; every other step keeps its record and next names exactly the two', () => {
+    test.each(['bones', 'interview.waypoints[bones].guide'])('target %s: only bones and constraints reset; every other step keeps its record and next names exactly the two', target => {
       const dir = fixture(() => {}, 'example-project.json');
       const before = read(dir);
-      amendAnswer(dir, 'bones');
+      amendAnswer(dir, target);
       const after = read(dir);
       const bound = arr(obj(after.plan).steps).map(obj).filter(s => arr(s.rests_on).includes('bones')).map(s => String(s.id));
       expect(bound).toEqual(['bones', 'constraints']);

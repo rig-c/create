@@ -64,11 +64,17 @@ export function keepByBinding(project: JsonObject, target: JsonObject, approval:
   return steps.length === 1 && !amendmentResetsStep(target, steps[0]!.phase, steps[0]!.id, steps[0]!.rests_on);
 }
 
+/** The question id an interview-answer target names: the id itself, or the answer path check reports for it. */
+export function amendedAnswerId(target: JsonObject): string {
+  const id = String(target.id);
+  return /^interview\.(?:framing|waypoints|post\.items)\[([^\]]+)\]\.(?:answer|guide)$/.exec(id)?.[1] ?? id;
+}
+
 /** An amendment resets a rig or post step at or after its owning stage; an interview-answer only one resting on that answer. */
 export function amendmentResetsStep(target: JsonObject, phase: Json | undefined, id: Json | undefined, restsOn: Json | undefined): boolean {
   return typeof id === 'string' && (phase === 'rig' || phase === 'post')
     && stageIndex(stageOfStep(phase, id)) >= stageIndex(String(target.stage))
-    && (target.kind !== 'interview-answer' || asArray(restsOn).includes(target.id as Json));
+    && (target.kind !== 'interview-answer' || asArray(restsOn).includes(amendedAnswerId(target)));
 }
 
 /** The plan steps an amendment resets; the other steps keep their status. */
@@ -81,7 +87,7 @@ export function amendmentLapsedSteps(project: JsonObject, target: JsonObject): J
 export function stepLapseEvents(events: readonly Reopen[], restsOn: Json | undefined): Reopen[] {
   return events.filter(event => {
     const target = (event as Partial<Amendment>).target;
-    return target?.kind !== 'interview-answer' || asArray(restsOn).includes(target.id as Json);
+    return target?.kind !== 'interview-answer' || asArray(restsOn).includes(amendedAnswerId(target));
   });
 }
 
@@ -189,7 +195,7 @@ export function amendmentSummaries(project: JsonObject, amendments: readonly Ame
       if (approval.at > a.at || stageIndex(approval.stage) < 0) continue;
       const named = { path: approval.path, stage: approval.stage, ...('checkpoint' in approval ? { checkpoint: approval.checkpoint } : {}) };
       if (stageIndex(approval.stage) >= stageIndex(a.stage) && keepByBinding(project, a.target, named)) {
-        kept.push({ ...named, reason: `step does not rest on ${String(a.target.id)}` });
+        kept.push({ ...named, reason: `step does not rest on ${amendedAnswerId(a.target)}` });
       } else if (stageIndex(approval.stage) >= stageIndex(a.stage)) {
         lapsed.push({ ...named, reason: 'no binding proves independence', gap: AMENDMENT_APPROVAL_GAPS[approval.stage] });
       } else if (liveSignoff(events, approval.stage, approval.at)) {
@@ -203,7 +209,7 @@ export function amendmentSummaries(project: JsonObject, amendments: readonly Ame
 export const AMEND_HELP = `amend:
   <stage> [<project dir>]  record a forward amendment, retaining project.stage
   --kind <kind>           part, config-field, motion-track, interview-answer or draft
-  --target <id>           artifact id, config pointer, track id, question id or draft id
+  --target <id>           artifact id, config pointer, track id, answer id or path, or draft id
   --change <file>         new input under the project, hashed by the writer (repeatable)
   --by <who>              human signer (agent is refused)
   --verbatim-file <file>  unchanged UTF-8 words, or - for stdin (default)
@@ -247,8 +253,8 @@ export function amendCommand(args: string[], now: number): { stdout: string; exi
   if (opts['--source'] !== undefined) entry.source = opts['--source'];
   const riggingDraft = opts['--kind'] === 'draft' && project.stage === 'rigging';
   if (opts['--kind'] === 'interview-answer'
-    && !collectItems(project, { collection: loadCollection(dir, project) }).some(item => item.id === opts['--target'])) {
-    refuse('AMENDMENT_TARGET_INVALID', `amendments.target: interview-answer ${opts['--target']} names no question of this interview; name the changed answer by its question id`);
+    && !collectItems(project, { collection: loadCollection(dir, project) }).some(item => item.id === opts['--target'] || item.path === opts['--target'])) {
+    refuse('AMENDMENT_TARGET_INVALID', `amendments.target: interview-answer ${opts['--target']} names no question of this interview; name the changed answer by its question id or answer path`);
   }
   if (opts['--kind'] === 'draft' && project.stage !== 'parts-review' && !riggingDraft) {
     refuse('AMENDMENT_TARGET_INVALID', 'amendments.target: review a draft correction at parts-review or amend changed parts at rigging');

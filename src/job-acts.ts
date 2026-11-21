@@ -11,7 +11,7 @@ import { isRiggingDraftAct } from './parts-act.ts';
 import { refuse } from './refusal.ts';
 import { collectReopens, liveSignoff } from './reopen.ts';
 import { OWNER_CHAT_SOURCE } from './owner-chat.ts';
-import { SIGNOFF_TARGET_KINDS } from './review-act.ts';
+import { matchesActProjectSource, SIGNOFF_TARGET_KINDS } from './review-act.ts';
 import { readVersions } from './review.ts';
 import { collectAmendments } from './amend.ts';
 import { stageOfStep, stepCoveredByApproval } from './stages.ts';
@@ -507,7 +507,7 @@ export function pendingJobAsksForTarget(
   acts: readonly ActV3[],
   root: string,
   target: JobAskTarget,
-  projectHash?: string,
+  record?: Buffer,
 ): PendingTargetAsk[] {
   // Retired reopens stay visible in job acts and job close, but cannot gate a new target.
   const actionableAsks = asks.filter(ask => ask.subject.kind !== 'reopen');
@@ -519,7 +519,7 @@ export function pendingJobAsksForTarget(
   const multiTarget = target.kind === 'option-set' && recordOptionSets(target).length > 1;
   const staleInterviewAct = (act: ActV3 | undefined): boolean => act?.kind === 'interview-picks'
     && act.schema === 'rig-review/act@4' && isMultiOptionSource(act.source)
-    && projectHash !== undefined && act.source.projectHash !== projectHash;
+    && record !== undefined && !matchesActProjectSource(act, record);
   const pending: PendingTargetAsk[] = [];
   for (const ask of actionableAsks) {
     if (ingestedActs.some(act => actMatchesAsk(act, ask))) continue;

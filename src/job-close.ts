@@ -16,7 +16,6 @@ import { pendingActRemedy, pendingJobActs, pendingJobAsksForTarget, readHostActs
 import {
   acquireJobLock,
   JOB_BINDING_FILE,
-  jobHash,
   pendingPublications,
   retireRefusedPublications,
   readWriterBinding,
@@ -220,7 +219,7 @@ export async function refusePendingJobAsks(root: string, jobId: string, host: Jo
   const bytes = readFileSync(join(root, 'project.json'));
   const project = JSON.parse(bytes.toString('utf8')) as JsonObject;
   const { head, asks, acts } = await readHostActsAndAsks(host);
-  const pending = pendingJobAsksForTarget(project, asks, acts, root, target, jobHash(bytes));
+  const pending = pendingJobAsksForTarget(project, asks, acts, root, target, bytes);
   if (pending.length > 0) {
     const listed = pending.map(item => item.label).join('; ');
     const version = pending.find(item => item.version !== null)?.version ?? null;

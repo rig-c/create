@@ -28,7 +28,7 @@ import { isDeepStrictEqual } from 'node:util';
 import { acquireBoundJobWrite, beginJobProgress } from './job-writer.ts';
 import { jobHash } from './job-outbox.ts';
 import { assertReviewActSource, decodeReviewAct, fetchBustPublicationSeeds, fetchReviewActRuntime, meshReviewVerdict, reviewActFindings, reviewActPublicationWarning, reviewActStill, reviewActTransport, reviewActVerbatim, reviewActVersionHash, type FetchedReviewAct } from './review-act.ts';
-import { assertDraftReviewActSource, draftReviewStillEvidence, isDraftReviewVerdict, reviewActVerdict, reviewStillEvidence, type ReviewVerdictAct } from './review-act.ts';
+import { assertDraftReviewActSource, draftReviewStillEvidence, isDraftReviewVerdict, reviewActVerdict, reviewFeedbackComment, reviewStillEvidence, type ReviewVerdictAct } from './review-act.ts';
 import { DRAFT_ID } from './draft-reuse.ts';
 import { validCarriedRigDraftVerdict } from './rig-draft-verdict.ts';
 import { bustLandmarkCommands, prepareBustConfig } from './review-bust.ts';
@@ -36,12 +36,14 @@ import { newRefusals } from './refusal-baseline.ts';
 import { ingestedVerdictPairFinding } from './signoff-pair.ts';
 import { dirname, join, resolve } from 'node:path';
 
-import { asArray, asString, collectItems, isObject, itemFor, loadCollection, type Ctx, type Item } from './check.ts';
+import { asArray, asString, checkProject, collectItems, isObject, itemFor, loadCollection, type Ctx, type Item } from './check.ts';
 import { draftVersionFindings } from './drafts.ts';
 import { assembleOnlyDraftTarget, assertDraftHasRig, readAssembleOnlyDraftTarget } from './draft-layout.ts';
 import { answersOf, askAnswers } from './provenance.ts';
 import { readVerbatim } from './record-input.ts';
 import { Refusal, refuse, USAGE_EXIT } from './refusal.ts';
+import { collectReopens, liveSignoff } from './reopen.ts';
+import { humanReviewVerdicts, readVersions } from './review.ts';
 import { REVIEW_ACCEPTS } from './stages.ts';
 import { WAYPOINT_ASKS } from './waypoints.ts';
 import type { Json, JsonObject } from './templates.ts';
@@ -158,6 +160,15 @@ function refsOf(v: VersionRec): { index: number; version: number | null; verdict
   });
 }
 
+function routedCommentFinding(ctx: Pick<Ctx, 'collection'>, item: Item | undefined, version: number, verdict: JsonObject, route: JsonObject, path: string) {
+  const added = item?.kind === 'waypoint' && answersOf(item, ctx).some(answer => asArray(answer.additions).some(add =>
+    isObject(add) && add.source === feedbackSource(version) && add.review_act === verdict.source
+    && add.by === verdict.by && add.at === route.at && add.verbatim === route.verbatim));
+  if (added) return undefined;
+  return { code: 'FEEDBACK_NOT_ADDED', path,
+    message: `${path}: restore the exact routed owner comment in interview.waypoints[${String(route.item)}].guide.additions[] or its answer history` };
+}
+
 /** Shared reference validation. Historical records retain their original target rules. */
 export function feedbackReferenceFinding(project: JsonObject, n: number, ref: Json, path: string, humanBounce = false): { code: string; path: string; message: string } | null {
   const bad = (why: string) => ({ code: 'FEEDBACK_REF_UNKNOWN', path, message: `${path}: ${why}` });
@@ -195,6 +206,12 @@ export function checkFeedback(ctx: Ctx): FeedbackSummary[] {
   const push = (code: string, path: string, message: string): void => {
     ctx.refusals.push({ code, path, message });
   };
+  const routes = new Map<string, { path: string; route: JsonObject }>();
+  asArray(ctx.project.review_acts).forEach((entry, index) => {
+    if (isObject(entry) && isObject(entry.feedback_route)) {
+      routes.set(`${entry.version}:${entry.verdict}`, { path: `review_acts[${index}].feedback_route`, route: entry.feedback_route });
+    }
+  });
 
   // Every answering ref points at a verdict of an earlier version.
   const answeredBy = new Map<string, number[]>();
@@ -235,6 +252,13 @@ export function checkFeedback(ctx: Ctx): FeedbackSummary[] {
       }
 
       const counts = { user: 0, delegated: 0, not_asked: 0 };
+      const routed = routes.get(`${v.n}:${index}`);
+      if (routed) {
+        const item = itemFor(ctx, String(routed.route.item));
+        const problem = routedCommentFinding(ctx, item, v.n, d, routed.route, routed.path);
+        if (problem) push(problem.code, problem.path, problem.message);
+        counts.not_asked++;
+      }
       asArray(d.on_items).forEach((raw, j) => {
         const ipath = `${path}.on_items[${j}]`;
         const id = isObject(raw) ? asString(raw.id) : null;
@@ -370,6 +394,7 @@ export interface Recorded {
   readonly verdict: JsonObject;
   readonly items: RecordedItem[];
   readonly stage: string | null;
+  readonly feedback_route?: JsonObject;
   readonly warnings?: string[];
   readonly bust_landmark_commands?: [string, string];
 }
@@ -471,7 +496,7 @@ function retainReviewEvidence(root: string, files: ReviewEvidenceFile[], created
 }
 
 function writeReviewActRecord(root: string, file: string, project: JsonObject, original: Buffer,
-  target: ReviewEvidenceWrite, markCommitted: () => void): void {
+  target: ReviewEvidenceWrite, markCommitted?: () => void): void {
   const verdictName = target === 'draft' ? 'draft verdict' : 'verdict';
   if (!readFileSync(file).equals(original)) refuse('REVIEW_ACT_SOURCE_STALE', `project.json: record changed during ${verdictName} validation; retry against the current live job`);
   const temporary = join(root, `.rig-create-review-act-${randomUUID()}.tmp`);
@@ -480,7 +505,7 @@ function writeReviewActRecord(root: string, file: string, project: JsonObject, o
     writeFileSync(fd, `${JSON.stringify(project, null, 2)}\n`);
     fsyncSync(fd);
     renameSync(temporary, file);
-    markCommitted();
+    markCommitted?.();
     syncReviewDirectory(root);
   } finally { closeSync(fd); rmSync(temporary, { force: true }); }
 }
@@ -502,7 +527,38 @@ export function recordVerdict(projectDirArg: string, input: ReviewInput, now: nu
   return writeVerdict(projectDirArg, input, now);
 }
 
-function writeVerdict(projectDirArg: string, input: ReviewInput, now: number, fetched?: FetchedReviewAct, warnings: string[] = []): Recorded {
+type FeedbackRoute = { by: 'agent'; at: string; item: string; comment_index: number; verbatim: string };
+
+function appendFeedbackAddition(item: Item, version: number, addition: JsonObject): string {
+  const answer = item.raw as JsonObject;
+  const additions = asArray(answer.additions);
+  answer.additions = additions;
+  additions.push({ ...addition, source: feedbackSource(version) });
+  return `${item.path}.additions[${additions.length - 1}]`;
+}
+
+function appendRoutedFeedback(items: readonly Item[], version: number, verdict: JsonObject, route: FeedbackRoute): RecordedItem {
+  const item = items.find(i => i.id === route.item && i.kind === 'waypoint');
+  if (!item) refuse('FEEDBACK_ITEM_UNKNOWN', `interview.waypoints[${route.item}]: name an existing rig waypoint with --item <waypoint>:not-asked`);
+  const allowed = allowedFor(item);
+  if (!allowed.ok) refuse(allowed.code, allowed.why);
+  if (!allowed.allowed.includes('not-asked')) refuse('FEEDBACK_ITEM_CONTRADICTS', `${item.path}: the guide is delegated; record the owner's own answer before routing new words into it`);
+  if (isObject(item.raw) && item.raw.basis === 'inherited') refuse('FEEDBACK_ITEM_INHERITED', `${item.path}: record a member override before adding the owner comment`);
+  const addition = appendFeedbackAddition(item, version, { by: verdict.by!, at: route.at, verbatim: route.verbatim, value: null, review_act: verdict.source! });
+  return { id: route.item, answer_was: 'not-asked', how: 'named', addition };
+}
+
+function verdictCandidateFinding(dir: string, before: JsonObject, candidate: JsonObject, now: number, route?: FeedbackRoute) {
+  const findings = newRefusals(dir, before, candidate, { now });
+  if (!route) return findings[0];
+  const steps = isObject(candidate.plan) ? asArray(candidate.plan.steps).filter(isObject) : [];
+  const affected = new Set(steps.filter(step => asArray(step.rests_on).includes(route.item)).map(step => `plan.steps[${String(step.id)}]`));
+  // The new addition deliberately lapses the affected answer and step approvals until the owner re-signs.
+  return findings.find(finding => !(finding.code === 'SIGNOFF_ANSWERS_STALE' && finding.path.endsWith(`.answer_hashes[${route.item}]`))
+    && !(finding.code === 'GUIDE_CHANGED_UNSIGNED' && affected.has(finding.path)));
+}
+
+function writeVerdict(projectDirArg: string, input: ReviewInput, now: number, fetched?: FetchedReviewAct, warnings: string[] = [], route?: FeedbackRoute): Recorded {
   if (!isHuman(input.by)) refuse('REVIEW_NOT_HUMAN', 'review must name a human, not agent');
   if (input.at !== undefined && !Number.isFinite(Date.parse(input.at))) refuse('REVIEW_OPTION_INVALID', '--at needs a valid timestamp', USAGE_EXIT);
   const dir = resolve(projectDirArg);
@@ -623,16 +679,15 @@ function writeVerdict(projectDirArg: string, input: ReviewInput, now: number, fe
       continue;
     }
     const item = items.find((i) => i.id === r.id) as Item;
-    const answer = item.raw as JsonObject;
-    const additions = Array.isArray(answer.additions) ? answer.additions : [];
-    answer.additions = additions;
-    additions.push({ by: input.by, at, verbatim: r.addition, value: input.values[r.id] ?? null, source: feedbackSource(input.version) });
-    out.push({ ...r, addition: `${item.path}.additions[${additions.length - 1}]` });
+    const addition = appendFeedbackAddition(item, input.version, { by: input.by, at, verbatim: r.addition, value: input.values[r.id] ?? null });
+    out.push({ ...r, addition });
   }
+  if (route) out.push(appendRoutedFeedback(items, input.version, verdict, route));
   if (verdict.verdict === 'accepted') assertDirectionApproval(dir, project, String(verdict.review), now, input.version);
   if (verdict.verdict === 'accepted' && verdict.review === 'rig-review') assertFigureMaskApproval(dir, project, input.version);
   if (verdict.verdict === 'accepted') assertCorrectionApproval(dir, project, String(verdict.review), now);
   const result = { project_dir: dir, verdict_path: verdictPath, verdict, items: out, stage: asString(project.stage),
+    ...(route ? { feedback_route: route } : {}),
     ...(warnings.length ? { warnings } : {}),
     ...(fetched?.bustConfig ? { bust_landmark_commands: bustLandmarkCommands(dir, original, version, fetched.bustConfig.path, jobHash(fetched.bytes)) } : {}) };
   const created: string[] = [];
@@ -655,14 +710,14 @@ function writeVerdict(projectDirArg: string, input: ReviewInput, now: number, fe
       const receipt = { schema: 'rig-create/review-act@1', jobId: fetched.act.jobId, actId: fetched.act.actId,
         bytes: fetched.bytes, sha256: jobHash(fetched.bytes), version: input.version, verdict: verdicts.length - 1,
         version_hash: reviewActVersionHash(original, fetched.act), added_evidence: addedEvidence,
-        ...(fetched.bustConfig ? { bust_config: fetched.bustConfig } : {}) };
+        ...(fetched.bustConfig ? { bust_config: fetched.bustConfig } : {}), ...(route ? { feedback_route: route } : {}) };
       project.review_acts = [...asArray(project.review_acts), receipt];
       if (foldBaseline) foldRigSignoff(dir, project, fetched.act, originalBytes, foldBaseline, now);
       const meshAct = meshReviewVerdict(fetched.act);
       if (meshAct) {
         discardMeshRevision = stageReviewMeshDeltaCorrections(dir, original, project, meshAct, now);
       }
-      const invalid = reviewActFindings(project)[0] ?? ingestedVerdictPairFinding(project, input.version, verdicts.length - 1) ?? (foldBaseline ? undefined : newRefusals(dir, original, project, { now })[0]);
+      const invalid = reviewActFindings(project)[0] ?? ingestedVerdictPairFinding(project, input.version, verdicts.length - 1) ?? (foldBaseline ? undefined : verdictCandidateFinding(dir, original, project, now, route));
       if (invalid) refuse(invalid.code, invalid.message);
       assertReviewActSource(dir, original, fetched.act);
       writeReviewActRecord(dir, file, project, originalBytes, 'version', () => { committed = true; });
@@ -734,7 +789,7 @@ export function recordDraftReviewAct(root: string, draftId: string, actId: strin
 }
 
 /** The common #184 lock covers fetch, source validation and the atomic write. */
-export function recordReviewAct(root: string, requestedVersion: number, actId: string, now: number, afterGate?: () => void, config?: string): Recorded {
+export function recordReviewAct(root: string, requestedVersion: number, actId: string, now: number, afterGate?: () => void, config?: string, routeItem?: string): Recorded {
   root = resolve(root);
   const release = acquireBoundJobWrite(root);
   try {
@@ -746,28 +801,68 @@ export function recordReviewAct(root: string, requestedVersion: number, actId: s
       return act;
     });
     const { act } = fetched;
-    const { project } = readProject(root);
+    const originalBytes = routeItem === undefined ? undefined : readFileSync(join(root, 'project.json'));
+    const { file, project } = readProject(root);
     const invalid = reviewActFindings(project)[0];
     if (invalid) refuse(invalid.code, invalid.message);
     const chest = act.schema === JOB_CHEST_LANDMARKS_ACT_SCHEMA;
     if (!chest && config !== undefined) refuse('REVIEW_OPTION_INVALID', 'project.json.review_acts: --config applies to a live rig verdict with chest landmark edits', USAGE_EXIT);
     const assertSource = () => assertReviewActSource(root, project, act);
     if (!chest) assertSource();
-    const existing = replayedVerdictAct(asArray(project.review_acts), fetched, chest ? assertSource : undefined)?.receipt;
+    const replay = replayedVerdictAct(asArray(project.review_acts), fetched, chest ? assertSource : undefined);
+    const existing = replay?.receipt;
+    const version = asArray(project.versions).filter(isObject).find(v => v.n === requestedVersion);
+    const existingRoute = isObject(existing?.feedback_route) ? existing.feedback_route : undefined;
+    if (routeItem !== undefined && existingRoute && existingRoute.item !== routeItem) {
+      refuse('REVIEW_FEEDBACK_ROUTE_CONFLICT', `review_acts[${replay!.index}].feedback_route: already routed to ${String(existingRoute.item)}; replay with that waypoint or omit --item`);
+    }
+    let route: FeedbackRoute | undefined;
+    if (routeItem !== undefined && !existingRoute) {
+      const comment = reviewFeedbackComment(act);
+      if (!comment) refuse('REVIEW_FEEDBACK_ROUTE_INVALID', 'project.json.review_acts: routing requires an owner changes-requested rig verdict with exactly one page-level comment; ingest without --item otherwise');
+      const rigs = readVersions(project).rigs.filter(rig => rig.live);
+      const latest = humanReviewVerdicts(version?.verdicts, 'rig-review').at(-1);
+      if (checkProject(root, project, { now }).effective_stage !== 'rig-review'
+        || requestedVersion !== Math.max(...rigs.map(rig => rig.n))
+        || !liveSignoff(collectReopens(project, []), 'rig-review', Date.parse(act.at))
+        || (existing ? latest?.index !== existing.verdict : latest && Date.parse(String(latest.record.at)) > Date.parse(act.at))) {
+        refuse('REVIEW_FEEDBACK_ROUTE_INVALID', `versions[v${requestedVersion}].verdicts: route feedback for the current rig-review verdict on the latest live rig`);
+      }
+      route = { by: 'agent', at: new Date(now).toISOString(), item: routeItem, ...comment };
+    }
     if (existing) {
       const pair = ingestedVerdictPairFinding(project, requestedVersion, Number(existing.verdict));
       if (pair) refuse(pair.code, pair.message);
       if (existing.version_hash !== reviewActVersionHash(project, act, Number(existing.verdict))) refuse('REVIEW_ACT_SOURCE_STALE', 'project.json.review_acts: reviewed version changed; request a new review act');
-      const version = asArray(project.versions).find(v => isObject(v) && v.n === requestedVersion) as JsonObject;
       const bustConfig = chest ? existing.bust_config as JsonObject : undefined;
       if (bustConfig && config !== undefined && config !== bustConfig.path) {
         refuse('REVIEW_OPTION_INVALID', 'project.json.review_acts: replay uses the recorded --config path; omit --config or supply that path', USAGE_EXIT);
       }
-      return { project_dir: root, verdict_path: `versions[v${requestedVersion}].verdicts[${existing.verdict}]`,
-        verdict: (version.verdicts as JsonObject[])[Number(existing.verdict)], items: [], stage: asString(project.stage),
+      // The prior ledger validation already bound this receipt to its version and verdict.
+      const verdict = (version!.verdicts as JsonObject[])[Number(existing.verdict)];
+      const items: RecordedItem[] = [];
+      if (existingRoute) {
+        const ctx = { collection: loadCollection(root) };
+        const item = collectItems(project, ctx).find(i => i.id === existingRoute.item);
+        const problem = routedCommentFinding(ctx, item, requestedVersion, verdict, existingRoute, `review_acts[${replay!.index}].feedback_route`);
+        if (problem) refuse(problem.code, problem.message);
+      }
+      if (route) {
+        const candidate = structuredClone(project);
+        const receipt = (candidate.review_acts as JsonObject[])[replay!.index]!;
+        receipt.feedback_route = route;
+        items.push(appendRoutedFeedback(collectItems(candidate, { collection: loadCollection(root) }), requestedVersion, verdict, route));
+        const invalid = reviewActFindings(candidate)[0] ?? verdictCandidateFinding(root, project, candidate, now, route);
+        if (invalid) refuse(invalid.code, invalid.message);
+        assertSource();
+        writeReviewActRecord(root, file, candidate, originalBytes!, 'version');
+      }
+      const recordedRoute = route ?? existingRoute;
+      return { project_dir: root, verdict_path: `versions[v${requestedVersion}].verdicts[${existing.verdict}]`, verdict, items, stage: asString(project.stage),
+        ...(recordedRoute ? { feedback_route: recordedRoute } : {}),
         ...(bustConfig ? {
           warnings: ['REVIEW_ACT_BUST_REPLAY: project.json.review_acts: chest edit already recorded; the working config SHA-256 was checked only on first ingest'],
-          bust_landmark_commands: bustLandmarkCommands(root, project, version, String(bustConfig.path), String(existing.sha256), true),
+          bust_landmark_commands: bustLandmarkCommands(root, project, version!, String(bustConfig.path), String(existing.sha256), true),
         } : {}) };
     }
     let bustConfig;
@@ -783,7 +878,7 @@ export function recordReviewAct(root: string, requestedVersion: number, actId: s
       verdict: { approved: 'accepted', 'changes-requested': 'bounced', pending: 'provisional' }[act.value.verdict] as ReviewInput['verdict'],
       by: act.authority.reviewer.role === 'owner' ? 'user' : 'delegate', review: act.value.stage as Review,
       verbatim: reviewActVerbatim(act), at: act.at, source: `review act ${act.jobId}/${act.actId}`, items: [], quotes: {}, values: {},
-    }, now, { ...fetched, bustConfig }, warning ? [warning] : []);
+    }, now, { ...fetched, bustConfig }, warning ? [warning] : [], route);
   } finally { release(); }
 }
 
@@ -792,6 +887,8 @@ export const REVIEW_HELP = `review:
   <version>        the version shown (3 or v3)
   [<project dir>]  the project folder (default: the current directory)
   --from-review <actId>  fetch a rig/post verdict through the live job writer binding
+  --item <waypoint>:not-asked  with --from-review, route the unique page-level comment in an owner
+                   changes-requested rig verdict to an existing rig waypoint. Supply one waypoint.
   --config <path>  project-relative working config, required on first ingest of chest landmark edits
   --verdict <v>    accepted | bounced | provisional
   --by <who>       who gave it (the user's name or role)
@@ -891,15 +988,17 @@ export function reviewCommand(args: string[], now: number): { stdout: string; ex
   assertDraftHasRig(readAssembleOnlyDraftTarget(dir, positional[0]), 'project.json.versions');
   const version = parseVersion(positional[0]);
   if (opts['--from-review'] !== undefined) {
-    if (Object.keys(opts).some(flag => flag !== '--from-review' && flag !== '--config') || items.length || answersFeedback.length || Object.keys(asks).length || Object.keys(quotes).length || Object.keys(values).length) {
-      refuse('REVIEW_OPTION_INVALID', 'project.json.review_acts: --from-review excludes human-value and feedback flags; submit those values through Review', USAGE_EXIT);
+    if (Object.keys(opts).some(flag => flag !== '--from-review' && flag !== '--config') || items.length > 1
+      || items.some(item => item.answerWas !== 'not-asked') || answersFeedback.length || Object.keys(asks).length || Object.keys(quotes).length || Object.keys(values).length) {
+      refuse('REVIEW_OPTION_INVALID', 'project.json.review_acts: submit human values through Review; --from-review accepts only one optional --item <waypoint>:not-asked route', USAGE_EXIT);
     }
     let progress: ReturnType<typeof beginJobProgress>;
     const recorded = recordReviewAct(dir, version, opts['--from-review'], now,
-      () => { progress = beginJobProgress(dir, 'ingest', 'Reading the Review verdict'); }, opts['--config']);
+      () => { progress = beginJobProgress(dir, 'ingest', 'Reading the Review verdict'); }, opts['--config'], items[0]?.id);
     progress?.('Review verdict recorded');
     return { stdout: json ? JSON.stringify(recorded, null, 2) : [...(recorded.warnings ?? []),
       `review: ${recorded.verdict_path} — ${String(recorded.verdict.verdict)} (recorded or replayed)`,
+      ...(recorded.feedback_route ? [`review: page-level comment routed by agent to ${String(recorded.feedback_route.item)}`] : []),
       ...(recorded.bust_landmark_commands ?? []),
     ].join('\n'), exit: 0 };
   }

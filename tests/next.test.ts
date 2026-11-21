@@ -22,7 +22,7 @@ import { Refusal, USAGE_EXIT } from '../src/refusal.ts';
 import { EXAMPLE_NOW } from '../scripts/example-time.ts';
 import { planCommand, stepStatusCommand, amendCommand, reviewCommand, signoffCommand, testClock } from './clock.ts';
 import { plantLegacyReopen, arr, fixture, obj, retimeFixture, retainSignoffs } from './fixtures.ts';
-import { tempDir } from './helpers.ts';
+import { tempDir, treeDigest } from './helpers.ts';
 import { recordPartsReceipt } from './parts-receipt-fixture.ts';
 import { latestPartsVerdictStatus } from '../src/parts-verdict-record.ts';
 import { selectAnswerHashes } from '../src/signoff-answers.ts';
@@ -90,25 +90,6 @@ interface CheckpointSpec {
 
 function sha256(bytes: Uint8Array | string): string {
   return createHash('sha256').update(bytes).digest('hex');
-}
-
-function treeDigest(root: string): Map<string, string> {
-  const out = new Map<string, string>();
-  const walk = (current: string): void => {
-    for (const entry of readdirSync(current).sort()) {
-      const full = join(current, entry);
-      const rel = relative(root, full).split('\\').join('/');
-      const st = statSync(full);
-      if (st.isDirectory()) {
-        out.set(`${rel}/`, 'dir');
-        walk(full);
-      } else {
-        out.set(rel, sha256(readFileSync(full)));
-      }
-    }
-  };
-  walk(root);
-  return out;
 }
 
 function runMainCapture(argv: string[], now: number): { code: number; stdout: string; stderr: string } {
@@ -2876,4 +2857,42 @@ test.each([
   expect(report.moves.some(move => move.command === `rig-create advance rig-review ${dir}`)).toBe(advance);
   // #681: motion has no checkpoint, so it goes from in-progress straight to done.
   if (!advance) expect(report.moves.map(move => move.command)).toContain(`rig-create step-status motion done ${dir} --by agent`);
+});
+
+test('#773 a reopened rigging with an unreviewed compiled draft names both the draft review and the plain registration', () => {
+  const dir = join(tempDir(), 'reopen-draft');
+  cpSync(join(CHECKPOINTS_DIR, '3-rig-review'), dir, { recursive: true });
+  testClock.set(new Date(CHAIN_NOW));
+  reviewCommand(['1', dir, '--verdict', 'accepted', '--by', 'user', '--review', 'rig-review',
+    '--verbatim-file', join(dir, 'evidence/approval.txt'), '--source', 'synthetic example']);
+  signoffCommand(['rig-review', dir, '--by', 'user', '--verbatim-file', join(dir, 'evidence/approval.txt')]);
+  const reopenAt = CHAIN_NOW + 2000;
+  const reopenWords = join(dir, 'reopen-words.txt');
+  writeFileSync(reopenWords, 'Reopen rigging to rebuild the synthetic rig.\n');
+  testClock.set(new Date(reopenAt));
+  plantLegacyReopen(dir, 'rigging', { by: 'owner', wordsFile: reopenWords });
+  // Finish the reopened rig steps so only the draft decides which registration moves show.
+  const reopened = JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')) as JsonObject;
+  for (const step of arr(obj(reopened.plan).steps).map(obj)) if (step.phase === 'rig') step.status = 'done';
+  writeFileSync(join(dir, 'project.json'), `${JSON.stringify(reopened, null, 2)}\n`);
+
+  // A compiled draft built after the reopen, with no verdict yet.
+  const draftId = 'reopened';
+  const draft = `derived/drafts/${draftId}`;
+  cpSync(join(dir, 'derived/drafts/chain/input'), join(dir, draft, 'out'), { recursive: true });
+  for (const file of ['config.json', 'interview-requirements.json']) cpSync(join(dir, 'derived/drafts/chain', file), join(dir, draft, file));
+  cpSync(join(REPO, 'tests/fixtures/rig-registration/rig'), join(dir, draft, 'out/rig'), { recursive: true });
+  cpSync(join(REPO, 'tests/fixtures/rig-registration/build'), join(dir, draft, 'out/check/build'), { recursive: true });
+  expect(runMainCapture(['draft-rig', draftId, dir, '--config', `${draft}/config.json`, '--from', `${draft}/out`,
+    '--parts', `${draft}/out`], reopenAt + 500)).toMatchObject({ code: 0 });
+
+  const report = nextProject(dir, reopenAt + 1000);
+  expect(report.refusals).toEqual([]);
+  expect(report.moves).toContainEqual(expect.objectContaining({
+    role: 'human', field: `drafts[${draftId}]`,
+    review_act: expect.objectContaining({ kind: 'review-verdict', stage: 'rig-review', draft_id: draftId }),
+  }));
+  expect(report.moves).toContainEqual(expect.objectContaining({
+    role: 'agent', field: 'versions', awaits: 'versions[n=2]', command: expect.stringContaining(`rig-create rig-version 2 ${dir}`),
+  }));
 });

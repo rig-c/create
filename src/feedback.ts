@@ -21,7 +21,7 @@ import { foldsRigVerdict, foldRigSignoff } from './rig-signoff.ts';
  *   verdict, and a `not-asked` item whose sentence was never added are refused
  *   by name; per bounced verdict, its items are counted by cause.
  */
-import { closeSync, fsyncSync, mkdirSync, openSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { closeSync, fsyncSync, mkdirSync, openSync, renameSync, rmdirSync, rmSync, writeFileSync } from 'node:fs';
 import { existsSync, lstatSync, readFileSync, realpathSync } from './check-reads.ts';
 import { randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
@@ -440,17 +440,29 @@ function syncReviewDirectory(path: string): void {
   try { fsyncSync(directory); } finally { closeSync(directory); }
 }
 
+/** Make an evidence directory and record each directory this call made, so a refusal removes only those. */
+function makeReviewEvidenceDirectory(directory: string, created: string[]): void {
+  const first = mkdirSync(directory, { recursive: true });
+  if (first === undefined) return;
+  const made: string[] = [];
+  for (let path = directory; ; path = dirname(path)) {
+    made.unshift(path);
+    if (path === first) break;
+  }
+  created.push(...made);
+}
+
 function retainReviewEvidence(root: string, files: ReviewEvidenceFile[], created: string[], target: ReviewEvidenceWrite): void {
   for (const file of files) {
     const destination = join(root, file.path);
     const directory = dirname(destination);
-    if (target === 'version') mkdirSync(directory, { recursive: true });
+    if (target === 'version') makeReviewEvidenceDirectory(directory, created);
     if (hasRetainedReviewEvidence(destination, file, target)) continue;
     if (target === 'version') {
       writeFileSync(destination, file.bytes, { flag: 'wx' });
       created.push(destination);
     } else {
-      mkdirSync(directory, { recursive: true });
+      makeReviewEvidenceDirectory(directory, created);
       const fd = openSync(destination, 'wx', 0o600);
       created.push(destination);
       try { writeFileSync(fd, file.bytes); fsyncSync(fd); } finally { closeSync(fd); }
@@ -473,9 +485,16 @@ function writeReviewActRecord(root: string, file: string, project: JsonObject, o
   } finally { closeSync(fd); rmSync(temporary, { force: true }); }
 }
 
+/** Remove what a refused write created, newest first, so its directories are empty when removed. */
 function discardReviewActOutputs(created: string[], discardMesh?: () => void): void {
   discardMesh?.();
-  for (const path of created) rmSync(path, { force: true });
+  for (const path of [...created].reverse()) {
+    if (!lstatSync(path, { throwIfNoEntry: false })?.isDirectory()) rmSync(path, { force: true });
+    else {
+      // A directory something else wrote into is kept; the refusal is still the one reported.
+      try { rmdirSync(path); } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOTEMPTY') throw error; }
+    }
+  }
 }
 
 /** Appends one verdict to `versions[v<n>].verdicts[]`, writes not-asked sentences into their guides, and saves project.json. Refuses before writing anything. */

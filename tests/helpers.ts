@@ -1,7 +1,8 @@
 import { afterAll, afterEach, beforeAll } from 'bun:test';
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, relative } from 'node:path';
 import { jobHostStateRoot, jobPrivateRoot } from '../src/job-outbox.ts';
 import { testClock } from './clock.ts';
 
@@ -93,6 +94,53 @@ export function trackTempDir<T extends string>(dir: T, scope?: 'test' | 'suite')
     }
   }
   return dir;
+}
+
+/** Every directory and file under root, files by SHA-256: equal digests mean an unchanged tree. */
+export function treeDigest(root: string): Map<string, string> {
+  const out = new Map<string, string>();
+  const walk = (current: string): void => {
+    for (const entry of readdirSync(current).sort()) {
+      const full = join(current, entry);
+      const rel = relative(root, full).split('\\').join('/');
+      if (statSync(full).isDirectory()) {
+        out.set(`${rel}/`, 'dir');
+        walk(full);
+      } else {
+        out.set(rel, createHash('sha256').update(readFileSync(full)).digest('hex'));
+      }
+    }
+  };
+  walk(root);
+  return out;
+}
+
+/**
+ * A --preload file that plays a concurrent writer: once the writer under test has created a file
+ * whose path ends with suffix, it appends a newline to project.json, so the writer's last record
+ * comparison refuses. Return the original bytes to restore the record after the refusal.
+ */
+export function staleRecordPlant(dir: string, project: string, suffix: string): string {
+  const path = join(dir, 'stale-record-plant.ts');
+  writeFileSync(path, `import fs from 'node:fs';
+import { mock } from 'bun:test';
+const project = ${JSON.stringify(project)};
+const suffix = ${JSON.stringify(suffix)};
+let planted = false;
+const plant = (target: unknown) => {
+  if (planted || !String(target).endsWith(suffix)) return;
+  planted = true;
+  fs.appendFileSync(project, '\\n');
+};
+const { openSync, writeFileSync } = fs;
+const wrappers = {
+  openSync: (...args: Parameters<typeof openSync>) => { const fd = openSync(...args); plant(args[0]); return fd; },
+  writeFileSync: (...args: Parameters<typeof writeFileSync>) => { writeFileSync(...args); plant(args[0]); },
+};
+Object.assign(fs, wrappers);
+mock.module('node:fs', () => ({ ...fs, ...wrappers }));
+`);
+  return path;
 }
 
 /** A fresh folder under the OS temp dir — never inside the repo, whose node_modules would leak in. */

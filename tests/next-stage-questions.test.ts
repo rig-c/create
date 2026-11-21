@@ -47,7 +47,7 @@ test('#558 next groups the pending stage sets and retains one owner-chat route p
   ]);
   expect(ingest[0]!.act).toContain('If partial ingest or owner chat changes project.json, refresh the exact remaining sets');
   expect(ingest[0]!.act).toContain('Unrelated asks still block publication with JOB_ASK_PENDING');
-  expect(acts[0]!.act).toContain('wait for the remaining submissions before ingesting');
+  expect(acts[0]!.act).toContain('--wait keeps waiting until every set has submitted');
   expect(moves.indexOf(open[0]!)).toBeLessThan(moves.indexOf(picks[0]!));
   expect(moves.indexOf(picks[1]!)).toBeLessThan(moves.indexOf(acts[0]!));
   expect(moves.indexOf(acts[0]!)).toBeLessThan(moves.indexOf(ingest[0]!));

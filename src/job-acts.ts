@@ -90,6 +90,20 @@ export interface PendingJobAct {
   command: string | null;
   preconditions?: { command: string | null; act: string }[];
   unavailable?: { code: 'JOB_ACTS_WRITER_UNAVAILABLE' | 'REOPEN_ACT_RETIRED'; message: string };
+  /** A grouped interview page whose other sets have not all submitted: no ingest command yet. */
+  waiting?: { received: number; total: number };
+}
+
+/** What the agent does with a pending act: its command, the grouped page it waits on, or why it has none. */
+export function pendingActRemedy(act: PendingJobAct): string {
+  if (act.command) return act.command;
+  if (act.waiting) return `waiting for ${act.waiting.received}/${act.waiting.total} sets on this page; ingest after the remaining submissions with job acts --wait`;
+  return `${act.unavailable!.code}: ${act.unavailable!.message}`;
+}
+
+/** The act can be acted on now: it is not part of a grouped page that is still waiting for its other sets. */
+export function actionablePendingAct(act: PendingJobAct): boolean {
+  return act.waiting === undefined;
 }
 
 export function shellWord(value: string): string {
@@ -213,7 +227,20 @@ export function pendingJobActs(project: JsonObject, acts: readonly ActV3[], root
     }
     return [row];
   });
-  for (const batch of batches.values()) {
+  for (const [key, batch] of batches) {
+    // Ingest changes project.json, so the remaining acts of the page would be stale: wait for every set.
+    const covered = new Set<string>();
+    let total = 0;
+    for (const act of acts) {
+      if (act.kind !== 'interview-picks' || act.schema !== 'rig-review/act@4' || !isMultiOptionSource(act.source)
+        || JSON.stringify([act.jobId, act.publicationId]) !== key) continue;
+      total = Math.max(total, (act.source as { optionSets: readonly unknown[] }).optionSets.length);
+      covered.add(JSON.stringify([act.value.questionId, act.source.optionSet.id]));
+    }
+    if (covered.size < total) {
+      for (const row of batch) { row.args = null; row.command = null; row.waiting = { received: covered.size, total }; }
+      continue;
+    }
     if (batch.length < 2) continue;
     const args = ['interview-answer', '--batch', root, ...batch.flatMap(row => ['--from-review', row.actId])];
     const command = ['rig-create', ...args].map(shellWord).join(' ');
@@ -302,7 +329,7 @@ export function jobActsText(result: { acts: readonly PendingJobAct[]; ingested?:
   const ready = result.acts.map(act => {
     const intro = [`${act.actId} ${act.kind} ${act.subject} at ${act.at}`, ...actContentLines(act.value)].join('\n');
     const preconditions = (act.preconditions ?? []).map(step => `  first: ${step.command ?? step.act}\n`).join('');
-    if (!act.command) return `${intro}\n${preconditions}  ${act.unavailable!.code}: ${act.unavailable!.message}`;
+    if (!act.command) return `${intro}\n${act.waiting ? '' : preconditions}  ${pendingActRemedy(act)}`;
     if (printed.has(act.command)) return `${intro}\n  included in the batch command above`;
     printed.add(act.command);
     return `${intro}\n${preconditions}  ${act.command}`;

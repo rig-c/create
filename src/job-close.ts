@@ -12,7 +12,7 @@ import {
   type JobSelector,
 } from '@rig-c/review/job-host';
 import { asArray, checkProject } from './check.ts';
-import { pendingJobActs, pendingJobAsksForTarget, readHostActs, readHostActsAndAsks, shellWord, type JobAskTarget } from './job-acts.ts';
+import { pendingActRemedy, pendingJobActs, pendingJobAsksForTarget, readHostActs, readHostActsAndAsks, shellWord, type JobAskTarget } from './job-acts.ts';
 import {
   acquireJobLock,
   JOB_BINDING_FILE,
@@ -407,7 +407,7 @@ export async function closeCreateJob(
       let next: JsonObject | undefined;
       if (acts.length > 0) {
         if (!discardEvidence) {
-          const listed = acts.map(act => `${act.actId} (${act.command ?? `${act.unavailable!.code}: ${act.unavailable!.message}`})`).join('; ');
+          const listed = acts.map(act => `${act.actId} (${pendingActRemedy(act)})`).join('; ');
           refuse('JOB_ACTS_PENDING', `project.json.review_acts: un-ingested finalized review act(s) ${listed}; ingest each act before closing, or run rig-create job close --discard-acts <reason> --by agent to record and discard them`);
         }
         next = appendDiscardedJobActs(root, project, acts.map(act => buildDiscardActReceipt(binding.jobId, act.actId, discardEvidence)), now);

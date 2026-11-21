@@ -592,7 +592,7 @@ test('#558 next at the rigging interview groups the question loop and prints one
     `rig-create interview-answer --batch ${shellWord(root)} --from-review '<actId for bones>' --from-review '<actId for motion>'`,
   ]);
   expect(workflow[0]!.act).toContain('rigging-interview question loop');
-  expect(workflow[1]!.act).toContain('wait for the remaining submissions before ingesting');
+  expect(workflow[1]!.act).toContain('--wait keeps waiting until every set has submitted');
   expect(workflow[2]!.act).toContain('JOB_ASK_PENDING');
 }, 30_000);
 

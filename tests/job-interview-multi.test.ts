@@ -9,8 +9,8 @@ import { checkProject, collectItems } from '../src/check.ts';
 import { interviewAnswerCommand, interviewOptionsCommand } from '../src/choice-writers.ts';
 import { ingestedJobActs, jobActsText, pendingJobActs, pendingJobAsksForTarget, readHostActsAndAsks } from '../src/job-acts.ts';
 import { refusePendingJobAsks } from '../src/job-close.ts';
-import { openCreateJob, openRecordPublication } from '../src/job-host.ts';
-import { jobHash, jobHostStateRoot, jobPrivateRoot } from '../src/job-outbox.ts';
+import { listCreateJobActs, openCreateJob, openRecordPublication, publishPending, reconcileCreateJob } from '../src/job-host.ts';
+import { enqueuePublication, failPublication, jobHash, jobHostStateRoot, jobPrivateRoot, pendingPublications, readWriterBinding } from '../src/job-outbox.ts';
 import { fetchReviewAct, reviewActTransport } from '../src/review-act.ts';
 import type { JsonObject } from '../src/templates.ts';
 
@@ -31,7 +31,7 @@ afterEach(() => {
   }
 });
 
-async function open(referenceSetId?: string) {
+async function open(referenceSetId?: string, publish = true) {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'create-multi-interview-')));
   const fixture: (typeof fixtures)[number] = { root };
   fixtures.push(fixture);
@@ -63,7 +63,7 @@ async function open(referenceSetId?: string) {
   }
   const host = await openCreateJob(root, { id: 'synthetic-owner', role: 'owner' }, now, undefined, true);
   fixture.host = host;
-  await openRecordPublication(root, host, questions, false, now);
+  if (publish) await openRecordPublication(root, host, questions, false, now);
   return { root, host, now };
 }
 
@@ -112,9 +112,10 @@ test('#558 ingests a ready subset atomically and republishes the exact remaining
   expect(initial.acts.flatMap(act => act.kind === 'interview-picks' ? [[act.value.questionId, act.source.optionSet.id]] : []))
     .toEqual([['reference', sharedSetId], ['rig_type', sharedSetId]]);
   const args = ['interview-answer', '--batch', root, ...actIds.flatMap(id => ['--from-review', id])];
+  // job acts offers no ingest for 2 of 3 sets; the explicit writer still accepts the subset.
   const listed = pendingJobActs(read(root), initial.acts, root);
-  expect(listed.map(row => row.args)).toEqual([args, args]);
-  expect(jobActsText({ acts: listed }).match(/interview-answer --batch/g)).toHaveLength(1);
+  expect(listed.map(row => [row.command, row.waiting])).toEqual([[null, { received: 2, total: 3 }], [null, { received: 2, total: 3 }]]);
+  expect(jobActsText({ acts: listed })).not.toContain('interview-answer');
   const fetched = new Map(await Promise.all(actIds.map(async id => [id, await fetchPicks(root, id)] as const)));
   const hooks = { fetch: ({ actId }: { actId: string }) => ({ bytes: fetched.get(actId)! }) };
   const original = bytes(root);
@@ -193,5 +194,70 @@ test('#558 owner chat settles only its own set, and a finalized stale act stays 
   // The non-primary reference ask was settled by the exact bound owner-chat answer.
   expect(pendingJobAsksForTarget(read(root), view.asks, view.acts, root, { kind: 'plan' }).map(row => row.label))
     .toEqual(['interview-picks rig_type/chain-rig_type', 'interview-picks seethrough/chain-seethrough']);
+  expect(bytes(root)).toEqual(before);
+}, 30_000);
+
+test('#558 job acts holds a partial grouped page: no command, n/K, and --wait waits for every set', async () => {
+  const { root, host, now } = await open();
+  const submit = await ownerPage(root, host);
+  // Reuse the in-process host for the strict attach; the fixture stops it.
+  const start = async () => ({ ...host, reused: true, stop: () => {} }) as JobOwnerHost;
+  const first = (await submit('rig_type')).value!.actId;
+  const partial = await listCreateJobActs(root, start);
+  expect(partial.acts.map(row => [row.actId, row.command, row.waiting])).toEqual([[first, null, { received: 1, total: 3 }]]);
+  expect(jobActsText(partial)).toContain('waiting for 1/3 sets on this page');
+  expect(jobActsText(partial)).not.toContain('interview-answer');
+  await expect(listCreateJobActs(root, start, { timeoutMs: 300 })).rejects.toMatchObject({ code: 'JOB_NEXT_TIMEOUT' });
+  await expect(listCreateJobActs(root, start, { timeoutMs: 300 })).rejects.toThrow('waiting for 1/3 sets');
+
+  let settled = false;
+  const waiting = listCreateJobActs(root, start, { timeoutMs: 10_000 }).finally(() => { settled = true; });
+  const second = (await submit('reference')).value!.actId;
+  await Bun.sleep(500);
+  expect(settled).toBe(false);
+  const third = (await submit('seethrough')).value!.actId;
+  const complete = await waiting;
+  const args = ['interview-answer', '--batch', root, ...[first, second, third].flatMap(id => ['--from-review', id])];
+  expect(complete.acts.map(row => [row.args, row.waiting])).toEqual([[args, undefined], [args, undefined], [args, undefined]]);
+  expect(jobActsText(complete).match(/interview-answer --batch/g)).toHaveLength(1);
+  const fetched = new Map(await Promise.all([first, second, third].map(async id => [id, await fetchPicks(root, id)] as const)));
+  interviewAnswerCommand(args.slice(1), now, { fetch: ({ actId }) => ({ bytes: fetched.get(actId)! }) });
+  expect(checkProject(root, undefined, { now }).refusals).toEqual([]);
+  for (const question of questions) expect(item(root, question).record.pending_options).toBeUndefined();
+}, 30_000);
+
+test('#558 JOB_GENERATION_STALE drops the retained generation, and the next reconcile re-scans the asks and publishes', async () => {
+  const { root, host } = await open(undefined, false);
+  const binding = readWriterBinding(root)!;
+  const sets = questions.map(questionId => ({ questionId, setId: `chain-${questionId}` }));
+  const pending = enqueuePublication(root, binding, { kind: 'option-set', ...sets[0]!, sets });
+  pending.generation = host.session.status().generation;
+  failPublication(root, pending, pending.failure);
+  const publishes: { expectedGeneration: number }[] = [];
+  let stale = true;
+  const start = async () => ({ ...host, reused: true, stop: () => {}, ports: { ...host.ports, async handleJobApi(request: Request) {
+    const body = await request.clone().json() as { verb: string; schema: string; expectedGeneration: number };
+    if (body.verb === 'publish') {
+      publishes.push({ expectedGeneration: body.expectedGeneration });
+      if (stale) return Response.json({ schema: body.schema, ok: false, error: { code: 'JOB_GENERATION_STALE' } });
+    }
+    return host.ports.handleJobApi(request);
+  } } }) as JobOwnerHost;
+  const publish = (entry: Parameters<typeof publishPending>[0]) => publishPending(entry, undefined, undefined, start);
+  const before = bytes(root);
+
+  const refused = await reconcileCreateJob(root, publish).then(() => null, (error: unknown) => error);
+  expect(refused).toMatchObject({ code: 'JOB_PUBLISH_PENDING' });
+  expect((refused as Error).message).toContain('JOB_GENERATION_STALE');
+  const [retained] = pendingPublications(root);
+  expect(retained!.failure).toMatchObject({ code: 'JOB_GENERATION_STALE' });
+  expect(retained!.generation).toBeUndefined();
+  expect(bytes(root)).toEqual(before);
+
+  stale = false;
+  expect(await reconcileCreateJob(root, publish)).toBe(1);
+  expect(pendingPublications(root)).toEqual([]);
+  expect(publishes).toHaveLength(2);
+  expect(host.session.status().pending.map(ask => ask.subject)).toEqual(sets.map(set => ({ kind: 'interview-picks', ...set })));
   expect(bytes(root)).toEqual(before);
 }, 30_000);

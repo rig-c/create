@@ -435,10 +435,12 @@ Review's code. Run `job open` to retry the ask.
 Use `job open --questions` to publish the effective interview stage's
 registered pending sets on one Review page. The owner submits one act per
 set. Run `job acts <dir> --json --wait` and collect one finalized act ID for
-each set on that page before ingesting them together. A wait can return as
-soon as an act arrives. If only some have arrived, leave the project record
-unchanged and check `job acts --json` after the remaining submissions. The
-acts all bind the same displayed project bytes.
+each set on that page before ingesting them together. While only some sets
+have submitted, `job acts` lists their acts as waiting for n/K sets with no
+ingest command, and `--wait` keeps waiting (within its timeout) until every
+set has an act. Then it prints the one `--batch` command. The acts all bind
+the same displayed project bytes, so ingesting any of them first would leave
+the rest stale.
 
 ```sh
 rig-create job open <dir> --questions --reviewer <id> --role owner

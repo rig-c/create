@@ -567,7 +567,7 @@ function stageQuestionCommands(dir: string, project: JsonObject, stage: string, 
       `${stage} question loop: publish the pending sets for ${names} on one Review page; ${OPEN_REVIEW_HOST}`),
     ...questions,
     agent(`rig-create job acts ${root} --json --wait`,
-      `wait in the background and collect one finalized actId for each question (${names}) from this publication; if only some have arrived, wait for the remaining submissions before ingesting`),
+      `wait in the background and collect one finalized actId for each question (${names}) from this publication; while only some have arrived, job acts reports waiting for n/K sets with no ingest command and --wait keeps waiting until every set has submitted`),
     agent(`rig-create interview-answer --batch ${root} ${actArgs}`,
       'ingest every finalized act from this page in a single write after the whole group has submitted. '
       + 'If partial ingest or owner chat changes project.json, refresh the exact remaining sets with job open and one --question per set before the owner can submit. '

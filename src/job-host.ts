@@ -10,7 +10,7 @@ import { liveManifestPath, draftPackageIdentity, draftPublishedContext, eligible
 import { acknowledgePublication, acquireJobLock, assertJobIdentity, enqueuePublication, ensureJobPrivateIgnores, failPublication, JOB_BINDING_FILE, jobHash, jobHostStateRoot, pendingPublications, privateDirectory, publicationVersionHash, readAcknowledgedPublication, readWriterBinding, reconcilePublication, refuseJobIdentityMismatch, writePrivateJson, isRecordResult, type PublicationResult, type JobIdentity, type PendingPublication, type WriterBinding, type PublicationSubject } from './job-outbox.ts';
 import { draftPublicationResult } from './job-writer.ts';
 import { attachCreateJobForClose, refusePendingJobAsks } from './job-close.ts';
-import { agentCall, ingestedJobActs, ingestedSummary, jobEvents, pendingJobActs, readHostActsAndAsks, shellWord, type AgentReply, type IngestedJobAct, type PendingJobAct } from './job-acts.ts';
+import { actionablePendingAct, agentCall, ingestedJobActs, ingestedSummary, jobEvents, pendingJobActs, readHostActsAndAsks, shellWord, type AgentReply, type IngestedJobAct, type PendingJobAct } from './job-acts.ts';
 import { checkReviewPackages } from './review-package.ts';
 import { reviewVerdictSignable } from './signable.ts';
 import { rigVerdictDeferred } from './rig-signoff.ts';
@@ -316,7 +316,7 @@ export async function listCreateJobActs(
     };
     let listed = await list();
     const result = () => ({ jobId: binding.jobId, acts: listed.acts, ingested: listed.ingested, asked: listed.asked });
-    if (!wait || listed.acts.length) return result();
+    if (!wait || listed.acts.some(actionablePendingAct)) return result();
 
     const deadline = performance.now() + wait.timeoutMs;
     for (;;) {
@@ -328,11 +328,15 @@ export async function listCreateJobActs(
       });
       if (outcome.kind === 'timeout') break;
       listed = await list();
-      if (listed.acts.length) return result();
+      if (listed.acts.some(actionablePendingAct)) return result();
       if (outcome.kind === 'closed') {
         refuse('JOB_ACTS_READ_REFUSED', 'project.json: live job closed during the act wait; reopen it with job open before retrying job acts');
       }
       // Another writer may already have ingested the act that woke the waiter.
+    }
+    const waiting = listed.acts.find(act => act.waiting)?.waiting;
+    if (waiting) {
+      refuse('JOB_NEXT_TIMEOUT', `project.json: a grouped interview page is still waiting for ${waiting.received}/${waiting.total} sets before the deadline; ingest nothing yet, have the owner submit the remaining sets, then retry job acts --wait`, 3);
     }
     refuse('JOB_NEXT_TIMEOUT', `project.json: no finalized un-ingested act arrived before the deadline; ${ingestedSummary(listed)}; an ingested act needs no ingest, otherwise retry job acts --wait`, 3);
   } finally { host.stop(); }

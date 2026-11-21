@@ -274,15 +274,68 @@ test('job acts discovers a finalized rig verdict; its exact quoted command also 
   expect(snapshot(root)).toEqual(before);
   const result = JSON.parse(listed.stdout);
   expect(result.acts).toHaveLength(1);
-  expect(result.acts[0]).toMatchObject({ actId: verdict.actId, kind: 'review-verdict', subject: 'rig v1 / rig-review', at: verdict.at,
-    args: ['review', '1', root, '--from-review', verdict.actId] });
+  expect(result.acts[0]).toMatchObject({ actId: verdict.actId, publicationId: verdict.publicationId, kind: 'review-verdict', subject: 'rig v1 / rig-review', at: verdict.at,
+    value: verdict.value, args: ['review', '1', root, '--from-review', verdict.actId] });
   const text = await cli(root, ['job', 'acts', root]);
-  expectExit0(text); expect(text.stdout).toContain(result.acts[0].command);
+  expectExit0(text); expect(text.stdout).toContain(`  verdict: approved\n  comment: ${WORDS}\n`); expect(text.stdout).toContain(result.acts[0].command);
   expect(snapshot(root)).toEqual(before);
   await executePrinted(root, result.acts[0].command);
   expect(JSON.parse((await cli(root, ['job', 'acts', root, '--json'])).stdout).acts).toEqual([]);
   expect(read(root).stage).toBe('rig-review');
   expect((read(root).signoffs as JsonObject[]).at(-1)).toMatchObject({ stage: 'rig-review', source: `review act ${String(verdict.jobId)}/${String(verdict.actId)}` });
+}, 30_000);
+
+test('#756 job acts shows a pending act verdict and comments byte-equal to the host act value, and retains them after a refused review ingest', async () => {
+  const root = copy('3-rig-review', project => {
+    project.stage = 'rigging';
+    project.advances = (project.advances as JsonObject[]).filter(entry => entry.stage !== 'rig-review');
+  });
+  const opening = await open(root, ['--rig', '1']);
+  const view = await page(root, opening.url, 1);
+  const ask = view.asks.find(item => (item.subject as JsonObject).kind === 'review-verdict')!;
+  const verdict = await view.act('review-verdict', 'review-verdict', {
+    stage: 'rig-review',
+    verdict: 'approved',
+    words: 'First synthetic owner comment.',
+    general: ['Second synthetic owner comment.'],
+  }, rigCapture(root, view, String(ask.askId)));
+  const projectBefore = readFileSync(join(root, 'project.json'));
+
+  const listed = await cli(root, ['job', 'acts', root, '--json']);
+  expectExit0(listed);
+  const parsed = JSON.parse(listed.stdout) as { acts: PendingJobAct[] };
+  expect(parsed.acts).toHaveLength(1);
+  expect(parsed.acts[0]!.publicationId).toBe(String(verdict.publicationId));
+  expect(JSON.stringify(parsed.acts[0]!.value)).toBe(JSON.stringify(verdict.value));
+
+  const text = await cli(root, ['job', 'acts', root]);
+  expectExit0(text);
+  expect(text.stdout).toContain([
+    `${String(verdict.actId)} review-verdict rig v1 / rig-review at ${String(verdict.at)}`,
+    '  verdict: approved',
+    '  comment: First synthetic owner comment.',
+    '  comment: Second synthetic owner comment.',
+    `  ${parsed.acts[0]!.command!}`,
+  ].join('\n'));
+  expect(readFileSync(join(root, 'project.json'))).toEqual(projectBefore);
+
+  // Ingesting at stage rigging refuses REVIEW_ACT_TARGET_MISMATCH; the pending act and its comments remain readable.
+  const refused = await cli(root, ['review', '1', root, '--from-review', String(verdict.actId)]);
+  expect(refused.exit).toBe(1);
+  expect(refused.stderr).toContain('REVIEW_ACT_TARGET_MISMATCH');
+  expect(readFileSync(join(root, 'project.json'))).toEqual(projectBefore);
+
+  const afterRefusalJson = await cli(root, ['job', 'acts', root, '--json']);
+  expectExit0(afterRefusalJson);
+  const afterParsed = JSON.parse(afterRefusalJson.stdout) as { acts: PendingJobAct[] };
+  expect(afterParsed.acts).toHaveLength(1);
+  expect(afterParsed.acts[0]!.publicationId).toBe(String(verdict.publicationId));
+  expect(JSON.stringify(afterParsed.acts[0]!.value)).toBe(JSON.stringify(verdict.value));
+
+  const afterRefusalText = await cli(root, ['job', 'acts', root]);
+  expectExit0(afterRefusalText);
+  expect(afterRefusalText.stdout).toBe(text.stdout);
+  expect(readFileSync(join(root, 'project.json'))).toEqual(projectBefore);
 }, 30_000);
 
 test('missing and stopped hosts refuse without bootstrapping or changing producer files', async () => {

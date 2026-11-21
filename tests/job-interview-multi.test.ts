@@ -11,7 +11,8 @@ import { ingestedJobActs, jobActsText, pendingJobActs, pendingJobAsksForTarget, 
 import { refusePendingJobAsks } from '../src/job-close.ts';
 import { listCreateJobActs, openCreateJob, openRecordPublication, publishPending, reconcileCreateJob } from '../src/job-host.ts';
 import { enqueuePublication, failPublication, jobHash, jobHostStateRoot, jobPrivateRoot, pendingPublications, readWriterBinding } from '../src/job-outbox.ts';
-import { fetchReviewAct, reviewActTransport } from '../src/review-act.ts';
+import { fetchReviewAct, appendWithdrawalReceipt, buildDiscardActReceipt, reviewActTransport } from '../src/review-act.ts';
+import { nextProject } from '../src/next.ts';
 import type { JsonObject } from '../src/templates.ts';
 
 const questions = ['rig_type', 'reference', 'seethrough'];
@@ -195,6 +196,46 @@ test('#558 owner chat settles only its own set, and a finalized stale act stays 
   expect(pendingJobAsksForTarget(read(root), view.asks, view.acts, root, { kind: 'plan' }).map(row => row.label))
     .toEqual(['interview-picks rig_type/chain-rig_type', 'interview-picks seethrough/chain-seethrough']);
   expect(bytes(root)).toEqual(before);
+}, 30_000);
+
+test('#785 staleInterviewAct accepts a withdraw-act discard receipt and still reports a changed record as stale', async () => {
+  const { root, host, now } = await open();
+  const submit = await ownerPage(root, host);
+  const first = (await submit('rig_type')).value!.actId;
+  const second = (await submit('reference')).value!.actId;
+  const file = join(root, 'project.json');
+  const receipt = buildDiscardActReceipt(host.session.jobId, first, {
+    by: 'user',
+    at: new Date(now).toISOString(),
+    source: 'owner chat, relayed',
+    owner_words: 'Withdraw the first synthetic interview pick.\n',
+    said_at: new Date(now - 1_000).toISOString(),
+    relayed_by: 'synthetic-agent',
+  });
+  const afterWithdraw = Buffer.from(appendWithdrawalReceipt(bytes(root), receipt));
+  writeFileSync(file, afterWithdraw);
+
+  const view = await readHostActsAndAsks(host);
+  const start = async () => ({ ...host, reused: true, stop: () => {} }) as JobOwnerHost;
+  const listed = await listCreateJobActs(root, start);
+  expect(listed.acts.map(row => row.actId)).toEqual([second]);
+  expect(jobActsText(listed)).not.toContain('--discard-acts');
+  expect(JSON.stringify(nextProject(root, now))).not.toContain('--discard-acts');
+  expect(pendingJobAsksForTarget(read(root), view.asks, view.acts, root, target('seethrough'), afterWithdraw).some(row => row.staleInterviewAct)).toBe(false);
+  await expect(refusePendingJobAsks(root, host.session.jobId, host, target('seethrough'))).rejects.toMatchObject({
+    code: 'JOB_ASK_PENDING',
+    message: expect.not.stringContaining('--discard-acts'),
+  });
+  expect(bytes(root)).toEqual(afterWithdraw);
+
+  // Negative control: a truly changed record is still reported stale.
+  const changed = Buffer.concat([afterWithdraw, Buffer.from(' ')]);
+  writeFileSync(file, changed);
+  expect(pendingJobAsksForTarget(read(root), view.asks, view.acts, root, target('seethrough'), changed).some(row => row.staleInterviewAct)).toBe(true);
+  await expect(refusePendingJobAsks(root, host.session.jobId, host, target('seethrough'))).rejects.toMatchObject({
+    code: 'JOB_ASK_PENDING',
+    message: expect.stringContaining('use job close --discard-acts <reason> --by agent to record the stale acts, then open the remaining sets on the current record'),
+  });
 }, 30_000);
 
 test('#558 job acts holds a partial grouped page: no command, n/K, and --wait waits for every set', async () => {

@@ -1,4 +1,4 @@
-import { readOwnerChat } from './owner-chat.ts';
+import { OWNER_CHAT_USAGE, readOwnerChat } from './owner-chat.ts';
 import { readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
@@ -227,11 +227,19 @@ export async function refusePendingJobAsks(root: string, jobId: string, host: Jo
     const ingest = version === null || pending.some(item => item.version === null)
       ? `have the owner respond in Review, run ${wait}, and run the printed ingest commands`
       : `have the owner give the verdict in Review, run ${wait}, and ingest with rig-create review ${version} --from-review <actId> (review <n> --from-review <actId>)`;
-    const remedy = pending.some(item => item.staleInterviewAct)
-      ? `run rig-create job acts ${shellWord(root)} to inspect the finalized acts. After ingesting any current acts, use job close --discard-acts <reason> --by agent to record the stale acts, then open the remaining sets on the current record`
-      : `${ingest}; re-run this command to publish into the existing job`;
+    let remedy = `${ingest}; re-run this command to publish into the existing job`;
+    const staleActIds = new Set(pending.flatMap(item => item.staleInterviewActId === undefined ? [] : [item.staleInterviewActId]));
+    const [staleActId] = staleActIds;
+    if (staleActId !== undefined) {
+      const binding = staleActIds.size === 1 ? readWriterBinding(root) : null;
+      const canWithdraw = binding?.jobId === jobId && binding.identity.root === root
+        && binding.origin === host.origin && host.session.status().status === 'active';
+      const discard = canWithdraw
+        ? `relay the owner's authorization with rig-create job withdraw-act ${shellWord(staleActId)} ${shellWord(root)} ${OWNER_CHAT_USAGE}`
+        : 'use job close --discard-acts <reason> --by agent to record the stale acts';
+      remedy = `run rig-create job acts ${shellWord(root)} to inspect the finalized acts. After ingesting any current acts, ${discard}, then open the remaining sets on the current record`;
+    }
     refuse('JOB_ASK_PENDING', `project.json: bound job ${jobId} holds pending owner ask(s) ${listed} with no ingested act; ${remedy}`);
-
   }
   return head;
 }
@@ -333,12 +341,12 @@ export async function withdrawCreateJobAct(
 ): Promise<void> {
   const trimmedActId = actId.trim();
   if (!trimmedActId) {
-    refuse('JOB_BINDING_INVALID', 'project.json.review_acts: job withdraw-act requires <actId> and --by <owner> --owner-chat <file> --said-at <ISO> --relayed-by <operator>', USAGE_EXIT);
+    refuse('JOB_BINDING_INVALID', `project.json.review_acts: job withdraw-act requires <actId> and ${OWNER_CHAT_USAGE}`, USAGE_EXIT);
   }
   const by = options['--by']?.trim() ?? '';
   const chat = readOwnerChat(options, by, now, 'project.json.review_acts');
   if (!chat) {
-    refuse('OWNER_CHAT_INVALID', 'project.json.review_acts: job withdraw-act requires the owner’s words with --by <owner> --owner-chat <file> --said-at <ISO> --relayed-by <operator>', USAGE_EXIT);
+    refuse('OWNER_CHAT_INVALID', `project.json.review_acts: job withdraw-act requires the owner’s words with ${OWNER_CHAT_USAGE}`, USAGE_EXIT);
   }
   const evidence: JsonObject = { by, at: new Date(now).toISOString(), ...chat };
   await withBoundJobRecord(root, startHost, 'withdraw-act', async ({ root, host, binding, project, original }) => {

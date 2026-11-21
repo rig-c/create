@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-import { OWNER_CHAT_FLAGS } from './owner-chat.ts';
+import { OWNER_CHAT_FLAGS, OWNER_CHAT_USAGE } from './owner-chat.ts';
 import { packagesCommand } from './packages-upgrade.ts';
 import { republishCommand } from './republish.ts';
 import { DIFF_CLASSES_HELP, diffClassesCommand } from './diff-classes.ts';
@@ -58,7 +58,7 @@ Usage:
                                               list finalized acts and their ingest commands
                                               wait 1–600000 ms (default 600000), timeout exit 3
   rig-create job reconcile [<dir>]
-  rig-create job withdraw-act <actId> [<dir>] --by <owner> --owner-chat <file> --said-at <ISO> --relayed-by <operator>
+  rig-create job withdraw-act <actId> [<dir>] ${OWNER_CHAT_USAGE}
   rig-create job close [<dir>] [--retire-refused]
   rig-create job close [<dir>] --discard-acts <reason> --by agent
   rig-create job close [<dir>] --discard-acts --by <owner> --owner-chat <file> --said-at <ISO> --relayed-by <operator>

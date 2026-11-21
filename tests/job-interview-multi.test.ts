@@ -221,21 +221,40 @@ test('#785 staleInterviewAct accepts a withdraw-act discard receipt and still re
   expect(listed.acts.map(row => row.actId)).toEqual([second]);
   expect(jobActsText(listed)).not.toContain('--discard-acts');
   expect(JSON.stringify(nextProject(root, now))).not.toContain('--discard-acts');
-  expect(pendingJobAsksForTarget(read(root), view.asks, view.acts, root, target('seethrough'), afterWithdraw).some(row => row.staleInterviewAct)).toBe(false);
+  expect(pendingJobAsksForTarget(read(root), view.asks, view.acts, root, target('seethrough'), afterWithdraw).some(row => row.staleInterviewActId)).toBe(false);
   await expect(refusePendingJobAsks(root, host.session.jobId, host, target('seethrough'))).rejects.toMatchObject({
     code: 'JOB_ASK_PENDING',
-    message: expect.not.stringContaining('--discard-acts'),
+    message: expect.stringContaining('run the printed ingest commands'),
   });
   expect(bytes(root)).toEqual(afterWithdraw);
 
   // Negative control: a truly changed record is still reported stale.
   const changed = Buffer.concat([afterWithdraw, Buffer.from(' ')]);
   writeFileSync(file, changed);
-  expect(pendingJobAsksForTarget(read(root), view.asks, view.acts, root, target('seethrough'), changed).some(row => row.staleInterviewAct)).toBe(true);
-  await expect(refusePendingJobAsks(root, host.session.jobId, host, target('seethrough'))).rejects.toMatchObject({
+  const pending = pendingJobAsksForTarget(read(root), view.asks, view.acts, root, target('seethrough'), changed);
+  expect(pending.flatMap(row => row.staleInterviewActId ? [row.staleInterviewActId] : [])).toEqual([second]);
+  const refusal = refusePendingJobAsks(root, host.session.jobId, host, target('seethrough'));
+  await expect(refusal).rejects.toMatchObject({
     code: 'JOB_ASK_PENDING',
-    message: expect.stringContaining('use job close --discard-acts <reason> --by agent to record the stale acts, then open the remaining sets on the current record'),
+    message: expect.stringContaining(`rig-create job withdraw-act ${second} ${root} --by <owner> --owner-chat <file> --said-at <ISO> --relayed-by <operator>`),
   });
+  await expect(refusal).rejects.toMatchObject({ message: expect.not.stringContaining('job close --discard-acts') });
+  expect(bytes(root)).toEqual(changed);
+}, 30_000);
+
+test('#807 multiple stale interview acts still name the batch close remedy', async () => {
+  const { root, host } = await open();
+  const submit = await ownerPage(root, host);
+  expect((await submit('rig_type')).ok).toBe(true);
+  expect((await submit('reference')).ok).toBe(true);
+  writeFileSync(join(root, 'project.json'), Buffer.concat([bytes(root), Buffer.from(' ')]));
+
+  const refusal = refusePendingJobAsks(root, host.session.jobId, host, target('seethrough'));
+  await expect(refusal).rejects.toMatchObject({
+    code: 'JOB_ASK_PENDING',
+    message: expect.stringContaining('job close --discard-acts <reason> --by agent'),
+  });
+  await expect(refusal).rejects.toMatchObject({ message: expect.not.stringContaining('job withdraw-act') });
 }, 30_000);
 
 test('#558 job acts holds a partial grouped page: no command, n/K, and --wait waits for every set', async () => {

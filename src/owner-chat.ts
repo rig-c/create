@@ -10,6 +10,7 @@ import type { JsonObject } from './templates.ts';
 
 export const OWNER_CHAT_SOURCE = 'owner chat, relayed';
 export const OWNER_CHAT_FLAGS = ['--owner-chat', '--said-at', '--relayed-by'];
+export const OWNER_CHAT_USAGE = '--by <owner> --owner-chat <file> --said-at <ISO> --relayed-by <operator>';
 export const REOPEN_RESTART_OWNER_CHAT_SINCE = '2026-11-19T00:00:00Z';
 const nonblank = (value: unknown): value is string => typeof value === 'string' && value.trim() !== '';
 

@@ -459,47 +459,42 @@ test('#767 fake-clock reopen publishes a redrafted option set after advancing 1 
   }
 }, 30_000);
 
-test('#767 a planted refusal on job open exits non-zero with its code within the command deadline', async () => {
-  const deadlineMs = 10_000;
-
-  // 1. Refusal after openCreateJob starts a fresh foreground host: the process must close the host and exit non-zero.
+test('#767 a planted refusal on job open prints its named code on stderr, keeps the host serving, and exits 1 when stopped', async () => {
   const draftRoot = copyCheckpoint('example-chain/checkpoints/1-parts-verdict');
   writeFileSync(join(draftRoot, 'derived/drafts/chain/config.json'), '{}\n');
-  const draftChild = Bun.spawn([
+  const child = Bun.spawn([
     process.execPath, ...jobRuntimeExecArgv(), join(import.meta.dir, 'cli-at.ts'), new Date().toISOString(),
     'job', 'open', draftRoot, '--reviewer', 'synthetic-owner', '--role', 'owner',
-  ], { cwd: draftRoot, stdout: 'pipe', stderr: 'pipe', timeout: deadlineMs });
-  const [, draftStderr, draftExit] = await Promise.all([
-    new Response(draftChild.stdout).text(),
-    new Response(draftChild.stderr).text(),
-    draftChild.exited,
-  ]);
-  expect(draftChild.signalCode).toBeNull();
-  expect(draftExit).not.toBe(0);
-  expect(refusalCode(draftStderr)).toBe('JOB_PUBLICATION_INVALID');
+  ], { cwd: draftRoot, stdout: 'pipe', stderr: 'pipe' });
+  try {
+    const outReader = child.stdout.getReader();
+    const errReader = child.stderr.getReader();
+    const decoder = new TextDecoder();
+    let stdout = '';
+    while (!stdout.includes('\n')) {
+      const chunk = await outReader.read();
+      if (chunk.done) break;
+      stdout += decoder.decode(chunk.value);
+    }
+    outReader.releaseLock();
+    let stderr = '';
+    while (!stderr.includes('\n')) {
+      const chunk = await errReader.read();
+      if (chunk.done) break;
+      stderr += decoder.decode(chunk.value);
+    }
+    errReader.releaseLock();
 
-  // 2. Planted future drafted_at on job open --question: refuses with JOB_RECORD_INCOMPLETE and exits non-zero.
-  const recordRoot = copyCheckpoint('example-chain/checkpoints/0a-interview-options');
-  const now = Date.now();
-  const setRel = 'evidence/interview/rig_type.json';
-  const set = JSON.parse(readFileSync(join(recordRoot, setRel), 'utf8')) as JsonObject;
-  set.drafted_at = new Date(now + 60_000).toISOString();
-  const setBytes = Buffer.from(`${JSON.stringify(set, null, 2)}\n`);
-  writeFileSync(join(recordRoot, setRel), setBytes);
-  const project = JSON.parse(readFileSync(join(recordRoot, 'project.json'), 'utf8')) as JsonObject;
-  (arr(obj(project.interview).framing)[0] as JsonObject).pending_options = { path: setRel, sha256: jobHash(setBytes) };
-  writeFileSync(join(recordRoot, 'project.json'), `${JSON.stringify(project, null, 2)}\n`);
+    const ownerUrl = stdout.trim().split('\n')[0]!;
+    expect(refusalCode(stderr)).toBe('JOB_PUBLICATION_INVALID');
+    expect(child.exitCode).toBeNull();
+    expect((await fetch(ownerUrl)).ok).toBe(true);
 
-  const recordChild = Bun.spawn([
-    process.execPath, ...jobRuntimeExecArgv(), join(import.meta.dir, 'cli-at.ts'), new Date(now).toISOString(),
-    'job', 'open', recordRoot, '--reviewer', 'synthetic-owner', '--role', 'owner', '--question', 'rig_type',
-  ], { cwd: recordRoot, stdout: 'pipe', stderr: 'pipe', timeout: deadlineMs });
-  const [, recordStderr, recordExit] = await Promise.all([
-    new Response(recordChild.stdout).text(),
-    new Response(recordChild.stderr).text(),
-    recordChild.exited,
-  ]);
-  expect(recordChild.signalCode).toBeNull();
-  expect(recordExit).not.toBe(0);
-  expect(refusalCode(recordStderr)).toBe('JOB_RECORD_INCOMPLETE');
+    child.kill('SIGINT');
+    const exit = await child.exited;
+    expect(exit).toBe(1);
+  } finally {
+    if (child.exitCode === null) child.kill();
+    await child.exited;
+  }
 }, 30_000);

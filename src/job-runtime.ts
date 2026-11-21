@@ -114,23 +114,31 @@ async function run(): Promise<void> {
       process.on('SIGINT', onSignal);
       process.on('SIGTERM', onSignal);
       const host = await openCreateJob(root, { id: input.reviewer, role: input.role }, input.now, undefined, record !== undefined);
-      const closeHost = () => {
+      if (stopping) {
         process.off('SIGINT', onSignal);
         process.off('SIGTERM', onSignal);
         host.stop();
-      };
-      if (stopping) {
-        closeHost();
         break;
       }
       console.log(host.ownerUrl);
+      // The page shows the record's current draft and its asks. A refused publish or ask is
+      // named here; a foreground host keeps serving so `job reconcile` and `job open` can retry.
       try { console.log((await (record ? openRecordPublication(root, host, input.question, Boolean(input.plan), input.now) : openDraftPublication(root, host, input.now, input.draft, input.rig))).join('\n')); }
       catch (error) {
-        closeHost();
-        throw error;
+        if (host.reused) {
+          process.off('SIGINT', onSignal);
+          process.off('SIGTERM', onSignal);
+          host.stop();
+          throw error;
+        }
+        const named = publicationFailure(error, root);
+        console.error(named ? `${named.code}: ${named.message}` : 'JOB_PUBLISH_PENDING: project.json: draft publication failed; run rig-create job reconcile');
+        process.exitCode = 1;
       }
       if (host.reused || stopping) {
-        closeHost();
+        process.off('SIGINT', onSignal);
+        process.off('SIGTERM', onSignal);
+        host.stop();
       } else {
         const timer = setInterval(() => {
           let closed: boolean;
@@ -141,7 +149,9 @@ async function run(): Promise<void> {
         }, 1000);
         stopHost = () => {
           clearInterval(timer);
-          closeHost();
+          process.off('SIGINT', onSignal);
+          process.off('SIGTERM', onSignal);
+          host.stop();
           process.exit(process.exitCode ?? 0);
         };
       }

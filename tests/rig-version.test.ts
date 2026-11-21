@@ -3,7 +3,7 @@ import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, rea
 import os from 'node:os';
 import { dirname, join, posix, relative, resolve, sep } from 'node:path';
 import { TURN_OPTIONS, TURN_QUESTION } from '../src/waypoints.ts';
-import { DEPTH_MAP_BINDING_SINCE, RIG_PARTS_APPROVAL_SINCE, depthPlanFindings, depthPlanMoves, registeredDepthPartsMatch, rigRegistrationFindings } from '../src/rig-version.ts';
+import { DEPTH_MAP_BINDING_SINCE, RIG_PARTS_APPROVAL_SINCE, depthPlanFindings, depthPlanMoves, registeredDepthPartsMatch, rigRegistrationFindings, turnExtraGroup, turnExtraGroupMoves } from '../src/rig-version.ts';
 import { RIG_CHECK_REPORT_SINCE } from '../src/rig-check-report.ts';
 import { checkProject as checkRecordProject } from '../src/check.ts';
 import { checkProject, rigVersionCommand, testClock } from './clock.ts';
@@ -2289,6 +2289,67 @@ describe('#514 producer depth bindings in frozen registration', () => {
     expect(moves).toContain('inputSha256 is unchanged');
     expect(moves).toContain('never bind an old map');
     expect(moves).toContain('--depth-map-binding');
+  });
+
+  describe('#563 a head-turn answer and a registered body group', () => {
+    function bodySetup(body: JsonObject | undefined, mode = 'depth') {
+      const base = depthSetup();
+      const config = JSON.parse(readFileSync(join(base.dir, 'source/config.json'), 'utf8'));
+      if (body !== undefined) config.turn.body = body;
+      put(base.dir, 'source/config.json', config);
+      const recipe = JSON.parse(readFileSync(join(base.dir, 'source/manifest.json'), 'utf8')).recipeSha256;
+      expect(rigVersionCommand(base.args).exit).toBe(0);
+      const project = base.load();
+      arr(obj(project.interview).waypoints).push({ id: 'turn', guide: { delegated: false, value: { mode }, by: 'user', at: '2026-11-08T00:00:00Z', verbatim: 'Head turn.' } });
+      const steps = arr(obj(project.plan).steps);
+      steps.push({ ...structuredClone(obj(steps[0])), id: 'turn', rests_on: ['turn'], status: 'in-progress', status_history: [] });
+      return { ...base, project, recipe };
+    }
+    const codes = (dir: string, project: JsonObject): string[] => {
+      const warnings: import('../src/check.ts').Finding[] = [];
+      rigRegistrationFindings(dir, project, warnings);
+      return warnings.filter(w => w.code === 'RIG_TURN_EXTRA_GROUP').map(w => w.message);
+    };
+
+    test('names the default body dial with RIG_TURN_EXTRA_GROUP and keeps the recipe sha256', () => {
+      const { dir, project, recipe } = bodySetup({ bone: 'rectangle', pivot: 15, roles: { rectangle: 'surface' } });
+      expect(turnExtraGroup(dir, project)).toEqual({ version: 1, dial: 'body_yaw_dial', recorded: false });
+      const messages = codes(dir, project);
+      expect(messages).toHaveLength(1);
+      expect(messages[0]).toContain('body_yaw_dial');
+      const depth = obj(obj(obj(arr(project.versions)[0]).registration).depth);
+      for (const field of ['manifest', 'report'] as const) {
+        expect(JSON.parse(readFileSync(join(dir, String(obj(depth[field]).path)), 'utf8')).recipeSha256).toBe(recipe);
+      }
+    });
+
+    test('names a declared body slider, and a turn step note naming it clears the WARN', () => {
+      const { dir, project } = bodySetup({ bone: 'rectangle', pivot: 15, slider: 'torso_dial', roles: { rectangle: 'surface' } });
+      expect(codes(dir, project)[0]).toContain('torso_dial');
+      const step = obj(arr(obj(project.plan).steps).map(obj).find(s => s.id === 'turn'));
+      step.status_history = [{ from_status: 'pending', status: 'in-progress', by: 'agent', at: '2026-11-08T00:00:00Z', note: 'body_yaw_dial is unused.' }];
+      expect(codes(dir, project)).toHaveLength(1);
+      step.status_history = [{ from_status: 'pending', status: 'in-progress', by: 'agent', at: '2026-11-08T00:00:00Z', note: 'torso_dial is unused: the answer asked for a head turn.' }];
+      expect(codes(dir, project)).toEqual([]);
+      expect(turnExtraGroup(dir, project)?.recorded).toBe(true);
+    });
+
+    test('next names the unused dial as a RIG_TURN_EXTRA_GROUP turn step move until the step is done', () => {
+      const { dir, project } = bodySetup({ bone: 'rectangle', pivot: 15, roles: { rectangle: 'surface' } });
+      const [move] = turnExtraGroupMoves(dir, project);
+      expect(move?.field).toBe('plan.steps[turn].status_history[].note');
+      expect(move?.act).toContain('RIG_TURN_EXTRA_GROUP');
+      expect(move?.act).toContain('body_yaw_dial');
+      obj(arr(obj(project.plan).steps).map(obj).find(s => s.id === 'turn')).status = 'done';
+      expect(turnExtraGroupMoves(dir, project)).toEqual([]);
+      expect(codes(dir, project)).toHaveLength(1);
+    });
+
+    test.each([['head only', undefined, 'depth'], ['fixed view', { bone: 'rectangle', pivot: 15, roles: { rectangle: 'surface' } }, 'fixed'], ['empty body roles', { bone: 'rectangle', pivot: 15, roles: {} }, 'depth']] as const)('%s raises no RIG_TURN_EXTRA_GROUP', (_name, body, mode) => {
+      const { dir, project } = bodySetup(body === undefined ? undefined : structuredClone(body) as JsonObject, mode);
+      expect(turnExtraGroup(dir, project)).toBeNull();
+      expect(codes(dir, project)).toEqual([]);
+    });
   });
 
   test('#567 accepted depth output binds the applied source and matches registered depth parts', () => {

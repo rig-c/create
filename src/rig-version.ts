@@ -5,6 +5,7 @@ import { existsSync, lstatSync, readFileSync, readdirSync, realpathSync } from '
 import { acquireBoundJobWrite, beginJobProgress, prepareVersionIntent, publishCommittedVersion } from './job-writer.ts';
 import { cancelUncommittedIntent, type PendingPublication } from './job-outbox.ts';
 import { partsFileReferences } from '@rig-c/parts/src/parts.ts';
+import { BODY_YAW_DIAL_BONE } from '@rig-c/parts/src/turn.ts';
 import { tmpdir } from 'node:os';
 import { basename, dirname, isAbsolute, join, posix, relative, resolve, sep, win32 } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
@@ -627,6 +628,7 @@ export const RIG_PARTS_APPROVAL_SINCE = '2026-11-19T00:00:00Z';
 /** Only explicitly registered versions opt in. Older version contracts are unchanged. */
 export function rigRegistrationFindings(dir: string, project: JsonObject, warnings: Finding[] = [], collection: JsonObject | null = null): Finding[] {
   const findings: Finding[] = depthPlanFindings(project, warnings, collection);
+  turnExtraGroupFindings(dir, project, warnings, collection);
   const allVersions = asArray(project.versions).filter(isObject);
   const registeredNumbers = new Set(allVersions.map(v => v.n).filter((n): n is number => typeof n === 'number' && Number.isSafeInteger(n)));
   for (const [index, version] of allVersions.entries()) {
@@ -1692,6 +1694,46 @@ export function depthPlanFindings(project: JsonObject, warnings: Finding[], coll
   const finding = { code: 'RIG_DEPTH_PLAN_MISSING', path, message: `${path}: a depth turn needs a rig-phase depth step resting on turn, ordered before the rig steps; use ${remedy} and approve it at rigging-interview before running rig` };
   if (answerAt < Date.parse(HEAD_TURN_SINCE)) { warnings.push(finding); return []; }
   return [finding];
+}
+
+/**
+ * The turn question's one depth option is a head turn. Parts depth-apply needs config.turn.body for every recipe
+ * group, so a recipe prepared with a body group keeps that group's dial; dropping it changes the recipe and its
+ * sha256. Create reads the registered config's declaration and names the dial instead (#563).
+ */
+export function turnExtraGroup(dir: string, project: JsonObject, collection: JsonObject | null = null): { version: number; dial: string; recorded: boolean } | null {
+  if (depthAnswer(project, collection).mode !== 'depth') return null;
+  const rig = asArray(project.versions).filter(isObject).filter(v => v.kind === 'rig' && isObject(v.registration)).at(-1);
+  if (rig === undefined || typeof rig.n !== 'number') return null;
+  let config: Json;
+  try { config = JSON.parse(bytesAt(dir, (rig.registration as JsonObject).config_source).toString('utf8')); }
+  catch { return null; } // Registration checks own unreadable config evidence.
+  const turn = isObject(config) && isObject(config.turn) ? config.turn : {};
+  const body = isObject(turn.body) ? turn.body : {};
+  if (!isObject(body.roles) || Object.keys(body.roles).length === 0) return null;
+  const dial = typeof body.slider === 'string' && body.slider !== '' ? body.slider : BODY_YAW_DIAL_BONE;
+  const plan = isObject(project.plan) ? project.plan : {};
+  const step = asArray(plan.steps).filter(isObject).find(s => s.id === 'turn');
+  const recorded = asArray(step?.status_history).some(e => isObject(e) && typeof e.note === 'string' && e.note.includes(dial));
+  return { version: rig.n, dial, recorded };
+}
+
+/** `next` names the unused dial while the turn step can still carry a note. */
+export function turnExtraGroupMoves(dir: string, project: JsonObject, collection: JsonObject | null = null): { role: 'agent'; field: string; awaits: string; command: null; act: string }[] {
+  const extra = turnExtraGroup(dir, project, collection);
+  const plan = isObject(project.plan) ? project.plan : {};
+  const step = asArray(plan.steps).filter(isObject).find(s => s.id === 'turn');
+  if (extra === null || extra.recorded || step === undefined || step.status === 'done') return [];
+  const field = 'plan.steps[turn].status_history[].note';
+  return [{ role: 'agent', field, awaits: field, command: null,
+    act: `RIG_TURN_EXTRA_GROUP: the head-turn answer leaves dial ${extra.dial} of rig v${extra.version} unused; keep the depth recipe and record it with the turn step's next status move: rig-create step-status turn <next status> <project dir> --by agent --note-file <file naming ${extra.dial} as unused>` }];
+}
+
+function turnExtraGroupFindings(dir: string, project: JsonObject, warnings: Finding[], collection: JsonObject | null): void {
+  const extra = turnExtraGroup(dir, project, collection);
+  if (extra === null || extra.recorded) return;
+  const path = 'plan.steps[turn]';
+  warnings.push({ code: 'RIG_TURN_EXTRA_GROUP', path, message: `${path}: the turn answer asks for a head turn, but rig v${extra.version}'s registered config.turn.body also turns a body group on dial ${extra.dial}; Parts depth-apply keeps every recipe group, and dropping one changes the depth recipe, so keep the recipe and name ${extra.dial} as unused in a turn step note: rig-create step-status turn <next status> --by <operator> --note-file <file naming ${extra.dial}>` });
 }
 
 /** Depth-apply may enrich only depth declarations; accepted art/geometry/measurements stay identical. */

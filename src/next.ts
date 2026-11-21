@@ -6,7 +6,8 @@ import { checkpointEnabled, checkpointRequired } from './plan-history.ts';
 import { createHash } from 'node:crypto';
 import { existsSync, lstatSync, readdirSync, readFileSync, realpathSync } from './check-reads.ts';
 import { isDeepStrictEqual } from 'node:util';
-import { publicationFile, riggingDraftPartsChange } from './job-publication.ts';
+import { eligibleRigDraftModel, publicationFile, riggingDraftPartsChange } from './job-publication.ts';
+import { latestRigDraftVerdict } from './rig-draft-verdict.ts';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import {
   answered,
@@ -503,6 +504,9 @@ function reviewCommands(dir: string, project: JsonObject, move: NextMove, asked:
   } else if (act.kind === 'signoff' && act.stage === 'rig-review' && act.version_id) {
     selector = `--rig ${shellWord(act.version_id.slice(1))}`;
     writer = 'signoff rig-review';
+  } else if (act.kind === 'review-verdict' && act.stage === 'rig-review' && act.draft_id) {
+    selector = `--draft ${shellWord(act.draft_id)}`;
+    writer = `review --draft ${shellWord(act.draft_id)}`;
   } else if (['rig-review', 'direction-review'].includes(act.stage) && act.kind === 'review-verdict' && act.version_id) {
     const n = act.version_id.slice(1);
     selector = `--rig ${shellWord(n)}`;
@@ -1214,7 +1218,11 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
     fix: remedyForFinding(r.code, r.message),
   }));
 
+  const parsedVersions = readVersions(project);
   const riggingDraft = effectiveStage === 'rigging' ? asArray(project.drafts).filter(isObject).at(-1) : undefined;
+  const compiledDraftId = riggingDraft && typeof riggingDraft.id === 'string' && eligibleRigDraftModel(riggingDraft)
+    ? riggingDraft.id : undefined;
+  const compiledVerdict = compiledDraftId === undefined ? undefined : latestRigDraftVerdict(project, compiledDraftId, now);
   const partsChange = riggingDraft && riggingDraftPartsChange(dir, project, riggingDraft, effectiveStage);
   if (partsChange) {
     const { code, path, message, command } = partsChange;
@@ -1312,9 +1320,39 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
       };
     }
   }
+  const versions = asArray(project.versions).filter(isObject);
+  const reopens = collectReopens(project, []);
+  const rigN = parsedVersions.rigs.filter(rig => rig.live).at(-1)?.n ?? null;
+  const nextRigN = Math.max(0, ...versions.map(v => Number(v.n) || 0)) + 1;
+  const approval = stage !== PAUSED_STAGE && rigN === null && (effectiveStage === 'rigging' || effectiveStage === 'rig-review')
+    ? latestPartsApproval(project, now) : undefined;
+  const approvalIdentity = approval && partsApprovalIdentity(approval);
+  const checked = approvalIdentity ? latestCheckedRigBuild(dir, versions, Date.parse(approvalIdentity.signoff_at), reopens, now) : undefined;
+  const checkedRigN = checked ? nextRigRegistrationNumber(dir, nextRigN) : undefined;
+  const checkedRegistration = checked && checkedRigN !== undefined
+    ? rigRegistrationMove(dir, checkedRigN, checked, registrationDeclarations(dir, project, checkedRigN, checked))
+    : undefined;
+
   if (effectiveStage === 'rigging') {
-    const feedback = typeof riggingDraft?.id === 'string' ? latestRiggingDraftFeedback(project, riggingDraft.id) : undefined;
-    if (feedback?.act.value.verdict === 'changes-requested' && liveSignoff(collectReopens(project, []), 'rigging', Date.parse(feedback.act.at))) {
+    const feedback = compiledDraftId === undefined && typeof riggingDraft?.id === 'string'
+      ? latestRiggingDraftFeedback(project, riggingDraft.id) : undefined;
+    if (compiledVerdict?.value.verdict === 'changes-requested' && rigN === null) {
+      const field = `drafts[${compiledVerdict.source.selector.id}]`;
+      const source = `review act ${compiledVerdict.jobId}/${compiledVerdict.actId}`;
+      const revision = asArray(project.corrections).filter(isObject)
+        .findLast(row => row.source === source && isObject(row.outcome) && row.outcome.kind === 'mesh-delta')?.outcome;
+      addAwait(field);
+      moves.push({ role: 'agent', field, awaits: field,
+        command: `rig-create draft-rig '<new-id>' ${shellWord(dir)} --config '<new-config>' --from '<new-output>'`,
+        act: `Read the retained comments in ${source} and build a new draft with a new ID${isObject(revision) ? ` using the retained Parts revision ${String(revision.revision)}` : ''}. Preserve ${field} and its verdict, then register and publish the new draft.` });
+      if (checkedRegistration) {
+        addAwait(checkedRegistration.awaits);
+        moves.push(checkedRegistration);
+      }
+      return { schema: NEXT_SCHEMA, project_id: String(project.name ?? ''), stage, effective_stage: effectiveStage,
+        accepted: false, refusals, ...warningFields, awaits: awaitsList, moves };
+    }
+    if (feedback?.act.value.verdict === 'changes-requested' && liveSignoff(reopens, 'rigging', Date.parse(feedback.act.at))) {
       const id = feedback.act.source.selector.id;
       const field = `drafts[${id}]`;
       addAwait(field);
@@ -1338,8 +1376,7 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
   const pendingMesh = stage !== PAUSED_STAGE && (effectiveStage === 'rigging' || effectiveStage === 'rig-review')
     ? pendingMeshDeltaRevision(project) : null;
   if (openFeedback.length > 0 || pendingMesh !== null) {
-    const versions = asArray(project.versions).filter(isObject);
-    const n = Math.max(0, ...versions.map(v => Number(v.n) || 0)) + 1;
+    const n = nextRigN;
     const rigInputs = RIG_VERSION_INPUTS.replace('--rig <dir>', '--rig <rig-dir>');
     const groups = new Map<string, { version: number; verdict: number }[]>();
     for (const finding of openFeedback) {
@@ -1394,13 +1431,11 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
   // 1. Derive lapsed approvals from reopens[] and amendments[].
   const rawSignoffs = asArray(project.signoffs).filter(isObject);
   const rawReopens = asArray(project.reopens).filter(isObject);
-  const reopens = collectReopens(project, []);
   const signoffs = collectSignoffs(project, []);
   const hasLiveStageSignoff = (targetStage: string): boolean =>
     signoffs.some(s => s.stage === targetStage && s.checkpoint === null && liveSignoff(reopens, s.stage, s.at));
   const hasLiveCheckpointSignoff = (targetStage: string, stepId: string): boolean =>
     signoffs.some(s => s.stage === targetStage && s.checkpoint === stepId && liveSignoff(reopens, s.stage, s.at));
-  const parsedVersions = readVersions(project);
   const isHistoryVersion = (n: number, kind?: 'rig' | 'post'): boolean => {
     const entry = kind === 'rig'
       ? parsedVersions.rigs.find(r => r.n === n)
@@ -1596,7 +1631,6 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
 
   // 3. Stage-specific derivation from project.json.
   const drafts = asArray(project.drafts).filter(isObject);
-  const versions = asArray(project.versions).filter(isObject);
 
   if (stage === PAUSED_STAGE) {
     const resumeTarget = pausedFrom(project);
@@ -1934,13 +1968,7 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
     );
     const openRigSteps = rigSteps.filter(s => s.status !== 'done');
     const hasOpenRigSteps = effectiveStage === 'rigging' && openRigSteps.length > 0;
-    const rigN = parsedVersions.rigs.filter(r => r.live).at(-1)?.n ?? null;
     const hasHistoryRig = parsedVersions.rigs.some(r => !r.live) || !liveSignoff(reopens, 'rig-review', -Infinity);
-    const nextRigN = Math.max(0, ...versions.map(v => Number(v.n) || 0)) + 1;
-    const approval = rigN === null ? latestPartsApproval(project, now) : undefined;
-    const approvalIdentity = approval && partsApprovalIdentity(approval);
-    const checked = approvalIdentity ? latestCheckedRigBuild(dir, versions, Date.parse(approvalIdentity.signoff_at), reopens, now) : undefined;
-    const checkedRigN = checked ? nextRigRegistrationNumber(dir, nextRigN) : undefined;
 
     if (hasOpenRigSteps) {
       for (const step of openRigSteps) {
@@ -1985,11 +2013,18 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
       }
     }
 
-    if (checked && checkedRigN !== undefined) {
-      const move = rigRegistrationMove(dir, checkedRigN, checked, registrationDeclarations(dir, project, checkedRigN, checked));
-      addAwait(move.awaits);
-      moves.push(move);
-    } else if (!checked && !hasOpenRigSteps) {
+    const offerDraftReview = rigN === null && compiledDraftId !== undefined && compiledVerdict?.value.verdict !== 'approved';
+    if (offerDraftReview) {
+      const field = `drafts[${compiledDraftId}]`;
+      addAwait(field);
+      moves.push({ role: 'human', field, awaits: field, command: null, act: `review-tool act review-verdict for rigging draft ${compiledDraftId}`,
+        review_act: { kind: 'review-verdict', stage: 'rig-review', review: 'rig-review', draft_id: compiledDraftId, ...(jobId ? { job_id: jobId } : {}) } });
+    }
+    // Draft review is also available when the producer has a checked build to register.
+    if (checkedRegistration) {
+      addAwait(checkedRegistration.awaits);
+      moves.push(checkedRegistration);
+    } else if (!checked && !hasOpenRigSteps && !offerDraftReview) {
       if (effectiveStage === 'rigging' && rigN !== null) {
         const advCmd = candidateAdvance(dir, project, 'rig-review', now);
         if (advCmd !== null) {
@@ -2004,7 +2039,11 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
         }
       }
 
-      if (rigN === null && hasHistoryRig) {
+      if (rigN === null && compiledDraftId !== undefined && compiledVerdict?.value.verdict === 'approved') {
+        const move = rigRegistrationMove(dir, nextRigN);
+        addAwait(move.awaits);
+        moves.push({ ...move, act: `Register the frozen rig from draft ${compiledDraftId}. Byte-identical inputs carry review act ${compiledVerdict.actId}.` });
+      } else if (rigN === null && hasHistoryRig) {
         const move = rigRegistrationMove(dir, nextRigN);
         addAwait(move.awaits);
         moves.push(move);

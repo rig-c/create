@@ -123,7 +123,7 @@ test('a model-backed draft is outside the new amendment route', () => {
   const root = fixture(true, true);
   expect(assertRequestedDraft(root, id, EXAMPLE_NOW)).toMatchObject({ stage: 'rigging', draftId: id });
   expect(inspectDraftPublication(root, readProject(root), id, [], 'rigging')).toMatchObject({
-    rigging: false, context: { subjects: [] },
+    rigging: false, context: { subjects: [{ kind: 'review-verdict', stage: 'rig-review' }] },
   });
   expect(nextProject(root, EXAMPLE_NOW).refusals.map(row => row.code)).not.toContain(refusal);
 });

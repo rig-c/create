@@ -124,9 +124,12 @@ export function pendingJobActs(project: JsonObject, acts: readonly ActV3[], root
     const preconditions: { command: string | null; act: string }[] = [];
     switch (act.kind) {
       case 'review-verdict': {
-        const selector = act.source.selector;
+        const selector = act.source.selector as JobSelector | null;
         subject = act.value.stage;
-        if (selector && (selector.kind === 'rig' || selector.kind === 'post')
+        if (selector?.kind === 'draft' && act.value.stage === 'rig-review') {
+          subject = `draft ${selector.id} / rig-review`;
+          args = ['review', root, '--draft', selector.id];
+        } else if (selector && (selector.kind === 'rig' || selector.kind === 'post')
           && act.value.stage === (selector.kind === 'rig' ? 'rig-review' : 'direction-review')) {
           subject = `${selector.kind} v${selector.version} / ${act.value.stage}`;
           args = ['review', String(selector.version), root];
@@ -292,6 +295,11 @@ export interface PendingTargetAsk {
 }
 
 function actMatchesAsk(act: ActV3, ask: PendingAskV3): boolean {
+  const selector = sourceTargetInfo(ask.source).selector;
+  if (ask.subject.kind === 'review-verdict' && selector?.kind === 'draft') {
+    return act.kind === 'review-verdict' && act.publicationId === ask.publicationId && act.value.stage === ask.subject.stage
+      && isDeepStrictEqual(act.source.selector, selector) && act.source.sourceHash === ask.source.sourceHash;
+  }
   if (act.askId === ask.askId) return true;
   if (act.publicationId !== ask.publicationId || act.kind !== ask.subject.kind) return false;
   switch (ask.subject.kind) {

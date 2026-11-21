@@ -143,7 +143,7 @@ function partsIdentity(dir: string, value: JsonObject): void {
  * standalone `parts rig` output bind no compiled model). A non-null model is still read
  * and must match the draft. Every other draft identity requires its retained model.
  */
-export function validateCorrectionIdentity(dir: string, project: JsonObject, value: Json | undefined, stage: string, direction = false, partImage = false): JsonObject {
+export function validateCorrectionIdentity(dir: string, project: JsonObject, value: Json | undefined, stage: string, direction = false, partImage = false, draftMesh = false): JsonObject {
   if (direction) {
     if (stage !== "direction-review" || !isObject(value)) fail("DIRECTION_CORRECTION_OUTCOME", "direction identity requires post at direction-review");
     try { validateDirectionIdentity(dir, project, value); } catch (e) { if (e instanceof DirectionError) fail(e.code,e.message); throw e; }
@@ -155,7 +155,7 @@ export function validateCorrectionIdentity(dir: string, project: JsonObject, val
     partsIdentity(dir, value); return value;
   }
   if (value.kind === 'draft') {
-    if (stage !== 'parts-review' || !closed(value, ['kind', 'id', 'config', 'parts', 'model'])) fail('CORRECTION_SOURCE', 'draft identity belongs to parts-review');
+    if (stage !== (draftMesh ? 'rig-review' : 'parts-review') || !closed(value, ['kind', 'id', 'config', 'parts', 'model'])) fail('CORRECTION_SOURCE', 'draft identity must match its parts or mesh review stage');
     const draft = draftRecord(project, value.id);
     if (!sameHash(value.config, draft.config) || !isObject(value.parts) || !isObject(draft.parts)) fail('CORRECTION_SOURCE', 'draft config/parts do not match inventory');
     const modelless = partImage && value.model === null;
@@ -741,7 +741,7 @@ export function checkCorrections(ctx: { dir: string; project: JsonObject; refusa
   if (!correctionsAdopted(project) && project.corrections.length) refusals.push(correctionFinding('CORRECTION_CONTRACT_INVALID', 'corrections_contract', 'records require explicit adoption'));
   const seen = new Map<string, JsonObject>();
   const meshKeys = new Set<string>();
-  const meshReceipts = new Map<number, JsonObject>();
+  const meshReceipts = new Map<number | string, JsonObject>();
   for (const [index, raw] of project.corrections.entries()) {
     const path = `corrections[${index}]`;
     if (isObject(raw) && isObject(raw.artifact) && raw.artifact.kind === 'direction-patch') {
@@ -769,7 +769,8 @@ export function checkCorrections(ctx: { dir: string; project: JsonObject; refusa
           warnings.push(correctionFinding('DESCRIBED_DIRECTION_LEGACY', path, 'historical description lacks the exact direction identity; preserve it and capture a new correction@2 request'));
         }
       }
-      const on = validateCorrectionIdentity(dir, project, record.on, String(record.stage), direction, partImage);
+      const on = validateCorrectionIdentity(dir, project, record.on, String(record.stage), direction, partImage,
+        meshDelta && isObject(record.on) && record.on.kind === 'draft');
       if (identityTime(project, on) > date(record.at)) fail('CORRECTION_SOURCE', 'correction predates its source');
       if (record.resolves !== null && (on.kind === 'rig' || on.kind === 'post') && bindings(project.versions).some(v => v.kind === on.kind && Number(v.n) > Number(on.n) && date(v.at) <= date(record.at))) fail('CORRECTION_SOURCE', 'correction must name the latest reviewed version at capture');
       const artifact = record.artifact;
@@ -779,7 +780,7 @@ export function checkCorrections(ctx: { dir: string; project: JsonObject; refusa
         const receipt = validateMeshDeltaOutcome(dir, record, art, now);
         const key = meshDeltaKey(art);
         if (meshKeys.has(key)) fail('CORRECTION_MESH_DELTA_INVALID', 'act and attachment already have a completed mesh delta');
-        const sourceVersion = Number(on.n);
+        const sourceVersion = on.kind === 'draft' ? String(on.id) : Number(on.n);
         const previous = meshReceipts.get(sourceVersion);
         if (previous) {
           const outcome = record.outcome as JsonObject;

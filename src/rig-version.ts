@@ -13,6 +13,9 @@ import { literalFile } from './choices.ts';
 import { configInputReferences } from './config-inputs.ts';
 import { assembleOnlyDraftPath, assertDraftHasRig } from './draft-layout.ts';
 import { parseFeedbackAnswers, readProject } from './feedback.ts';
+import { carryRigDraftVerdict } from './rig-draft-verdict.ts';
+import { assertFigureMaskApproval } from './figure-mask.ts';
+import { assertCorrectionApproval } from './correction-writers.ts';
 import { OWNER_CHAT_FLAGS, readOwnerChat } from './owner-chat.ts';
 import { Refusal, refuse, USAGE_EXIT } from './refusal.ts';
 import { baselineOf, newFindings } from './refusal-baseline.ts';
@@ -1100,7 +1103,7 @@ function mapRegistrationAssets(
       retain(`${evidence}/${portableReqRel}`, reqOriginalBytes);
     }
   }
-  return { portable, effectiveAdapter, runtimeRequirements, requirementsSourceBinding, requirementsRuntimeBinding };
+  return { portable, effectiveAdapter, runtimeRequirements, requirementsSourceBinding, requirementsRuntimeBinding, reqSourcePath, portableReqRel };
 }
 
 const RIG_VERSION_ADAPTER_USAGE = 'rig-version adapter [<dir>] --config <file> --out <file>';
@@ -1449,7 +1452,8 @@ export function rigVersionCommand(args: string[], now: number): { stdout: string
       return fail('RUN_RECORD_REQUIRED', `versions[v${n}].registration.runs`, 'version registered from the toolchain lock alone; retain producer run.json records with --run-record');
     }
     // Pre-existing refusals stay the project's; the candidate may not add a new one.
-    const baseline = baselineOf(checkProject(dir, project, { now }));
+    const asRead = checkProject(dir, project, { now });
+    const baseline = baselineOf(asRead);
     // Remember only absent parents; never remove a pre-existing evidence tree.
     for (const target of [evidence, out, pkg]) {
       let parent = dirname(join(dir, target));
@@ -1478,7 +1482,7 @@ export function rigVersionCommand(args: string[], now: number): { stdout: string
     catch (error) { return fail('RIG_PATH_ADAPTER_INVALID', `versions[v${n}].registration.path_adapter`, String(error)); }
     const configSource = input('--config', 'config-source.json');
     const config = registrationConfig(bytesAt(dir, configSource), n);
-    const copiedSources = new Set<string>();
+    const copiedSources = new Map<string, string>();
     const copyTree = (source: string, target: string, outputs: boolean): void => {
       walkSourceTree(resolve(dir, source), target, (path, destination, names) => {
         sourceDirectories.set(path, names);
@@ -1486,11 +1490,11 @@ export function rigVersionCommand(args: string[], now: number): { stdout: string
         mkdirSync(join(dir, destination), { recursive: true });
       }, (path, destination) => {
         retain(destination, sourceBytes(path), outputs);
-        copiedSources.add(destination);
+        copiedSources.set(destination, path);
       });
     };
     const {
-      portable, effectiveAdapter, requirementsSourceBinding, requirementsRuntimeBinding,
+      portable, effectiveAdapter, requirementsSourceBinding, requirementsRuntimeBinding, reqSourcePath, portableReqRel,
     } = mapRegistrationAssets(dir, options['--config']!, config, evidence, `versions[v${n}].registration.path_adapter`,
       registrationReservedTargets(toolchainKind === 'bun-lock', validatedRuns.map(({ spec }) => spec)), {
         checkSourceAncestors, sourceBytes, retain,
@@ -1502,6 +1506,10 @@ export function rigVersionCommand(args: string[], now: number): { stdout: string
       effectiveAdapter.length === callerAdapter.length ? rawAdapterBytes : Buffer.from(`${JSON.stringify(effectiveAdapter, null, 2)}\n`),
     );
     const configBinding = retain(`${evidence}/config.json`, Buffer.from(`${JSON.stringify(portable, null, 2)}\n`));
+    const configInputSources = new Map(copiedSources);
+    if (portableReqRel && reqSourcePath) {
+      configInputSources.set(requirementsSourceBinding ? String(requirementsSourceBinding.path) : `${evidence}/${portableReqRel}`, reqSourcePath);
+    }
     const compile = input('--compile-report', 'compile-report.json');
     const partsDir = resolve(dir, options['--parts']!);
     copyTree(join(partsDir, 'parts.json'), `${out}/out/parts.json`, true);
@@ -1598,6 +1606,15 @@ export function rigVersionCommand(args: string[], now: number): { stdout: string
     if (problem) refuse(problem.code, problem.message);
     created.push(join(dir, pkg));
     prepareRigReviewPackage([String(n), dir, '--config', String(configBinding.path), '--from', `${out}/out`], candidate, partReferences.map(reference => reference.path));
+    if (asRead.effective_stage === 'rigging') {
+      const carried = carryRigDraftVerdict(dir, project, version, resolve(dir, options['--config']!), configInputSources, now);
+      if (carried) {
+        assertFigureMaskApproval(dir, candidate, n);
+        assertCorrectionApproval(dir, candidate, 'rig-review', now);
+        version.verdicts = [carried.verdict];
+        version.evidence = [carried.evidence];
+      }
+    }
     // The record must pass the same check as every other writer's before it is renamed into place.
     // Every new finding is named in one refusal (create#750); the first keeps the code, so a single finding reads as before.
     const [fresh, ...more] = newFindings(baseline, checkProject(dir, candidate, { now }).refusals);

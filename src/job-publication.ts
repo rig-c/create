@@ -32,6 +32,7 @@ import { assertPlanSignoffCandidate } from './signoff.ts';
 import { assertInterviewRecordSignable, checkpointSignable, packageSignSubjects, reviewVerdictSignable, rigVerdictIngestible, stageSignable } from './signable.ts';
 import { collectReopens, directionReviewClosed, liveSignoff } from './reopen.ts';
 import { acceptedReviewVerdict } from './review.ts';
+import { isAssembleOnlyDraft } from './draft-layout.ts';
 import { recordDirectionTarget, requireRecordDirectionTarget } from './record-direction-target.ts';
 import { latestPartsApproval, previousPartsApproval, retainedJson } from './structure.ts';
 import { partsStructureSnapshot, shellWord } from './job-acts.ts';
@@ -54,18 +55,34 @@ export function draftPackageIdentity(id: string, rigging = false): { id: string;
     : { id: `${DRAFT_PACKAGE_ID_PREFIX}${id}`, path: `review-draft-${id}.json` };
 }
 
-export function isModelLessRiggingDraft(draft: JsonObject): boolean {
-  const paths = asArray(draft.files).filter(isObject).map(file => String(file.path));
+type RiggingDraftOutput = { kind: 'compiled'; model: { path: string; sha256: string } } | { kind: 'mesh' };
+
+function riggingDraftOutput(draft: JsonObject): RiggingDraftOutput | undefined {
+  const files = asArray(draft.files).filter(isObject);
+  const models = files.filter(file => typeof file.path === 'string' && file.path.endsWith('/skeleton.model.json'));
+  if (models.length) {
+    const [{ path, sha256 }] = models;
+    if (models.length === 1 && !isAssembleOnlyDraft(draft) && typeof path === 'string'
+      && typeof sha256 === 'string' && /^[a-f0-9]{64}$/.test(sha256)) {
+      return { kind: 'compiled', model: { path, sha256 } };
+    }
+    return undefined;
+  }
+  const paths = files.map(file => String(file.path));
   const rigs = paths.filter(path => path.endsWith('/rig.json'));
-  return rigs.length === 1 && paths.includes(rigs[0].replace(/rig\.json$/, 'mesh_report.json'))
-    && !paths.some(path => path.endsWith('/skeleton.model.json'));
+  if (rigs.length === 1 && paths.includes(rigs[0].replace(/rig\.json$/, 'mesh_report.json'))) return { kind: 'mesh' };
+}
+
+export function eligibleRigDraftModel(draft: JsonObject): { path: string; sha256: string } | undefined {
+  const output = riggingDraftOutput(draft);
+  return output?.kind === 'compiled' ? output.model : undefined;
 }
 
 /** Compare the two recorded inventories in their own parts roots. */
 export function riggingDraftPartsChange(root: string, project: JsonObject, draft: JsonObject, stage: string | null): (Finding & { command: string }) | undefined {
   // Draft amendments at rigging require that stage in the writer's record.
   if (stage !== 'rigging' || project.stage !== 'rigging') return undefined;
-  if (typeof draft.id !== 'string' || !isModelLessRiggingDraft(draft)) return undefined;
+  if (typeof draft.id !== 'string' || riggingDraftOutput(draft)?.kind !== 'mesh') return undefined;
   const approvedId = latestPartsApproval(project)?.draft_id;
   if (typeof approvedId !== 'string' || approvedId === draft.id) return undefined;
   const approved = asArray(project.drafts).filter((row): row is JsonObject => isObject(row) && row.id === approvedId);
@@ -714,7 +731,7 @@ export function publishedDraft(project: JsonObject, id: string): JsonObject {
   return found[0];
 }
 
-function publishedSourcePainting(root: string, project: JsonObject, label: string): { path: string; sha256: string } {
+export function publishedSourcePainting(root: string, project: JsonObject, label: string): { path: string; sha256: string } {
   const inputs = Array.isArray(project.inputs) ? project.inputs : [];
   const first = inputs[0];
   if (
@@ -880,10 +897,10 @@ export function prepareDraftManifest(root: string, project: JsonObject, id: stri
   const context = draftPublishedContext(root, project, id);
   const draft = publishedDraft(project, id);
   const rigging = path === undefined
-    ? isModelLessRiggingDraft(draft) && effectiveStage(root, project) === 'rigging'
+    ? riggingDraftOutput(draft)?.kind === 'mesh' && effectiveStage(root, project) === 'rigging'
     : path === draftPackageIdentity(id, true).path;
   const { identity, legacyManifest, panels, bytes } = draftManifest(root, project, draft, context.parts!, rigging);
-  if ((path !== undefined && path !== identity.path) || (rigging && !isModelLessRiggingDraft(draft))) {
+  if ((path !== undefined && path !== identity.path) || (rigging && riggingDraftOutput(draft)?.kind !== 'mesh')) {
     refuse('JOB_PUBLICATION_INVALID', `drafts[${id}]: result path differs from its draft publication; restore the writer manifest`);
   }
   path = identity.path;
@@ -925,9 +942,16 @@ export function prepareDraftManifest(root: string, project: JsonObject, id: stri
 export function riggingDraftManifestBytes(root: string, project: JsonObject, draft: JsonObject, parts: NonNullable<JobPublishedContext['parts']>): Buffer {
   const { identity, bytes } = draftManifest(root, project, draft, parts, true);
   const retained = publicationFile(root, identity.path);
-  if (!isModelLessRiggingDraft(draft) || !retained.equals(bytes)) {
+  if (riggingDraftOutput(draft)?.kind !== 'mesh' || !retained.equals(bytes)) {
     refuse('JOB_PUBLICATION_INVALID', `drafts[${String(draft.id)}]: rigging draft manifest or mesh inventory differs; restore the writer manifest and its recorded rig files`);
   }
+  return retained;
+}
+
+export function compiledDraftManifestBytes(root: string, project: JsonObject, draft: JsonObject, parts: NonNullable<JobPublishedContext['parts']>): Buffer {
+  const { identity, bytes } = draftManifest(root, project, draft, parts, false);
+  const retained = publicationFile(root, identity.path);
+  if (!retained.equals(bytes)) refuse('JOB_PUBLICATION_INVALID', `drafts[${String(draft.id)}]: compiled draft manifest differs; restore the writer manifest`);
   return retained;
 }
 
@@ -940,7 +964,7 @@ export function inspectDraftPublication(root: string, project: JsonObject, id: s
   const draft = publishedDraft(project, id);
   const change = riggingDraftPartsChange(root, project, draft, stage);
   if (change) refuse(change.code, change.message);
-  const rigging = stage === 'rigging' && isModelLessRiggingDraft(draft);
+  const rigging = stage === 'rigging' && riggingDraftOutput(draft)?.kind === 'mesh';
   return describeDraftPublication(root, project, id, warnings, stage, rigging);
 }
 
@@ -975,6 +999,9 @@ function describeDraftPublication(root: string, project: JsonObject, id: string,
     ? structure.path : undefined;
   if (stage !== 'parts-review' || missingStructure !== undefined) subjects = subjects.filter(subject => subject.kind !== 'parts-verdict');
   if (rigging) subjects.unshift({ kind: 'parts-verdict', draftId: id });
+  else if (stage === 'rigging' && eligibleRigDraftModel(publishedDraft(project, id))) {
+    subjects.unshift({ kind: 'review-verdict', stage: 'rig-review' });
+  }
   const files = [...context.files];
   const checkpoints = checkpointEvidenceContext(root, project, subjects, files);
   const comparison = previousDraftContext(root, project, id, context.parts!.manifest, files, warnings);
@@ -988,7 +1015,7 @@ function readDraftPublished(root: string, project: JsonObject, id: string, path:
   }
   // Retain the reader for already-issued publications and their acknowledged acts.
   const stage = effectiveStage(root, project);
-  const eligible = rigging && stage === 'rigging' && isModelLessRiggingDraft(publishedDraft(project, id));
+  const eligible = rigging && stage === 'rigging' && riggingDraftOutput(publishedDraft(project, id))?.kind === 'mesh';
   const { context } = describeDraftPublication(root, project, id, [], stage, eligible);
   if (rigging && !eligible) {
     refuse('JOB_PUBLICATION_INVALID', `drafts[${id}]: rigging mesh feedback needs the current model-less rigging draft; publish it at rigging or open the current review`);

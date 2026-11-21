@@ -1008,9 +1008,13 @@ test('#711 relayed rigging-interview signoff unblocks draft publication on the s
   const draftResult = JSON.parse(recorded.stdout) as { id: string; publication: { status: string; lines: string[] } };
   expect(draftResult.id).toBe('next');
   expect(draftResult.publication, draftResult.publication.lines.join('\n')).toMatchObject({ status: 'published' });
-  const next = await page(root, opening.url, 1, 'checkpoint');
+  const next = await page(root, opening.url, 2, 'checkpoint');
   expect(next.head.publicationId).not.toBe(plan.head.publicationId);
-  expect(next.asks.map(ask => ask.subject)).toEqual([{ kind: 'checkpoint', checkpointId: 'bones' }]);
+  expect(next.asks.map(ask => ask.subject)).toEqual([
+    { kind: 'review-verdict', stage: 'rig-review' },
+    { kind: 'checkpoint', checkpointId: 'bones' },
+  ]);
+  expect(next.asks.find(ask => obj(ask.subject).kind === 'review-verdict')?.source).toMatchObject({ selector: draft });
   expect(readWriterBinding(root)).toEqual(binding);
   expect(pid()).toBe(originalPid);
   const db = new Database(join(binding.identity.stateDir, 'jobs.sqlite'), { readonly: true });

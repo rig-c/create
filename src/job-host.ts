@@ -6,7 +6,7 @@ import { asArray, checkProject, collectItems, loadCollection, isObject, type Fin
 import { baselineOf, newFindings } from './refusal-baseline.ts';
 import { assembleOnlyDraftTarget, assembleOnlyVersionFinding, assertDraftHasRig, readAssembleOnlyDraftTarget } from './draft-layout.ts';
 import { Refusal, refuse } from './refusal.ts';
-import { liveManifestPath, draftPackageIdentity, inspectDraftPublication, currentJobIdentity, partsEnumerator, prepareDraftManifest, prepareLiveManifest, publicationFile, publicationSelector, publishedDraft, readPublished, readRecordPublished, riggingDraftPartsChange } from './job-publication.ts';
+import { liveManifestPath, draftPackageIdentity, draftPublishedContext, eligibleRigDraftModel, inspectDraftPublication, currentJobIdentity, partsEnumerator, prepareDraftManifest, prepareLiveManifest, publicationFile, publicationSelector, publishedDraft, publishedSourcePainting, readPublished, readRecordPublished, riggingDraftPartsChange } from './job-publication.ts';
 import { acknowledgePublication, acquireJobLock, assertJobIdentity, enqueuePublication, ensureJobPrivateIgnores, failPublication, JOB_BINDING_FILE, jobHash, jobHostStateRoot, pendingPublications, privateDirectory, publicationVersionHash, readAcknowledgedPublication, readWriterBinding, reconcilePublication, refuseJobIdentityMismatch, writePrivateJson, isRecordResult, type PublicationResult, type JobIdentity, type PendingPublication, type WriterBinding, type PublicationSubject } from './job-outbox.ts';
 import { draftPublicationResult } from './job-writer.ts';
 import { attachCreateJobForClose, refusePendingJobAsks } from './job-close.ts';
@@ -227,7 +227,7 @@ export async function publishPending(
     }));
     const result = await response.json() as { schema: string; ok: boolean; error?: { code: string; message?: string }; value?: {
       publicationId: string; generation: number;
-      source?: { sourceHash: string; projectHash: string; selector?: JobSelector; package?: { id: string; revision: string } };
+      source?: { sourceHash: string; projectHash: string; selector?: JobSelector; package?: { id: string; revision: string }; model?: unknown; direction?: unknown };
     } };
     if (result.schema !== request.schema || !result.ok) {
       const code = result.error?.code ?? 'JOB_PUBLICATION_INVALID';
@@ -238,6 +238,7 @@ export async function publishPending(
     const selector = entry.result.selector;
     const draftIdentity = selector?.kind === 'draft' ? draftPackageIdentity(selector.id, true) : undefined;
     let draftSource;
+    let draftReview;
     if (draftIdentity && entry.result.path === draftIdentity.path) {
       const source = result.value.source;
       if (!source || source.package?.id !== draftIdentity.id || source.package.revision !== entry.versionHash
@@ -246,8 +247,19 @@ export async function publishPending(
         refuse('JOB_PUBLICATION_INVALID', 'project.json: Review acknowledged a different rigging draft source; reconcile the retained draft');
       }
       draftSource = { sourceHash: source.sourceHash, projectHash: source.projectHash };
+    } else if (selector?.kind === 'draft' && subjects.some(subject => subject.kind === 'review-verdict' && subject.stage === 'rig-review')) {
+      const source = result.value.source;
+      const model = eligibleRigDraftModel(publishedDraft(project, selector.id));
+      if (!model || !source || source.package?.id !== draftPackageIdentity(selector.id).id || source.package.revision !== entry.versionHash
+        || !isDeepStrictEqual(source.selector, selector) || source.projectHash !== entry.recordHash
+        || typeof source.sourceHash !== 'string' || !/^[a-f0-9]{64}$/.test(source.sourceHash)
+        || !isDeepStrictEqual(source.model, model) || source.direction !== null) {
+        refuse('JOB_PUBLICATION_INVALID', `drafts[${selector.id}]: Review acknowledged a different compiled draft source; reconcile the retained draft`);
+      }
+      draftReview = { projectHash: source.projectHash, sourceHash: source.sourceHash, model,
+        painting: publishedSourcePainting(entry.root, project, `drafts[${selector.id}]`) };
     }
-    acknowledgePublication(entry, result.value.publicationId, result.value.generation, attempt, subjects, draftSource);
+    acknowledgePublication(entry, result.value.publicationId, result.value.generation, attempt, subjects, draftSource, draftReview);
     onPublished?.({ publicationId: result.value.publicationId, replaced: Boolean(status.publication && status.publication.publicationId !== result.value.publicationId) });
     // The person answers on the page, so every declared subject is asked here, with the
     // agent authority this process already holds in memory. An ask Review refuses never
@@ -439,8 +451,10 @@ export function assertRequestedDraft(root: string, requested?: string, now = Dat
   }
   const stage = checkProject(root, project, { now, readOnly: true }).effective_stage;
   if (requested !== undefined && stage === 'rigging') {
-    const change = riggingDraftPartsChange(root, project, publishedDraft(project, requested), stage);
+    const draft = publishedDraft(project, requested);
+    const change = riggingDraftPartsChange(root, project, draft, stage);
     if (change) refuse(change.code, change.message);
+    if (eligibleRigDraftModel(draft)) draftPublishedContext(root, project, requested);
   }
   if (requested !== undefined && stage === 'parts-review') {
     const { missingStructure } = inspectDraftPublication(root, project, requested, [], stage);

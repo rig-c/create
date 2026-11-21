@@ -22,12 +22,15 @@ import { foldsRigVerdict, foldRigSignoff } from './rig-signoff.ts';
  *   by name; per bounced verdict, its items are counted by cause.
  */
 import { closeSync, fsyncSync, mkdirSync, openSync, renameSync, rmSync, writeFileSync } from 'node:fs';
-import { existsSync, readFileSync } from './check-reads.ts';
+import { existsSync, lstatSync, readFileSync } from './check-reads.ts';
 import { randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import { acquireBoundJobWrite } from './job-writer.ts';
 import { jobHash } from './job-outbox.ts';
 import { assertReviewActSource, decodeReviewAct, fetchReviewActRuntime, reviewActFindings, reviewActPublicationWarning, reviewActStill, reviewActTransport, reviewActVerbatim, reviewActVersionHash, type FetchedReviewAct } from './review-act.ts';
+import { assertDraftReviewActSource, draftReviewStillEvidence, isDraftReviewVerdict, reviewActVerdict, reviewStillEvidence, type ReviewVerdictAct } from './review-act.ts';
+import { DRAFT_ID } from './draft-reuse.ts';
+import { validCarriedRigDraftVerdict } from './rig-draft-verdict.ts';
 import { newRefusals } from './refusal-baseline.ts';
 import { ingestedVerdictPairFinding } from './signoff-pair.ts';
 import { dirname, join, resolve } from 'node:path';
@@ -215,6 +218,10 @@ export function checkFeedback(ctx: Ctx): FeedbackSummary[] {
         push('VERDICT_MALFORMED', path, `${path}: a verdict is { by, at, review, verdict, verbatim, source, on_items[] }`);
         return;
       }
+      if ((d.carried_from_draft !== undefined || typeof d.source === 'string' && d.source.startsWith('carried from draft review act '))
+        && !validCarriedRigDraftVerdict(ctx.dir, ctx.project, v.record, d)) {
+        push('REVIEW_ACT_LEDGER_INVALID', path, `${path}: carried approval differs from its draft act or registered inputs; restore the original act and bindings or review the version again`);
+      }
       const preInterview = v.record.pre_interview === true;
       // Imported verdict shape is checked by checkPreInterview, also at handoff.
       if (!preInterview) {
@@ -378,6 +385,95 @@ export function readProject(dir: string): { file: string; project: JsonObject } 
   return { file, project: parsed as JsonObject };
 }
 
+function fetchVerdictAct<Act extends ReviewVerdictAct>(root: string, actId: string, now: number,
+  select: (act: ReviewVerdictAct) => Act): FetchedReviewAct & { act: Act } {
+  const transport = reviewActTransport(root, actId);
+  const { bytes, stillBytes } = fetchReviewActRuntime(transport);
+  const decoded = decodeReviewAct(bytes);
+  if (decoded.jobId !== transport.jobId || decoded.actId !== actId) refuse('REVIEW_ACT_INVALID', 'project.json.review_acts: fetched verdict differs from the requested act; fetch the correct act');
+  const act = select(decoded);
+  if (Date.parse(act.at) > now) refuse('REVIEW_ACT_INVALID', 'project.json.review_acts: act is dated in the future; restore the clock before recording');
+  return { act, bytes, stillBytes };
+}
+
+function replayedVerdictAct(receipts: Json[], { act, bytes }: FetchedReviewAct): { index: number; receipt: JsonObject } | undefined {
+  const index = receipts.findIndex(row => isObject(row) && row.jobId === act.jobId && row.actId === act.actId);
+  if (index < 0) return undefined;
+  const receipt = receipts[index] as JsonObject;
+  const matches = isDraftReviewVerdict(act) || 'comments' in act.value
+    ? receipt.bytes === bytes
+    : isDeepStrictEqual(JSON.parse(String(receipt.bytes)), act);
+  if (!matches) refuse('REVIEW_ACT_REPLAY_CONFLICT', 'project.json.review_acts: immutable act changed; restore the original receipt');
+  return { index, receipt };
+}
+
+type ReviewEvidenceFile = { path: string; bytes: Buffer };
+type ReviewEvidenceWrite = 'version' | 'draft';
+
+function reviewEvidenceFiles({ bytes, stillBytes }: FetchedReviewAct, path: string, stillHash: string, target: ReviewEvidenceWrite) {
+  const png = stillBytes === undefined ? null : Buffer.from(stillBytes, 'base64');
+  const stillName = target === 'draft' ? 'draft still' : 'named PNG';
+  if (!png || jobHash(png) !== stillHash) refuse('REVIEW_ACT_STILL_INVALID', `project.json.review_acts: ${stillName} is missing or mismatched; fetch act.json and its still together`);
+  const sha256 = jobHash(bytes);
+  const files: ReviewEvidenceFile[] = [{ path, bytes: png }, { path: `${dirname(path)}/${sha256}.act.json`, bytes: Buffer.from(bytes) }];
+  return { sha256, files };
+}
+
+function hasRetainedReviewEvidence(destination: string, file: ReviewEvidenceFile, mode: ReviewEvidenceWrite | 'draft-preflight' | 'draft-replay'): boolean {
+  const info = mode === 'version' ? undefined : lstatSync(destination, { throwIfNoEntry: false });
+  const exists = mode === 'version' ? existsSync(destination) : info !== undefined;
+  if (!exists && mode !== 'draft-replay') return false;
+  if ((mode !== 'version' && !info?.isFile()) || !readFileSync(destination).equals(file.bytes)) {
+    const detail = mode === 'draft-preflight' || mode === 'draft-replay'
+      ? 'retained draft review evidence is missing or differs' : 'retained bytes differ';
+    refuse('REVIEW_ACT_STILL_INVALID', `${file.path}: ${detail}; restore the original export`);
+  }
+  return true;
+}
+
+function syncReviewDirectory(path: string): void {
+  const directory = openSync(path, 'r');
+  try { fsyncSync(directory); } finally { closeSync(directory); }
+}
+
+function retainReviewEvidence(root: string, files: ReviewEvidenceFile[], created: string[], target: ReviewEvidenceWrite): void {
+  for (const file of files) {
+    const destination = join(root, file.path);
+    const directory = dirname(destination);
+    if (target === 'version') mkdirSync(directory, { recursive: true });
+    if (hasRetainedReviewEvidence(destination, file, target)) continue;
+    if (target === 'version') {
+      writeFileSync(destination, file.bytes, { flag: 'wx' });
+      created.push(destination);
+    } else {
+      mkdirSync(directory, { recursive: true });
+      const fd = openSync(destination, 'wx', 0o600);
+      created.push(destination);
+      try { writeFileSync(fd, file.bytes); fsyncSync(fd); } finally { closeSync(fd); }
+    }
+  }
+}
+
+function writeReviewActRecord(root: string, file: string, project: JsonObject, original: Buffer,
+  target: ReviewEvidenceWrite, markCommitted: () => void): void {
+  const verdictName = target === 'draft' ? 'draft verdict' : 'verdict';
+  if (!readFileSync(file).equals(original)) refuse('REVIEW_ACT_SOURCE_STALE', `project.json: record changed during ${verdictName} validation; retry against the current live job`);
+  const temporary = join(root, `.rig-create-review-act-${randomUUID()}.tmp`);
+  const fd = openSync(temporary, 'wx', 0o600);
+  try {
+    writeFileSync(fd, `${JSON.stringify(project, null, 2)}\n`);
+    fsyncSync(fd);
+    renameSync(temporary, file);
+    markCommitted();
+    syncReviewDirectory(root);
+  } finally { closeSync(fd); rmSync(temporary, { force: true }); }
+}
+
+function discardReviewActOutputs(created: string[], discardMesh?: () => void): void {
+  discardMesh?.();
+  for (const path of created) rmSync(path, { force: true });
+}
+
 /** Appends one verdict to `versions[v<n>].verdicts[]`, writes not-asked sentences into their guides, and saves project.json. Refuses before writing anything. */
 export function recordVerdict(projectDirArg: string, input: ReviewInput, now: number): Recorded {
   return writeVerdict(projectDirArg, input, now);
@@ -521,23 +617,9 @@ function writeVerdict(projectDirArg: string, input: ReviewInput, now: number, fe
     const addedEvidence: JsonObject[] = [];
     const still = fetched === undefined ? null : reviewActStill(fetched.act);
     if (fetched !== undefined && still !== null) {
-      const png = fetched.stillBytes === undefined ? null : Buffer.from(fetched.stillBytes, 'base64');
-      if (!png || jobHash(png) !== still.sha256) refuse('REVIEW_ACT_STILL_INVALID', 'project.json.review_acts: named PNG is missing or mismatched; fetch act.json and its still together');
-      const base = `evidence/v${input.version}`;
-      const images = [
-        { path: `${base}/${still.path}`, bytes: png },
-        { path: `${base}/${jobHash(fetched.bytes)}.act.json`, bytes: Buffer.from(fetched.bytes) },
-      ];
-      for (const image of images) {
-        const destination = join(dir, image.path);
-        mkdirSync(dirname(destination), { recursive: true });
-        if (existsSync(destination)) {
-          if (!readFileSync(destination).equals(image.bytes)) refuse('REVIEW_ACT_STILL_INVALID', `${image.path}: retained bytes differ; restore the original export`);
-        } else { writeFileSync(destination, image.bytes, { flag: 'wx' }); created.push(destination); }
-      }
-      const evidence: JsonObject = { kind: 'still', path: images[0].path, sha256: still.sha256,
-        camera: still.camera, frame: still.frame,
-        what: still.frame === 'setup' ? 'Review displayed setup pose' : `Review displayed animation ${JSON.stringify(still.animation)} at ${still.frame} seconds` };
+      const evidence = reviewStillEvidence(`evidence/v${input.version}`, still);
+      const { files } = reviewEvidenceFiles(fetched, evidence.path, evidence.sha256, 'version');
+      retainReviewEvidence(dir, files, created, 'version');
       const entries = asArray(version.evidence);
       if (!isDeepStrictEqual(entries[0], evidence)) {
         entries.unshift(evidence); addedEvidence.push(evidence);
@@ -550,23 +632,13 @@ function writeVerdict(projectDirArg: string, input: ReviewInput, now: number, fe
         version_hash: reviewActVersionHash(original, fetched.act), added_evidence: addedEvidence };
       project.review_acts = [...asArray(project.review_acts), receipt];
       if (foldBaseline) foldRigSignoff(dir, project, fetched.act, originalBytes, foldBaseline, now);
-      if (fetched.act.schema === JOB_MESH_EDITS_ACT_SCHEMA) {
+      if (fetched.act.schema === JOB_MESH_EDITS_ACT_SCHEMA && !isDraftReviewVerdict(fetched.act)) {
         discardMeshRevision = stageReviewMeshDeltaCorrections(dir, original, project, fetched.act, now);
       }
       const invalid = reviewActFindings(project)[0] ?? ingestedVerdictPairFinding(project, input.version, verdicts.length - 1) ?? (foldBaseline ? undefined : newRefusals(dir, original, project, { now })[0]);
       if (invalid) refuse(invalid.code, invalid.message);
       assertReviewActSource(dir, original, fetched.act);
-      if (!readFileSync(file).equals(originalBytes)) refuse('REVIEW_ACT_SOURCE_STALE', 'project.json: record changed during verdict validation; retry against the current live job');
-      const temporary = join(dir, `.rig-create-review-act-${randomUUID()}.tmp`);
-      const fd = openSync(temporary, 'wx', 0o600);
-      try {
-        writeFileSync(fd, `${JSON.stringify(project, null, 2)}\n`);
-        fsyncSync(fd);
-        renameSync(temporary, file);
-        committed = true;
-        const directory = openSync(dir, 'r');
-        try { fsyncSync(directory); } finally { closeSync(directory); }
-      } finally { closeSync(fd); rmSync(temporary, { force: true }); }
+      writeReviewActRecord(dir, file, project, originalBytes, 'version', () => { committed = true; });
       return result;
     }
     const invalid = ingestedVerdictPairFinding(project, input.version, verdicts.length - 1) ?? newRefusals(dir, original, project, { now })[0];
@@ -574,11 +646,63 @@ function writeVerdict(projectDirArg: string, input: ReviewInput, now: number, fe
     writeFileSync(file, `${JSON.stringify(project, null, 2)}\n`);
     return { project_dir: dir, verdict_path: verdictPath, verdict, items: out, stage: asString(project.stage) };
   } catch (error) {
-    if (!committed) {
-      discardMeshRevision?.();
-      for (const path of created) rmSync(path, { force: true });
-    }
+    if (!committed) discardReviewActOutputs(created, discardMeshRevision);
     throw error;
+  }
+}
+
+export function recordDraftReviewAct(root: string, draftId: string, actId: string, now: number): Recorded {
+  root = resolve(root);
+  const release = acquireBoundJobWrite(root);
+  const created: string[] = [];
+  let discardMesh: (() => void) | undefined;
+  let committed = false;
+  try {
+    const fetched = fetchVerdictAct(root, actId, now, act => {
+      if (!isDraftReviewVerdict(act) || act.source.selector.id !== draftId) {
+        refuse('REVIEW_ACT_KIND_MISMATCH', `project.json.review_acts: act does not review draft ${draftId}; invoke review --draft for the displayed draft`);
+      }
+      return act;
+    });
+    const { act, bytes } = fetched;
+    const file = join(root, 'project.json');
+    const original = readFileSync(file);
+    const project = JSON.parse(original.toString('utf8')) as JsonObject;
+    const invalid = reviewActFindings(project)[0];
+    if (invalid) refuse(invalid.code, invalid.message);
+    const binding = assertDraftReviewActSource(root, project, act);
+    const receipts = asArray(project.review_acts);
+    const existing = replayedVerdictAct(receipts, fetched);
+    const verdict = reviewActVerdict(act);
+    const path = `review_acts[${existing?.index ?? receipts.length}].verdict`;
+    const result = { project_dir: root, verdict_path: path, verdict, items: [], stage: asString(project.stage) };
+    const still = draftReviewStillEvidence(act);
+    const { sha256, files } = reviewEvidenceFiles(fetched, still.path, still.sha256, 'draft');
+    const stillDirectory = dirname(still.path);
+    const evidenceDirs = ['evidence', 'evidence/drafts', stillDirectory].map(path => join(root, path));
+    for (const directory of evidenceDirs) {
+      const info = lstatSync(directory, { throwIfNoEntry: false });
+      if (info && !info.isDirectory()) refuse('REVIEW_ACT_STILL_INVALID', `${directory}: draft evidence directory is unsafe; restore its original directory`);
+    }
+    for (const file of files) {
+      hasRetainedReviewEvidence(join(root, file.path), file, existing ? 'draft-replay' : 'draft-preflight');
+    }
+    if (existing) return result;
+    const draft = asArray(project.drafts).filter(isObject).find(row => row.id === draftId)!;
+    const receipt = { schema: 'rig-create/review-act@1', kind: 'review-verdict', jobId: act.jobId, actId: act.actId,
+      bytes, sha256, draft_id: draftId, version_hash: jobHash(`${JSON.stringify(draft, null, 2)}\n`), verdict, evidence: still, painting: binding.painting };
+    const next = { ...project, review_acts: [...receipts, receipt] };
+    if (act.schema === JOB_MESH_EDITS_ACT_SCHEMA) discardMesh = stageReviewMeshDeltaCorrections(root, project, next, act, now);
+    const problem = reviewActFindings(next)[0] ?? newRefusals(root, project, next, { now })[0];
+    if (problem) refuse(problem.code, problem.message);
+    assertDraftReviewActSource(root, project, act);
+    retainReviewEvidence(root, files, created, 'draft');
+    syncReviewDirectory(join(root, stillDirectory));
+    writeReviewActRecord(root, file, next, original, 'draft', () => { committed = true; });
+    return result;
+  } finally {
+    if (!committed) discardReviewActOutputs(created, discardMesh);
+    release();
   }
 }
 
@@ -587,21 +711,18 @@ export function recordReviewAct(root: string, requestedVersion: number, actId: s
   root = resolve(root);
   const release = acquireBoundJobWrite(root);
   try {
-    const response = fetchReviewActRuntime(reviewActTransport(root, actId));
-    const act = decodeReviewAct(response.bytes);
-    const selector = act.source.selector!;
-    if (!('version' in selector) || selector.version !== requestedVersion) refuse('REVIEW_ACT_KIND_MISMATCH', 'project.json.review_acts: act names a different version; invoke review for the displayed version');
-    if (Date.parse(act.at) > now) refuse('REVIEW_ACT_INVALID', 'project.json.review_acts: act is dated in the future; restore the clock before recording');
+    const fetched = fetchVerdictAct(root, actId, now, act => {
+      const selector = act.source.selector!;
+      if (!('version' in selector) || selector.version !== requestedVersion) refuse('REVIEW_ACT_KIND_MISMATCH', 'project.json.review_acts: act names a different version; invoke review for the displayed version');
+      return act;
+    });
+    const { act } = fetched;
     const { project } = readProject(root);
     const invalid = reviewActFindings(project)[0];
     if (invalid) refuse(invalid.code, invalid.message);
     assertReviewActSource(root, project, act);
-    const existing = asArray(project.review_acts).find(entry => isObject(entry) && entry.jobId === act.jobId && entry.actId === act.actId);
-    if (isObject(existing)) {
-      const sameAct = 'comments' in act.value
-        ? existing.bytes === response.bytes
-        : isDeepStrictEqual(JSON.parse(String(existing.bytes)), act);
-      if (!sameAct) refuse('REVIEW_ACT_REPLAY_CONFLICT', 'project.json.review_acts: immutable act changed; restore the original receipt');
+    const existing = replayedVerdictAct(asArray(project.review_acts), fetched)?.receipt;
+    if (existing) {
       const pair = ingestedVerdictPairFinding(project, requestedVersion, Number(existing.verdict));
       if (pair) refuse(pair.code, pair.message);
       if (existing.version_hash !== reviewActVersionHash(project, act, Number(existing.verdict))) refuse('REVIEW_ACT_SOURCE_STALE', 'project.json.review_acts: reviewed version changed; request a new review act');
@@ -614,11 +735,12 @@ export function recordReviewAct(root: string, requestedVersion: number, actId: s
       verdict: { approved: 'accepted', 'changes-requested': 'bounced', pending: 'provisional' }[act.value.verdict] as ReviewInput['verdict'],
       by: act.authority.reviewer.role === 'owner' ? 'user' : 'delegate', review: act.value.stage as Review,
       verbatim: reviewActVerbatim(act), at: act.at, source: `review act ${act.jobId}/${act.actId}`, items: [], quotes: {}, values: {},
-    }, now, { act, bytes: response.bytes, stillBytes: response.stillBytes }, warning ? [warning] : []);
+    }, now, fetched, warning ? [warning] : []);
   } finally { release(); }
 }
 
 export const REVIEW_HELP = `review:
+  [<project dir>] --draft <id> --from-review <actId>  record a rigging draft verdict
   <version>        the version shown (3 or v3)
   [<project dir>]  the project folder (default: the current directory)
   --from-review <actId>  fetch a rig/post verdict through the live job writer binding
@@ -673,7 +795,7 @@ export function reviewCommand(args: string[], now: number): { stdout: string; ex
     if (arg === '--json') json = true;
     else if (arg === '--from-review-file' || arg.startsWith('--from-review-file=')) {
       refuse('REVIEW_FILE_ROUTE_REMOVED', 'project.json.review_acts: saved act files are unsupported; use --from-review <actId> through the live Review job API', USAGE_EXIT);
-    } else if (['--from-review', '--verdict', '--by', '--review', '--verbatim', '--verbatim-file', '--at', '--source'].includes(arg)) {
+    } else if (['--draft', '--from-review', '--verdict', '--by', '--review', '--verbatim', '--verbatim-file', '--at', '--source'].includes(arg)) {
       if (arg in opts) refuse('REVIEW_OPTION_INVALID', `${arg} is given twice`, USAGE_EXIT);
       opts[arg] = value();
     } else if (arg === '--answers-feedback') {
@@ -706,6 +828,14 @@ export function reviewCommand(args: string[], now: number): { stdout: string; ex
       }
     } else if (arg.startsWith('-')) refuse('UNKNOWN_OPTION', `review does not take ${arg}`, USAGE_EXIT);
     else positional.push(arg);
+  }
+  if (opts['--draft'] !== undefined) {
+    if (!DRAFT_ID.test(opts['--draft']) || !opts['--from-review'] || Object.keys(opts).length !== 2 || positional.length > 1
+      || items.length || answersFeedback.length || Object.keys(asks).length || Object.keys(quotes).length || Object.keys(values).length) {
+      refuse('REVIEW_OPTION_INVALID', 'project.json.review_acts: use review [<dir>] --draft <id> --from-review <actId>', USAGE_EXIT);
+    }
+    const recorded = recordDraftReviewAct(positional[0] ?? process.cwd(), opts['--draft'], opts['--from-review'], now);
+    return { stdout: json ? JSON.stringify(recorded, null, 2) : `review: ${recorded.verdict_path} — ${String(recorded.verdict.verdict)} (recorded or replayed)`, exit: 0 };
   }
   if (positional.length > 2) refuse('REVIEW_TOO_MANY_ARGUMENTS', `review takes a version and one folder, got ${positional.join(' ')}`, USAGE_EXIT);
   const dir = positional[1] ?? process.cwd();

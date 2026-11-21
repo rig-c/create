@@ -9,6 +9,13 @@ export const ASSEMBLE_ONLY = 'assemble-only';
 
 export const isAssembleOnlyDraft = (draft: JsonObject | undefined): boolean => draft?.layout === ASSEMBLE_ONLY;
 
+export function draftRigDirectory(draft: JsonObject): string | undefined {
+  const paths = asArray(draft.files).filter(isObject).map(file => String(file.path));
+  const roots = paths.filter(path => path.endsWith('/rig.json')).map(path => path.slice(0, -'/rig.json'.length))
+    .filter(root => paths.includes(`${root}/motion.json`) && paths.includes(`${root}/mesh_report.json`));
+  return roots.length === 1 ? roots[0] : undefined;
+}
+
 export function draftRigRequired(path: string, id: Json | undefined): Finding {
   return { code: 'DRAFT_RIG_REQUIRED', path, message: `${path}: draft ${String(id)} is assemble-only; register a new draft with a rig output using draft-rig` };
 }

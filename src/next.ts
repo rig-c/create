@@ -6,7 +6,8 @@ import { checkpointEnabled, checkpointRequired } from './plan-history.ts';
 import { createHash } from 'node:crypto';
 import { existsSync, lstatSync, readdirSync, readFileSync, realpathSync } from './check-reads.ts';
 import { isDeepStrictEqual } from 'node:util';
-import { publicationFile, riggingDraftPartsChange } from './job-publication.ts';
+import { eligibleRigDraftModel, publicationFile, riggingDraftPartsChange } from './job-publication.ts';
+import { latestRigDraftVerdict } from './rig-draft-verdict.ts';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import {
   answered,
@@ -503,6 +504,9 @@ function reviewCommands(dir: string, project: JsonObject, move: NextMove, asked:
   } else if (act.kind === 'signoff' && act.stage === 'rig-review' && act.version_id) {
     selector = `--rig ${shellWord(act.version_id.slice(1))}`;
     writer = 'signoff rig-review';
+  } else if (act.kind === 'review-verdict' && act.stage === 'rig-review' && act.draft_id) {
+    selector = `--draft ${shellWord(act.draft_id)}`;
+    writer = `review --draft ${shellWord(act.draft_id)}`;
   } else if (['rig-review', 'direction-review'].includes(act.stage) && act.kind === 'review-verdict' && act.version_id) {
     const n = act.version_id.slice(1);
     selector = `--rig ${shellWord(n)}`;
@@ -1214,7 +1218,11 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
     fix: remedyForFinding(r.code, r.message),
   }));
 
+  const parsedVersions = readVersions(project);
   const riggingDraft = effectiveStage === 'rigging' ? asArray(project.drafts).filter(isObject).at(-1) : undefined;
+  const compiledDraftId = riggingDraft && typeof riggingDraft.id === 'string' && eligibleRigDraftModel(riggingDraft)
+    ? riggingDraft.id : undefined;
+  const compiledVerdict = compiledDraftId === undefined ? undefined : latestRigDraftVerdict(project, compiledDraftId, now);
   const partsChange = riggingDraft && riggingDraftPartsChange(dir, project, riggingDraft, effectiveStage);
   if (partsChange) {
     const { code, path, message, command } = partsChange;
@@ -1313,7 +1321,20 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
     }
   }
   if (effectiveStage === 'rigging') {
-    const feedback = typeof riggingDraft?.id === 'string' ? latestRiggingDraftFeedback(project, riggingDraft.id) : undefined;
+    const feedback = compiledDraftId === undefined && typeof riggingDraft?.id === 'string'
+      ? latestRiggingDraftFeedback(project, riggingDraft.id) : undefined;
+    if (compiledVerdict?.value.verdict === 'changes-requested' && !parsedVersions.rigs.some(rig => rig.live)) {
+      const field = `drafts[${compiledVerdict.source.selector.id}]`;
+      const source = `review act ${compiledVerdict.jobId}/${compiledVerdict.actId}`;
+      const revision = asArray(project.corrections).filter(isObject)
+        .findLast(row => row.source === source && isObject(row.outcome) && row.outcome.kind === 'mesh-delta')?.outcome;
+      addAwait(field);
+      moves.push({ role: 'agent', field, awaits: field,
+        command: `rig-create draft-rig '<new-id>' ${shellWord(dir)} --config '<new-config>' --from '<new-output>'`,
+        act: `Read the retained comments in ${source} and build a new draft with a new ID${isObject(revision) ? ` using the retained Parts revision ${String(revision.revision)}` : ''}. Preserve ${field} and its verdict, then register and publish the new draft.` });
+      return { schema: NEXT_SCHEMA, project_id: String(project.name ?? ''), stage, effective_stage: effectiveStage,
+        accepted: false, refusals, ...warningFields, awaits: awaitsList, moves };
+    }
     if (feedback?.act.value.verdict === 'changes-requested' && liveSignoff(collectReopens(project, []), 'rigging', Date.parse(feedback.act.at))) {
       const id = feedback.act.source.selector.id;
       const field = `drafts[${id}]`;
@@ -1400,7 +1421,6 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
     signoffs.some(s => s.stage === targetStage && s.checkpoint === null && liveSignoff(reopens, s.stage, s.at));
   const hasLiveCheckpointSignoff = (targetStage: string, stepId: string): boolean =>
     signoffs.some(s => s.stage === targetStage && s.checkpoint === stepId && liveSignoff(reopens, s.stage, s.at));
-  const parsedVersions = readVersions(project);
   const isHistoryVersion = (n: number, kind?: 'rig' | 'post'): boolean => {
     const entry = kind === 'rig'
       ? parsedVersions.rigs.find(r => r.n === n)
@@ -1985,7 +2005,12 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
       }
     }
 
-    if (checked && checkedRigN !== undefined) {
+    if (rigN === null && compiledDraftId !== undefined && compiledVerdict?.value.verdict !== 'approved') {
+      const field = `drafts[${compiledDraftId}]`;
+      addAwait(field);
+      moves.push({ role: 'human', field, awaits: field, command: null, act: `review-tool act review-verdict for rigging draft ${compiledDraftId}`,
+        review_act: { kind: 'review-verdict', stage: 'rig-review', review: 'rig-review', draft_id: compiledDraftId, ...(jobId ? { job_id: jobId } : {}) } });
+    } else if (checked && checkedRigN !== undefined) {
       const move = rigRegistrationMove(dir, checkedRigN, checked, registrationDeclarations(dir, project, checkedRigN, checked));
       addAwait(move.awaits);
       moves.push(move);
@@ -2004,7 +2029,11 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
         }
       }
 
-      if (rigN === null && hasHistoryRig) {
+      if (rigN === null && compiledDraftId !== undefined && compiledVerdict?.value.verdict === 'approved') {
+        const move = rigRegistrationMove(dir, nextRigN);
+        addAwait(move.awaits);
+        moves.push({ ...move, act: `Register the frozen rig from draft ${compiledDraftId}. Byte-identical inputs carry review act ${compiledVerdict.actId}.` });
+      } else if (rigN === null && hasHistoryRig) {
         const move = rigRegistrationMove(dir, nextRigN);
         addAwait(move.awaits);
         moves.push(move);

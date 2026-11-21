@@ -362,14 +362,16 @@ async function riggingPreview(model = false) {
   return { root, opening };
 }
 
-test('#712A model-backed rigging draft still publishes without a verdict ask', async () => {
+test('#712B model-backed rigging draft publishes exactly one rig-review verdict ask', async () => {
   const { root, opening } = await riggingPreview(true);
-  expect(opening.lines).toEqual([`job: draft ${MESH_DRAFT} published`]);
-  const view = await page(root, opening.url, 0);
+  const subject = { kind: 'review-verdict', stage: 'rig-review' } as const;
+  expect(opening.lines).toEqual([`job: draft ${MESH_DRAFT} published`, 'job: asked review-verdict rig-review']);
+  const view = await page(root, opening.url, 1);
+  expect(view.asks.map(ask => ask.subject)).toEqual([subject]);
   expect(view.head.source).toMatchObject({ selector: { kind: 'draft', id: MESH_DRAFT }, model: {
     path: `derived/drafts/${MESH_DRAFT}/out/check/build/skeleton.model.json`,
   } });
-  expect(readAcknowledgedPublication(root, readWriterBinding(root)!.jobId, String(view.head.publicationId))?.subjects).toEqual([]);
+  expect(readAcknowledgedPublication(root, readWriterBinding(root)!.jobId, String(view.head.publicationId))?.subjects).toEqual([subject]);
 }, REFRESH_FLOW_TIMEOUT_MS);
 
 async function reviewedMeshPreview(verdict: 'approved' | 'changes-requested') {

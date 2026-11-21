@@ -15,8 +15,9 @@ import { DIRECTION_COMPOSE_SPEC } from './direction-compose.ts';
 import { assembleOnlyDraftPath, assembleOnlyDraftTarget, assembleOnlyVersionFinding, assertDraftHasRig } from './draft-layout.ts';
 import { PICK_SIGNOFF_STAGES } from './stages.ts';
 import { isRiggingDraftAct, partsCarryAmendment } from './parts-act.ts';
-import { jobHash, publicationVersionHash, readAcknowledgedPublication, readWriterBinding } from './job-outbox.ts';
-import { composedPublishedBuildFiles, draftPackageIdentity, liveManifestPath, publicationFile } from './job-publication.ts';
+import { jobHash, publicationVersionHash, readAcknowledgedPublication, readWriterBinding, type AcknowledgedPublication } from './job-outbox.ts';
+import { compiledDraftManifestBytes, composedPublishedBuildFiles, draftPackageIdentity, draftPublishedContext, eligibleRigDraftModel, liveManifestPath, publicationFile, publishedSourcePainting } from './job-publication.ts';
+import { DRAFT_ID } from './draft-reuse.ts';
 import { Refusal, refuse } from './refusal.ts';
 import { INTAKE_QUESTION, intakeItem } from './intake.ts';
 import { collectItems, asArray, isObject, type Finding } from './check.ts';
@@ -60,7 +61,15 @@ type CommentsReviewVerdictAct = Extract<CommentAct, { kind: 'review-verdict' }> 
 };
 export type MeshReviewVerdictAct = Extract<JobAct, { schema: typeof JOB_MESH_EDITS_ACT_SCHEMA }>
   & { source: { readonly parts: NonNullable<JobModelSourceBinding['parts']> } };
-export type ReviewVerdictAct = LegacyReviewVerdictAct | CommentsReviewVerdictAct | MeshReviewVerdictAct;
+type DraftVerdictSource = Omit<JobModelSourceBinding, 'selector' | 'model' | 'parts' | 'direction' | 'projectHash'> & {
+  selector: { kind: 'draft'; id: string }; model: NonNullable<JobModelSourceBinding['model']>;
+  parts: NonNullable<JobModelSourceBinding['parts']>; direction: null; projectHash: string;
+};
+type WithDraftSource<Act> = Act extends { source: unknown } ? Omit<Act, 'source'> & { source: DraftVerdictSource } : never;
+export type DraftMeshVerdictAct = WithDraftSource<MeshReviewVerdictAct>;
+export type DraftReviewVerdictAct = WithDraftSource<CommentsReviewVerdictAct> | DraftMeshVerdictAct;
+export type ReviewVerdictAct = LegacyReviewVerdictAct | CommentsReviewVerdictAct | MeshReviewVerdictAct | DraftReviewVerdictAct;
+export const isDraftReviewVerdict = (act: ReviewVerdictAct): act is DraftReviewVerdictAct => act.source.selector?.kind === 'draft';
 type LegacyCheckpointAct = Extract<LegacyJobAct | RecordAct, { kind: 'checkpoint' }>;
 export type CheckpointAct = LegacyCheckpointAct | (Extract<CommentAct, { kind: 'checkpoint' }> & { source: LegacyCheckpointAct['source'] });
 type LegacySignoffAct = Extract<LegacyJobAct | RecordAct, { kind: 'signoff' }>;
@@ -244,6 +253,13 @@ function decodeCommentsReviewAct(raw: JsonObject, kind: ReviewActKind): ReviewVe
       failure('REVIEW_ACT_INVALID', 'comments issue part is outside the bound parts manifest');
     }
     return act as CommentsPartsVerdictAct;
+  }
+  if (act.kind === 'review-verdict' && object(selector) && selector.kind === 'draft') {
+    if (act.value.stage !== 'rig-review' || typeof selector.id !== 'string' || !DRAFT_ID.test(selector.id)
+      || !file(source.model) || source.direction !== null) {
+      failure('REVIEW_ACT_KIND_MISMATCH', 'draft comments verdict needs rig-review, one model and no direction');
+    }
+    return act as unknown as DraftReviewVerdictAct;
   }
   if (act.kind !== 'review-verdict' || !object(selector) || !['rig', 'post'].includes(String(selector.kind))
     || !Number.isSafeInteger(selector.version) || Number(selector.version) < 1 || !file(source.model)
@@ -513,6 +529,7 @@ export function reviewActVersionHash(project: JsonObject, act: ReviewVerdictAct,
 function previousPublicationVerdict(project: JsonObject, act: ReviewVerdictAct): number | undefined {
   if (!Array.isArray(project.review_acts)) return undefined;
   const receipts = project.review_acts.filter(object).filter(entry => {
+    if (entry.kind === 'review-verdict' && entry.draft_id !== undefined) return false;
     if (entry.kind === 'parts-verdict' || entry.kind === 'interview-picks' || entry.kind === 'checkpoint' || entry.kind === 'signoff' || entry.kind === 'discarded' || entry.jobId !== act.jobId || typeof entry.bytes !== 'string') return false;
     return decodeReviewAct(entry.bytes).publicationId === act.publicationId;
   });
@@ -529,6 +546,7 @@ export function reviewActPublicationWarning(root: string, project: JsonObject, a
 }
 
 export function assertReviewActSource(root: string, project: JsonObject, act: ReviewVerdictAct): void {
+  if (isDraftReviewVerdict(act)) { assertDraftReviewActSource(root, project, act); return; }
   const stale = (detail: string): never => failure('REVIEW_ACT_SOURCE_STALE', detail);
   const source = act.source;
   const selector = source.selector!;
@@ -602,24 +620,58 @@ export function assertReviewActSource(root: string, project: JsonObject, act: Re
   }
 }
 
+export function assertDraftReviewActSource(root: string, project: JsonObject, act: DraftReviewVerdictAct): NonNullable<AcknowledgedPublication['draftReview']> {
+  const source = act.source;
+  const { id } = source.selector;
+  const publication = readAcknowledgedPublication(root, act.jobId, act.publicationId);
+  const binding = publication?.draftReview;
+  const stale = (): never => failure('REVIEW_ACT_SOURCE_STALE', `draft ${id} does not match its acknowledged rigging publication`);
+  const drafts = asArray(project.drafts).filter(object).filter(draft => draft.id === id);
+  if (!binding || drafts.length !== 1 || publication.result.path !== draftPackageIdentity(id).path
+    || !isDeepStrictEqual(publication.result.selector, source.selector)
+    || publication.versionHash !== jobHash(`${JSON.stringify(drafts[0], null, 2)}\n`)
+    || !publication.subjects?.some(subject => subject.kind === 'review-verdict' && subject.stage === 'rig-review')
+    || binding.projectHash !== source.projectHash || binding.sourceHash !== source.sourceHash || !isDeepStrictEqual(binding.model, source.model)) return stale();
+  try {
+    const context = draftPublishedContext(root, project, id);
+    const manifest = JSON.parse(compiledDraftManifestBytes(root, project, drafts[0], context.parts!).toString('utf8'));
+    if (!isDeepStrictEqual(context.parts, source.parts) || !isDeepStrictEqual(eligibleRigDraftModel(drafts[0]), source.model)
+      || !isDeepStrictEqual(publishedSourcePainting(root, project, `drafts[${id}]`), binding.painting)
+      || manifest.id !== source.package.id || manifest.revision !== source.package.revision || manifest.model !== source.model.path) return stale();
+  } catch { return stale(); }
+  return binding;
+}
+
 export function reviewActVerdict(act: ReviewVerdictAct): JsonObject {
   return { by: act.authority.reviewer.role === 'owner' ? 'user' : 'delegate', at: act.at,
     review: act.value.stage, verdict: { approved: 'accepted', 'changes-requested': 'bounced', pending: 'provisional' }[act.value.verdict],
     verbatim: reviewActVerbatim(act), source: `review act ${act.jobId}/${act.actId}`, on_items: [] };
 }
 
-function assertMeshActCorrections(project: JsonObject, act: MeshReviewVerdictAct): void {
+function assertMeshActCorrections(project: JsonObject, act: MeshReviewVerdictAct | DraftMeshVerdictAct): void {
   const verdict = reviewActVerdict(act);
   const corrections = asArray(project.corrections).filter(object).filter(record => record.source === verdict.source);
   if (corrections.length !== act.value.meshEdits.length || act.value.meshEdits.some(({ edit, sha256 }, i) => {
     const record = corrections[i];
     const on = record?.on;
     const artifact = record?.artifact;
-    return !object(on) || on.n !== act.source.selector.version || !isDeepStrictEqual(on.model, act.source.model)
+    const selector = act.source.selector;
+    return !object(on) || (selector.kind === 'draft' ? on.kind !== 'draft' || on.id !== selector.id : on.n !== selector.version)
+      || !isDeepStrictEqual(on.model, act.source.model)
       || !isDeepStrictEqual(artifact, { kind: 'mesh-delta', actId: act.actId, sourceHash: act.source.sourceHash,
         payloadSha256: sha256, skin: edit.skin, slot: edit.slot, attachment: edit.attachment })
       || record?.by !== verdict.by || record.at !== act.at || record.verbatim !== (verdict.verbatim || null);
   })) failure('REVIEW_ACT_LEDGER_INVALID', 'recorded mesh corrections differ from the immutable act');
+}
+
+export function reviewStillEvidence(base: string, still: JobRigStill) {
+  return { kind: 'still', path: `${base}/${still.path}`, sha256: still.sha256,
+    camera: still.camera, frame: still.frame,
+    what: still.frame === 'setup' ? 'Review displayed setup pose' : `Review displayed animation ${JSON.stringify(still.animation)} at ${still.frame} seconds` };
+}
+
+export function draftReviewStillEvidence(act: DraftReviewVerdictAct) {
+  return reviewStillEvidence(`evidence/drafts/${act.source.selector.id}`, reviewActStill(act)!);
 }
 
 /** The sign-off fields a passed checkpoint act supplies; the writer and check share them. */
@@ -834,6 +886,20 @@ export function reviewActFindings(project: JsonObject, warnings?: Finding[]): Fi
         }
         return;
       }
+      if (isDraftReviewVerdict(act)) {
+        const id = act.source.selector.id;
+        const draft = asArray(project.drafts).filter(object).filter(row => row.id === id);
+        if (entry.kind !== 'review-verdict' || entry.draft_id !== id || draft.length !== 1 || entry.version !== undefined || entry.signoff !== undefined
+          || asArray(project.signoffs).filter(object).some(row => row.source === `review act ${act.jobId}/${act.actId}`)
+          || entry.version_hash !== jobHash(`${JSON.stringify(draft[0], null, 2)}\n`)
+          || !isDeepStrictEqual(entry.verdict, reviewActVerdict(act)) || !file(entry.painting)
+          || !isDeepStrictEqual(entry.evidence, draftReviewStillEvidence(act))
+          || !isDeepStrictEqual(eligibleRigDraftModel(draft[0]), act.source.model)) {
+          failure('REVIEW_ACT_LEDGER_INVALID', 'recorded draft verdict differs from its immutable act and reviewed draft');
+        }
+        if (act.schema === JOB_MESH_EDITS_ACT_SCHEMA) assertMeshActCorrections(project, act);
+        return;
+      }
       if (!Number.isSafeInteger(entry.verdict) || Number(entry.verdict) < 0 || entry.version !== ('version' in act.source.selector! ? act.source.selector.version : null)) failure('REVIEW_ACT_LEDGER_INVALID', 'verdict receipt target is invalid');
       const target = JSON.stringify([entry.version, entry.verdict]);
       if (targets.has(target)) failure('REVIEW_ACT_LEDGER_INVALID', 'multiple receipts point to one verdict');
@@ -862,9 +928,7 @@ export function reviewActFindings(project: JsonObject, warnings?: Finding[]): Fi
       }
       const still = reviewActStill(act);
       if (still !== null) {
-        const expected = { kind: 'still', path: `evidence/v${entry.version}/${still.path}`, sha256: still.sha256,
-          camera: still.camera, frame: still.frame,
-          what: still.frame === 'setup' ? 'Review displayed setup pose' : `Review displayed animation ${JSON.stringify(still.animation)} at ${still.frame} seconds` };
+        const expected = reviewStillEvidence(`evidence/v${entry.version}`, still);
         if (!object(version) || !Array.isArray(version.evidence) || !version.evidence.some(e => isDeepStrictEqual(e, expected))
           || !Array.isArray(entry.added_evidence) || entry.added_evidence.some(e => !isDeepStrictEqual(e, expected))) {
           failure('REVIEW_ACT_LEDGER_INVALID', 'recorded still differs from the immutable act');

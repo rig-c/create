@@ -35,6 +35,11 @@ record-validation `refusals[]` remain separate. Reconcile acknowledged
 publications through `rig-create job reconcile`. The installed Parts runtime
 requires Bun 1.4 or later. See [Live review](LIVE-REVIEW.md).
 
+At `rigging`, `job open --draft <id>` declares a `rig-review` verdict for a
+draft with an eligible compiled model and a scoped `parts-verdict` for a
+model-less mesh draft. Both bind to the selected draft. Declared files must
+match their recorded hashes.
+
 | Code | Finding and remedy |
 | --- | --- |
 | `JOB_PUBLISH_PENDING` | A committed `project.json` result awaits publication. Restore its bound host and sources, then run `job reconcile` before another participating write or close. To abandon failed publications explicitly, `job close --retire-refused` archives their complete receipts under the private `retired-publications/` directory and closes without acknowledging them; unfailed pending publications still block close. |
@@ -51,7 +56,7 @@ requires Bun 1.4 or later. See [Live review](LIVE-REVIEW.md).
 | `JOB_PRIVATE_STORAGE_INVALID` | Private publication storage has unsafe permissions, type or symlinks. Restore owner-only real directories and regular files. |
 | `JOB_OUTBOX_INVALID` | A private publication receipt is absent, malformed or unreadable. Restore its writer-owned bytes before reconciling. The check reports this as a HOLE. |
 | `JOB_ASK_PENDING` | A bound writer, or `job open`, would publish a different target while the job has an owner ask with no ingested act. Publishing supersedes the open ask, so a second interview question or a draft/rig publication waits for the open ask. The message names the job and pending asks. Have the owner finish those asks, run `job acts <dir> --wait` and ingest the acts with the printed commands, then retry the command to publish into the existing job. A verdict ask or act on a rig or post version that a later amendment made history does not hold the job (a historical reopen still holds it); `job acts` still lists the act, and its ingest still refuses. Refusal preserves `project.json` and the job state byte-identically. |
-| `JOB_PUBLICATION_ASK_REQUIRED` | A bound version writer would replace an open publication with no owner ask. Keep the open page and use `job open` when the next review is ready. The refusal leaves the record and outbox unchanged. |
+| `JOB_PUBLICATION_ASK_REQUIRED` | A bound version writer would replace an open publication with no owner ask or verified carried draft approval. Keep the open page and use `job open` when the next review is ready. The refusal leaves the record and outbox unchanged. |
 | `JOB_ASK_REFUSED` | A publication is acknowledged, but Review refused the ask for one of its declared subjects. The message names each subject and Review's code. The publication is not pending. Restore the published record bytes and run `job open` to ask again. |
 | `JOB_DRAFT_UNKNOWN` | `job open --draft <id>` names a draft the record does not hold. Record the draft with `draft-rig` or name a recorded draft. |
 | `JOB_PARTS_VERDICT_UNASKABLE` | `job open --draft <id>` at `parts-review` would drop the `parts-verdict` subject because the structure snapshot for that draft is missing or invalid. Run `rig-create structure-snapshot <dir> --draft <id>` and retry `job open --draft <id>`. |
@@ -964,6 +969,15 @@ plate-making fix; the default recipe above stays unchanged.
 
 
 ## Split rigging interview and labelled drafts
+
+A `rig-review` verdict on a rigging draft binds the project hash, joined source
+hash and model of its acknowledged publication. The command
+`review --draft <id> --from-review <actId>` retains the exact act, its comments
+and its still alongside the draft ID. Changes requested feed the next draft.
+When the registered inputs and model are byte-identical, `rig-version` carries
+the latest approval with its original job and act IDs, so the version needs no
+second verdict. Changed bytes require a new version verdict. A carried verdict
+with mismatched provenance or bytes triggers `REVIEW_ACT_LEDGER_INVALID`.
 
 The explicit `interview.order.spec: "rig-create/stage-order@1"` switch enables
 parts-only plan approval followed by a post-parts rigging interview. It is not

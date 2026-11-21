@@ -8,9 +8,9 @@ import { lstatSync } from './check-reads.ts';
 import { asArray, checkProject, collectSignoffs, isObject, type Finding } from './check.ts';
 import { CORRECTIONS_SPEC, CORRECTION_SPEC, CORRECTION_STAGES, CorrectionError, checkCorrections, correctionApplied, correctionCheckCoverage, correctionApprovalFindings, feedbackPackageInput, correctionBinding, correctionBytes, correctionFinding, correctionHash, correctionIsLive, correctionJson, correctionsAdopted, draftPartBinding, meshDeltaKey, validatePartImageArtifact, validateCorrectionIdentity, versionRecord } from './corrections.ts';
 import { readProject } from './feedback.ts';
-import { assertDraftHasRig } from './draft-layout.ts';
+import { assertDraftHasRig, draftRigDirectory } from './draft-layout.ts';
 import { checkReviewPackages } from './review-package.ts';
-import { reviewActVerdict, type MeshReviewVerdictAct } from './review-act.ts';
+import { reviewActVerdict, type DraftMeshVerdictAct, type MeshReviewVerdictAct } from './review-act.ts';
 import { readVerbatim } from './record-input.ts';
 import { collectReopens, liveSignoff } from './reopen.ts';
 import { refuse, USAGE_EXIT } from './refusal.ts';
@@ -32,7 +32,7 @@ correction resolve <id> [<dir>]
 const common = ['--version', '--draft', '--parts-file', '--model-file', '--by'];
 function usage(why: string): never { refuse('CORRECTION_USAGE', `corrections: ${why}; ${CORRECTION_HELP}`, USAGE_EXIT); }
 function objects(v: JsonObject[string]): JsonObject[] { return asArray(v).filter(isObject); }
-function identity(dir: string, project: JsonObject, opts: Record<string, string>, stage: string, partImage = false): JsonObject {
+function identity(dir: string, project: JsonObject, opts: Record<string, string>, stage: string, partImage = false, draftMesh = false): JsonObject {
   if (['--version', '--draft', '--parts-file'].filter(f => opts[f] !== undefined).length !== 1) usage('select exactly one version/draft/parts identity');
   let value: JsonObject;
   if (opts['--parts-file']) {
@@ -65,7 +65,7 @@ function identity(dir: string, project: JsonObject, opts: Record<string, string>
     const model = kind === 'post' ? correctionBinding(dir, opts['--model-file'] as string) : correctionBinding(dir, `derived/review/v${n}/out/check/build/skeleton.model.json`);
     value = { kind, n, config, model };
   }
-  validateCorrectionIdentity(dir,project,value,stage,false,partImage);
+  validateCorrectionIdentity(dir,project,value,stage,false,partImage,draftMesh);
   return structuredClone(value);
 }
 function localValidation(dir: string, project: JsonObject, now: number): Finding[] {
@@ -96,6 +96,8 @@ export type MeshDeltaCorrectionAct = Omit<MeshEditAct, 'source' | 'value'> & {
   };
   readonly value: Omit<MeshEditAct['value'], 'comments'> & { readonly comments?: readonly { readonly text: string }[] };
 };
+type ReviewMeshAct = MeshReviewVerdictAct | DraftMeshVerdictAct;
+type StagedMeshAct = MeshDeltaCorrectionAct | DraftMeshVerdictAct;
 
 export type MeshDeltaCorrectionResult =
   | { status: 'applied'; code: null; object: null; correction: JsonObject }
@@ -107,24 +109,27 @@ function meshDeltaRefusal(detail: string): never {
   return refuse(finding.code, finding.message);
 }
 
-function meshDeltaArtifact(act: MeshDeltaCorrectionAct, entry: MeshEditEntry): JsonObject {
+function meshDeltaArtifact(act: StagedMeshAct, entry: MeshEditEntry): JsonObject {
   const { skin, slot, attachment } = entry.edit;
   return { kind: 'mesh-delta', actId: act.actId, sourceHash: act.source.sourceHash, payloadSha256: entry.sha256, skin, slot, attachment };
 }
 
-function meshDeltaSource(dir: string, project: JsonObject, act: MeshDeltaCorrectionAct, now: number): JsonObject {
+function meshDeltaSource(dir: string, project: JsonObject, act: StagedMeshAct, now: number): JsonObject {
   if (!correctionsAdopted(project)) refuse('CORRECTION_CONTRACT_INVALID', 'corrections_contract: adopt corrections explicitly first');
   if (act.schema !== 'rig-review/act@8' || act.kind !== 'review-verdict' || act.value.stage !== 'rig-review'
-    || act.value.verdict !== 'changes-requested' || act.source.selector.kind !== 'rig' || !act.value.meshEdits.length
+    || act.value.verdict !== 'changes-requested' || !['rig', 'draft'].includes(act.source.selector.kind) || !act.value.meshEdits.length
     || !Number.isFinite(Date.parse(act.at)) || Date.parse(act.at) > now) {
     return meshDeltaRefusal('expected a finalized act@8 mesh edit for a retained rig-review source');
   }
-  const on = identity(dir, project, { '--version': String(act.source.selector.version) }, 'rig-review');
+  const selector = act.source.selector;
+  const on = selector.kind === 'draft'
+    ? identity(dir, project, { '--draft': selector.id }, 'rig-review', false, true)
+    : identity(dir, project, { '--version': String(selector.version) }, 'rig-review');
   if (!isDeepStrictEqual(on.model, act.source.model)) return meshDeltaRefusal('the displayed act model differs from the retained source rig');
   return on;
 }
 
-function meshDeltaEntries(act: MeshDeltaCorrectionAct): Map<string, MeshEditEntry> {
+function meshDeltaEntries(act: StagedMeshAct): Map<string, MeshEditEntry> {
   const entries = new Map<string, MeshEditEntry>();
   for (const entry of act.value.meshEdits) {
     const key = meshDeltaKey(meshDeltaArtifact(act, entry));
@@ -136,8 +141,8 @@ function meshDeltaEntries(act: MeshDeltaCorrectionAct): Map<string, MeshEditEntr
 }
 
 function collectMeshDeltaCorrections(
-  dir: string, project: JsonObject, act: MeshDeltaCorrectionAct, on: JsonObject,
-  results: readonly MeshEditResult[], now: number, review?: MeshReviewVerdictAct,
+  dir: string, project: JsonObject, act: StagedMeshAct, on: JsonObject,
+  results: readonly MeshEditResult[], now: number, review?: ReviewMeshAct,
 ): { appended: JsonObject[]; returned: MeshDeltaCorrectionResult[] } {
   const entries = [...meshDeltaEntries(act).values()];
   if (results.length !== entries.length) return meshDeltaRefusal('expected one ordered Parts result for each unique act attachment');
@@ -235,8 +240,8 @@ export function recordMeshDeltaCorrections(
 }
 
 function stageMeshDeltaCorrections(
-  dir: string, original: JsonObject, act: MeshDeltaCorrectionAct, paths: Omit<MeshEditPaths, 'out'>,
-  now: number, review?: MeshReviewVerdictAct,
+  dir: string, original: JsonObject, act: StagedMeshAct, paths: Omit<MeshEditPaths, 'out'>,
+  now: number, review?: ReviewMeshAct,
 ): { appended: JsonObject[]; returned: MeshDeltaCorrectionResult[]; discard: () => void } {
   const on = meshDeltaSource(dir, original, act, now);
   meshDeltaEntries(act);
@@ -257,18 +262,32 @@ function stageMeshDeltaCorrections(
 
 /** Apply against the displayed package and stage the correction records in the verdict's pending write. */
 export function stageReviewMeshDeltaCorrections(
-  dir: string, original: JsonObject, next: JsonObject, act: MeshReviewVerdictAct, now: number,
+  dir: string, original: JsonObject, next: JsonObject, act: ReviewMeshAct, now: number,
 ): () => void {
   try {
     const invalid = localValidation(dir, original, now)[0];
     if (invalid) refuse(invalid.code, invalid.message);
-    const version = versionRecord(original, act.source.selector.version);
+    const selector = act.source.selector;
+    if (selector.kind === 'draft') {
+      const draft = objects(original.drafts).find(d => d.id === selector.id);
+      const rig = draft && draftRigDirectory(draft);
+      if (!draft || !isObject(draft.config) || !rig) return meshDeltaRefusal('the draft needs a unique retained rig and config to apply its mesh edits');
+      openStage(original, 'rig-review');
+      const prior = objects(original.corrections).findLast(record => isObject(record.on) && record.on.kind === 'draft'
+        && record.on.id === selector.id && isObject(record.outcome) && record.outcome.kind === 'mesh-delta');
+      const paths = { rig: prior ? String((prior.outcome as JsonObject).revision) : rig,
+        config: String(draft.config.path), parts: dirname(act.source.parts.manifest.path) };
+      const { appended, discard } = stageMeshDeltaCorrections(dir, original, act, paths, now, act);
+      next.corrections = [...asArray(original.corrections), ...appended];
+      return discard;
+    }
+    const version = versionRecord(original, selector.version);
     const packageCheck: Parameters<typeof checkReviewPackages>[0] = { dir, project: original, refusals: [], warnings: [] };
-    checkReviewPackages(packageCheck, act.source.selector.version);
+    checkReviewPackages(packageCheck, selector.version);
     const packageProblem = packageCheck.refusals[0];
     if (packageProblem) refuse(packageProblem.code, packageProblem.message);
     openStage(original, 'rig-review');
-    const root = `derived/review/v${act.source.selector.version}`;
+    const root = `derived/review/v${selector.version}`;
     const prior = objects(original.corrections).findLast(record => isObject(record.on) && record.on.n === version.n
       && isObject(record.outcome) && record.outcome.kind === 'mesh-delta');
     const paths = { rig: prior ? String((prior.outcome as JsonObject).revision) : `${root}/out/rig`,

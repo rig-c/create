@@ -1,6 +1,7 @@
 import { OWNER_CHAT_FLAGS, readOwnerChat } from './owner-chat.ts';
 import { overrideFindings } from './overrides.ts';
 import { intakeItem, intakeWarnings, INTAKE_QUESTION } from './intake.ts';
+import { prepareInterviewCommentClosure } from './interview-comment-closures.ts';
 /** Public record writers; validation precedes every project write. */
 import { readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { acquireBoundJobWrite, beginJobProgress } from './job-writer.ts';
@@ -11,6 +12,7 @@ import { answered, asArray, checkProject, collectItems, collectSignoffs, isObjec
 import { approvalStageOfGuide } from './stages.ts';
 import { collectReopens, liveSignoff } from './reopen.ts';
 import { readProject } from './feedback.ts';
+import { readVerbatim } from './record-input.ts';
 import { refuse, USAGE_EXIT } from './refusal.ts';
 import { baselineOf, findingKey, newFindings, stoppedEarly } from './refusal-baseline.ts';
 import { CHOICE_ORDER_SPEC, CHOICE_SPEC, ChoiceError, assembleFragments, choiceAdoption, choiceVerbatim, literalFile, optionFile, refusalBaseline, selection, sha256, validateChoice, validateContext, validateSet } from './choices.ts';
@@ -21,6 +23,8 @@ interview-options --adopt [<dir>]
 interview-answer <question> [<dir>] --from-review <actId> [--why-file <file>]
 interview-answer --batch [<dir>] --from-review <actId> [--from-review <actId> ...]
   [--why-file <question>=<file> for each member override]
+interview-answer <source-question> [<dir>] --close-comment --job <jobId> --act <actId> --order <n>
+  --by agent --reason-file <file> [--resolved-by-answer <question>]
 interview-answer <question> [<dir>] --set <path> --sha256 <shown sha> --by <human>
   [--pick <ask>=<option>...] [--other <ask>=<file> --other-fragment <ask>=<JSON file>]...
   [--owner-chat <words file> --said-at <ISO date> --relayed-by <who>]
@@ -298,7 +302,36 @@ function applyInterviewAnswer(dir: string, next: JsonObject, draft: AnswerDraft)
   if (draft.receipt) next.review_acts = [...asArray(next.review_acts), draft.receipt];
 }
 
+function closeInterviewComment(args: string[], now: number): string {
+  if (args.indexOf('--close-comment') !== args.lastIndexOf('--close-comment')) usage('duplicate --close-comment');
+  const { positional, one } = parse(args.filter(arg => arg !== '--close-comment'),
+    ['--job', '--act', '--order', '--by', '--reason-file', '--resolved-by-answer']);
+  const [question, directory] = positional;
+  const jobId = one['--job'];
+  const actId = one['--act'];
+  const orderText = one['--order'];
+  const reasonFile = one['--reason-file'];
+  if (!question || positional.length > 2 || !jobId || !actId || !orderText || !one['--by'] || !reasonFile) {
+    usage('--close-comment requires a source question, --job, --act, --order, --by agent and --reason-file');
+  }
+  if (one['--by'] !== 'agent') refuse('INTERVIEW_COMMENT_CLOSURE_INVALID', 'project.json.interview_comment_closures: name the agent with --by agent');
+  const order = /^[1-9]\d*$/.test(orderText) ? Number(orderText) : NaN;
+  const reason = readVerbatim(reasonFile);
+  const dir = resolve(directory ?? process.cwd());
+  const release = acquireBoundJobWrite(dir, { kind: 'record-only', writer: 'interview' });
+  try {
+    const { file, project, bytes } = readProject(dir);
+    const { row, replay } = prepareInterviewCommentClosure(dir, project, now, { jobId, actId, question, order }, reason, one['--resolved-by-answer']);
+    if (!replay) {
+      const next = { ...project, interview_comment_closures: [...asArray(project.interview_comment_closures), row] };
+      save(file, dir, project, next, now, [], [], bytes);
+    }
+    return JSON.stringify(row);
+  } finally { release(); }
+}
+
 export function interviewAnswerCommand(args: string[], now: number, hooks: InterviewAnswerHooks = {}): string { return run(() => {
+  if (args.includes('--close-comment')) return closeInterviewComment(args, now);
   if (args.includes('--picks-file')) refuse('INTERVIEW_PICKS_FILE_REMOVED', 'project.json: --picks-file was removed; use interview-answer <question> --from-review <actId>', USAGE_EXIT);
   const batch = args.includes('--batch');
   if (batch && args.indexOf('--batch') !== args.lastIndexOf('--batch')) usage('duplicate --batch');

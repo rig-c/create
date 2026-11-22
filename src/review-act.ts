@@ -72,6 +72,13 @@ export function interviewFeedbackRoute(act: InterviewPicksAct):
     })),
   };
 }
+
+export interface VerifiedInterviewPick {
+  act: InterviewPicksAct;
+  path: string;
+  answers: readonly JsonObject[];
+  route?: NonNullable<ReturnType<typeof interviewFeedbackRoute>>;
+}
 export type PartsVerdictActV2 = Extract<LegacyJobAct, { kind: 'parts-verdict' }>;
 export type PartsVerdictActV5 = Omit<PartsVerdictActV2, 'schema' | 'value'> & {
   readonly schema: 'rig-review/act@5';
@@ -885,7 +892,7 @@ function validateDiscardReceipt(entry: JsonObject, path: string, warnings?: Find
 }
 
 /** Ledger validation checks retained evidence. Routed comment information is opt-in for next. */
-export function reviewActFindings(project: JsonObject, warnings?: Finding[], routedAnswerWarnings?: Finding[]): Finding[] {
+export function reviewActFindings(project: JsonObject, warnings?: Finding[], routedAnswerWarnings?: Finding[], verifiedPicks?: VerifiedInterviewPick[]): Finding[] {
   const findings: Finding[] = [];
   const seen = new Set<string>();
   const targets = new Set<string>();
@@ -964,9 +971,10 @@ export function reviewActFindings(project: JsonObject, warnings?: Finding[], rou
         }
         const item = act.value.questionId === INTAKE_QUESTION ? intakeItem(project)
           : collectItems(project, { collection: null }).find(item => item.id === act.value.questionId);
-        const answers = item ? [item.raw, ...asArray(item.record.history)].filter(isObject) : [];
-        const answer = answers.find(answer => answer.at === act.at && object(answer.choice)
-          && jobHash(JSON.stringify(answer.choice)) === entry.version_hash);
+        const retained = item ? [item.raw, ...asArray(item.record.history)].filter(object) : [];
+        const matches = (answer: JsonObject) => answer.at === act.at && object(answer.choice)
+          && jobHash(JSON.stringify(answer.choice)) === entry.version_hash;
+        const answer = retained.find(matches);
         const choice = object(answer?.choice) ? answer.choice : null;
         const picks = choice && Array.isArray(choice.picks) ? choice.picks : [];
         if (entry.question !== act.value.questionId || !answer || answer.by !== retainedActBy(act, answer.by, path, warnings)
@@ -987,6 +995,7 @@ export function reviewActFindings(project: JsonObject, warnings?: Finding[], rou
           }
         }
         ownerPickActs.set(JSON.stringify([act.jobId, act.actId]), act);
+        verifiedPicks?.push({ act, path, answers: retained.filter(matches), route: hasRoute ? route : undefined });
         return;
       }
       if (act.kind === 'reopen') {

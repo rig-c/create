@@ -617,9 +617,16 @@ describe('Frozen Bar 5 — Plants (lapsed approval, changed bound input DRAFT_RI
     }
   });
 
-  test('#846 next shows ordered interview comments as warnings on an accepted project', () => {
-    const dir = join(tempDir(), 'routed-interview-comments');
-    cpSync(CHAIN_DIR, dir, { recursive: true });
+  test.each([
+    { state: 'accepted project', accepted: true },
+    { state: 'bounced rig', accepted: false },
+  ])('#846/#856 next shows only open interview comments and executable moves ($state)', ({ accepted }) => {
+    const dir = join(realpathSync(tempDir()), 'routed interview comments');
+    cpSync(accepted ? CHAIN_DIR : join(CHECKPOINTS_DIR, '3-rig-review'), dir, { recursive: true });
+    if (!accepted) {
+      expect(runMainCapture(['review', '1', dir, '--verdict', 'bounced', '--by', 'owner', '--review', 'rig-review',
+        '--verbatim', 'Revise the synthetic rig.', '--source', 'synthetic fixture'], CHAIN_NOW)).toMatchObject({ code: 0, stderr: '' });
+    }
     const file = join(dir, 'project.json');
     const original = readFileSync(file, 'utf8');
     const project = JSON.parse(original) as JsonObject;
@@ -695,16 +702,21 @@ describe('Frozen Bar 5 — Plants (lapsed approval, changed bound input DRAFT_RI
     saveReceipt(act6, route);
     const routedCheck = check();
     expect(routedCheck).toEqual(baseline.check);
-    expect(routedCheck.warnings.filter(w => w.code === 'FEEDBACK_OPEN')).toEqual([]);
+    const feedbackOpen = () => check().warnings.filter(w => w.code === 'FEEDBACK_OPEN');
+    const beforeFeedbackOpen = feedbackOpen();
+    expect(beforeFeedbackOpen).toHaveLength(accepted ? 0 : 1);
     const json = nextJson();
     expect(json.exit).toBe(0);
-    const { warnings, ...report } = JSON.parse(json.stdout) as NextReport;
-    expect(report).toEqual(JSON.parse(baseline.json.stdout));
-    expect(report).toMatchObject({ accepted: true, refusals: [], awaits: [], moves: [] });
-    expect(warnings?.map(({ code, path }) => ({ code, path }))).toEqual(comments.map((_, index) => ({
-      code: 'REVIEW_ANSWER_COMMENT_ROUTED', path: `${receiptPath}.feedback_route.comments[${index}]`,
+    const baseReport = JSON.parse(baseline.json.stdout) as NextReport;
+    const report = JSON.parse(json.stdout) as NextReport;
+    expect(report).toMatchObject({ accepted, refusals: [] });
+    const commentPaths = comments.map((_, index) => `${receiptPath}.feedback_route.comments[${index}]`);
+    const routedWarnings = (report: NextReport) => (report.warnings ?? []).filter(w => w.code === 'REVIEW_ANSWER_COMMENT_ROUTED');
+    const warnings = routedWarnings(report);
+    expect(warnings.map(({ code, path }) => ({ code, path }))).toEqual(commentPaths.map(path => ({
+      code: 'REVIEW_ANSWER_COMMENT_ROUTED', path,
     })));
-    for (const [index, warning] of warnings!.entries()) {
+    for (const [index, warning] of warnings.entries()) {
       const comment = comments[index]!;
       expect(warning.message).toContain(`project.json.${warning.path}`);
       expect(warning.message).toContain(`interview answer ${question}, owner comment ${index + 1}`);
@@ -712,9 +724,41 @@ describe('Frozen Bar 5 — Plants (lapsed approval, changed bound input DRAFT_RI
       if (comment.anchor) expect(warning.message).toContain(JSON.stringify(comment.anchor));
     }
     const text = nextText();
-    const warningLines = warnings!.map(w => `  WARN [${w.code}]: ${w.message}\n`).join('');
-    expect(text.stdout).toContain(warningLines);
-    expect({ ...text, stdout: text.stdout.replace(warningLines, '') }).toEqual(baseline.text);
+    expect(text.stdout).toContain(warnings.map(w => `  WARN [${w.code}]: ${w.message}\n`).join(''));
+    const commentMoves = report.moves.slice(baseReport.moves.length);
+    expect(commentMoves).toHaveLength(2);
+    expect(report.moves).toEqual([...baseReport.moves, ...commentMoves]);
+    expect(report.awaits).toEqual([...baseReport.awaits, ...commentPaths]);
+
+    const reasonFile = join(dir, 'comment reason.txt');
+    const reason = 'The synthetic guide already covers this comment.';
+    writeFileSync(reasonFile, reason);
+    const executeMove = (index: number) => {
+      const move = commentMoves[index]!;
+      expect(move).toMatchObject({ role: 'agent', field: commentPaths[index], awaits: commentPaths[index] });
+      expect(move.act).toContain('--resolved-by-answer');
+      const argv = printedArgs(move.command!);
+      expect(argv).toEqual(['rig-create', 'interview-answer', question, dir, '--close-comment',
+        '--job', String(envelope.jobId), '--act', String(envelope.actId), '--order', String(index + 1), '--by', 'agent', '--reason-file', '<file>']);
+      expect(runMainCapture(argv.slice(1).map(arg => arg === '<file>' ? reasonFile : arg), CHAIN_NOW)).toMatchObject({ code: 0, stderr: '' });
+    };
+    executeMove(0);
+    const closed = JSON.parse(readFileSync(file, 'utf8')) as JsonObject;
+    expect(closed.interview_comment_closures).toEqual([{
+      jobId: envelope.jobId, actId: envelope.actId, question, order: 1, by: 'agent', at: new Date(CHAIN_NOW).toISOString(),
+      reason, resolution: { kind: 'no-change' },
+    }]);
+    const partial = JSON.parse(nextJson().stdout) as NextReport;
+    expect(routedWarnings(partial)).toEqual([warnings[1]!]);
+    expect(partial.moves).toEqual([...baseReport.moves, commentMoves[1]!]);
+    expect(partial.awaits).toEqual([...baseReport.awaits, commentPaths[1]!]);
+    expect(nextText().stdout).toContain(comments[1]!.text);
+    expect(nextText().stdout).not.toContain(comments[0]!.text);
+    expect(feedbackOpen()).toEqual(beforeFeedbackOpen);
+    executeMove(1);
+    expect(nextJson()).toEqual(baseline.json);
+    expect(nextText()).toEqual(baseline.text);
+    expect(feedbackOpen()).toEqual(beforeFeedbackOpen);
 
     saveReceipt(act6, { ...route, question: 'bones' });
     const refused = JSON.parse(nextJson().stdout) as NextReport;

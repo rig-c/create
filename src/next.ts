@@ -171,6 +171,7 @@ const FATAL_CODES = new Set([
   'SCHEMA_UNKNOWN',
   'STAGE_UNKNOWN',
 ]);
+const ROUTED_ANSWER_COMMENT_PATH = /^review_acts\[(\d+)\]\.feedback_route\.comments\[(\d+)\]$/;
 
 let cachedRemedies: Map<string, string> | null = null;
 
@@ -1213,6 +1214,31 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
   if (fatal !== undefined) refuse(fatal.code, fatal.message);
 
   const project = JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')) as JsonObject;
+  const next = deriveNextProject(dir, project, report, now);
+  const receipts = asArray(project.review_acts);
+  const commentMoves = report.warnings.flatMap((warning): NextMove[] => {
+    if (warning.code !== 'REVIEW_ANSWER_COMMENT_ROUTED') return [];
+    const match = ROUTED_ANSWER_COMMENT_PATH.exec(warning.path);
+    if (match === null) return [];
+    const receipt = receipts[Number(match[1])];
+    if (!isObject(receipt) || receipt.kind !== 'interview-picks' || !isObject(receipt.feedback_route)
+      || typeof receipt.jobId !== 'string' || typeof receipt.actId !== 'string'
+      || typeof receipt.feedback_route.question !== 'string') return [];
+    const { question } = receipt.feedback_route;
+    const comment = asArray(receipt.feedback_route.comments)[Number(match[2])];
+    if (!isObject(comment) || typeof comment.order !== 'number') return [];
+    const source = `--job ${shellWord(receipt.jobId)} --act ${shellWord(receipt.actId)} --order ${comment.order}`;
+    return [{
+      role: 'agent', field: warning.path, awaits: warning.path,
+      command: `rig-create interview-answer ${shellWord(question)} ${shellWord(dir)} --close-comment ${source} --by agent --reason-file '<file>'`,
+      act: 'Replace <file> with your explanation. Add --resolved-by-answer <question> if a later completed answer or guide resolves the comment.',
+    }];
+  });
+  if (commentMoves.length === 0) return next;
+  return { ...next, awaits: [...next.awaits, ...commentMoves.map(move => move.awaits)], moves: [...next.moves, ...commentMoves] };
+}
+
+function deriveNextProject(dir: string, project: JsonObject, report: CheckReport, now: number): NextReport {
   const stage = String(project.stage ?? '');
   const effectiveStage = String(report.effective_stage ?? stage);
   const warnings = report.warnings.filter(w => w.code === 'STRUCTURE_DELTA_REVIEW' || w.code === 'REVIEW_ANSWER_COMMENT_ROUTED');
@@ -2477,6 +2503,9 @@ export function formatNext(report: NextReport | NextCollectionReport): string {
   for (const move of report.moves) {
     const label = move.command ?? move.act;
     lines.push(`  [${move.role}] (${move.field} -> ${move.awaits}) ${label}`);
+    if (move.command !== null && ROUTED_ANSWER_COMMENT_PATH.test(move.field)) {
+      lines.push(`    ${move.act}`);
+    }
     if (move.unanswered_by_record) {
       lines.push(`    unanswered by record: ${move.unanswered_by_record}`);
     }

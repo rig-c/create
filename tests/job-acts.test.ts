@@ -21,6 +21,7 @@ import { currentJobIdentity } from '../src/job-publication.ts';
 import { JOB_COMMENTS_ACT_SCHEMA, parseCommentsAct, startJobHost, type ActV3, type JobOwnerHost, type JobHostOptions } from '@rig-c/review/job-host';
 import { interviewAnswerCommand } from '../src/choice-writers.ts';
 import { reviewActFindings } from '../src/review-act.ts';
+import { sorted } from '../src/step-hash.ts';
 import type { Json, JsonObject } from '../src/templates.ts';
 import { testClock } from './clock.ts';
 import { EXAMPLE_NOW, EXAMPLE_REOPEN_AT } from '../scripts/example-time.ts';
@@ -557,16 +558,18 @@ function riggingInterviewRoot(edit?: (project: JsonObject) => void): string {
 }
 
 /** Register a fresh pending option set for one rigging question; returns the page value that answers it. */
-async function registerQuestion(root: string, question: string) {
+async function registerQuestion(root: string, question: string, setId = `pending-acts-${question}`) {
   const project = read(root); const item = collectItems(project, { collection: null }).find(item => item.id === question)!;
   const retained = obj(obj(item.raw).choice).set as JsonObject;
   const set = JSON.parse(readFileSync(join(root, String(retained.path)), 'utf8')) as JsonObject;
-  set.id = `pending-acts-${question}`; set.drafted_at = new Date(testClock.now() - 1000).toISOString();
+  set.id = setId; set.drafted_at = new Date(testClock.now() - 1000).toISOString();
   set.context = optionContext(project, 'rigging-interview', testClock.now() - 1000, root);
-  const path = `evidence/interview/pending-acts-${question}.json`;
+  const path = `evidence/interview/${setId}.json`;
   writeFileSync(join(root, path), JSON.stringify(set, null, 2) + '\n');
   expectExit0(await cli(root, ['interview-options', question, root, '--file', path]));
-  const selections = (set.asks as JsonObject[]).map(ask => ({ itemId: ask.id, optionId: obj((ask.options as JsonObject[])[0]).id, otherText: null }));
+  const selections = (set.asks as JsonObject[]).map(ask => ({
+    itemId: ask.id, optionId: obj((ask.options as JsonObject[])[0]).id, otherText: null as string | null,
+  }));
   return { questionId: question, selections, note: WORDS };
 }
 
@@ -587,6 +590,201 @@ function commentedPicksAct(act4: JsonObject, comments: { text: string; anchor?: 
   expect(parseCommentsAct(act6) as unknown).toEqual(act6);
   return act6;
 }
+
+const COMMENT_CLOSURE_INVALID = 'INTERVIEW_COMMENT_CLOSURE_INVALID';
+
+function ingestClosureFixturePicks(
+  root: string, value: Awaited<ReturnType<typeof registerQuestion>>, comments: { text: string }[] = [],
+) {
+  const project = read(root);
+  const envelope = JSON.parse(readFileSync(join(import.meta.dir, 'fixtures/record-acts/picks.json'), 'utf8')) as JsonObject;
+  const jobId = String(envelope.jobId);
+  const actId = randomUUID();
+  const origin = 'http://127.0.0.1:1';
+  const identity = currentJobIdentity({ root, stateDir: jobHostStateRoot(root), fingerprint: 'synthetic-comment-closure',
+    reviewer: { id: 'synthetic-owner', role: 'owner' } }, root);
+  writePrivateJson(join(root, JOB_BINDING_FILE), { schema: 'rig-create/job-binding@1', identity, jobId, origin,
+    fetchCapability: 'synthetic-fetch', listenerIncarnation: 'synthetic-listener' }, true);
+  project.review_job = { jobId, origin };
+  write(root, project);
+
+  const { questionId } = value;
+  const item = collectItems(project, { collection: null }).find(item => item.id === questionId)!;
+  const pending = obj(item.record.pending_options);
+  const optionSetFile = { path: String(pending.path), sha256: String(pending.sha256) };
+  const set = JSON.parse(readFileSync(join(root, optionSetFile.path), 'utf8')) as JsonObject;
+  const setId = String(set.id);
+  const record = { path: 'project.json', sha256: jobHash(readFileSync(join(root, 'project.json'))) };
+  const binding = {
+    record, selection: { kind: 'option-set', questionId, setId }, inputs: [],
+    optionSet: { id: setId, sha256: optionSetFile.sha256 }, optionSetFile, plan: null,
+    subjects: [{ kind: 'interview-picks', questionId, setId }], files: [optionSetFile, record],
+  };
+  const at = testClock.iso();
+  const act = commentedPicksAct({ ...envelope, actId, at, value,
+    source: { sourceHash: jobHash(JSON.stringify({ schema: 'rig-review-job-record-source/1', ...binding })),
+      projectHash: record.sha256, subject: 'option-set', ...binding },
+  }, comments);
+  const answer = JSON.parse(interviewAnswerCommand([questionId, root, '--from-review', actId], testClock.now(), {
+    fetch: () => ({ bytes: JSON.stringify(act) }),
+  })) as JsonObject;
+  return { question: questionId, jobId, actId, at, answer };
+}
+
+async function commentClosureFixture() {
+  const root = riggingInterviewRoot();
+  const file = join(root, 'project.json');
+  const reasonPath = join(root, 'closure-reason.txt');
+  const reason = 'Synthetic handling explanation.';
+  writeFileSync(reasonPath, reason);
+  const sourceAt = EXAMPLE_NOW + 1000;
+  testClock.set(sourceAt);
+  const source = ingestClosureFixturePicks(root, await registerQuestion(root, 'bones'), [{ text: 'Synthetic owner comment.' }]);
+  testClock.set(sourceAt + 2000);
+  const args = [source.question, root, '--close-comment', '--job', source.jobId, '--act', source.actId, '--order', '1',
+    '--by', 'agent', '--reason-file', reasonPath];
+  const close = (question?: string, now = testClock.now()) => interviewAnswerCommand(
+    question === undefined ? args : [...args, '--resolved-by-answer', question], now,
+  );
+  const refuses = (question?: string, now = testClock.now()) => {
+    const before = readFileSync(file);
+    expect(() => close(question, now)).toThrow(expect.objectContaining({ code: COMMENT_CLOSURE_INVALID }));
+    expect(readFileSync(file)).toEqual(before);
+  };
+  const check = (project?: JsonObject) => checkProject(root, project, { now: testClock.now(), readOnly: true });
+  return { root, file, source, reason, reasonPath, close, refuses, check };
+}
+
+async function recordClosureOwnerChatAnswer(root: string): Promise<JsonObject> {
+  const value = await registerQuestion(root, 'motion');
+  const args = ownerChatAnswerArgs(root, value).slice(1);
+  return JSON.parse(interviewAnswerCommand(args, testClock.now())) as JsonObject;
+}
+
+test.each(['proposed answer', 'pending pick', 'unresolved Other'] as const)(
+  '#856 refuses closure by %s and preserves project bytes', async evidence => {
+    const { root, refuses } = await commentClosureFixture();
+    const value = await registerQuestion(root, 'motion');
+    const project = read(root);
+    const item = collectItems(project, { collection: null }).find(item => item.id === 'motion')!;
+    if (evidence === 'proposed answer') {
+      const proposal = { ...obj(item.raw), by: 'agent', at: testClock.iso(), source: 'synthetic agent proposal' };
+      item.record.guide = proposal;
+      delete item.record.pending_options;
+      write(root, project);
+    } else if (evidence === 'pending pick') {
+      expect(item.record.pending_options).toBeDefined();
+    } else if (evidence === 'unresolved Other') {
+      const [first, ...rest] = value.selections;
+      const target = ingestClosureFixturePicks(root, { ...value, selections: [
+        { ...first!, optionId: 'other', otherText: 'A synthetic proposal without a resolved value.' }, ...rest,
+      ] });
+      expect(target.answer.asks).toContainEqual(expect.objectContaining({ state: 'other-pending' }));
+    }
+    refuses('motion');
+  },
+);
+
+test('#856 enforces source, resolving answer and closure time order', async () => {
+  const { root, source, reason, close, refuses, check } = await commentClosureFixture();
+  const target = ingestClosureFixturePicks(root, await registerQuestion(root, 'motion'));
+  const sourceTime = Date.parse(source.at);
+  const targetTime = Date.parse(target.at);
+  expect(targetTime).toBeGreaterThan(sourceTime);
+  refuses(undefined, sourceTime - 1);
+  refuses('motion', targetTime - 1);
+  const before = read(root);
+  close('motion', targetTime);
+  const recorded = read(root);
+  expect(recorded.interview_comment_closures).toEqual([{
+    jobId: source.jobId, actId: source.actId, question: source.question, order: 1, by: 'agent', at: target.at,
+    reason, resolution: { kind: 'answer', question: target.question, jobId: target.jobId, actId: target.actId },
+  }]);
+  const { interview_comment_closures: closures, ...rest } = recorded;
+  const closure = obj(arr(closures)[0]);
+  expect(rest).toEqual(before);
+  expect(check().refusals).toEqual([]);
+  expect(check({ ...recorded, interview_comment_closures: [{ ...closure, at: source.at }] }).refusals)
+    .toContainEqual(expect.objectContaining({ code: COMMENT_CLOSURE_INVALID, path: 'interview_comment_closures[0]' }));
+});
+
+test('#856 refuses duplicate retained closures for the same comment', async () => {
+  const { root, close, refuses, check } = await commentClosureFixture();
+  close();
+  expect(check().refusals).toEqual([]);
+  const project = read(root);
+  const closure = obj(arr(project.interview_comment_closures)[0]);
+  project.interview_comment_closures = [closure, { ...closure }];
+  write(root, project);
+  expect(check().refusals).toContainEqual(expect.objectContaining({ code: COMMENT_CLOSURE_INVALID, path: 'interview_comment_closures[1]' }));
+  refuses();
+});
+
+test('#856 refuses a conflicting closure and preserves project bytes', async () => {
+  const { root, reasonPath, close, refuses } = await commentClosureFixture();
+  ingestClosureFixturePicks(root, await registerQuestion(root, 'motion'));
+  close('motion');
+  testClock.set(testClock.now() + 1000);
+  refuses();
+  writeFileSync(reasonPath, 'A conflicting explanation.\n');
+  refuses('motion');
+});
+
+test('#856 exact closure replay preserves the original project bytes', async () => {
+  const { root, file, close } = await commentClosureFixture();
+  ingestClosureFixturePicks(root, await registerQuestion(root, 'motion'));
+  const original = close('motion');
+  const saved = readFileSync(file);
+  testClock.set(testClock.now() + 1000);
+  expect(close('motion')).toEqual(original);
+  expect(readFileSync(file)).toEqual(saved);
+});
+
+test('#856 refuses an ambiguous resolving question with two eligible Review answers', async () => {
+  const { root, file, close, refuses } = await commentClosureFixture();
+  const first = ingestClosureFixturePicks(root, await registerQuestion(root, 'motion'));
+  const beforeClosure = readFileSync(file);
+  close('motion');
+  writeFileSync(file, beforeClosure);
+
+  testClock.set(testClock.now() + 2000);
+  const second = ingestClosureFixturePicks(root, await registerQuestion(root, 'motion', 'pending-acts-motion-follow-up'));
+  expect(Date.parse(second.at)).toBeGreaterThan(Date.parse(first.at));
+  expect(reviewActFindings(read(root))).toEqual([]);
+  refuses('motion');
+});
+
+test('#856 accepts a later owner-chat answer and binds its exact record', async () => {
+  const { root, source, close, check } = await commentClosureFixture();
+  const receipts = read(root).review_acts;
+  const answer = await recordClosureOwnerChatAnswer(root);
+  expect(answer).toMatchObject({ owner_words: 'Synthetic owner chat words.\n', relayed_by: 'synthetic-operator' });
+  expect(Date.parse(String(answer.said_at))).toBeGreaterThan(Date.parse(source.at));
+  expect(Date.parse(String(answer.at))).toBeGreaterThan(Date.parse(String(answer.said_at)));
+  testClock.set(testClock.now() + 1000);
+  close('motion');
+  const recorded = read(root);
+  expect(obj(arr(recorded.interview_comment_closures)[0]).resolution).toEqual({
+    kind: 'answer', question: 'motion', answer_sha256: jobHash(JSON.stringify(sorted(answer))),
+  });
+  expect(recorded.review_acts).toEqual(receipts);
+  expect(check().refusals).toEqual([]);
+});
+
+test('#856 refuses tampered retained owner-chat evidence and preserves project bytes', async () => {
+  const { root, close, refuses, check } = await commentClosureFixture();
+  await recordClosureOwnerChatAnswer(root);
+  close('motion');
+  expect(check().refusals).toEqual([]);
+  const project = read(root);
+  const item = collectItems(project, { collection: null }).find(item => item.id === 'motion')!;
+  obj(item.raw).owner_words = 'Different but still valid owner chat words.\n';
+  write(root, project);
+
+  const findings = check().refusals.map(({ code, path }) => ({ code, path }));
+  expect(findings).toEqual([{ code: COMMENT_CLOSURE_INVALID, path: 'interview_comment_closures[0]' }]);
+  refuses('motion');
+});
 
 test('#846 single ingest routes exact comments and preserves survey, receipt and replay bytes', async () => {
   const { root, view, value } = await openMotionQuestion();

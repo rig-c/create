@@ -493,10 +493,27 @@ mismatch with `REVIEW_FEEDBACK_ROUTE_INVALID`. A retained receipt with comments
 and no route gives `REVIEW_ANSWER_COMMENTS_UNROUTED` in `check` at any date.
 Preserve that receipt and read its comments in `bytes` under `value.comments`.
 
-`next` and `next --json` show one informational
-`REVIEW_ANSWER_COMMENT_ROUTED` WARN per routed comment, with the question,
-order, exact text, any serialized anchor and its receipt path. The warnings
-leave the available moves and `FEEDBACK_OPEN` counts unchanged.
+`next` and `next --json` show one `REVIEW_ANSWER_COMMENT_ROUTED` warning and
+agent move per open routed comment. The warning includes the question, order,
+exact text, any serialized anchor and receipt path. Use the source identity
+in the move and put the operator's explanation in a reason file.
+
+```sh
+rig-create interview-answer <source-question> [<dir>] --close-comment \
+  --job <job-id> --act <act-id> --order <order> --by agent \
+  --reason-file <file> [--resolved-by-answer <question>]
+```
+
+Use `--resolved-by-answer` when a later completed local answer or guide
+resolves the comment. The closure binds the exact answer revision, so the
+project retains the evidence in answer history if that answer is superseded.
+For a no-change resolution, omit the flag and explain the reason in the file.
+The writer records the resolution in `interview_comment_closures`, separate
+from the original Review receipt. Replaying the same closure is a no-op.
+After a valid closure, `next` drops that comment's warning and move. Closing a
+comment records agent work. Owner answers and approvals still follow their
+existing routes, and version `FEEDBACK_OPEN` counts continue to track bounced
+verdicts.
 
 After recording every pick, run `interview --check`, then `job open --plan`
 for the interview signature. The grouped, single-set and interview-signature routes are supported by

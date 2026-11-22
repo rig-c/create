@@ -407,10 +407,10 @@ export function readRecordPublished({ root, record, result, phase, parts: sealed
       ? new Set(items.filter(item => item.state.state === 'silent'
         && interviewStageOfGuide(item.id, item.kind === 'post', hasStageOrder(project)) === report.effective_stage).map(item => item.path))
       : new Set<string>();
-    const coversPlanDate = (finding: Finding): boolean => finding.code !== 'PLAN_STEP_PREDATES_ANSWER'
+    const coversPlanDate = (finding: Finding, stage: string | null): boolean => finding.code !== 'PLAN_STEP_PREDATES_ANSWER'
       || (result.kind === 'plan' && steps.some(step => finding.path === `plan.steps[${String(step.id)}]`
-        && stepCoveredByApproval(project, step, report.effective_stage)));
-    const scopedRefusals = report.refusals.filter(finding => coversPlanDate(finding)
+        && stepCoveredByApproval(project, step, stage)));
+    const scopedRefusals = report.refusals.filter(finding => coversPlanDate(finding, report.effective_stage)
       && (finding.code !== 'INTERVIEW_INCOMPLETE' || !openQuestions.has(finding.path)));
     const stalePlan = scopedRefusals.find(finding => finding.code === 'PLAN_STEP_PREDATES_ANSWER');
     if (stalePlan) refuse(stalePlan.code, stalePlan.message);
@@ -419,8 +419,14 @@ export function readRecordPublished({ root, record, result, phase, parts: sealed
     // Inventory sees the live project. A re-sign may only repair the scoped findings,
     // even when another refusal depends on producer files outside the retained plan.
     const baseline = canResign && phase === 'inventory' ? checkProject(root, project, { now, readOnly: true }) : undefined;
-    const refusals = baseline?.refusals.filter(coversPlanDate) ?? scopedRefusals;
+    const refusals = baseline?.refusals.filter(finding => coversPlanDate(finding, report.effective_stage)) ?? scopedRefusals;
     const { stage: resignStage, blocking } = canResign ? planResignScope(project, steps, refusals) : { stage: null, blocking: refusals };
+    // A re-sign can approve an earlier stage's plan while execution stays at the current stage.
+    if (resignStage !== null) {
+      const stale = (baseline?.refusals ?? report.refusals).find(finding =>
+        finding.code === 'PLAN_STEP_PREDATES_ANSWER' && coversPlanDate(finding, resignStage));
+      if (stale) refuse(stale.code, stale.message);
+    }
     if (blocking.length && phase === 'retained') {
       throw new RecordClosureIncomplete(blocking.map(({ code, path }) => ({ code, path })));
     }

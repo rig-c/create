@@ -689,7 +689,7 @@ function checkPlan(ctx: Ctx, replaced: JsonObject[], now: number): void {
       continue;
     }
     const checkpoint = classify(record.checkpoint, { collection: null });
-    if (approval !== undefined) {
+    if (signed(approving, approvedBy)) {
       if (checkpoint.state === 'silent') {
         ctx.refusals.push({ code: 'CHECKPOINT_UNANSWERED', path: `${path}.checkpoint`, message: `${path}.checkpoint is null, yet ${approvedBy} is signed; the user sets each step's checkpoint (or delegates it) before signing` });
       } else if (

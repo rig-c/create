@@ -677,6 +677,27 @@ function interviewQuestionMoves(dir: string, stageItems: Item[], effectiveStage:
   return moves;
 }
 
+function interviewPlanMoves(dir: string, stageItems: Item[], stage: string, steps: JsonObject[]) {
+  const phase = stage === 'post-interview' ? 'post' : 'rig';
+  const planIds = phase === 'post' ? ['camera', 'timing', 'composition'] : requiredInterviewSteps(stage);
+  const guideForStep = (id: string) => id === 'camera' ? 'camera_depth' : id === 'timing' ? 'post_timing' : id === 'composition' ? 'post_composition' : id;
+  const missingPlanIds = planIds.filter(id => !steps.some(step => step.phase === phase && (step.id === id
+    || phase === 'post' && asArray(step.rests_on).includes(guideForStep(id)))));
+  const lastOrder = Math.max(0, ...steps.map(step => Number(step.order) || 0));
+  const moves: NextMove[] = [];
+  for (const [index, id] of missingPlanIds.entries()) {
+    const guideId = guideForStep(id);
+    const item = stageItems.find(item => item.id === guideId);
+    if (!item || item.state.state === 'silent' || hasPendingOther(item) || isUndecidedDelegation(item)) continue;
+    const order = lastOrder + index + 1;
+    moves.push({ role: 'agent', field: 'plan.steps', awaits: 'plan.steps',
+      command: `rig-create plan add ${id} ${shellWord(dir)} --by agent --phase ${phase} --order ${order} --does '<work>' --produces '<result>' --rests-on ${guideId} --bar '<acceptance bar>' --checkpoint-proposed false`,
+      act: `author the ${id} plan step for approval at ${stage}; replace the work, result and acceptance bar placeholders`,
+      unanswered_by_record: 'plan.steps' });
+  }
+  return { planIds, missingPlanIds, moves };
+}
+
 function runnableNextMoves(dir: string, project: JsonObject, effectiveStage: string, moves: NextMove[]): NextMove[] {
   const stageQuestions = moves.filter(move => move.role === 'human' && !move.unanswered_by_record
     && move.review_act?.kind === 'interview-picks' && move.review_act.stage === effectiveStage);
@@ -1324,7 +1345,27 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
   if (fatal !== undefined) refuse(fatal.code, fatal.message);
 
   const project = JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')) as JsonObject;
-  const next = deriveNextProject(dir, project, report, now);
+  const steps = asArray(isObject(project.plan) ? project.plan.steps : undefined).filter(isObject);
+  const staleSteps = report.refusals.flatMap(finding => {
+    if (finding.code !== 'PLAN_STEP_PREDATES_ANSWER') return [];
+    const step = steps.find(step => finding.path === `plan.steps[${String(step.id)}]`);
+    return step ? [{ finding, step }] : [];
+  });
+  const next = deriveNextProject(dir, project, report, now, steps, staleSteps);
+  // Every stage shows the repairs. Approval gating uses only the steps that approval covers.
+  const revisionMoves = staleSteps.map(({ finding, step }): NextMove => {
+    if (planStepCompleted(project, step)) {
+      const needsAmendment = completedPlanStepNeedsAmendment(project, step, now);
+      const command = needsAmendment ? null : completedPlanRepairCommand(step, dir);
+      return { role: needsAmendment ? 'human' : 'agent', field: finding.path, awaits: finding.path, command,
+        act: `${finding.message}. Retain the completed definition and its execution history in plan.replaced.`
+          + (command === null ? '' : ' Before executing the shown remove/add command, review the replacement definition against the recorded answer and update any plan add fields that need to change.') };
+    }
+    const id = String(step.id);
+    return { role: 'agent', field: finding.path, awaits: finding.path,
+      command: `rig-create plan revise ${shellWord(id)} ${shellWord(dir)} --by agent --reason '<why this step fits the recorded answer>'`,
+      act: `Review ${finding.path} against the recorded answer and update any fields that need to change before requesting approval.` };
+  });
   const receipts = asArray(project.review_acts);
   const commentMoves = report.warnings.flatMap((warning): NextMove[] => {
     if (warning.code !== 'REVIEW_ANSWER_COMMENT_ROUTED') return [];
@@ -1344,11 +1385,13 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
       act: 'Replace <file> with your explanation. Add --resolved-by-answer <question> if a later completed answer or guide resolves the comment.',
     }];
   });
-  if (commentMoves.length === 0) return next;
-  return { ...next, awaits: [...next.awaits, ...commentMoves.map(move => move.awaits)], moves: [...next.moves, ...commentMoves] };
+  if (revisionMoves.length === 0 && commentMoves.length === 0) return next;
+  return { ...next, awaits: [...revisionMoves.map(move => move.awaits), ...next.awaits, ...commentMoves.map(move => move.awaits)],
+    moves: [...revisionMoves, ...next.moves, ...commentMoves] };
 }
 
-function deriveNextProject(dir: string, project: JsonObject, report: CheckReport, now: number): NextReport {
+function deriveNextProject(dir: string, project: JsonObject, report: CheckReport, now: number,
+  steps: JsonObject[], staleSteps: { finding: Finding; step: JsonObject }[]): NextReport {
   const stage = String(project.stage ?? '');
   const effectiveStage = String(report.effective_stage ?? stage);
   const warnings = report.warnings.filter(w => w.code === 'STRUCTURE_DELTA_REVIEW' || w.code === 'REVIEW_ANSWER_COMMENT_ROUTED');
@@ -1441,33 +1484,12 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
     ? [...report.refusals, ...report.warnings].find(finding => finding.code === 'RIG_DEPTH_PLAN_MISSING') : undefined;
   const depthMoves: NextMove[] = depthFinding ? [{ role: 'agent', field: 'plan.steps[turn]', awaits: 'plan.steps[turn]', command: null,
     act: `${depthFinding.code}: ${depthFinding.message}. Record the chosen depth route and reason in its text, with a bar that reads the producer depth reports.` }] : [];
-  const steps = asArray(isObject(project.plan) ? project.plan.steps : undefined).filter(isObject);
-  const stepForFinding = (finding: Finding) => steps.find(step => finding.path === `plan.steps[${String(step.id)}]`);
   const phaseApproval = effectiveStage === 'rigging-interview' || effectiveStage === 'post-interview';
-  const staleSteps = report.refusals.filter(finding => finding.code === 'PLAN_STEP_PREDATES_ANSWER');
-  const hasStaleApprovalStep = (stage: string, checkpoint: string | null = null): boolean => staleSteps.some(finding => {
-    const step = stepForFinding(finding);
-    return step !== undefined && (checkpoint === null ? stepCoveredByApproval(project, step, stage) : step.id === checkpoint);
-  });
-  const scopedStale = staleSteps.filter(finding => {
-    const step = stepForFinding(finding);
-    return step && (!phaseApproval || stepCoveredByApproval(project, step, effectiveStage));
-  });
-  const revisionMoves: NextMove[] = scopedStale.map(finding => {
-    const step = stepForFinding(finding)!;
-    if (planStepCompleted(project, step)) {
-      const needsAmendment = completedPlanStepNeedsAmendment(project, step, now);
-      const command = needsAmendment ? null : completedPlanRepairCommand(step, dir);
-      return { role: needsAmendment ? 'human' : 'agent', field: finding.path, awaits: finding.path, command,
-        act: `${finding.message}. Retain the completed definition and its execution history in plan.replaced.`
-          + (command === null ? '' : ' Before executing the shown remove/add command, review the replacement definition against the recorded answer and update any plan add fields that need to change.') };
-    }
-    const id = String(step.id);
-    return { role: 'agent', field: finding.path, awaits: finding.path,
-      command: `rig-create plan revise ${shellWord(id)} ${shellWord(dir)} --by agent --reason '<why this step fits the recorded answer>'`,
-      act: `Review ${finding.path} against the recorded answer and update any fields that need to change before requesting approval.` };
-  });
-  const blockingRefusals = report.refusals.filter(r => r.code === 'PLAN_STEP_PREDATES_ANSWER' ? scopedStale.includes(r)
+  const hasStaleApprovalStep = (stage: string, checkpoint: string | null = null): boolean => staleSteps.some(({ step }) =>
+    checkpoint === null ? stepCoveredByApproval(project, step, stage) : step.id === checkpoint);
+  const scopedStale = new Set(staleSteps.filter(({ step }) => !phaseApproval || stepCoveredByApproval(project, step, effectiveStage))
+    .map(({ finding }) => finding));
+  const blockingRefusals = report.refusals.filter(r => r.code === 'PLAN_STEP_PREDATES_ANSWER' ? scopedStale.has(r)
     : !isOpenInterviewTodo(r, effectiveStage) && !isResolvableLagging(r));
   const registrations = plateInputMoves(dir, project, allItems, now);
   if (holes.length > 0 || blockingRefusals.length > 0) {
@@ -1484,7 +1506,7 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
       const ready = item !== undefined && answered(item.state) && !hasPendingOther(item) && !isUndecidedDelegation(item);
       readyToResign.set(signoff.stage, readyToResign.get(signoff.stage) !== false && ready);
     }
-    const moves = [...revisionMoves, ...depthMoves, ...registrations];
+    const moves = [...depthMoves, ...registrations];
     for (const [stage, ready] of readyToResign) {
       if (!ready) continue;
       if (hasStaleApprovalStep(stage)) continue;
@@ -1494,11 +1516,13 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
         act: `re-sign ${stage} after confirming the intended answers and relay the owner's exact words`,
       });
     }
-    // A stale definition blocks approval, while question publication and answer writers
-    // can carry the finding until the agent reviews the completed answers.
-    const questions = holes.length === 0 && blockingRefusals.every(r => r.code === 'PLAN_STEP_PREDATES_ANSWER')
-      && stage !== PAUSED_STAGE && isOpenInterviewStage(effectiveStage)
-      ? interviewQuestionMoves(dir, stageItems, effectiveStage, jobId) : [];
+    // Keep the interview and plan drafting available while a stale step blocks approval.
+    const interviewCanContinue = holes.length === 0 && blockingRefusals.every(r => r.code === 'PLAN_STEP_PREDATES_ANSWER')
+      && stage !== PAUSED_STAGE && isOpenInterviewStage(effectiveStage);
+    const questions = interviewCanContinue ? interviewQuestionMoves(dir, stageItems, effectiveStage, jobId) : [];
+    const plan = interviewCanContinue ? interviewPlanMoves(dir, stageItems, effectiveStage, steps) : undefined;
+    const awaits = [...moves, ...questions].map(move => move.awaits);
+    if (plan?.missingPlanIds.length) awaits.push('plan.steps');
     return {
       schema: NEXT_SCHEMA,
       project_id: String(project.name ?? ''),
@@ -1507,8 +1531,8 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
       accepted: false,
       refusals,
       ...warningFields,
-      awaits: [...moves, ...questions].map(move => move.awaits),
-      moves: [...moves, ...runnableNextMoves(dir, project, effectiveStage, questions)],
+      awaits,
+      moves: [...moves, ...runnableNextMoves(dir, project, effectiveStage, questions), ...(plan?.moves ?? [])],
     };
   }
 
@@ -1882,26 +1906,11 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
       moves.push(move);
     }
 
-    const planIds = effectiveStage === 'post-interview' ? ['camera', 'timing', 'composition'] : requiredInterviewSteps(effectiveStage);
-    const missingPlanIds = planIds.filter(id => {
-      const guide = id === 'camera' ? 'camera_depth' : id === 'timing' ? 'post_timing' : id === 'composition' ? 'post_composition' : id;
-      const phase = effectiveStage === 'post-interview' ? 'post' : 'rig';
-      return !steps.some(step => step.phase === phase && (step.id === id
-        || phase === 'post' && asArray(step.rests_on).includes(guide)));
-    });
+    const { planIds, missingPlanIds, moves: planMoves } = interviewPlanMoves(dir, stageItems, effectiveStage, steps);
     const needsPlanSteps = missingPlanIds.length > 0;
     if (needsPlanSteps) {
       addAwait('plan.steps');
-      for (const [index, id] of missingPlanIds.entries()) {
-        const guideId = id === 'camera' ? 'camera_depth' : id === 'timing' ? 'post_timing' : id === 'composition' ? 'post_composition' : id;
-        const item = stageItems.find(item => item.id === guideId);
-        if (!item || item.state.state === 'silent' || hasPendingOther(item) || isUndecidedDelegation(item)) continue;
-        const order = Math.max(0, ...steps.map(step => Number(step.order) || 0)) + index + 1;
-        moves.push({ role: 'agent', field: 'plan.steps', awaits: 'plan.steps',
-          command: `rig-create plan add ${id} ${shellWord(dir)} --by agent --phase ${effectiveStage === 'post-interview' ? 'post' : 'rig'} --order ${order} --does '<work>' --produces '<result>' --rests-on ${guideId} --bar '<acceptance bar>' --checkpoint-proposed false`,
-          act: `author the ${id} plan step for approval at ${effectiveStage}; replace the work, result and acceptance bar placeholders`,
-          unanswered_by_record: 'plan.steps' });
-      }
+      moves.push(...planMoves);
     }
 
     const missingStepNames = missingPlanIds.length === planIds.length ? '' : `${missingPlanIds.join(', ')} `;

@@ -2,8 +2,14 @@ import { afterEach, expect, test } from 'bun:test';
 import { createHash } from 'node:crypto';
 import { chmodSync, cpSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { amendCommand } from '../src/amend.ts';
 import { PLAN_STEP_ANSWER_SINCE, type CheckReport } from '../src/check.ts';
+import { interviewAnswerCommand, interviewOptionsCommand } from '../src/choice-writers.ts';
+import { openCreateJob, openRecordPublication } from '../src/job-host.ts';
 import type { NextReport } from '../src/next.ts';
+import { planCommand } from '../src/plan-writers.ts';
+import { advanceCommand } from '../src/progress-writers.ts';
+import { signoffCommand } from '../src/signoff.ts';
 import { stepHash } from '../src/step-hash.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { checkProject, testClock } from './clock.ts';
@@ -424,12 +430,86 @@ test('#561 approving an uncovered rig step leaves a stale step repairable', () =
   const fixture = prepare('rig');
   const { root, stage, words, run } = fixture;
   draftAndAnswer(fixture, 'rig');
+  const candidate = read(root);
+  const ready = read(join(CHECKPOINTS, '3-rig-review'));
+  for (const id of ['bones', 'meshes', 'constraints']) step(candidate, id).checkpoint = step(ready, id).checkpoint!;
+  write(root, candidate);
   const signed = run('signoff', stage, '--steps', 'motion', '--by', 'user', ...ownerChatArgs(words));
   expect(signed).toMatchObject({ code: 0, stderr: '' });
   expect(checkProject(root).refusals).toContainEqual(expect.objectContaining({ code: STALE, path: 'plan.steps[bones]' }));
+
+  const missingCheckpoints = read(root);
+  step(missingCheckpoints, 'bones').checkpoint = null;
+  step(missingCheckpoints, 'meshes').checkpoint = { delegated: true, by: 'user', at: testClock.iso(), verbatim: 'Decide for me.' };
+  expect(checkProject(root, missingCheckpoints).refusals).toEqual([
+    expect.objectContaining({ code: STALE, path: 'plan.steps[bones]' }),
+    expect.objectContaining({ code: 'CHECKPOINT_UNANSWERED', path: 'plan.steps[bones].checkpoint' }),
+    expect.objectContaining({ code: 'DELEGATION_UNDECIDED', path: 'plan.steps[meshes].checkpoint' }),
+    expect.objectContaining({ code: 'STAGE_LAGGING' }),
+  ]);
+
   testClock.set(T0 + 3_000);
   expect(run('plan', 'revise', 'bones', '--by', 'agent', '--reason', 'Reviewed the recorded bones guide.')).toMatchObject({ code: 0, stderr: '' });
   expect(checkProject(root).refusals).toEqual([expect.objectContaining({ code: 'STAGE_LAGGING' })]);
   const project = read(root);
   expect(obj(obj(arr(project.signoffs).at(-1)).step_hashes).motion).toBe(stepHash(step(project, 'motion')));
 });
+
+test('#561 job open refuses a stale step covered by a post-interview re-sign at post', async () => {
+  const fixture = prepare('post');
+  const { root, id, basis, stage, words, run } = fixture;
+  draftAndAnswer(fixture, 'post');
+  testClock.set(T0 + 3_000);
+  expect(planCommand(['revise', id, root, '--by', 'agent', '--reason', 'Reviewed the initial camera guide.'], testClock.now()).exit).toBe(0);
+  expect(planCommand(['revise', 'timing', root, '--by', 'agent', '--rests-on', `post_timing,${basis}`], testClock.now()).exit).toBe(0);
+  const project = read(root);
+  const ready = read(join(CHECKPOINTS, '4-direction-post'));
+  step(project, id).checkpoint = step(ready, id).checkpoint!;
+  write(root, project);
+  expect(signoffCommand([stage, root, '--steps', 'timing,composition', '--by', 'user', ...ownerChatArgs(words)], testClock.now()).exit).toBe(0);
+  testClock.set(T0 + 4_000);
+  expect(advanceCommand(['post', root], testClock.now()).exit).toBe(0);
+  expect(checkProject(root)).toMatchObject({ effective_stage: 'post', refusals: [] });
+
+  testClock.set(T0 + 5_000);
+  expect(amendCommand(['post', root, '--kind', 'interview-answer', '--target', basis,
+    '--change', 'words.txt', '--by', 'user', ...ownerChatArgs(words)], testClock.now()).exit).toBe(0);
+  const register = (question: string) => {
+    const original = obj(obj(obj(postItem(read(root), question).guide).choice).set);
+    const options = JSON.parse(readFileSync(join(root, String(original.path)), 'utf8')) as JsonObject;
+    options.id = `${question}-resign-amendment`;
+    options.drafted_at = testClock.iso();
+    const path = `evidence/interview/${String(options.id)}.json`;
+    const bytes = JSON.stringify(options);
+    writeFileSync(join(root, path), bytes);
+    interviewOptionsCommand([question, root, '--file', path], testClock.now());
+    return (pick: string) => interviewAnswerCommand([question, root, '--set', path, '--sha256', createHash('sha256').update(bytes).digest('hex'),
+      '--by', 'user', ...ownerChatArgs(words), ...arr(options.asks).flatMap(ask => ['--pick', `${String(obj(ask).id)}=${pick}`])], testClock.now());
+  };
+  const correctCamera = register(basis);
+  testClock.set(T0 + 6_000);
+  correctCamera('alternative');
+  const stepPath = `plan.steps[${id}]`;
+  expect(checkProject(root)).toMatchObject({ effective_stage: 'post', refusals: [
+    expect.objectContaining({ code: 'SIGNOFF_ANSWERS_STALE', path: `signoffs[6].answer_hashes[${basis}]` }),
+    expect.objectContaining({ code: STALE, path: stepPath }),
+  ] });
+
+  // The selected plan's stale step must be reported before the signoff preflight
+  // can stop at another pending answer.
+  testClock.set(T0 + 7_000);
+  const correctComposition = register('post_composition');
+  const before = treeDigest(root);
+  expect(run(...jobOpen)).toMatchObject({ code: 1, stdout: '', stderr: expect.stringContaining(`${STALE}: ${stepPath}`) });
+  expect(treeDigest(root)).toEqual(before);
+
+  testClock.set(T0 + 8_000);
+  correctComposition('keep');
+  expect(planCommand(['revise', id, root, '--by', 'agent', '--reason', 'Reviewed the amended camera guide.'], testClock.now()).exit).toBe(0);
+  const host = await openCreateJob(root, { id: 'user', role: 'owner' }, testClock.now(), undefined, true);
+  try {
+    expect(await openRecordPublication(root, host, undefined, true, testClock.now())).toContain(`job: asked signoff ${stage}`);
+  } finally {
+    host.stop();
+  }
+}, 60_000);

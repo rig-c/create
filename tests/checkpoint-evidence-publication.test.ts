@@ -30,10 +30,12 @@ test('#395 sealed checkpoint record and package publications retain every asset 
       const credentials = owner.session.hostCredentials();
       const recordFile = join(f.root, 'project.json');
       const project: JsonObject = JSON.parse(readFileSync(recordFile, 'utf8'));
-      expect(Object.hasOwn(project, 'painting')).toBe(false);
-      const painting = obj(arr(project.inputs)[0]);
-      expect(painting.path).toBe('inputs/painting.png');
-      const paintingBytes = readFileSync(join(f.root, String(painting.path)));
+      const paintingPath = 'inputs/painting.png';
+      expect(project.painting).toBe(paintingPath);
+      const inputs = arr(project.inputs).map(obj);
+      expect(inputs[0]?.path).toBe('inputs/preparation-source.svg');
+      const painting = obj(inputs.find(input => input.path === paintingPath));
+      const paintingBytes = readFileSync(join(f.root, paintingPath));
       expect(paintingBytes.subarray(0, 8).toString('hex')).toBe('89504e470d0a1a0a');
       expect(jobHash(paintingBytes)).toBe(String(painting.sha256));
       project.review_job = { jobId: owner.session.jobId, origin: owner.origin };
@@ -160,6 +162,7 @@ test('#395 SVG-backed package metadata retains sealed painting and checkpoint ev
   try {
     f.attach();
     const project: JsonObject = JSON.parse(readFileSync(join(f.root, 'project.json'), 'utf8'));
+    expect(project.painting).toBeUndefined();
     const painting = obj(arr(project.inputs)[0]);
     expect(painting.path).toBe('inputs/preparation-source.svg');
     const manifestPath = prepareDraftManifest(f.root, project, 'example');

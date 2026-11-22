@@ -8,13 +8,9 @@ import { arr, fixture, obj, retainSignoffs } from './fixtures.ts';
 
 export function checkpointWorkspace(sourceFormat: 'png' | 'svg' = 'png') {
   const root = realpathSync(fixture(project => {
-    // Reuse the example's writer-registered PNG as the first source, matching
-    // legacy projects whose painting is designated by inputs[0].
-    if (sourceFormat === 'png') {
-      const inputs = arr(project.inputs).map(obj);
-      const painting = inputs.find(input => input.path === 'inputs/painting.png');
-      if (!painting) throw Error('synthetic PNG input is missing');
-      project.inputs = [painting, ...inputs.filter(input => input !== painting)];
+    if (sourceFormat === 'svg') {
+      // Exercise legacy publication of the SVG at inputs[0].
+      delete project.painting;
     }
     project.stage = 'parts';
     project.versions = [];

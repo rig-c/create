@@ -28,7 +28,7 @@ import { isDeepStrictEqual } from 'node:util';
 import { acquireBoundJobWrite, beginJobProgress } from './job-writer.ts';
 import { acquireJobLock, jobHash, pendingPublications, readWriterBinding } from './job-outbox.ts';
 import { assertReviewActSource, decodeReviewAct, fetchBustPublicationSeeds, fetchReviewActRuntime, meshReviewVerdict, reviewActFindings, reviewActPublicationWarning, reviewActStill, reviewActTransport, reviewActVerbatim, reviewActVersionHash, type FetchedReviewAct } from './review-act.ts';
-import { assertDraftReviewActSource, draftReviewStillEvidence, isDraftReviewVerdict, retainedVersionVerdict, reviewActVerdict, reviewFeedbackComment, reviewStillEvidence, type ReviewVerdictAct } from './review-act.ts';
+import { agentUnderOwner, assertDraftReviewActSource, draftReviewStillEvidence, isDraftReviewVerdict, retainedActBy, retainedVersionVerdict, reviewActBy, reviewActVerdict, reviewFeedbackComment, reviewStillEvidence, type ReviewVerdictAct } from './review-act.ts';
 import { DRAFT_ID } from './draft-reuse.ts';
 import { validCarriedRigDraftVerdict } from './rig-draft-verdict.ts';
 import { bustLandmarkCommands, prepareBustConfig } from './review-bust.ts';
@@ -560,6 +560,11 @@ function verdictCandidateFinding(dir: string, before: JsonObject, candidate: Jso
   return findings.find(finding => !affected(finding));
 }
 
+/** A first verdict ingest from an owner host opened for the agent records the agent, who cannot review for the owner. */
+function refuseAgentVerdict(act: ReviewVerdictAct): void {
+  if (agentUnderOwner(act)) refuse('REVIEW_NOT_HUMAN', `project.json.review_acts: act ${act.jobId}/${act.actId} came from a host opened for reviewer ${JSON.stringify(act.authority.reviewer.id)}, so it records the agent, who cannot review for the owner; open the host for the owner and ask the owner for the verdict`);
+}
+
 function writeVerdict(projectDirArg: string, input: ReviewInput, now: number, fetched?: FetchedReviewAct, warnings: string[] = [], route?: FeedbackRoute): Recorded {
   if (!isHuman(input.by)) refuse('REVIEW_NOT_HUMAN', 'review must name a human, not agent');
   if (input.at !== undefined && !Number.isFinite(Date.parse(input.at))) refuse('REVIEW_OPTION_INVALID', '--at needs a valid timestamp', USAGE_EXIT);
@@ -756,7 +761,9 @@ export function recordDraftReviewAct(root: string, draftId: string, actId: strin
     const binding = assertDraftReviewActSource(root, project, act);
     const receipts = asArray(project.review_acts);
     const existing = replayedVerdictAct(receipts, fetched);
-    const verdict = reviewActVerdict(act);
+    if (!existing) refuseAgentVerdict(act);
+    const verdict = existing && isObject(existing.receipt.verdict)
+      ? reviewActVerdict(act, retainedActBy(act, existing.receipt.verdict.by)) : reviewActVerdict(act);
     const path = `review_acts[${existing?.index ?? receipts.length}].verdict`;
     const result = { project_dir: root, verdict_path: path, verdict, items: [], stage: asString(project.stage) };
     const still = draftReviewStillEvidence(act);
@@ -876,6 +883,7 @@ export function recordReviewAct(root: string, requestedVersion: number, actId: s
           bust_landmark_commands: bustLandmarkCommands(root, project, version!, String(bustConfig.path), String(existing.sha256), true),
         } : {}) };
     }
+    refuseAgentVerdict(act);
     let bustConfig;
     if (chest) {
       if (!config) refuse('REVIEW_OPTION_MISSING', 'project.json.review_acts: chest landmark edits require --config <project-relative working config>', USAGE_EXIT);
@@ -887,7 +895,7 @@ export function recordReviewAct(root: string, requestedVersion: number, actId: s
     const warning = reviewActPublicationWarning(root, project, act);
     return writeVerdict(root, { version: requestedVersion,
       verdict: { approved: 'accepted', 'changes-requested': 'bounced', pending: 'provisional' }[act.value.verdict] as ReviewInput['verdict'],
-      by: act.authority.reviewer.role === 'owner' ? 'user' : 'delegate', review: act.value.stage as Review,
+      by: reviewActBy(act), review: act.value.stage as Review,
       verbatim: reviewActVerbatim(act), at: act.at, source: `review act ${act.jobId}/${act.actId}`, items: [], quotes: {}, values: {},
     }, now, { ...fetched, bustConfig }, warning ? [warning] : [], route);
   } finally { release(); }

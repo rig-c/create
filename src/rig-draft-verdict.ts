@@ -4,7 +4,7 @@ import { asArray, isObject } from './check.ts';
 import { draftRigDirectory } from './draft-layout.ts';
 import { draftAmendmentTime } from './amend.ts';
 import { collectReopens, liveSignoff } from './reopen.ts';
-import { decodeReviewAct, draftReviewStillEvidence, isDraftReviewVerdict, reviewActVerdict, type DraftReviewVerdictAct } from './review-act.ts';
+import { decodeReviewAct, draftReviewStillEvidence, isDraftReviewVerdict, retainedActBy, reviewActVerdict, type DraftReviewVerdictAct } from './review-act.ts';
 import { jobHash } from './job-outbox.ts';
 import { publicationFile } from './job-publication.ts';
 import type { JsonObject } from './templates.ts';
@@ -86,16 +86,21 @@ function sameRegisteredBytes(dir: string, project: JsonObject, version: JsonObje
   });
 }
 
+/** The attribution a retained draft receipt carries, including the pre-attribution legacy record. */
+function receiptBy(receipt: JsonObject, act: DraftReviewVerdictAct): string {
+  return retainedActBy(act, isObject(receipt.verdict) ? receipt.verdict.by : undefined);
+}
+
 function matchingDraftReceipt(project: JsonObject, receipt: JsonObject, act: DraftReviewVerdictAct): boolean {
   const drafts = records(project.drafts).filter(row => row.id === act.source.selector.id);
   return drafts.length === 1 && receipt.sha256 === jobHash(String(receipt.bytes))
     && receipt.version_hash === jobHash(`${JSON.stringify(drafts[0], null, 2)}\n`)
     && receipt.jobId === act.jobId && receipt.actId === act.actId && receipt.draft_id === act.source.selector.id
-    && isDeepStrictEqual(receipt.verdict, reviewActVerdict(act));
+    && isDeepStrictEqual(receipt.verdict, reviewActVerdict(act, receiptBy(receipt, act)));
 }
 
-function carriedVerdict(act: DraftReviewVerdictAct, inputs: string[]): JsonObject {
-  return { ...reviewActVerdict(act), source: `carried from draft review act ${act.jobId}/${act.actId}`,
+function carriedVerdict(act: DraftReviewVerdictAct, inputs: string[], by: string): JsonObject {
+  return { ...reviewActVerdict(act, by), source: `carried from draft review act ${act.jobId}/${act.actId}`,
     carried_from_draft: { draft_id: act.source.selector.id, job_id: act.jobId, act_id: act.actId, config_inputs: inputs } };
 }
 
@@ -128,7 +133,7 @@ export function carryRigDraftVerdict(
     if (!sameRegisteredBytes(root, project, version, receipt, act, inputs)) continue;
     if (act.value.verdict !== 'approved' || !matchingDraftReceipt(project, receipt, act)) return undefined;
     const evidence = retainedStill(root, receipt, act);
-    return evidence && { verdict: carriedVerdict(act, inputs), evidence };
+    return evidence && { verdict: carriedVerdict(act, inputs, receiptBy(receipt, act)), evidence };
   }
 }
 
@@ -146,7 +151,7 @@ export function validCarriedRigDraftVerdict(root: string, project: JsonObject, v
     if (!isDraftReviewVerdict(act) || act.value.verdict !== 'approved') return false;
     const evidence = retainedStill(root, receipt, act);
     return evidence !== undefined && records(version.evidence).some(row => isDeepStrictEqual(row, evidence)) && matchingDraftReceipt(project, receipt, act)
-      && isDeepStrictEqual(verdict, carriedVerdict(act, inputs))
+      && isDeepStrictEqual(verdict, carriedVerdict(act, inputs, receiptBy(receipt, act)))
       && sameRegisteredBytes(root, project, version, receipt, act, inputs);
   } catch { return false; }
 }

@@ -696,8 +696,9 @@ export function assertDraftReviewActSource(root: string, project: JsonObject, ac
   return binding;
 }
 
-export function reviewActVerdict(act: ReviewVerdictAct): JsonObject {
-  return { by: act.authority.reviewer.role === 'owner' ? 'user' : 'delegate', at: act.at,
+/** A verdict record carries the act's attribution, so an agent's verdict under an owner host is never the owner's. */
+export function reviewActVerdict(act: ReviewVerdictAct, by = reviewActBy(act)): JsonObject {
+  return { by, at: act.at,
     review: act.value.stage, verdict: { approved: 'accepted', 'changes-requested': 'bounced', pending: 'provisional' }[act.value.verdict],
     verbatim: reviewActVerbatim(act), source: `review act ${act.jobId}/${act.actId}`, on_items: [] };
 }
@@ -711,8 +712,8 @@ export function reviewFeedbackComment(act: ReviewVerdictAct): { comment_index: n
   return general.length === 1 ? general[0] : undefined;
 }
 
-function assertMeshActCorrections(project: JsonObject, act: MeshReviewVerdictAct | DraftMeshVerdictAct): void {
-  const verdict = reviewActVerdict(act);
+function assertMeshActCorrections(project: JsonObject, act: MeshReviewVerdictAct | DraftMeshVerdictAct, by: string): void {
+  const verdict = reviewActVerdict(act, by);
   const corrections = asArray(project.corrections).filter(object).filter(record => record.source === verdict.source);
   if (corrections.length !== act.value.meshEdits.length || act.value.meshEdits.some(({ edit, sha256 }, i) => {
     const record = corrections[i];
@@ -742,7 +743,7 @@ export const REVIEW_ACT_ACTOR_SINCE = '2026-11-22T00:00:00Z';
 type ActAuthor = { readonly authority: { readonly reviewer: { readonly id: string; readonly role: string } }; readonly at: string };
 
 /** An owner-role host opened for the agent declares the agent, which is not the owner. */
-function agentUnderOwner(act: ActAuthor): boolean {
+export function agentUnderOwner(act: ActAuthor): boolean {
   return act.authority.reviewer.role === 'owner' && act.authority.reviewer.id.trim().toLowerCase() === 'agent';
 }
 
@@ -988,16 +989,17 @@ export function reviewActFindings(project: JsonObject, warnings?: Finding[]): Fi
       }
       if (isDraftReviewVerdict(act)) {
         const id = act.source.selector.id;
+        const by = retainedActBy(act, object(entry.verdict) ? entry.verdict.by : undefined, path, warnings);
         const draft = asArray(project.drafts).filter(object).filter(row => row.id === id);
         if (entry.kind !== 'review-verdict' || entry.draft_id !== id || draft.length !== 1 || entry.version !== undefined || entry.signoff !== undefined
           || asArray(project.signoffs).filter(object).some(row => row.source === `review act ${act.jobId}/${act.actId}`)
           || entry.version_hash !== jobHash(`${JSON.stringify(draft[0], null, 2)}\n`)
-          || !isDeepStrictEqual(entry.verdict, reviewActVerdict(act)) || !file(entry.painting)
+          || !isDeepStrictEqual(entry.verdict, reviewActVerdict(act, by)) || !file(entry.painting)
           || !isDeepStrictEqual(entry.evidence, draftReviewStillEvidence(act))
           || !isDeepStrictEqual(eligibleRigDraftModel(draft[0]), act.source.model)) {
           failure('REVIEW_ACT_LEDGER_INVALID', 'recorded draft verdict differs from its immutable act and reviewed draft');
         }
-        if (act.schema === JOB_MESH_EDITS_ACT_SCHEMA) assertMeshActCorrections(project, act);
+        if (act.schema === JOB_MESH_EDITS_ACT_SCHEMA) assertMeshActCorrections(project, act, by);
         return;
       }
       if (!Number.isSafeInteger(entry.verdict) || Number(entry.verdict) < 0 || entry.version !== ('version' in act.source.selector! ? act.source.selector.version : null)) failure('REVIEW_ACT_LEDGER_INVALID', 'verdict receipt target is invalid');
@@ -1006,7 +1008,8 @@ export function reviewActFindings(project: JsonObject, warnings?: Finding[]): Fi
       targets.add(target);
       const version = Array.isArray(project.versions) ? project.versions.find(v => object(v) && v.n === entry.version) : null;
       const verdict = object(version) && Array.isArray(version.verdicts) ? version.verdicts[Number(entry.verdict)] : null;
-      if (!isDeepStrictEqual(verdict, reviewActVerdict(act))) failure('REVIEW_ACT_LEDGER_INVALID', 'recorded verdict differs from the immutable act');
+      const by = retainedActBy(act, object(verdict) ? verdict.by : undefined, path, warnings);
+      if (!isDeepStrictEqual(verdict, reviewActVerdict(act, by))) failure('REVIEW_ACT_LEDGER_INVALID', 'recorded verdict differs from the immutable act');
       if (act.schema === JOB_CHEST_LANDMARKS_ACT_SCHEMA) {
         if (!file(entry.bust_config) || !bustConfigPath(entry.bust_config.path)
           || !object(version) || entry.bust_config.sha256 !== frozenBustConfigHash(version)) {
@@ -1014,7 +1017,7 @@ export function reviewActFindings(project: JsonObject, warnings?: Finding[]): Fi
         }
       }
       const meshAct = meshReviewVerdict(act);
-      if (meshAct) assertMeshActCorrections(project, meshAct);
+      if (meshAct) assertMeshActCorrections(project, meshAct, by);
       const expectedSignoff = rigVerdictSignoff(act);
       const namedSignoffs = asArray(project.signoffs).filter(object).filter(row => row.source === expectedSignoff.source);
       if (entry.signoff !== undefined || namedSignoffs.length > 0) {

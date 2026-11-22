@@ -9,7 +9,7 @@ import { readProject } from './feedback.ts';
 import { readPartsReview, ReviewReadError, storeReviewRead, type ReviewReadRunner } from './review-read.ts';
 import { acquireBoundJobWrite, beginJobProgress } from './job-writer.ts';
 import { acquireJobLock, jobHash, readAcknowledgedPublication, readWriterBinding } from './job-outbox.ts';
-import { decodeReviewAct, fetchReviewActBytes, matchesActProjectSource, reviewActFindings, reviewActTransport, reviewActVerbatim, type ReviewActTransport } from './review-act.ts';
+import { agentUnderOwner, decodeReviewAct, fetchReviewActBytes, matchesActProjectSource, reviewActBy, reviewActFindings, reviewActTransport, reviewActVerbatim, type ReviewActTransport } from './review-act.ts';
 import { assertPartsActSource, isRiggingDraftAct, partsActDraftHash, partsActFindings, partsActReceipt } from './parts-act.ts';
 import { draftPackageIdentity } from './job-publication.ts';
 import { newRefusals } from './refusal-baseline.ts';
@@ -97,6 +97,7 @@ export function partsReviewCommand(args: string[], now: number, hooks: PartsRevi
     if (existing) {
       if (existing.version_hash !== hash) refuse('REVIEW_ACT_SOURCE_STALE', 'project.json.review_acts: reviewed draft entry changed; review a new draft id');
     } else {
+      if (agentUnderOwner(act)) refuse('SIGNOFF_NOT_HUMAN', `project.json.review_acts: act ${act.jobId}/${act.actId} came from a host opened for reviewer ${JSON.stringify(act.authority.reviewer.id)}, so it records the agent, who cannot review the parts for the owner; open the host for the owner and ask the owner for the verdict`);
       const amendedAt = draftAmendmentTime(project, act.source.selector.id);
       if (amendedAt !== -Infinity && (Date.parse(act.at) <= amendedAt || !matchesActProjectSource(act, original))) {
         refuse('REVIEW_ACT_SOURCE_STALE', 'project.json: parts verdict must follow the draft amendment and bind the current record; publish the amended draft and ask again');
@@ -149,7 +150,7 @@ export function partsReviewCommand(args: string[], now: number, hooks: PartsRevi
       syncDirectory(root);
     }
     const result = { draft_id: act.source.selector.id, evidence, verdict: act.value.verdict,
-      by: act.authority.reviewer.role === 'owner' ? 'user' : 'delegate', at: act.at, verbatim: reviewActVerbatim(act),
+      by: reviewActBy(act), at: act.at, verbatim: reviewActVerbatim(act),
       ...(warnings.length ? { warnings } : {}) };
     progress?.('Review parts verdict recorded');
     return { stdout: json ? JSON.stringify(result, null, 2) : [...warnings, `parts-review: ${result.draft_id} ${result.verdict}, evidence ${evidence.path}`].join('\n'), exit: 0 };

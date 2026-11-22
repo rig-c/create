@@ -1,5 +1,5 @@
 import { OWNER_CHAT_USAGE, readOwnerChat } from './owner-chat.ts';
-import { readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { readdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import {
@@ -163,7 +163,10 @@ export async function attachCreateJobForClose(
     host = await startHost(closeHostOptions(binding));
   } catch (error) {
     if (isAttachRefused(error)) {
-      refuse('JOB_HOST_ATTACH_REFUSED', `project.json: live host attach refused (reason=${error.reason}, phase=${error.phase}); reopen or restore the bound live host before rig-create job close`);
+      // Close reads the finalized owner acts and retires the job through the live host only:
+      // a stopped host's acts are never read from the record, so restarting it is the remedy.
+      const reopen = `rig-create job open ${shellWord(root)} --reviewer ${shellWord(binding.identity.reviewer.id)} --role ${binding.identity.reviewer.role}`;
+      refuse('JOB_HOST_ATTACH_REFUSED', `project.json: live host attach refused (reason=${error.reason}, phase=${error.phase}); job close reads the job's finalized owner acts from the bound live host, so restart it with ${reopen} and retry rig-create job close, which waits out the restarted host's publication freeze`);
     }
     if (isReuseMismatch(error)) {
       refuse('JOB_HOST_REUSE_MISMATCH', `project.json: ${error.field} expected=${JSON.stringify(error.expected)} found=${JSON.stringify(error.actual)}; restore the bound host configuration, then run rig-create job close`);
@@ -292,6 +295,39 @@ function assertUnchangedBindingAndRecord(
   }
 }
 
+/** How long `job close` waits for another process's job write lock (a restarted host's publication freeze) before refusing. */
+export const CLOSE_LOCK_WAIT_MS = 120_000;
+const LOCK_POLL_MS = 100;
+
+/** The pid in the live lock owner's token, or null when the lock is absent or not a single owner token. */
+function jobLockHolder(root: string): number | null {
+  try {
+    const owners = readdirSync(join(root, '.rig-create-job-write.lock'));
+    return owners.length === 1 && /^\d+-[a-f0-9-]{36}$/.test(owners[0]!) ? Number(owners[0]!.split('-')[0]) : null;
+  } catch { return null; }
+}
+
+/**
+ * Take the job write lock, waiting up to `waitMs` while another live process holds it.
+ * A refusal names the holding pid and what clears it; nothing is written before the lock.
+ */
+async function acquireJobLockWaiting(root: string, waitMs: number, verb: 'close' | 'withdraw-act', onWait?: (holder: number | null) => void): Promise<() => void> {
+  const deadline = Date.now() + Math.max(0, waitMs);
+  let waited = false;
+  for (;;) {
+    const release = acquireJobLock(root, false);
+    if (release) return release;
+    const holder = jobLockHolder(root);
+    if (Date.now() >= deadline) {
+      const who = holder === null ? 'another rig-create process' : `live process ${holder}`;
+      const after = waitMs > 0 ? `; job ${verb} waited ${Math.ceil(waitMs / 1000)} s` : '';
+      refuse('JOB_WRITE_BUSY', `project.json: the job write lock .rig-create-job-write.lock is held by ${who} (a bound writer, job reconcile, or a job open host publishing into the job)${after}; it clears when that process finishes its publication, so retry rig-create job ${verb} then`);
+    }
+    if (!waited) { onWait?.(holder); waited = true; }
+    await Bun.sleep(LOCK_POLL_MS);
+  }
+}
+
 async function withBoundJobRecord(
   root: string,
   startHost: (options: JobHostOptions) => Promise<JobOwnerHost>,
@@ -305,9 +341,12 @@ async function withBoundJobRecord(
     original: Buffer;
   }) => Promise<{ next?: JsonObject | string; afterWrite?: () => void }>,
   beforeAttach?: (root: string) => void,
+  lockWaitMs = 0,
 ): Promise<void> {
   root = realpathSync(root);
-  const release = acquireJobLock(root)!;
+  const release = await acquireJobLockWaiting(root, lockWaitMs, verb, holder => {
+    process.stderr.write(`job: waiting up to ${Math.ceil(lockWaitMs / 1000)} s for ${holder === null ? 'another rig-create process' : `process ${holder}`} to release the job write lock\n`);
+  });
   try {
     beforeAttach?.(root);
     const binding = readWriterBinding(root);
@@ -397,6 +436,7 @@ export async function closeCreateJob(
   retireRefused = false,
   discardActs?: Record<string, string>,
   now = Date.now(),
+  lockWaitMs = CLOSE_LOCK_WAIT_MS,
 ): Promise<void> {
   let discardEvidence: JsonObject | undefined;
   if (discardActs) {
@@ -456,5 +496,6 @@ export async function closeCreateJob(
         refuse('JOB_PUBLISH_PENDING', 'project.json: a committed publication remains pending; run rig-create job reconcile, or job close --retire-refused to archive failed publications and close without publishing them');
       }
     },
+    lockWaitMs,
   );
 }

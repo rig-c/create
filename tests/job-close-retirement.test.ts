@@ -11,6 +11,7 @@ import {
   failClosedCloseReadPublished,
 } from '../src/job-close.ts';
 import { attachCreateJob, closeCreateJob, openCreateJob, publishPending, reconcileCreateJob } from '../src/job-host.ts';
+import { reportOwnerSubmitRefusal } from '../src/job-refusal.ts';
 import {
   enqueuePublication,
   failPublication,
@@ -145,6 +146,7 @@ test('closeHostOptions wires fail-closed callbacks so close attach can never ser
   expect(opts.readPublished).toBe(failClosedCloseReadPublished);
   expect(opts.partsEnumerator?.enumerate).toBe(failClosedCloseEnumerate);
   expect(opts.installWriterBinding).toBe(failClosedCloseInstallBinding);
+  expect(opts.onRefusal).toBe(reportOwnerSubmitRefusal);
 
   await expect(opts.readPublished!({
     root,

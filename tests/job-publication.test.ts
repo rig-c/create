@@ -11,6 +11,7 @@ import { tmpdir } from 'node:os';
 import { EXAMPLE_NOW } from '../scripts/example-time.ts';
 import { JOB_API_SCHEMA, JOB_API_V3_SCHEMA, startJobHost, type JobHostAttachFailure, type JobHostOptions, type JobOwnerHost } from '@rig-c/review/job-host';
 import { attachCreateJob, closeCreateJob, openCreateJob, openDraftPublication, openRecordPublication, publishPending, reconcileCreateJob, requestedRecordResult } from '../src/job-host.ts';
+import { reportOwnerSubmitRefusal } from '../src/job-refusal.ts';
 import { acquireJobLock, cancelUncommittedIntent, enqueuePublication, failPublication, JOB_BINDING_FILE, jobHash, jobHostStateRoot, jobPrivateRoot, pendingPublications, publicationVersionHash, readAcknowledgedPublication, readWriterBinding, reconcilePublication, writePrivateJson } from '../src/job-outbox.ts';
 import { jobRuntimeExecArgv, prepareVersionIntent } from '../src/job-writer.ts';
 import { draftPublicationContext, draftPublishedContext, loadedPartsIdentity, partsEnumerator, prepareDraftManifest, prepareLiveManifest, readPublished, readRecordPublished } from '../src/job-publication.ts';
@@ -746,6 +747,7 @@ test('strict reuseOnly attach passes expected jobId, origin, listenerIncarnation
   const rotatedIncarnation = '22222222-2222-4222-8222-222222222222';
   const openMock = async (opts: JobHostOptions): Promise<JobOwnerHost> => {
     expect(opts.reuseOnly).toBeUndefined();
+    expect(opts.onRefusal).toBe(reportOwnerSubmitRefusal);
     await opts.installWriterBinding?.({ jobId, origin, fetchCapability: 'c'.repeat(64) });
     return mockedOwnerHost(jobId, origin, false, {
       jobId,
@@ -775,6 +777,7 @@ test('strict reuseOnly attach passes expected jobId, origin, listenerIncarnation
   let capturedOptions: JobHostOptions | undefined;
   let lockHeldDuringAttach = false;
   const attachMock = async (opts: JobHostOptions): Promise<JobOwnerHost> => {
+    expect(opts.onRefusal).toBe(reportOwnerSubmitRefusal);
     capturedOptions = opts;
     lockHeldDuringAttach = acquireJobLock(root, false) === null;
     return mockedOwnerHost(jobId, origin, true, opts.reuseOnly!.expected);

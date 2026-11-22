@@ -18,12 +18,13 @@ import { EXAMPLE_PARTS_DIR as SOURCE_PARTS_DIR } from './parts-package.ts';
 const EXAMPLE_PARTS_DIR = 'derived/drafts/receipt-fixture/input/rig';
 const ASSEMBLE_STACK = 'derived/drafts/receipt-fixture/input/render/recomposite_rig.png';
 const RECEIPT_FLAGS = ['--draft', 'receipt-fixture', '--structure-file', 'evidence/structure-receipt-fixture.json'];
-import { checkProject, advanceCommand, signoffCommand, testClock } from './clock.ts';
+import { checkProject, advanceCommand, inputCommand, signoffCommand, testClock } from './clock.ts';
 
 const sha = (bytes: string | Buffer): string => createHash('sha256').update(bytes).digest('hex');
 const reports: Record<string, string> = {};
 const reportInputs: string[] = [];
 let emptyStack: Buffer;
+let normalPainting: Buffer;
 beforeAll(() => {
   for (const [name, floor, threshold, other, identical, owners] of [
     ['normal', 2, 40, false, false, false], ['owners', 2, 40, false, false, true], ['other', 2, 40, true, false, false],
@@ -33,6 +34,7 @@ beforeAll(() => {
     reportInputs.push(root);
     const inputs = join(root, name);
     reports[name] = generateDiffFixture(inputs, floor, threshold, other, identical, owners);
+    if (name === 'normal') normalPainting = readFileSync(join(inputs, 'painting.png'));
     if (identical) emptyStack = readFileSync(join(inputs, 'recomposite_rig.png'));
   }
 });
@@ -40,6 +42,11 @@ afterAll(() => {
   for (const root of reportInputs.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 afterEach(() => testClock.reset());
+
+function declareDiffPainting(dir: string): void {
+  writeFileSync(join(dir, 'painting-source.png'), normalPainting);
+  inputCommand(['add', 'painting-source.png', dir, '--painting', '--origin', 'synthetic diff source']);
+}
 
 function signoff(p: JsonObject): JsonObject {
   return arr(p.signoffs).map(obj).filter((s) => s.stage === 'parts-review').at(-1)!;
@@ -123,6 +130,7 @@ describe('B0 normal writer and both producer layouts', () => {
     expect(signed.diff_map).toBeUndefined();
     // Signed after STAGE_PROGRESS_SINCE, the lagging stage is a refusal until advance moves it.
     expect(checkProject(dir).refusals.map(f => f.code)).toContain('STAGE_LAGGING');
+    declareDiffPainting(dir);
     advanceCommand(['rigging', dir]);
     const report = checkProject(dir);
     expect(report.refusals).toEqual([]);
@@ -244,6 +252,7 @@ test('a directory not named rig has only the build candidate', () => {
 test('legacy B4 without a map adds DIFF_MAP_PREDATES without refusing', () => {
   const dir = project((s, p) => { s.at = '2026-11-05T00:00:00Z'; delete s.diff_map; delete p.diff_map; p.stage = 'parts-review'; p.advances = []; });
   writeFileSync(join(dir, 'words.txt'), 'Advance the historical synthetic approval.');
+  declareDiffPainting(dir);
   advanceCommand(['rigging', dir]);
   const report = checkProject(dir);
   expect(report.refusals).toEqual([]);
@@ -291,7 +300,7 @@ test('report symlinks cannot leave the project', () => {
 });
 test('B5 example has no findings and generation reproduces all shipped bytes', () => {
   const report = checkProject(fixture());
-  expect(report.refusals).toEqual([]); expect(report.warnings.map(f => f.code)).toEqual(['QUESTION_SET_STALE', 'PARTS_VERDICT_FILE_LEGACY', 'STAGE_ORDER_LEGACY', 'INPUT_WRITER_MISSING', 'CHOICE_ANSWERS_LEGACY', 'CORRECTION_PATH_LEGACY']);
+  expect(report.refusals).toEqual([]); expect(report.warnings.map(f => f.code)).toEqual(['QUESTION_SET_STALE', 'PARTS_VERDICT_FILE_LEGACY', 'RIGGING_INTERVIEW_PAINTING_LEGACY', 'STAGE_ORDER_LEGACY', 'INPUT_WRITER_MISSING', 'CHOICE_ANSWERS_LEGACY', 'CORRECTION_PATH_LEGACY']);
   const generated = generateExampleDiff(join(tempDir(), 'generated'));
   expect(generated.report).toBe(reports.normal);
   const p = JSON.parse(readFileSync(join(fixture(() => {}, 'example-project.json'), 'project.json'), 'utf8')) as JsonObject;

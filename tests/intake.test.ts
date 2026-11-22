@@ -8,7 +8,7 @@ import { Refusal } from '../src/refusal.ts';
 import type { Json, JsonObject } from '../src/templates.ts';
 import { plantLegacyReopen, fixture, obj, arr } from './fixtures.ts';
 import { EXAMPLE_DIFF_REPORT } from './diff-fixture.ts';
-import { checkProject, interviewOptionsCommand, interviewAnswerCommand, interviewDecisionCommand, intakeReportCommand, signoffCommand, handoff, recordVerdict, testClock } from './clock.ts';
+import { TEST_NOW, checkProject, interviewOptionsCommand, interviewAnswerCommand, interviewDecisionCommand, intakeReportCommand, signoffCommand, handoff, recordVerdict, testClock } from './clock.ts';
 
 const raw = readFileSync(join(import.meta.dir,'fixtures/intake/preflight.json'));
 const load=(dir:string):JsonObject=>JSON.parse(readFileSync(join(dir,'project.json'),'utf8'));
@@ -17,7 +17,7 @@ const codes=(dir:string)=>intakeWarnings(dir,load(dir)).map(w=>w.code);
 afterEach(()=>testClock.reset());
 function outcome(action:()=>unknown):string { try {action();return 'OK';}catch(e){if(e instanceof Refusal)return e.code;throw e;} }
 function setup(hit=true) {
-  testClock.set(new Date('2026-11-20T10:00:00Z'));
+  testClock.set(TEST_NOW);
   const dir=fixture(p=>{p.stage='parts';},'example-project.json');
   const report=JSON.parse(raw.toString()) as JsonObject;
   if(!hit)obj(obj(arr(report.layers)[0]).sides).left_px=0;
@@ -99,7 +99,7 @@ test('sha/spec/geometry and instrument mismatches warn; a symlink is not retaine
   const {dir,args}=setup();symlinkSync(join(dir,'evidence/intake.json'),join(dir,'evidence/link.json'));const before=readFileSync(join(dir,'project.json'));args[args.indexOf('--id')+1]='next';args[args.indexOf('--report')+1]='evidence/link.json';expect(outcome(()=>intakeReportCommand(args))).toBe('INTAKE_REPORT_INVALID');expect(readFileSync(join(dir,'project.json'))).toEqual(before);
 });
 test('report replacement requires fresh context; prior human choice cannot resolve a new HIT',()=>{
-  const {dir,args}=setup();choose(dir,'proceed');testClock.set(new Date('2026-11-20T10:01:00Z'));args[args.indexOf('--id')+1]='new-report';intakeReportCommand(args);expect(codes(dir)).toContain('INTAKE_CHOICE_PENDING');expect(codes(dir)).not.toContain('INTAKE_CHOICE_INVALID');
+  const {dir,args}=setup();choose(dir,'proceed');testClock.set(TEST_NOW + 60_000);args[args.indexOf('--id')+1]='new-report';intakeReportCommand(args);expect(codes(dir)).toContain('INTAKE_CHOICE_PENDING');expect(codes(dir)).not.toContain('INTAKE_CHOICE_INVALID');
   expect(outcome(()=>interviewOptionsCommand(['intake_suitability',dir,'--file','evidence/intake-options.json']))).toBe('INTERVIEW_OPTIONS_STALE');
 });
 test('intake is only offered in parts; later approval does not make Other pending invalid',()=>{
@@ -117,19 +117,19 @@ for(const state of states)test(`approval readers ignore optional intake: ${state
     ()=>{
       // Plant a historical reopen so later approvals, versions, scenes and direction remain in the record.
       plantLegacyReopen(dir, 'parts-review', { by: 'user', wordsFile: join(dir,'words.txt') });
-      testClock.set(new Date('2026-11-20T10:00:01Z'));return signoffCommand(['parts-review',dir,'--by','user','--verbatim-file',join(dir,'words.txt'),'--draft','example','--structure-file','evidence/structure-example.json']);},
+      testClock.set(TEST_NOW + 1000);return signoffCommand(['parts-review',dir,'--by','user','--verbatim-file',join(dir,'words.txt'),'--draft','example','--structure-file','evidence/structure-example.json']);},
     ()=>signoffCommand(['direction-review',dir,'--version','4','--by','user','--verbatim-file',join(dir,'words.txt')]),
     ()=>recordVerdict(dir,{version:2,review:'rig-review',verdict:'accepted',by:'user',verbatim:'Approved',source:'review',items:[],quotes:{},values:{}}),
     ()=>recordVerdict(dir,{version:4,review:'direction-review',verdict:'accepted',by:'user',verbatim:'Approved',source:'review',items:[],quotes:{},values:{}}),
     ()=>handoff(dir,null),
   ];
   for(const [index, action] of actions.entries()){
-    testClock.set(new Date('2026-11-20T10:00:00Z'));
+    testClock.set(TEST_NOW);
     save(dir,p);
     const without=outcome(action);
     // Appending an acceptance to an already signed version changes its target.
     expect(without).toBe([4, 5].includes(index) ? 'SIGNOFF_TARGET_STALE' : 'OK');
-    testClock.set(new Date('2026-11-20T10:00:00Z'));
+    testClock.set(TEST_NOW);
     save(dir,{...p,intake:intake!});
     const withIntake=outcome(action);
     expect(withIntake).toBe(without);

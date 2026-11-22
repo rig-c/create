@@ -1,3 +1,4 @@
+import { EXAMPLE_NOW } from '../scripts/example-time.ts';
 import { plantLegacyReopen } from './fixtures.ts';
 import { afterEach, expect, test } from 'bun:test';
 import { existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
@@ -423,7 +424,7 @@ test('direction@3 integrates into the filled project with zero check refusals', 
   const { checkProject, signoffCommand, inputCommand, advanceCommand } = await import('./clock.ts');
   const f = fixture();
   const dir = filled(() => {}, 'example-project.json'); roots.push(dir);
-  testClock.set('2026-11-21T08:00:00Z');
+  testClock.set(EXAMPLE_NOW);
   writeFileSync(join(dir, 'words.txt'), 'Revise the synthetic composed take.');
   plantLegacyReopen(dir, 'post-interview', { by: 'user', wordsFile: join(dir, 'words.txt') });
   const load = () => JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')) as JsonObject;
@@ -452,7 +453,7 @@ test('direction@3 integrates into the filled project with zero check refusals', 
     answer.at = testClock.iso(); answer.value = value as unknown as JsonObject;
     answer.choice = { ...oldChoice, set: { path, sha256: directionHash(bytes) } };
   }
-  save(p); testClock.set('2026-11-21T08:01:00Z');
+  save(p); testClock.set(EXAMPLE_NOW + 60_000);
   signoffCommand(['post-interview', dir, '--by', 'user', '--verbatim-file', join(dir, 'words.txt')]);
   advanceCommand(['post', dir]);
   cpSync(join(f.dir, 'compose-out'), join(dir, 'compose-out'), { recursive: true }); cpSync(join(f.dir, 'compose.scene.json'), join(dir, 'compose.scene.json'));

@@ -182,7 +182,10 @@ test('legacy records WARN: no ledger beside drafts, and a draft recorded before 
 
 test('restart keeps inputs and every ledger row, appends restarts[], and checks clean', () => {
   const dir = example();
-  // The painting is inputs[1] here, declared through the writer rather than by hand (#404).
+  const historical = load(dir);
+  delete historical.painting;
+  save(dir, historical);
+  // Declare the already registered second input through the public writer.
   inputCommand(['painting', 'inputs/painting.png', dir]);
   const declared = load(dir); expect(declared.painting).toBe('inputs/painting.png');
   declared.owner = { language: 'ko' };
@@ -385,6 +388,7 @@ test('restart leaves out an untwinned legacy entry, refuses when a left-out lega
   expect(load(painted).painting).toBe('inputs/painting-source.png');
 
   const undeclared = example(); const undeclaredRecord = load(undeclared);
+  delete undeclaredRecord.painting;
   for (const raw of arr(undeclaredRecord.inputs)) delete obj(raw).at;
   save(undeclared, undeclaredRecord); commit(undeclared);
   cpSync(join(undeclared, 'inputs/painting.png'), join(undeclared, 'inputs/painting-source.png'));

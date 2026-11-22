@@ -1206,7 +1206,7 @@ async function publishedComposed() {
   directories.push(f.dir);
   const root = fixture(() => {}, 'example-project.json');
   directories.push(root);
-  testClock.set('2026-11-21T08:00:00Z');
+  testClock.set(EXAMPLE_REOPEN_AT);
   writeFileSync(join(root, 'words.txt'), 'Revise the synthetic composed take.');
   plantLegacyReopen(root, 'post-interview', { by: 'user', wordsFile: join(root, 'words.txt') });
   for (const name of ['background.png', 'foreground.png']) {
@@ -1241,7 +1241,7 @@ async function publishedComposed() {
     answer.choice = { ...oldChoice, set: { path, sha256: directionHash(bytes) }, picks: [{ ask: id, option_id: 'keep', shown }] };
   }
   putProject(root, project);
-  testClock.set('2026-11-21T08:01:00Z');
+  testClock.set(EXAMPLE_REOPEN_AT + 60_000);
   signoffCommand(['post-interview', root, '--by', 'user', '--verbatim-file', join(root, 'words.txt')]);
   advanceCommand(['post', root]);
   for (const step of ['camera', 'timing', 'composition']) {

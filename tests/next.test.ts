@@ -4,7 +4,7 @@ import { appendFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { dirname, join, relative } from 'node:path';
-import type { ActV3, JobOwnerHost } from '@rig-c/review/job-host';
+import { JOB_COMMENTS_ACT_SCHEMA, type ActV3, type JobOwnerHost } from '@rig-c/review/job-host';
 import { main } from '../src/cli.ts';
 import { checkProject } from '../src/check.ts';
 import { openCreateJob } from '../src/job-host.ts';
@@ -615,6 +615,111 @@ describe('Frozen Bar 5 — Plants (lapsed approval, changed bound input DRAFT_RI
       expect(textRes.exit).toBe(0);
       expect(textRes.stdout).toContain('no remaining move (project is accepted)');
     }
+  });
+
+  test('#846 next shows ordered interview comments as warnings on an accepted project', () => {
+    const dir = join(tempDir(), 'routed-interview-comments');
+    cpSync(CHAIN_DIR, dir, { recursive: true });
+    const file = join(dir, 'project.json');
+    const original = readFileSync(file, 'utf8');
+    const project = JSON.parse(original) as JsonObject;
+    const originalReceipts = arr(project.review_acts);
+    const receiptPath = `review_acts[${originalReceipts.length}]`;
+    const question = 'motion';
+    const waypoint = arr(obj(project.interview).waypoints).map(obj).find(row => row.id === question)!;
+    const answer = obj(waypoint.guide);
+    const choice = obj(answer.choice);
+    const set = obj(choice.set);
+    const setFile = { path: String(set.path), sha256: String(set.sha256) };
+    const setId = String(JSON.parse(readFileSync(join(dir, setFile.path), 'utf8')).id);
+    const record = { path: 'project.json', sha256: sha256(original) };
+    const binding = {
+      record,
+      selection: { kind: 'option-set', questionId: question, setId },
+      inputs: [],
+      optionSet: { id: setId, sha256: setFile.sha256 },
+      optionSetFile: setFile,
+      plan: null,
+      subjects: [{ kind: 'interview-picks', questionId: question, setId }],
+      files: [setFile, record],
+    };
+    // Use #838's synthetic record-act envelope, with a source and survey bound to this chain's answer.
+    const envelope = JSON.parse(readFileSync(join(import.meta.dir, 'fixtures/record-acts/picks.json'), 'utf8')) as JsonObject;
+    const act4 = {
+      ...envelope,
+      at: answer.at!,
+      source: { sourceHash: sha256(JSON.stringify({ schema: 'rig-review-job-record-source/1', ...binding })),
+        projectHash: record.sha256, subject: 'option-set', ...binding },
+      value: {
+        questionId: question,
+        note: choice.note ?? '',
+        selections: arr(choice.picks).map(obj).map(pick => ({
+          itemId: pick.ask!, optionId: pick.option_id!, otherText: pick.other_text ?? null,
+        })),
+      },
+    };
+    const comments: { text: string; anchor?: { name: string } }[] = [
+      { text: '  General owner comment.\r\n' },
+      { text: 'At the edge.\n끝', anchor: { name: 'painting.png' } },
+    ];
+    const act6 = { ...act4, schema: JOB_COMMENTS_ACT_SCHEMA, value: { ...act4.value, comments } };
+    const saveReceipt = (act: JsonObject, feedbackRoute?: JsonObject) => {
+      const bytes = JSON.stringify(act);
+      project.review_acts = [...originalReceipts, {
+        schema: 'rig-create/review-act@1', kind: 'interview-picks', question,
+        jobId: envelope.jobId!, actId: envelope.actId!, bytes, sha256: sha256(bytes),
+        version_hash: sha256(JSON.stringify(choice)),
+        ...(feedbackRoute === undefined ? {} : { feedback_route: feedbackRoute }),
+      }];
+      writeFileSync(file, JSON.stringify(project));
+    };
+    const check = () => checkProject(dir, undefined, { now: CHAIN_NOW, readOnly: true });
+    const nextText = () => nextCommand([dir], CHAIN_NOW);
+    const nextJson = () => nextCommand([dir, '--json'], CHAIN_NOW);
+    const baseline = { check: check(), text: nextText(), json: nextJson() };
+
+    saveReceipt(act4);
+    expect(check()).toEqual(baseline.check);
+    expect(nextText()).toEqual(baseline.text);
+    expect(nextJson()).toEqual(baseline.json);
+
+    saveReceipt(act6);
+    const legacy = check();
+    expect(legacy.refusals).toEqual([]);
+    expect(legacy.warnings).toHaveLength(baseline.check.warnings.length + 1);
+    expect(legacy.warnings).toContainEqual(expect.objectContaining({ code: 'REVIEW_ANSWER_COMMENTS_UNROUTED', path: receiptPath }));
+    expect(nextJson()).toEqual(baseline.json);
+    expect(nextText()).toEqual(baseline.text);
+
+    const route = { question, comments: comments.map((comment, index) => ({ order: index + 1, ...comment })) };
+    saveReceipt(act6, route);
+    const routedCheck = check();
+    expect(routedCheck).toEqual(baseline.check);
+    expect(routedCheck.warnings.filter(w => w.code === 'FEEDBACK_OPEN')).toEqual([]);
+    const json = nextJson();
+    expect(json.exit).toBe(0);
+    const { warnings, ...report } = JSON.parse(json.stdout) as NextReport;
+    expect(report).toEqual(JSON.parse(baseline.json.stdout));
+    expect(report).toMatchObject({ accepted: true, refusals: [], awaits: [], moves: [] });
+    expect(warnings?.map(({ code, path }) => ({ code, path }))).toEqual(comments.map((_, index) => ({
+      code: 'REVIEW_ANSWER_COMMENT_ROUTED', path: `${receiptPath}.feedback_route.comments[${index}]`,
+    })));
+    for (const [index, warning] of warnings!.entries()) {
+      const comment = comments[index]!;
+      expect(warning.message).toContain(`project.json.${warning.path}`);
+      expect(warning.message).toContain(`interview answer ${question}, owner comment ${index + 1}`);
+      expect(warning.message).toContain(comment.text);
+      if (comment.anchor) expect(warning.message).toContain(JSON.stringify(comment.anchor));
+    }
+    const text = nextText();
+    const warningLines = warnings!.map(w => `  WARN [${w.code}]: ${w.message}\n`).join('');
+    expect(text.stdout).toContain(warningLines);
+    expect({ ...text, stdout: text.stdout.replace(warningLines, '') }).toEqual(baseline.text);
+
+    saveReceipt(act6, { ...route, question: 'bones' });
+    const refused = JSON.parse(nextJson().stdout) as NextReport;
+    expect(refused.refusals).toContainEqual(expect.objectContaining({ code: 'REVIEW_FEEDBACK_ROUTE_INVALID', field: receiptPath }));
+    expect(refused.warnings).toBeUndefined();
   });
 
   test('plant 4 (STAGE_LAGGING): after human signoff, STAGE_LAGGING stays in refusals while the resolving advance is emitted as an agent move that clears it on a scratch copy', () => {

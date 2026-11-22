@@ -2,14 +2,14 @@ import { expect, test } from 'bun:test';
 import { lstatSync, readFileSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, relative, resolve } from 'node:path';
-import { checkProject } from '../src/check.ts';
-import { checkpointEvidenceContext, parseCheckpointEvidence, parseCheckpointTable, readCheckpointEvidence } from '../src/checkpoint-evidence.ts';
+import { checkProject, type Finding } from '../src/check.ts';
+import { checkCheckpointEvidence, checkpointEvidenceContext, parseCheckpointEvidence, parseCheckpointTable, readCheckpointEvidence } from '../src/checkpoint-evidence.ts';
 import { checkpointEvidenceCommand, checkpointTableCommand } from '../src/checkpoint-evidence-writer.ts';
 import { main } from '../src/cli.ts';
 import { acquireJobLock, JOB_BINDING_FILE, jobHash, writePrivateJson } from '../src/job-outbox.ts';
 import { currentJobIdentity, readRecordPublished } from '../src/job-publication.ts';
 import { planCommand } from '../src/plan-writers.ts';
-import type { JsonObject } from '../src/templates.ts';
+import type { Json, JsonObject } from '../src/templates.ts';
 import { TEST_NOW } from './clock.ts';
 import { checkpointWorkspace } from './checkpoint-evidence-fixture.ts';
 import { arr, obj } from './fixtures.ts';
@@ -175,6 +175,102 @@ test('closed packet grammar rejects aliases, missing and unknown keys, empty and
   }
   const reordered = Object.fromEntries(Object.entries(f.packet).reverse());
   expect(JSON.stringify(parseCheckpointEvidence([reordered], project(f.root)))).toBe(JSON.stringify([f.packet]));
+});
+
+test('#825 reordered legacy input retains the pre-change Create packet bytes', () => {
+  const fixture = join(import.meta.dir, 'fixtures/checkpoint-evidence-825-legacy-reordered-');
+  const { input, project: record } = JSON.parse(readFileSync(fixture + 'input.json', 'utf8')) as { input: unknown; project: JsonObject };
+  // Raw JSON.stringify(packet) output captured from Create 2f8eae3d and 8681f2f7.
+  const golden = readFileSync(fixture + 'output.json');
+  const [packet] = parseCheckpointEvidence(input, record);
+  expect(Buffer.from(JSON.stringify(packet))).toEqual(golden);
+});
+
+test('#825 the writer canonicalizes a reordered pair and replays the exact record bytes', () => {
+  const f = checkpointWorkspace();
+  const record = project(f.root);
+  const [beforeTile, afterTile] = f.packet.tiles;
+  const before = { id: beforeTile!.id, sha256: beforeTile!.sha256 };
+  const after = { id: afterTile!.id, sha256: afterTile!.sha256 };
+  const canonical = { ...f.packet, pair: { before, after } };
+  const reordered = {
+    pair: {
+      after: { sha256: after.sha256, id: after.id },
+      before: { sha256: before.sha256, id: before.id },
+    },
+    ...Object.fromEntries(Object.entries(f.packet).reverse()),
+  };
+  const file = join(f.root, 'project.json');
+  obj(record.plan).checkpoint_evidence = [canonical];
+  expect(f.attach([reordered]).exit).toBe(0);
+  const written = readFileSync(file);
+  expect(written).toEqual(Buffer.from(JSON.stringify(record, null, 2) + '\n'));
+  expect(f.attach([canonical]).exit).toBe(0);
+  expect(readFileSync(file)).toEqual(written);
+  expect(checkProject(f.root, undefined, { now: TEST_NOW }).refusals).toEqual([]);
+});
+
+function expectPacketRefusal(f: ReturnType<typeof checkpointWorkspace>, packets: Json[], code: string, path: string): void {
+  const record = project(f.root);
+  obj(record.plan).checkpoint_evidence = packets;
+  const findings: Finding[] = [];
+  checkCheckpointEvidence(f.root, record, findings);
+  const prefix = `${path}: supply the sealed checkpoint packet through checkpoint-evidence --file; `;
+  expect(findings).toEqual([{ code, path, message: expect.stringContaining(prefix) }]);
+  expect(findings[0]!.message.length).toBeGreaterThan(prefix.length);
+  const file = join(f.root, 'project.json');
+  const before = readFileSync(file);
+  expect(() => f.attach(packets)).toThrow(expect.objectContaining(findings[0]!));
+  expect(readFileSync(file)).toEqual(before);
+}
+
+test('#825 invalid pairs refuse at the packet or side path in the writer and checker', () => {
+  const f = checkpointWorkspace();
+  f.attach();
+  const second = { ...f.packet, checkpointId: 'seethrough', planStepId: 'seethrough' };
+  const [beforeTile, afterTile] = second.tiles;
+  const pair = {
+    before: { id: beforeTile!.id, sha256: beforeTile!.sha256 },
+    after: { id: afterTile!.id, sha256: afterTile!.sha256 },
+  };
+  const code = 'CHECKPOINT_EVIDENCE_PAIR_INVALID';
+  const path = 'plan.checkpoint_evidence[1].pair';
+  const reject = (rawPair: Json, suffix = '') => expectPacketRefusal(f, [f.packet, { ...second, pair: rawPair }], code, path + suffix);
+
+  for (const malformed of [null, [], 'before and after', { ...pair, extra: true }]) reject(malformed);
+  reject({ after: pair.after }, '.before');
+  reject({ before: pair.before }, '.after');
+  const duplicate = { ...pair, after: pair.before };
+  reject(duplicate, '.after');
+  for (const side of ['before', 'after'] as const) {
+    const seal = pair[side];
+    const invalidSides: Json[] = [
+      null, [], 'tile', { ...seal, extra: true },
+      { id: seal.id }, { sha256: seal.sha256 },
+      { ...seal, id: 'unknown-tile' }, { ...seal, sha256: '0'.repeat(64) },
+      { ...seal, id: 'invalid tile id' }, { ...seal, sha256: 'A'.repeat(64) },
+    ];
+    for (const invalid of invalidSides) reject({ ...pair, [side]: invalid }, `.${side}`);
+  }
+  const candidate = project(f.root);
+  obj(candidate.plan).checkpoint_evidence = [f.packet, { ...second, pair: duplicate }];
+  expect(checkProject(f.root, candidate, { now: TEST_NOW, readOnly: true }).refusals)
+    .toContainEqual(expect.objectContaining({ code, path: path + '.after' }));
+});
+
+test('#825 other Review parser refusals carry their member and tile index', () => {
+  const f = checkpointWorkspace();
+  const codesAndPaths: [Json, string][] = [
+    [{ ...f.packet, extra: true }, 'keys'],
+    [{ ...f.packet, tiles: [] }, 'tiles'],
+    [{ ...f.packet, tiles: [{ ...f.packet.tiles[0]!, label: '' }] }, 'tiles[0]'],
+    [{ ...f.packet, tiles: [f.packet.tiles[0]!, f.packet.tiles[0]!] }, 'tiles[1]'],
+    [{ ...f.packet, table: { ...f.packet.table, path: '../table.json' } }, 'table'],
+    [{ ...f.packet, recommendationText: '' }, 'text'],
+  ];
+  for (const [packet, member] of codesAndPaths) {
+    expectPacketRefusal(f, [packet], 'CHECKPOINT_EVIDENCE_INVALID', `plan.checkpoint_evidence[0].${member}`);
+  }
 });
 
 test('unsafe, drifted and symlinked evidence refuses through the writer and the same checker codes', () => {

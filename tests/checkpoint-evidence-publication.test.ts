@@ -20,7 +20,13 @@ test('#395 sealed checkpoint record and package publications retain every asset 
     const now = Math.max(TEST_NOW, Date.now() + 60_000);
     let host: JobOwnerHost | undefined;
     try {
-      f.attach();
+      const [beforeTile, afterTile] = f.packet.tiles;
+      const pair = {
+        before: { id: beforeTile!.id, sha256: beforeTile!.sha256 },
+        after: { id: afterTile!.id, sha256: afterTile!.sha256 },
+      };
+      const attach = () => f.attach([{ pair: { after: pair.after, before: pair.before }, ...f.packet }]);
+      attach();
       const identity = currentJobIdentity({ root: f.root, stateDir: state, fingerprint: 'synthetic-checkpoint', reviewer: { id: 'synthetic-owner', role: 'owner' } }, f.root);
       let fetchCapability = '';
       host = await startJobHost({ ...identity, readerId: identity.readerId, readPublished, partsEnumerator,
@@ -54,11 +60,16 @@ test('#395 sealed checkpoint record and package publications retain every asset 
         return obj(body.value);
       }
       const result = packagePath ? { ...(mode === 'package-v3' ? { kind: 'package' } : {}), path: packagePath, selector: { kind: 'draft', id: 'example' } } : { kind: 'plan' };
+      const recordBytes = readFileSync(recordFile);
       const publication = await api('publish', { result, freeze: { kind: 'producer-held', holdId: 'synthetic-freeze',
-        record: { path: 'project.json', sha256: jobHash(readFileSync(recordFile)) } } });
-      expect(owner.session.retainedSourceV3(String(publication.publicationId)).seals).toContainEqual({ path: String(painting.path), sha256: String(painting.sha256) });
+        record: { path: 'project.json', sha256: jobHash(recordBytes) } } });
+      const retained = owner.session.retainedSourceV3(String(publication.publicationId));
+      expect(retained.seals).toContainEqual({ path: String(painting.path), sha256: String(painting.sha256) });
+      expect(readFileSync(join(retained.snapshotRoot, 'project.json'))).toEqual(recordBytes);
       if (packagePath) expect(JSON.parse(readFileSync(join(f.root, packagePath), 'utf8')).producer.source).toBe(painting.path);
-      expect(obj(publication.source).checkpointEvidence).toEqual([f.packet]);
+      const evidenceBytes = JSON.stringify([{ ...f.packet, pair }]);
+      expect(JSON.stringify(retained.source.checkpointEvidence)).toBe(evidenceBytes);
+      expect(JSON.stringify(obj(publication.source).checkpointEvidence)).toBe(evidenceBytes);
       if (!packagePath) expect(obj(publication.source).model).toBeUndefined();
       const base = `${owner.origin}/jobs/${owner.session.jobId}/publications/${publication.publicationId}/instances/${publication.instanceKey}/`;
       const readAsset = (path: string, method = 'GET') => fetch(base + path, { method, headers: { 'X-Review-Capability': credentials.ui } });
@@ -70,6 +81,7 @@ test('#395 sealed checkpoint record and package publications retain every asset 
       expect(obj(projected.table).rows).toEqual(JSON.parse(readFileSync(join(f.root, String(obj(f.packet.table).path)), 'utf8')).rows);
       expect(projected.routesText).toBe(f.packet.routesText);
       expect(projected.recommendationText).toBe(f.packet.recommendationText);
+      expect(projected.pair).toEqual(pair);
       const originalTable = readFileSync(join(f.root, String(obj(f.packet.table).path)));
       for (const [index, tile] of arr(projected.tiles).map(obj).entries()) {
         expect(tile.label).toBe(obj(arr(f.packet.tiles)[index]).label);
@@ -122,7 +134,7 @@ test('#395 sealed checkpoint record and package publications retain every asset 
         { fetch: () => ({ bytes: JSON.stringify(accepted) }) });
       // A metadata-only edit is a fresh source identity and cannot consume the old approval.
       f.packet.recommendationText = 'Changed recommendation, same raw assets';
-      f.attach();
+      attach();
       const edited = readFileSync(recordFile);
       expect(sign).toThrow(expect.objectContaining({ code: 'REVIEW_ACT_SOURCE_STALE' }));
       expect(readFileSync(recordFile)).toEqual(edited);
@@ -131,7 +143,7 @@ test('#395 sealed checkpoint record and package publications retain every asset 
       expect(obj(changedPublication.source).sourceHash).not.toBe(obj(publication.source).sourceHash);
       expect(changedPublication.instanceKey).not.toBe(publication.instanceKey);
       f.packet.recommendationText = 'HQ recommendation — (i), preserve raw FAIL';
-      f.attach();
+      attach();
       expect(sign().exit).toBe(0);
       const signed = readFileSync(recordFile);
       expect(sign().exit).toBe(0);

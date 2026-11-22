@@ -5,7 +5,8 @@ import { checkPublicationGenerations } from './job-publication.ts';
 import { collectBarAmendments, effectiveBar } from './plan-bar-amendments.ts';
 import { partsReadFindings, latestPartsVerdictFinding, PARTS_VERDICT_LATEST_SINCE, recordedPartsVerdict, recordedPartsFinding } from './parts-verdict-record.ts';
 import { partsActFindings } from './parts-act.ts';
-import { isDiscardReceipt, reviewActFindings } from './review-act.ts';
+import { isDiscardReceipt, reviewActFindings, type VerifiedInterviewPick } from './review-act.ts';
+import { checkInterviewCommentClosures } from './interview-comment-closures.ts';
 import { checkCheckpointEvidence } from './checkpoint-evidence.ts';
 import { checkAdvances, checkAdvanceBars, checkDirectionReviewAdvances, checkPauses, checkProgressLinkage, checkRiggingInterviewPainting, checkStageProgress, checkStepStatusHistory } from './stage-progress.ts';
 import { checkPartsChecks } from './parts-check.ts';
@@ -1015,11 +1016,14 @@ function checkProjectOnce(projectDirArg: string, candidate: JsonObject | undefin
   if (!options.recordPublication) checkAppliedReview(ctx);
   const provenance = options.recordPublication ? [] : checkProvenance(ctx, parts);
   const feedback = options.recordPublication ? [] : checkFeedback(ctx);
+  const picks: VerifiedInterviewPick[] | undefined = project.interview_comment_closures === undefined ? undefined : [];
   refusals.push(
-    ...reviewActFindings(project, warnings, options.includeRoutedAnswerWarnings ? warnings : undefined),
+    ...reviewActFindings(project, warnings, options.includeRoutedAnswerWarnings ? warnings : undefined, picks),
     ...partsActFindings(dir, project),
     ...(options.recordPublication ? [] : partsReadFindings(dir, project)),
   );
+  const closures = picks && checkInterviewCommentClosures(dir, project, picks, options.now);
+  if (closures) refusals.push(...closures.findings);
   const draftAmendments = amendments.filter(amendment => amendment.target.kind === 'draft');
   for (const [index, raw] of asArray(project.signoffs).entries()) {
     if (!isObject(raw) || raw.stage !== 'parts-review' || typeof raw.draft_id !== 'string') continue;
@@ -1071,7 +1075,9 @@ function checkProjectOnce(projectDirArg: string, candidate: JsonObject | undefin
     ...(amendments.length === 0 ? {} : { amendments: amendmentSummaries(project, amendments, reopens) }),
     ...(ledger.length === 0 ? {} : { ledger }),
     refusals,
-    warnings,
+    warnings: closures?.closed.size
+      ? warnings.filter(warning => warning.code !== 'REVIEW_ANSWER_COMMENT_ROUTED' || !closures.closed.has(warning.path))
+      : warnings,
     ...(holes.length ? { holes } : {}),
   };
 }

@@ -1109,7 +1109,15 @@ skin and preroll declarations, including optional-field absence. A directory
 containing only images and a wrapper receipt needs a public producer re-render.
 
 The copied output layout is `outputs/v<N>/out/parts.json`, `out/parts/`,
-`out/rig/`, `out/check/build/` and `outputs/v<N>/idle/`. Every copied output
+`out/rig/`, `out/check/build/` and `outputs/v<N>/idle/`. When the draft's
+recorded parts folder comes from an assemble run and its original `run.json`
+and all listed outputs verify, registration can also freeze that assemble
+layout under `outputs/v<N>/plate-assemble/`. The receipt and its files keep
+their original names and bytes. The manifest and figure mask, plus the
+painting when declared, must match the version's `out/` copies. If the
+version carries `plate-assemble/`, use
+`--mask-from figure-mask:outputs/v<N>/plate-assemble/rig` with `rig-parts comfy plate`.
+Every copied output
 gets its actual `path`, `sha256` and `bytes` in `versions[].outputs`.
 `registration.copied` records file and byte totals. Sources are rechecked after
 copying, and the copy is byte-verified before registration. The normal
@@ -2060,13 +2068,15 @@ the record and previously published artifacts byte-identical. Source documents
 and patches are literal retained POSIX paths below the selected project, without
 symlinks, traversal or ignored roots. Only the explicitly bound compiled-model
 path above is allowed in regenerable `derived/`. Clone it when using this gate.
-The scene's idle frames are the one path admitted under `outputs/`: a post on
-rig `vN` reads `outputs/vN/idle/frames.json` only with the path and sha256 of
+A direction post on rig `vN` may read frozen idle frames under `outputs/`.
+It reads `outputs/vN/idle/frames.json` only with the path and sha256 of
 `versions[vN].registration.idle`, and any other file under `outputs/vN/idle/`
 only with a `versions[vN].outputs` binding. The bytes stay where `rig-version`
 froze them; no second copy is retained. Present bytes are verified on every
 write and check. Absent bytes refuse, as the registration check refuses absent
 frozen outputs, so restore `outputs/vN/` before writing or checking the post.
+Parts can also read `outputs/vN/plate-assemble/rig` as a figure-mask source
+when the version carries the original assemble receipt and layout.
 
 ### Review reads; create authors direction revisions
 

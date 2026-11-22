@@ -55,7 +55,7 @@ export function bindPartsSignoff(dir: string, project: JsonObject, signoff: Json
 }
 
 /** Same candidate gate for all signatures, including the folded parts signature. */
-export function assertSignoffCandidate(dir: string, asRead: CheckReport, project: JsonObject, signoff: JsonObject, covered: JsonObject[], now: number): void {
+export function assertSignoffCandidate(dir: string, asRead: CheckReport, project: JsonObject, signoff: JsonObject, covered: JsonObject[], now: number): readonly Finding[] {
   const signoffs = project.signoffs as JsonObject[];
   const reopens = collectReopens(project, []);
   const frontier = furthestStageSignoff(collectSignoffs(project, []).filter(s => liveSignoff(reopens, s.stage, s.at)));
@@ -82,6 +82,7 @@ export function assertSignoffCandidate(dir: string, asRead: CheckReport, project
     });
     if (first !== undefined) refuse(first.code, first.message);
   }
+  return candidateRefusals;
 }
 
 /** Build and validate in memory. The ingestion writer owns the single project.json rename. */

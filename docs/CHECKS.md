@@ -1595,6 +1595,11 @@ file identities, a check refusal or an outstanding publication HOLE. Restore
 reconcile pending publications before publishing again. Every refusal leaves
 the record unchanged.
 
+In both the inventory and retained phases, `job open --plan` can publish a
+re-sign even at `rig-review`. The only record-check refusals allowed through
+are `SIGNOFF_ANSWERS_STALE` and `GUIDE_CHANGED_UNSIGNED` findings that the one
+displayed re-sign will clear.
+
 | Code | Finding and remedy |
 | --- | --- |
 | `JOB_RECORD_SUBJECT_INVALID` | `project.json` does not bind the explicitly requested question, option set and effective stage, including a question whose pick is already recorded and so has no pending set, or a subject id cannot be represented by the record publication contract. Publish the exact current pending subject with its original representable id. |
@@ -1611,8 +1616,9 @@ the record unchanged.
 
 In the retained phase, unsafe paths, missing or changed sealed files and
 invalid or duplicate file declarations refuse with `JOB_PUBLICATION_INVALID`
-before the check runs. In the inventory phase, check refusals produce
-`JOB_RECORD_INCOMPLETE`. Neither phase changes the record or its tree.
+before the check runs. In the inventory phase, any other check refusal blocks
+publication with `JOB_RECORD_INCOMPLETE`, which names the blocking code and
+record path. Neither phase changes the record or its tree.
 
 
 ## Recorded parts verdicts (create#267)

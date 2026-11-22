@@ -29,6 +29,7 @@ import {
 import { optionContextFiles, optionFile, validateContext } from './choices.ts';
 import { hasStageOrder, interviewStageOfGuide, PAUSED_STAGE, stageOfStep, stepCoveredByApproval } from './stages.ts';
 import { assertPlanSignoffCandidate } from './signoff.ts';
+import { guideSignoffMatcher, staleSignoffAnswer } from './signoff-answers.ts';
 import { assertInterviewRecordSignable, checkpointSignable, packageSignSubjects, reviewVerdictSignable, rigVerdictIngestible, stageSignable } from './signable.ts';
 import { collectReopens, directionReviewClosed, liveSignoff } from './reopen.ts';
 import { acceptedReviewVerdict } from './review.ts';
@@ -37,6 +38,7 @@ import { recordDirectionTarget, requireRecordDirectionTarget } from './record-di
 import { latestPartsApproval, previousPartsApproval, retainedJson } from './structure.ts';
 import { partsStructureSnapshot, shellWord } from './job-acts.ts';
 import { jobHash, pendingPublications, isRecordResult, type JobIdentity } from './job-outbox.ts';
+import { PLAN_BOUND_SIGNOFF_STAGES } from './review-act.ts';
 import { Refusal, refuse } from './refusal.ts';
 import { lockedPackage } from './toolchain-lock.ts';
 import type { Json, JsonObject } from './templates.ts';
@@ -221,6 +223,28 @@ function postPlanPicture(root: string, project: JsonObject): { path: string; sha
   return { path, sha256: String(row.sha256) };
 }
 
+function planResignScope(project: JsonObject, steps: readonly JsonObject[], refusals: readonly Finding[]): { stage: string | null; blocking: readonly Finding[] } {
+  const signoffs = asArray(project.signoffs);
+  const guides = new Set<string>();
+  const stages = new Set<string | null>();
+  for (const finding of refusals) {
+    const stale = staleSignoffAnswer(finding);
+    if (!stale) continue;
+    guides.add(stale.id);
+    const signoff = signoffs[stale.index];
+    stages.add(isObject(signoff) && typeof signoff.stage === 'string' && typeof signoff.checkpoint !== 'string'
+      ? signoff.stage : null);
+  }
+  const [stage] = stages;
+  const singleStage = stages.size === 1 && typeof stage === 'string' && PLAN_BOUND_SIGNOFF_STAGES.includes(stage);
+  const covered = singleStage ? steps.filter(step => stepCoveredByApproval(project, step, stage)) : steps;
+  const affected = guideSignoffMatcher(covered, guides);
+  const blocking = refusals.filter(finding => !affected(finding));
+  // Prefer an unrelated finding even when stale signatures precede it in check order.
+  if (blocking.length) return { stage: null, blocking };
+  return singleStage ? { stage, blocking } : { stage: null, blocking: refusals };
+}
+
 /** Reuse check's eligibility and the exact retained evidence of its subject. No writes or locks. */
 export function readRecordPublished(input: RecordPublicationRequest & { result: RecordOptionResult }, now?: number): RecordOptionContext;
 export function readRecordPublished(input: RecordPublicationRequest & { result: { kind: 'plan' } }, now?: number): RecordPlanContext;
@@ -383,7 +407,14 @@ export function readRecordPublished({ root, record, result, phase, parts: sealed
       ? new Set(items.filter(item => item.state.state === 'silent'
         && interviewStageOfGuide(item.id, item.kind === 'post', hasStageOrder(project)) === report.effective_stage).map(item => item.path))
       : new Set<string>();
-    const blocking = report.refusals.filter(finding => finding.code !== 'INTERVIEW_INCOMPLETE' || !openQuestions.has(finding.path));
+    const scopedRefusals = report.refusals.filter(finding => finding.code !== 'INTERVIEW_INCOMPLETE' || !openQuestions.has(finding.path));
+    const canResign = result.kind === 'plan' && !pausedPlan && !interviewSignoff
+      && scopedRefusals.some(finding => staleSignoffAnswer(finding) !== undefined);
+    // Inventory sees the live project. A re-sign may only repair the scoped findings,
+    // even when another refusal depends on producer files outside the retained plan.
+    const baseline = canResign && phase === 'inventory' ? checkProject(root, project, { now, readOnly: true }) : undefined;
+    const refusals = baseline?.refusals ?? scopedRefusals;
+    const { stage: resignStage, blocking } = canResign ? planResignScope(project, steps, refusals) : { stage: null, blocking: refusals };
     if (blocking.length && phase === 'retained') {
       throw new RecordClosureIncomplete(blocking.map(({ code, path }) => ({ code, path })));
     }
@@ -397,7 +428,7 @@ export function readRecordPublished({ root, record, result, phase, parts: sealed
     if (interviewSignoff) assertInterviewRecordSignable(project, { ...report, holes });
     const finding = blocking[0] ?? holes?.[0];
     if (finding) throw Error(`${finding.code} at ${finding.path}`);
-    const stage = report.effective_stage;
+    const stage = resignStage ?? report.effective_stage;
     let subjects: RecordPlanSubject[] = [];
     let label: string;
     if (result.kind === 'option-set') {
@@ -431,12 +462,13 @@ export function readRecordPublished({ root, record, result, phase, parts: sealed
       }
       const covered = steps.filter(step => stepCoveredByApproval(project, step, stage));
       const signable = !directionNeedsAmendment && stage !== null && ['interview', 'plan-approved', 'rigging-interview', 'post-interview', 'direction-review'].includes(stage)
-        && (stage !== 'interview' || interviewSignoff) && stageSignable(project, stage);
+        && (resignStage !== null || ((stage !== 'interview' || interviewSignoff) && stageSignable(project, stage)));
       if (signable && stage === 'direction-review' && steps.length === 0) throw Error('direction-review record sign-off needs displayed plan steps');
       const emptyPost = stage === 'post-interview' && !steps.some(step => step.phase === 'post') && postNotPassed({ items });
       if (signable && stage !== 'interview' && stage !== 'direction-review' && !covered.length && !emptyPost) throw Error('the requested plan has no steps at this approval stage');
       if (signable) {
-        const reads = withCandidateProject(root, project, () => assertPlanSignoffCandidate(root, project, stage, now));
+        const resign = resignStage === null ? undefined : { clear: refusals, baseline };
+        const reads = withCandidateProject(root, project, () => assertPlanSignoffCandidate(root, project, stage, now, resign));
         for (const { path, sha256 } of reads) seal({ path, sha256 });
       }
       subjects = steps.filter(step => {

@@ -1,7 +1,7 @@
 /** Review act order is immaterial only within one human-reviewed publication. */
 import { isDeepStrictEqual } from 'node:util';
 import { asArray, isObject, type Finding } from './check.ts';
-import { decodeReviewAct, isRecordDirectionSignoff, reviewActFindings, reviewActSignoff, SIGNOFF_TARGET_KINDS, signoffActVersion } from './review-act.ts';
+import { decodeReviewAct, isRecordDirectionSignoff, retainedActBy, reviewActFindings, reviewActSignoff, SIGNOFF_TARGET_KINDS, signoffActVersion } from './review-act.ts';
 import type { JsonObject } from './templates.ts';
 
 export const SIGNOFF_PAIR_SINCE = '2026-11-13T00:00:00Z';
@@ -23,7 +23,7 @@ export function samePublicationReviewPair(project: JsonObject, signoff: JsonObje
     const selector = accepted.source.selector;
     const verdict = asArray(version.verdicts)[verdictIndex];
     return isObject(verdict) && verdict.verdict === 'accepted'
-      && Object.entries(reviewActSignoff(signed)).every(([key, value]) => isDeepStrictEqual(signoff[key], value))
+      && Object.entries(reviewActSignoff(signed, retainedActBy(signed, signoff.by))).every(([key, value]) => isDeepStrictEqual(signoff[key], value))
       && signed.value.stage === signoff.stage && accepted.value.stage === signoff.stage
       && signedVersion === version.n && selector !== null && 'version' in selector && selector.version === version.n
       && selector.kind === SIGNOFF_TARGET_KINDS[String(signoff.stage)]

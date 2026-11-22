@@ -737,28 +737,52 @@ export function draftReviewStillEvidence(act: DraftReviewVerdictAct) {
   return reviewStillEvidence(`evidence/drafts/${act.source.selector.id}`, reviewActStill(act)!);
 }
 
+/** Review declares who a host was opened for; it does not authenticate who pressed the button. */
+export const REVIEW_ACT_ACTOR_SINCE = '2026-11-22T00:00:00Z';
+type ActAuthor = { readonly authority: { readonly reviewer: { readonly id: string; readonly role: string } }; readonly at: string };
+
+/** An owner-role host opened for the agent declares the agent, which is not the owner. */
+function agentUnderOwner(act: ActAuthor): boolean {
+  return act.authority.reviewer.role === 'owner' && act.authority.reviewer.id.trim().toLowerCase() === 'agent';
+}
+
+/** The record's `by` for a pick or sign-off act: the declared agent by its own id, otherwise the role's authority. */
+export function reviewActBy(act: ActAuthor): string {
+  if (agentUnderOwner(act)) return act.authority.reviewer.id;
+  return act.authority.reviewer.role === 'owner' ? 'user' : 'delegate';
+}
+
+/**
+ * The `by` a retained receipt's record must carry. Before REVIEW_ACT_ACTOR_SINCE Create
+ * recorded an agent's act under an owner host as `user`; the ledger keeps that with a WARN.
+ */
+export function retainedActBy(act: ActAuthor, recorded: unknown, path = 'review_acts', warnings?: Finding[]): string {
+  if (recorded !== 'user' || !agentUnderOwner(act) || !(Date.parse(act.at) < Date.parse(REVIEW_ACT_ACTOR_SINCE))) return reviewActBy(act);
+  warnings?.push({ code: 'REVIEW_ACT_ACTOR_LEGACY', path, message: `project.json.${path}: this act predates actor attribution and records the agent's act under an owner host as user; preserve the receipt, and open hosts for the owner with --reviewer naming the owner` });
+  return 'user';
+}
+
 /** The sign-off fields a passed checkpoint act supplies; the writer and check share them. */
-export function checkpointActSignoff(act: CheckpointAct): { by: string; at: string; verbatim: string; source: string } {
-  return { by: act.authority.reviewer.role === 'owner' ? 'user' : 'delegate', at: act.at,
+export function checkpointActSignoff(act: CheckpointAct, by = reviewActBy(act)): { by: string; at: string; verbatim: string; source: string } {
+  return { by, at: act.at,
     verbatim: reviewActVerbatim(act), source: `review act ${act.jobId}/${act.actId}` };
 }
 
 /** The human values a signoff act records. The act names itself in source; the stage is the writer's, never Review's. */
-export function reviewActSignoff(act: SignoffAct): JsonObject {
-  return { stage: act.value.stage, checkpoint: null, by: act.authority.reviewer.role === 'owner' ? 'user' : 'delegate',
+export function reviewActSignoff(act: SignoffAct, by = reviewActBy(act)): JsonObject {
+  return { stage: act.value.stage, checkpoint: null, by,
     at: act.at, verbatim: reviewActVerbatim(act), source: `review act ${act.jobId}/${act.actId}` };
 }
 
 /** An approved parts verdict carries the same person's authority for its stage signature. */
-export function partsVerdictSignoff(act: PartsVerdictAct, at = act.at, draftId = act.source.selector.id): JsonObject {
-  return { stage: 'parts-review', checkpoint: null, draft_id: draftId,
-    by: act.authority.reviewer.role === 'owner' ? 'user' : 'delegate', at,
+export function partsVerdictSignoff(act: PartsVerdictAct, at = act.at, draftId = act.source.selector.id, by = reviewActBy(act)): JsonObject {
+  return { stage: 'parts-review', checkpoint: null, draft_id: draftId, by, at,
     verbatim: reviewActVerbatim(act), source: `review act ${act.jobId}/${act.actId}` };
 }
 
 /** A folded rig signature retains the verdict's exact human authority, words and clock. */
-export function rigVerdictSignoff(act: ReviewVerdictAct): JsonObject {
-  return { stage: 'rig-review', checkpoint: null, by: act.authority.reviewer.role === 'owner' ? 'user' : 'delegate',
+export function rigVerdictSignoff(act: ReviewVerdictAct, by = reviewActBy(act)): JsonObject {
+  return { stage: 'rig-review', checkpoint: null, by,
     at: act.at, verbatim: reviewActVerbatim(act), source: `review act ${act.jobId}/${act.actId}` };
 }
 
@@ -888,7 +912,7 @@ export function reviewActFindings(project: JsonObject, warnings?: Finding[]): Fi
           }
           const at = amendment === undefined ? act.at : String(amendment.signed_at);
           const draftId = partsReceiptDraftId(entry)!;
-          const expected = partsVerdictSignoff(act, at, draftId);
+          const expected = partsVerdictSignoff(act, at, draftId, retainedActBy(act, object(signoff) ? signoff.by : undefined, path, warnings));
           if (act.value.verdict !== 'approved' || !object(signoff) || named.length !== 1 || named[0] !== signoff
             || Object.entries(expected).some(([key, value]) => signoff[key] !== value)
             || !object(signoff.evidence) || signoff.evidence.kind !== 'parts-verdict'
@@ -910,7 +934,7 @@ export function reviewActFindings(project: JsonObject, warnings?: Finding[]): Fi
           && jobHash(JSON.stringify(answer.choice)) === entry.version_hash);
         const choice = object(answer?.choice) ? answer.choice : null;
         const picks = choice && Array.isArray(choice.picks) ? choice.picks : [];
-        if (entry.question !== act.value.questionId || !answer || answer.by !== (act.authority.reviewer.role === 'owner' ? 'user' : 'delegate')
+        if (entry.question !== act.value.questionId || !answer || answer.by !== retainedActBy(act, answer.by, path, warnings)
           || !choice || !object(choice.set) || choice.set.sha256 !== act.source.optionSet.sha256
           || (choice.note ?? '') !== act.value.note || !isDeepStrictEqual(picks.map(raw => object(raw)
             ? { itemId: raw.ask, optionId: raw.option_id, otherText: raw.other_text ?? null } : null), act.value.selections)) {
@@ -933,7 +957,7 @@ export function reviewActFindings(project: JsonObject, warnings?: Finding[]): Fi
         const signoffs = Array.isArray(project.signoffs) ? project.signoffs : [];
         const signoff = Number.isSafeInteger(entry.signoff) && Number(entry.signoff) >= 0 ? signoffs[Number(entry.signoff)] : undefined;
         const displayed = act.source.plan.steps.find(step => step.id === act.value.planStepId);
-        const expected = checkpointActSignoff(act);
+        const expected = checkpointActSignoff(act, retainedActBy(act, object(signoff) ? signoff.by : undefined, path, warnings));
         if (act.value.outcome !== 'pass' || act.value.checkpointId !== act.value.planStepId || entry.checkpoint !== act.value.planStepId
           || entry.version_hash !== displayed?.hash || !object(signoff) || signoff.checkpoint !== act.value.planStepId
           || signoff.by !== expected.by || signoff.at !== expected.at || signoff.verbatim !== expected.verbatim || signoff.source !== expected.source) {
@@ -943,8 +967,9 @@ export function reviewActFindings(project: JsonObject, warnings?: Finding[]): Fi
         return;
       }
       if (act.kind === 'signoff') {
-        const expected = reviewActSignoff(act);
-        const recorded = asArray(project.signoffs).filter(object).filter(signoff => signoff.source === expected.source);
+        const source = `review act ${act.jobId}/${act.actId}`;
+        const recorded = asArray(project.signoffs).filter(object).filter(signoff => signoff.source === source);
+        const expected = reviewActSignoff(act, retainedActBy(act, recorded.length === 1 ? recorded[0]!.by : undefined, path, warnings));
         const target = recorded.length === 1 && object(recorded[0]!.target) ? recorded[0]!.target : null;
         const recordDirection = isRecordDirectionSignoff(act);
         const shown = recordDirection
@@ -1001,7 +1026,7 @@ export function reviewActFindings(project: JsonObject, warnings?: Finding[]): Fi
             ? { review_package: { path: `versions[${versionIndex}].review_package`, sha256: reviewPackageHash(version.review_package) } } : null;
         if (act.value.stage !== 'rig-review' || act.value.verdict !== 'approved' || act.source.selector?.kind !== 'rig'
           || !object(signoff) || namedSignoffs.length !== 1 || namedSignoffs[0] !== signoff
-          || Object.entries(expectedSignoff).some(([key, value]) => signoff[key] !== value)
+          || Object.entries(rigVerdictSignoff(act, retainedActBy(act, signoff.by, path, warnings))).some(([key, value]) => signoff[key] !== value)
           || !object(signoff.target) || signoff.target.version !== entry.version
           || binding === null || !isDeepStrictEqual(signoff.target, { version: entry.version,
             verdict: `versions[${versionIndex}].verdicts[${entry.verdict}]`, ...binding })) {

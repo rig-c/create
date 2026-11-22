@@ -4,7 +4,7 @@ import { intakeItem, intakeWarnings, INTAKE_QUESTION } from './intake.ts';
 /** Public record writers; validation precedes every project write. */
 import { readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { acquireBoundJobWrite, beginJobProgress } from './job-writer.ts';
-import { assertActSubjectDeclared, decodeReviewAct, fetchReviewActBytes, matchesActProjectSource, reviewActFindings, reviewActTransport, type ReviewActTransport, type InterviewPicksAct } from './review-act.ts';
+import { assertActSubjectDeclared, decodeReviewAct, fetchReviewActBytes, matchesActProjectSource, reviewActBy, reviewActFindings, reviewActTransport, type ReviewActTransport, type InterviewPicksAct } from './review-act.ts';
 import { dirname, join, resolve } from 'node:path';
 import { isDeepStrictEqual as equal } from 'node:util';
 import { answered, asArray, checkProject, collectItems, collectSignoffs, isObject, loadCollection, collectionAnswer, type Item } from './check.ts';
@@ -197,9 +197,11 @@ function reviewPicksPayload(dir: string, item: Item, act: InterviewPicksAct, ori
   }
   const {set} = optionFile(dir,registered);
   if (set.id !== act.source.optionSet.id) refuse('INTERVIEW_OPTIONS_STALE', `${item.path}: displayed option set identity differs; refresh the questionnaire`);
+  const by = reviewActBy(act);
+  if (by.trim().toLowerCase() === 'agent') refuse('INTERVIEW_CHOICE_INVALID', `${item.path}: act ${act.jobId}/${act.actId} came from a host opened for reviewer ${JSON.stringify(by)}, so it records the agent, who cannot answer for the owner; open the host for the owner and ask the owner to pick`);
   return { set: registered, picks: act.value.selections.map(row => ({ ask: row.itemId, option_id: row.optionId,
     ...(row.otherText === null ? {} : {other_text:row.otherText}) })), note: act.value.note,
-    by: act.authority.reviewer.role === 'owner' ? 'user' : 'delegate', at: act.at };
+    by, at: act.at };
 }
 
 interface AnswerDraft {

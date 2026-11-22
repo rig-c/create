@@ -5,7 +5,7 @@ import { resignAfterChange } from './fixtures.ts';
 import { afterEach, expect, test } from 'bun:test';
 import { readFileSync, writeFileSync, symlinkSync, mkdirSync, rmSync, renameSync } from 'node:fs';
 import { join } from 'node:path';
-import { collectItems, isObject, asArray } from '../src/check.ts';
+import { collectItems, isObject, asArray, type Finding } from '../src/check.ts';
 import { CHOICE_SPEC, CHOICE_ORDER_SPEC, sha256, optionContext, validateSet, assembleFragments, checkChoiceConstraints, type ChoiceError } from '../src/choices.ts';
 import { FRAMING_IDS } from '../src/waypoints.ts';
 import { GUIDE_INTERVIEW, hasStageOrder, stageIndex } from '../src/stages.ts';
@@ -13,7 +13,7 @@ import { currentJobIdentity, readRecordPublished, type RecordPlanContext } from 
 import { JOB_BINDING_FILE, jobHash, writePrivateJson } from '../src/job-outbox.ts';
 import { realpathSync } from 'node:fs';
 import { interviewAnswerCommand as rawInterviewAnswer } from '../src/choice-writers.ts';
-import { decodeReviewResponse, fetchReviewAct, reviewActFindings } from '../src/review-act.ts';
+import { decodeReviewResponse, fetchReviewAct, REVIEW_ACT_ACTOR_SINCE, reviewActFindings } from '../src/review-act.ts';
 import { partsReviewCommand } from '../src/parts-review.ts';
 import { PARTS_CLI_RECEIPT, partsReadFindings } from '../src/parts-verdict-record.ts';
 import { Refusal } from '../src/refusal.ts';
@@ -705,4 +705,80 @@ test('#701 all rigging picks reach rigging without a plan publication', () => {
   advanceCommand(['rigging', dir]);
   expect(checkProject(dir).refusals).toEqual([]);
   expect(checkProject(dir).warnings).toEqual([]);
+});
+
+/** #828: a Review signoff act on the interview stage, fetched through the injected adapter. */
+function reviewSignoff(w: {dir:string}, actId: string, at: string, words: string, reviewer: JsonObject = { id: 'synthetic-owner', role: 'owner' }) {
+  return rawSignoff(['interview', realpathSync(w.dir), '--from-review', actId], testClock.now(), { fetch: transport => ({ bytes: JSON.stringify({
+    schema: 'rig-review/act@2', kind: 'signoff', jobId: transport.jobId, actId, askId: 'synthetic-ask', publicationId: 'synthetic-publication',
+    at, authority: { actor: 'human', channel: 'review-ui', reviewer },
+    source: { sourceHash: '1'.repeat(64), projectHash: '2'.repeat(64), package: { id: 'synthetic-package', revision: 'one' },
+      selector: null, model: null, direction: null, optionSet: null, appliedResult: null, plan: null, parts: { enumeratorVersion: '2.45.0' } },
+    value: { stage: 'interview', decision: 'approved', words },
+  }) }) });
+}
+const agentReviewer = (act: JsonObject): void => { obj(obj(act.authority).reviewer).id = 'agent'; };
+function rehash(receipt: JsonObject, edit: (act: JsonObject) => void): void {
+  const act = JSON.parse(String(receipt.bytes)) as JsonObject; edit(act);
+  receipt.bytes = JSON.stringify(act); receipt.sha256 = sha256(Buffer.from(String(receipt.bytes)));
+}
+
+test('#828 the owner acting under an owner host keeps the owner pick and signoff record bytes', () => {
+  const w = working('reference');
+  testClock.set(testClock.now() + 1_000);
+  const pickAt = testClock.iso();
+  const pick = reviewAnswer(w, { set: { path: w.path, sha256: w.hash }, picks: [{ ask: 'reference', option_id: 'keep' }], at: pickAt });
+  const shown = obj(obj(arr(obj(arr(w.set.asks)[0]).options)[0]));
+  const asks = JSON.stringify(obj(JSON.parse(pick)).asks);
+  expect(pick).toBe(`{"delegated":false,"by":"user","at":"${pickAt}","verbatim":${JSON.stringify(`${String(shown.label)}\n${String(shown.effect)}\n`)},"source":"review questionnaire","choice":{"spec":"${CHOICE_SPEC}","set":{"path":"${w.path}","sha256":"${w.hash}"},"picks":[{"ask":"reference","option_id":"keep","shown":{"label":${JSON.stringify(shown.label)},"effect":${JSON.stringify(shown.effect)}}}],"note":""},"asks":${asks},"value":${JSON.stringify(obj(JSON.parse(pick)).value)}}`);
+  testClock.set(testClock.now() + 1_000);
+  const signAt = testClock.iso();
+  bindReview(w);
+  expect(reviewSignoff(w, 'owner-sign', signAt, 'I approve the interview.').exit).toBe(0);
+  const signed = obj(arr(load(w.dir).signoffs).at(-1));
+  expect(JSON.stringify(signed)).toBe(`{"stage":"interview","checkpoint":null,"by":"user","at":"${signAt}","verbatim":"I approve the interview.","source":"review act synthetic-interview-job/owner-sign","answer_hashes":${JSON.stringify(signed.answer_hashes)}}`);
+  expect(reviewActFindings(load(w.dir))).toEqual([]);
+});
+
+test('#828 the ledger keeps an earlier agent act recorded as user with a WARN and refuses one from REVIEW_ACT_ACTOR_SINCE', () => {
+  const w = working('reference');
+  testClock.set(testClock.now() + 1_000);
+  reviewAnswer(w, { set: { path: w.path, sha256: w.hash }, picks: [{ ask: 'reference', option_id: 'keep' }], at: testClock.iso() });
+  testClock.set(testClock.now() + 1_000);
+  bindReview(w);
+  expect(reviewSignoff(w, 'owner-sign', testClock.iso(), 'I approve the interview.').exit).toBe(0);
+  const recorded = load(w.dir);
+  const receipts = (project: JsonObject) => arr(project.review_acts).map(obj).filter(entry => ['interview-picks', 'signoff'].includes(String(entry.kind)));
+  const current = structuredClone(recorded);
+  for (const receipt of receipts(current)) rehash(receipt, agentReviewer);
+  expect(reviewActFindings(current).map(f => f.code)).toEqual(['REVIEW_ACT_LEDGER_INVALID', 'REVIEW_ACT_LEDGER_INVALID']);
+  const earlier = structuredClone(recorded);
+  const at = new Date(Date.parse(REVIEW_ACT_ACTOR_SINCE) - 60_000).toISOString();
+  for (const receipt of receipts(earlier)) {
+    const was = String(JSON.parse(String(receipt.bytes)).at);
+    rehash(receipt, act => { agentReviewer(act); act.at = at; });
+    if (receipt.kind === 'signoff') {
+      receipt.version_hash = jobHash(JSON.stringify({ stage: 'interview', checkpoint: null, at }));
+      obj(arr(earlier.signoffs).map(obj).find(row => row.at === was)).at = at;
+    } else obj(collectItems(earlier, { collection: null }).find(item => item.id === 'reference')!.raw).at = at;
+  }
+  const warnings: Finding[] = [];
+  expect(reviewActFindings(earlier, warnings)).toEqual([]);
+  expect(warnings.map(f => [f.code, f.path])).toEqual([['REVIEW_ACT_ACTOR_LEGACY', expect.any(String)], ['REVIEW_ACT_ACTOR_LEGACY', expect.any(String)]]);
+});
+
+test('#828 an agent act under an owner host records the agent, so it refuses as a pick or signoff and writes nothing', () => {
+  const w = working('reference');
+  const file = join(w.dir, 'project.json');
+  testClock.set(testClock.now() + 1_000);
+  const payload = { set: { path: w.path, sha256: w.hash }, picks: [{ ask: 'reference', option_id: 'keep' }], at: testClock.iso() };
+  bindReview(w);
+  let before = readFileSync(file);
+  expect(code(() => reviewAnswer(w, payload, [], agentReviewer))).toBe('INTERVIEW_CHOICE_INVALID');
+  expect(readFileSync(file)).toEqual(before);
+  reviewAnswer(w, payload);
+  testClock.set(testClock.now() + 1_000);
+  before = readFileSync(file);
+  expect(code(() => reviewSignoff(w, 'agent-sign', testClock.iso(), 'I approve the interview.', { id: 'agent', role: 'owner' }))).toBe('SIGNOFF_NOT_HUMAN');
+  expect(readFileSync(file)).toEqual(before);
 });

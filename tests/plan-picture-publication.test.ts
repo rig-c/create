@@ -29,9 +29,15 @@ function planRequest(root: string): RecordPublicationRequest & { result: { kind:
 }
 
 const still = { kind: 'still', path: STILL_PATH, sha256: jobHash(STILL), camera: 'front', frame: 'setup', what: 'Review displayed setup pose' };
+const COMPOSE_CHECK = 'outputs/v4/compose/check';
+const atlasPage = { path: `${COMPOSE_CHECK}/build/skeleton.png`, sha256: jobHash('atlas page') };
+const idleFrame = { path: `${COMPOSE_CHECK}/idle_frames/idle/f0000.png`, sha256: jobHash(STILL) };
 
 test('#665 a post-stage plan publication names the live post picture as a files entry, and Review retains it', async () => {
-  const root = directionRecord(post => { post.evidence = [still, ...arr(post.evidence)]; }, { [STILL_PATH]: STILL });
+  const root = directionRecord(post => {
+    post.evidence = [still, ...arr(post.evidence)];
+    post.outputs = [...arr(post.outputs), idleFrame];
+  }, { [STILL_PATH]: STILL, [idleFrame.path]: STILL });
   const context = readRecordPublished(planRequest(root), TEST_NOW);
   expect(context.planPicture).toEqual({ path: STILL_PATH, sha256: jobHash(STILL) });
   expect(context.files).toContainEqual(context.planPicture!);
@@ -46,6 +52,27 @@ test('#665 a post-stage plan publication names the live post picture as a files 
   const source = retained.source as unknown as { planPicture?: unknown; files: unknown[] };
   expect(source.planPicture).toEqual(context.planPicture);
   expect(source.files).toContainEqual(context.planPicture);
+});
+
+test.each([
+  ['publishes the recorded first idle frame', true],
+  ['omits the picture without a recorded first idle frame', false],
+] as const)('#867 a composed post %s', (_description, recorded) => {
+  const laterFrame = { path: `${COMPOSE_CHECK}/idle_frames/idle/f0001.png`, sha256: jobHash('later frame') };
+  const root = directionRecord(post => {
+    post.evidence = [];
+    post.outputs = [atlasPage, laterFrame, ...(recorded ? [idleFrame] : []), ...arr(post.outputs)];
+  }, { [atlasPage.path]: Buffer.from('atlas page'), [laterFrame.path]: Buffer.from('later frame'), [idleFrame.path]: STILL });
+  const context = readRecordPublished(planRequest(root), TEST_NOW);
+  if (recorded) {
+    expect(context.planPicture).toEqual(idleFrame);
+    expect(context.files).toContainEqual(idleFrame);
+  } else {
+    expect('planPicture' in context).toBe(false);
+    expect(context.files).not.toContainEqual(idleFrame);
+  }
+  expect(context.files).not.toContainEqual(atlasPage);
+  expect(context.files).not.toContainEqual(laterFrame);
 });
 
 test('#665 a post-stage plan whose live post holds no picture publishes without the field', () => {

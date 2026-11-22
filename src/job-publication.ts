@@ -205,7 +205,8 @@ const PLAN_PICTURE_RASTER = /\.(png|jpe?g|webp)$/i;
 
 /**
  * The latest picture the record already holds for its live post work: the newest live `kind: "post"`
- * version's first raster in `evidence` (newest first, as verdict ingestion keeps it), then in `outputs`.
+ * version's first raster in `evidence` (newest first, as verdict ingestion keeps it), or its
+ * first checked idle frame in `outputs`.
  * The path and sha256 are the record's own; nothing is re-derived from a producer. A record without
  * one, or whose named file is not on disk, publishes no picture.
  */
@@ -214,7 +215,9 @@ function postPlanPicture(root: string, project: JsonObject): { path: string; sha
   const post = asArray(project.versions).filter(isObject).filter(version => version.kind === 'post'
     && liveSignoff(reopens, 'post', Date.parse(String(version.at)))).at(-1);
   if (!post) return undefined;
-  const row = [...asArray(post.evidence), ...asArray(post.outputs)].filter(isObject).find(entry =>
+  const idleFramePath = `outputs/v${String(post.n)}/compose/check/idle_frames/idle/f0000.png`;
+  const idleFrames = asArray(post.outputs).filter(entry => isObject(entry) && entry.path === idleFramePath);
+  const row = [...asArray(post.evidence), ...idleFrames].filter(isObject).find(entry =>
     typeof entry.path === 'string' && PLAN_PICTURE_RASTER.test(entry.path)
       && typeof entry.sha256 === 'string' && /^[a-f0-9]{64}$/.test(entry.sha256));
   if (!row) return undefined;

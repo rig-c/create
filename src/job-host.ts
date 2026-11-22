@@ -18,6 +18,7 @@ import type { JsonObject } from './templates.ts';
 import { recoverReplacedJobHostState, replacedRootRefusal } from './job-host-state.ts';
 import { requireOwnerLanguage } from './owner-language.ts';
 import { postJobProgress } from './job-progress.ts';
+import { reportOwnerSubmitRefusal } from './job-refusal.ts';
 import { hasStageOrder, interviewStageOfGuide } from './stages.ts';
 
 function installBinding(root: string, binding: WriterBinding): void {
@@ -52,6 +53,7 @@ function options(
   return {
     root: identity.root, stateDir: identity.stateDir, fingerprint: identity.fingerprint, reviewer: identity.reviewer,
     readerId: identity.readerId, readPublished, partsEnumeratorId: identity.partsEnumeratorId, partsEnumerator,
+    onRefusal: reportOwnerSubmitRefusal,
     ...(identity.publicationMode ? {
       publicationMode: identity.publicationMode,
       readRecordPublished: readRecord,

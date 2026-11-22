@@ -35,7 +35,7 @@ import { RIG_VERSION_HELP, rigVersionCommand } from './rig-version.ts';
 import { DERIVED_HELP, derivedCommand } from './prepared-inputs.ts';
 import { SPLIT_CAPTIONS_HELP, splitCaptionsCommand } from './split-captions.ts';
 import { VERSION_HELP, versionCommand } from './config-lost.ts';
-import { jobRuntimeCommand, takePublishedLines } from './job-writer.ts';
+import { jobRuntimeCommand, takePendingNotices, takePublishedLines } from './job-writer.ts';
 import { NEXT_HELP, nextCommand } from './next.ts';
 import { parseOwnerLanguage } from './owner-language.ts';
 import { ownerLanguageCommand } from './owner-language-writer.ts';
@@ -135,7 +135,7 @@ job reconcile:
 
 bound writers:
   ${BOUND_WRITE_HELP}
-  A stopped host leaves a committed publication pending (JOB_PUBLISH_PENDING) and refuses later bound writes until job reconcile runs against the live host.
+  A stopped host leaves a committed publication pending: the writer exits 0 with WARN JOB_PUBLISH_PENDING on stderr, and later bound writes refuse until job reconcile runs against the live host.
 
 init:
   <dir>          an empty or missing folder; a non-empty one is refused
@@ -438,16 +438,22 @@ export function main(argv: string[], now: number): number {
       refuse('UNKNOWN_COMMAND', `no command named ${first} (see rig-create --help)`, USAGE_EXIT);
     }
     takePublishedLines();
+    takePendingNotices();
     const result = command(rest, now);
     const jobLines = takePublishedLines();
     const text = typeof result === 'string' ? result : result.stdout;
     const output = !rest.includes('--json') && jobLines.length ? `${text}\n${jobLines.join('\n')}` : text;
     process.stdout.write(`${output}\n`);
+    // A committed record whose publication is pending is a success with a named WARN (create#844).
+    const pending = takePendingNotices();
+    if (pending.length) process.stderr.write(`${pending.join('\n')}\n`);
     return typeof result === 'string' ? 0 : result.exit;
   } catch (error) {
     const jobLines = takePublishedLines();
+    const pending = takePendingNotices();
     if (error instanceof Refusal) {
       if (!rest.includes('--json') && jobLines.length) process.stdout.write(`${jobLines.join('\n')}\n`);
+      if (pending.length) process.stderr.write(`${pending.join('\n')}\n`);
       process.stderr.write(`${formatRefusal(error)}\n`);
       return error.exitCode;
     }

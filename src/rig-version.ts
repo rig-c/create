@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import { closeSync, linkSync, mkdirSync, mkdtempSync, openSync, renameSync, rmdirSync, rmSync, writeFileSync } from 'node:fs';
 import { existsSync, lstatSync, readFileSync, readdirSync, realpathSync } from './check-reads.ts';
 import { acquireBoundJobWrite, beginJobProgress, prepareVersionIntent, publishCommittedVersion } from './job-writer.ts';
-import { cancelUncommittedIntent, type PendingPublication } from './job-outbox.ts';
+import { cancelUncommittedIntent, isRecordResult, pendingPublications, type PendingPublication } from './job-outbox.ts';
 import { shellWord } from './job-acts.ts';
 import { partsFileReferences } from '@rig-c/parts/src/parts.ts';
 import { BODY_YAW_DIAL_BONE } from '@rig-c/parts/src/turn.ts';
@@ -68,6 +68,22 @@ function isValidAdaptedTarget(target: string): boolean {
 }
 function fail(code: string, path: string, why: string): never {
   refuse(code, `${path}: ${why}; retain the cited frozen inputs and register a new rig version`);
+}
+
+/** A retry of a committed registration names that version and its publication, not the numbering rule (create#844). */
+function refuseRegisteredVersion(dir: string, project: JsonObject, n: number): void {
+  const version = asArray(project.versions).filter(isObject).find(row => row.n === n);
+  if (!version) return;
+  let publication: string;
+  try {
+    const pending = pendingPublications(dir).find(entry => !isRecordResult(entry.result)
+      && entry.result.selector?.kind !== 'draft' && entry.result.selector?.version === n);
+    publication = pending
+      ? `its publication is pending (JOB_PUBLISH_PENDING${pending.failure ? `: ${pending.failure.code}` : ''}); do not register it again: restore the bound host and run rig-create job reconcile`
+      : 'no publication of it is pending; to register changed inputs, use a version number after all registered versions';
+  } catch { publication = 'its publication state is unreadable; run rig-create check'; }
+  const at = isObject(version.registration) && typeof version.registration.at === 'string' ? ` at ${version.registration.at}` : '';
+  refuse('RIG_VERSION_ALREADY_REGISTERED', `versions[v${n}]: ${String(version.kind)} v${n} is already recorded${at}; ${publication}`);
 }
 
 function bytesAt(dir: string, binding: Json | undefined, output = false): Buffer {
@@ -1393,6 +1409,8 @@ export function rigVersionCommand(args: string[], now: number): { stdout: string
   let publicationIntent: PendingPublication | null = null;
   let progress: ReturnType<typeof beginJobProgress>;
   try {
+    // Before the job gate: a retry while v<n>'s publication is pending names v<n>, not the gate.
+    refuseRegisteredVersion(dir, project, n);
     releasePublication = acquireBoundJobWrite(dir, { kind: 'rig', version: n });
     // The first milestone waits for the job gate: a refused write leaves the project untouched.
     progress = beginJobProgress(dir, 'build', 'Starting rig registration');
@@ -1405,6 +1423,7 @@ export function rigVersionCommand(args: string[], now: number): { stdout: string
     if (!Array.isArray(project.versions) || asArray(project.versions).some(v => !isObject(v) || typeof v.n !== 'number')) fail('RIG_REGISTRATION_INVALID', 'versions', 'restore the version list');
     const registeredNumbers = new Set(project.versions.map(v => (v as JsonObject).n as number));
     const maxRegistered = Math.max(0, ...registeredNumbers);
+    refuseRegisteredVersion(dir, project, n);
     if (n <= maxRegistered || registeredNumbers.has(n)) fail('RIG_REGISTRATION_INVALID', 'versions', 'use a version number after all registered versions');
     const answersFeedback = parseFeedbackAnswers(project, n, answerValues);
     // Refuse missing public idle provenance before copying any project input.

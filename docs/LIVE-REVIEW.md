@@ -173,7 +173,9 @@ entry hash and result selector. The hash uses that entry's two-space JSON
 serialization with a final newline. After commit, the matching entry is pending until Review
 acknowledges it. The pending identity and generation
 remain stable across retries, including acknowledgment loss. A publish failure
-leaves the committed result and reports `JOB_PUBLISH_PENDING` beside the write.
+leaves the committed result, and the writer exits 0 with a
+`WARN JOB_PUBLISH_PENDING:` line on stderr beside its normal output: a
+non-zero exit stays reserved for refusals, which leave the record byte-identical.
 `interview --check` includes every pending entry in `holes[]` and exits 1.
 Unbound projects retain their existing report shape and writer behavior.
 

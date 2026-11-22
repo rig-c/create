@@ -714,8 +714,8 @@ describe('frozen rig registration', () => {
       const [exit, stderr] = await Promise.all([child.exited, new Response(child.stderr).text()]);
       const bytes = readFileSync(join(dir, 'project.json'));
       if (stopped) {
-        expect(exit).toBe(1);
-        expect(stderr).toContain('JOB_PUBLISH_PENDING');
+        expect(exit).toBe(0);
+        expect(stderr).toStartWith('WARN JOB_PUBLISH_PENDING: project.json: versions[v1] is recorded');
         expect(pendingPublications(dir)[0].failure?.code).toBe('JOB_HOST_ATTACH_REFUSED');
         expect(checkProject(dir).holes?.map(hole => hole.code)).toEqual(['JOB_PUBLISH_PENDING']);
         recovery = await openCreateJob(dir, { id: 'reviewer', role: 'owner' }, testClock.now());
@@ -740,6 +740,82 @@ describe('frozen rig registration', () => {
       rmSync(jobHostStateRoot(dir), { recursive: true, force: true });
     }
   });
+
+  test('#844 a registration committed while the host is stopped exits 0, names its pending publication, and a retry names the version', async () => {
+    const { dir, args, load } = setup();
+    const source = readFileSync(join(dir, 'source/rig/images/rectangle.png'));
+    writeFileSync(join(dir, 'inputs/painting.png'), source);
+    const record = load();
+    record.inputs = [{ path: 'inputs/painting.png', sha256: jobHash(source), bytes: source.length,
+      origin: 'synthetic original painting', at: new Date(testClock.now()).toISOString() }];
+    writeFileSync(join(dir, 'project.json'), `${JSON.stringify(record, null, 2)}\n`);
+    const file = join(dir, 'project.json');
+    const runCli = async (...argv: string[]) => {
+      const child = Bun.spawn([process.execPath, ...clockedCli(), ...argv], { cwd: dir, stdout: 'pipe', stderr: 'pipe' });
+      const [exit, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
+      return { exit, stdout, stderr };
+    };
+    const acknowledged = () => {
+      const receipts = join(jobPrivateRoot(dir), 'acknowledged-publications');
+      return readdirSync(receipts).map(name => JSON.parse(readFileSync(join(receipts, name), 'utf8')) as JsonObject)
+        .map(receipt => obj(obj(receipt.result).selector).version);
+    };
+    const v2 = ['2', ...args.slice(1)];
+    const host = await openCreateJob(dir, { id: 'reviewer', role: 'owner' }, testClock.now());
+    let reopened: Bun.Subprocess<'ignore', 'pipe', 'pipe'> | undefined;
+    try {
+      expect((await runCli('rig-version', ...args)).exit).toBe(0);
+      host.stop();
+
+      // 1. The record is committed and only its publication waits: success with a named WARN, not a refusal.
+      const before = readFileSync(file);
+      const committed = await runCli('rig-version', ...v2);
+      expect(committed.exit).toBe(0);
+      expect(obj(JSON.parse(committed.stdout)).n).toBe(2);
+      expect(committed.stderr).toMatch(/^WARN JOB_PUBLISH_PENDING: project\.json: versions\[v2\] is recorded .*\(JOB_HOST_ATTACH_REFUSED: .*job reconcile\n$/);
+      expect(readFileSync(file).equals(before)).toBe(false);
+      expect(arr(load().versions).map(v => obj(v).n)).toEqual([1, 2]);
+      expect(pendingPublications(dir)).toMatchObject([{ result: { selector: { kind: 'rig', version: 2 } }, phase: 'pending', failure: { code: 'JOB_HOST_ATTACH_REFUSED' } }]);
+
+      // 2. A retry names the registered version and its pending publication, and leaves the record byte-identical.
+      const committedBytes = readFileSync(file);
+      const retry = await runCli('rig-version', ...v2);
+      expect(retry.exit).toBe(1);
+      expect(retry.stderr).toMatch(/^rig-create: RIG_VERSION_ALREADY_REGISTERED: versions\[v2\]: .*\(JOB_PUBLISH_PENDING: JOB_HOST_ATTACH_REFUSED\).*job reconcile\n$/);
+      expect(readFileSync(file)).toEqual(committedBytes);
+
+      // 3. Restarting the host with job open reconciles the pending entry under its own publication step,
+      // so close finds nothing pending and a later reconcile has nothing left.
+      reopened = Bun.spawn([process.execPath, ...clockedCli(), 'job', 'open', dir, '--reviewer', 'reviewer', '--role', 'owner'], { cwd: dir, stdout: 'pipe', stderr: 'pipe' });
+      const stderr = new Response(reopened.stderr).text();
+      const reader = reopened.stdout.getReader();
+      let printed = '';
+      while (!/\njob: .*\n$/.test(printed)) {
+        const chunk = await reader.read();
+        if (chunk.done) break;
+        printed += new TextDecoder().decode(chunk.value);
+      }
+      reader.releaseLock();
+      // Its printed lines name only the republished head (rig v1); the reconciled v2 is not named (reported on create#844).
+      expect(printed).toMatch(/^http:\/\/.*\n[\s\S]*\njob: rig v1 published\n/);
+      expect(pendingPublications(dir)).toEqual([]);
+      expect(acknowledged()).toContain(2);
+      expect(await runCli('job', 'close', dir)).toEqual({ exit: 0, stdout: 'job: closed\n', stderr: '' });
+      expect(existsSync(join(jobPrivateRoot(dir), 'retired-publications'))).toBe(false);
+      expect(await runCli('job', 'reconcile', dir)).toEqual({ exit: 0, stdout: 'job: reconciled 0 publication(s)\n', stderr: '' });
+      expect(await reopened.exited).toBe(0);
+      expect(await stderr).toBe('');
+
+      const settled = await runCli('rig-version', ...v2);
+      expect(settled.exit).toBe(1);
+      expect(settled.stderr).toMatch(/^rig-create: RIG_VERSION_ALREADY_REGISTERED: versions\[v2\]: .*no publication of it is pending/);
+      expect(readFileSync(file)).toEqual(committedBytes);
+    } finally {
+      reopened?.kill(); host.stop();
+      rmSync(jobPrivateRoot(dir), { recursive: true, force: true });
+      rmSync(jobHostStateRoot(dir), { recursive: true, force: true });
+    }
+  }, 90_000);
 
   test('public CLI records real producer frames, declared tools, cited date and unchanged stage', () => {
     const { dir, args, load } = setup();
@@ -1404,12 +1480,13 @@ describe('frozen rig registration', () => {
     expect(readFileSync(join(dir, 'project.json'))).toEqual(beforeSymlinkDest);
     rmSync(join(dir, 'outputs/v1'));
 
-    // Register v2 cleanly with v1 occupied by a real directory, then refuse n <= maxRegistered (v1 and v2) with RIG_REGISTRATION_INVALID
+    // Register v2 cleanly with v1 occupied by a real directory, then refuse n <= maxRegistered (v1 skipped, v2 registered)
     put(dir, 'outputs/v1/legacy.txt', 'occupied v1\n');
     rigVersionCommand(['2', ...args.slice(1)]);
     const afterV2 = readFileSync(join(dir, 'project.json'));
     refused(['1', ...args.slice(1)], 'RIG_REGISTRATION_INVALID');
-    refused(['2', ...args.slice(1)], 'RIG_REGISTRATION_INVALID');
+    // Retrying the registered number names that version (create#844), not the numbering rule.
+    expect(refused(['2', ...args.slice(1)], 'RIG_VERSION_ALREADY_REGISTERED').message).toContain('no publication of it is pending');
     expect(readFileSync(join(dir, 'project.json'))).toEqual(afterV2);
 
     // Malformed existing versions entries (string n or non-object) refuse with RIG_REGISTRATION_INVALID and leave project.json byte-identical

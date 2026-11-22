@@ -13,6 +13,7 @@ import {
 } from '@rig-c/review/job-host';
 import { asArray, checkProject } from './check.ts';
 import { pendingActRemedy, pendingJobActs, pendingJobAsksForTarget, readHostActs, readHostActsAndAsks, shellWord, type JobAskTarget } from './job-acts.ts';
+import { reportOwnerSubmitRefusal } from './job-refusal.ts';
 import {
   acquireJobLock,
   JOB_BINDING_FILE,
@@ -85,6 +86,7 @@ export function closeHostOptions(binding: WriterBinding): JobHostOptions {
     },
     bindingId: identity.bindingId,
     installWriterBinding: failClosedCloseInstallBinding,
+    onRefusal: reportOwnerSubmitRefusal,
     reuseOnly: {
       expected: {
         jobId: binding.jobId,

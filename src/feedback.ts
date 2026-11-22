@@ -209,7 +209,7 @@ export function checkFeedback(ctx: Ctx): FeedbackSummary[] {
   };
   const routes = new Map<string, { path: string; route: JsonObject }>();
   asArray(ctx.project.review_acts).forEach((entry, index) => {
-    if (isObject(entry) && isObject(entry.feedback_route)) {
+    if (isObject(entry) && entry.kind !== 'interview-picks' && isObject(entry.feedback_route)) {
       routes.set(`${entry.version}:${entry.verdict}`, { path: `review_acts[${index}].feedback_route`, route: entry.feedback_route });
     }
   });

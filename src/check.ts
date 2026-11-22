@@ -862,6 +862,7 @@ interface CheckOptions {
   recordPublication?: boolean;
   /** Exact target selected by the resume writer when validating the pause exit. */
   resumeStage?: string;
+  includeRoutedAnswerWarnings?: boolean;
 }
 
 /**
@@ -871,6 +872,7 @@ interface CheckOptions {
  * `recordPublication` checks the decision record and its answer/approval evidence,
  * without revalidating producer artifacts. Stage resolution and record predicates
  * are shared; the default remains the full project check.
+ * `includeRoutedAnswerWarnings` adds informational Review answer comments for next.
  */
 export function checkProject(projectDirArg: string, candidate: JsonObject | undefined, options: CheckOptions): CheckReport {
   const run = (): CheckReport => candidate === undefined
@@ -1013,7 +1015,11 @@ function checkProjectOnce(projectDirArg: string, candidate: JsonObject | undefin
   if (!options.recordPublication) checkAppliedReview(ctx);
   const provenance = options.recordPublication ? [] : checkProvenance(ctx, parts);
   const feedback = options.recordPublication ? [] : checkFeedback(ctx);
-  refusals.push(...reviewActFindings(project, warnings), ...partsActFindings(dir, project), ...(options.recordPublication ? [] : partsReadFindings(dir, project)));
+  refusals.push(
+    ...reviewActFindings(project, warnings, options.includeRoutedAnswerWarnings ? warnings : undefined),
+    ...partsActFindings(dir, project),
+    ...(options.recordPublication ? [] : partsReadFindings(dir, project)),
+  );
   const draftAmendments = amendments.filter(amendment => amendment.target.kind === 'draft');
   for (const [index, raw] of asArray(project.signoffs).entries()) {
     if (!isObject(raw) || raw.stage !== 'parts-review' || typeof raw.draft_id !== 'string') continue;

@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { appendFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync, lstatSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { checkProject, collectItems } from '../src/check.ts';
+import { checkProject, collectItems, type Finding } from '../src/check.ts';
 import { optionContext } from '../src/choices.ts';
 import { plantLegacyReopen, fixture, retainSignoffs, arr, obj } from './fixtures.ts';
 import { stageIndex } from '../src/stages.ts';
@@ -20,6 +20,7 @@ import { assertNoPendingJobAsk } from '../src/job-close.ts';
 import { currentJobIdentity } from '../src/job-publication.ts';
 import { JOB_COMMENTS_ACT_SCHEMA, parseCommentsAct, startJobHost, type ActV3, type JobOwnerHost, type JobHostOptions } from '@rig-c/review/job-host';
 import { interviewAnswerCommand } from '../src/choice-writers.ts';
+import { reviewActFindings } from '../src/review-act.ts';
 import type { Json, JsonObject } from '../src/templates.ts';
 import { testClock } from './clock.ts';
 import { EXAMPLE_NOW, EXAMPLE_REOPEN_AT } from '../scripts/example-time.ts';
@@ -578,49 +579,178 @@ async function openMotionQuestion(also: string[] = [], edit?: (project: JsonObje
   return { root, url: opening.url, view, value, others };
 }
 
-test('#838 an act@6 answer records the act@4 survey bytes and keeps its owner comments in the receipt, named unrouted', async () => {
-  const { root, view, value } = await openMotionQuestion();
-  // The Review host still writes record picks at act@4; act@6 carries the same envelope plus ordered comments (Review #646).
-  const act4 = await view.act('interview-picks', 'interview-picks', value);
+// Review's record host writes act@4. Its decoder also admits the act@6 picks envelope.
+function commentedPicksAct(act4: JsonObject, comments: { text: string; anchor?: JsonObject }[] = []): JsonObject {
   expect(act4.schema).toBe('rig-review/act@4');
-  const sha256 = 'b'.repeat(64);
-  const crop = { path: `comment-crops/${sha256}.png`, sha256, width: 4, height: 5 };
-  const comments = [
-    { text: '  General owner comment.\r\n' },
-    { text: 'On the picture.', anchor: { name: 'reference.png' } },
-    { text: 'Pinned here.', anchor: { name: 'reference.png', imageRegion: { x: 1, y: 2, width: 4, height: 5 }, crop, nativeCrop: crop } },
-  ];
-  const { words: _, ...survey } = act4.value as JsonObject;
+  const { words: _, ...survey } = obj(act4.value);
   const act6 = { ...act4, schema: JOB_COMMENTS_ACT_SCHEMA, value: { ...survey, comments } };
   expect(parseCommentsAct(act6) as unknown).toEqual(act6);
+  return act6;
+}
+
+test('#846 single ingest routes exact comments and preserves survey, receipt and replay bytes', async () => {
+  const { root, view, value } = await openMotionQuestion();
+  const act4 = await view.act('interview-picks', 'interview-picks', value);
+  const cropHash = 'b'.repeat(64);
+  const nativeCropHash = 'c'.repeat(64);
+  const crop = { path: `comment-crops/${cropHash}.png`, sha256: cropHash, width: 2, height: 3 };
+  const nativeCrop = { path: `comment-crops/${nativeCropHash}.png`, sha256: nativeCropHash, width: 4, height: 5 };
+  const comments: { text: string; anchor?: JsonObject }[] = [
+    { text: '  General owner comment.\r\n' },
+    { text: 'On the picture.', anchor: { name: 'reference.png' } },
+    { text: 'Pinned here.\n끝', anchor: { name: 'reference.png', imageRegion: { x: 1, y: 2, width: 4, height: 5 }, crop, nativeCrop } },
+  ];
+  const bytes = JSON.stringify(commentedPicksAct(act4, comments), null, 2) + '\n';
   const file = join(root, 'project.json');
   const before = readFileSync(file);
-  const ingest = (act: JsonObject) => interviewAnswerCommand(['motion', root, '--from-review', String(act.actId)], testClock.now(),
-    { fetch: () => ({ bytes: JSON.stringify(act) }) });
-  ingest(act6 as JsonObject);
+  const ingest = (bytes: string) => interviewAnswerCommand(['motion', root, '--from-review', String(act4.actId)], testClock.now(),
+    { fetch: () => ({ bytes }) });
+  const answer = ingest(bytes);
   const at6 = readFileSync(file);
+  expect(ingest(bytes)).toBe(answer);
+  expect(readFileSync(file)).toEqual(at6);
+  expect(() => ingest(bytes.trimEnd())).toThrow(expect.objectContaining({ code: 'REVIEW_ACT_REPLAY_CONFLICT' }));
+  expect(readFileSync(file)).toEqual(at6);
+
   writeFileSync(file, before);
-  ingest(act4);
+  expect(ingest(JSON.stringify(act4))).toBe(answer);
   const at4 = readFileSync(file);
-  // Golden: only the retained act bytes and their hash differ; the answer record, its note and verbatim are the act@4 bytes.
-  const strip = (bytes: Buffer) => JSON.stringify(arr((JSON.parse(bytes.toString('utf8')) as JsonObject).review_acts), (key, entry) => key === 'bytes' || key === 'sha256' ? undefined : entry)
-    + JSON.stringify({ ...(JSON.parse(bytes.toString('utf8')) as JsonObject), review_acts: null });
+  const project4 = read(root);
+  expect(obj(arr(project4.review_acts).at(-1))).not.toHaveProperty('feedback_route');
+  // Golden: only this receipt's act bytes, hash and route differ.
+  const strip = (bytes: Buffer) => {
+    const project = JSON.parse(bytes.toString('utf8')) as JsonObject;
+    const entry = obj(arr(project.review_acts).at(-1));
+    delete entry.bytes;
+    delete entry.sha256;
+    delete entry.feedback_route;
+    return JSON.stringify(project);
+  };
   expect(strip(at6)).toBe(strip(at4));
   const project6 = JSON.parse(at6.toString('utf8')) as JsonObject;
   const index = arr(project6.review_acts).length - 1;
-  const receipt = obj(arr(project6.review_acts)[index]);
-  expect(receipt).toMatchObject({ kind: 'interview-picks', actId: act4.actId, bytes: JSON.stringify(act6), sha256: jobHash(JSON.stringify(act6)) });
-  expect(JSON.parse(String(receipt.bytes)).value.comments).toEqual(comments);
-  const guide = obj(collectItems(project6, { collection: null }).find(item => item.id === 'motion')!.raw);
-  expect(obj(guide.choice).note).toBe(String(survey.note));
-  expect('comments' in obj(guide.choice)).toBe(false);
-  expect(String(guide.verbatim)).not.toContain('General owner comment.');
-  const warnings = (bytes: Buffer) => checkProject(root, JSON.parse(bytes.toString('utf8')) as JsonObject, { now: testClock.now(), readOnly: true }).warnings
-    .filter(finding => finding.code === 'REVIEW_ANSWER_COMMENTS_UNROUTED');
-  expect(warnings(at4)).toEqual([]);
-  expect(warnings(at6)).toEqual([{ code: 'REVIEW_ANSWER_COMMENTS_UNROUTED', path: `review_acts[${index}]`, message: expect.stringContaining(`review_acts[${index}]: 3 owner comments on interview answer motion retained, not routed`) }]);
-  expect(checkProject(root, project6, { now: testClock.now(), readOnly: true }).refusals).toEqual(
-    checkProject(root, JSON.parse(at4.toString('utf8')) as JsonObject, { now: testClock.now(), readOnly: true }).refusals);
+  const entry = obj(arr(project6.review_acts)[index]);
+  expect(entry).toMatchObject({ kind: 'interview-picks', actId: act4.actId, bytes, sha256: jobHash(bytes) });
+  expect(entry.feedback_route).toEqual({ question: 'motion', comments: comments.map((comment, i) => ({ order: i + 1, ...comment })) });
+  expect(JSON.parse(answer).choice.note).toBe(value.note);
+  expect(JSON.parse(answer).choice).not.toHaveProperty('comments');
+  expect(JSON.parse(answer).verbatim).not.toContain('General owner comment.');
+
+  const check = checkProject(root, project6, { now: testClock.now(), readOnly: true });
+  expect(check.refusals).toEqual(checkProject(root, project4, { now: testClock.now(), readOnly: true }).refusals);
+  expect(check.warnings.filter(finding => finding.code.startsWith('REVIEW_ANSWER_COMMENT'))).toEqual([]);
+  const routed: Finding[] = [];
+  expect(reviewActFindings(project6, undefined, routed)).toEqual([]);
+  expect(routed).toEqual(comments.map(({ text, anchor }, i) => {
+    const path = `review_acts[${index}].feedback_route.comments[${i}]`;
+    return { code: 'REVIEW_ANSWER_COMMENT_ROUTED', path,
+      message: `project.json.${path}: interview answer motion, owner comment ${i + 1}\n${text}${anchor === undefined ? '' : `\nAnchor: ${JSON.stringify(anchor)}`}` };
+  }));
+}, 30_000);
+
+test('#846 the ledger refuses tampered routes and warns for missing routes at any act date', async () => {
+  const { root, view, value } = await openMotionQuestion();
+  const act4 = await view.act('interview-picks', 'interview-picks', value);
+  const bytes = JSON.stringify(commentedPicksAct(act4, [
+    { text: 'First synthetic comment.' },
+    { text: 'Second synthetic comment.', anchor: { name: 'reference.png' } },
+  ]));
+  const file = join(root, 'project.json');
+  const ingest = () => interviewAnswerCommand(['motion', root, '--from-review', String(act4.actId)], testClock.now(),
+    { fetch: () => ({ bytes }) });
+  const answer = ingest();
+  const project = read(root);
+  const index = arr(project.review_acts).length - 1;
+  const entryAt = (record: JsonObject) => obj(arr(record.review_acts)[index]);
+  const route = obj(entryAt(project).feedback_route);
+  const [first, second] = arr(route.comments).map(obj);
+  for (const feedback_route of [
+    null,
+    { ...route, question: 'bones' },
+    { ...route, comments: [second, first] },
+    { ...route, comments: [{ ...first, order: 2 }, second] },
+    { ...route, comments: [{ ...first, text: String(first.text) + ' ' }, second] },
+    { ...route, comments: [first, { ...second, anchor: { name: 'other.png' } }] },
+    { ...route, comments: [first] },
+    { ...route, extra: true },
+  ]) {
+    const tampered = structuredClone(project);
+    entryAt(tampered).feedback_route = feedback_route;
+    const routed: Finding[] = [];
+    expect(reviewActFindings(tampered, undefined, routed).map(finding => finding.code)).toEqual(['REVIEW_FEEDBACK_ROUTE_INVALID']);
+    expect(routed).toEqual([]);
+  }
+  const tampered = structuredClone(project);
+  entryAt(tampered).feedback_route = { ...route, comments: [] };
+  write(root, tampered);
+  const beforeRefusal = readFileSync(file);
+  expect(ingest).toThrow(expect.objectContaining({ code: 'REVIEW_FEEDBACK_ROUTE_INVALID' }));
+  expect(readFileSync(file)).toEqual(beforeRefusal);
+
+  const unrouted = structuredClone(project);
+  delete entryAt(unrouted).feedback_route;
+  const check = checkProject(root, unrouted, { now: testClock.now(), readOnly: true });
+  expect(check.warnings.map(finding => finding.code)).toContain('REVIEW_ANSWER_COMMENTS_UNROUTED');
+  write(root, unrouted);
+  const beforeReplay = readFileSync(file);
+  expect(ingest()).toBe(answer);
+  expect(readFileSync(file)).toEqual(beforeReplay);
+  for (const at of ['2020-01-01T00:00:00Z', '2099-01-01T00:00:00Z']) {
+    const entry = entryAt(unrouted);
+    entry.bytes = JSON.stringify({ ...JSON.parse(bytes), at });
+    entry.sha256 = jobHash(String(entry.bytes));
+    obj(collectItems(unrouted, { collection: null }).find(item => item.id === 'motion')!.raw).at = at;
+    const warnings: Finding[] = [];
+    const routed: Finding[] = [];
+    expect(reviewActFindings(unrouted, warnings, routed)).toEqual([]);
+    expect(warnings).toContainEqual({ code: 'REVIEW_ANSWER_COMMENTS_UNROUTED', path: `review_acts[${index}]`,
+      message: expect.stringContaining('2 owner comments on interview answer motion retained, not routed') });
+    expect(routed).toEqual([]);
+  }
+}, 30_000);
+
+test('#846 batch ingest routes comments atomically and omits the route for an empty act', async () => {
+  const root = riggingInterviewRoot();
+  const values = [await registerQuestion(root, 'motion'), await registerQuestion(root, 'bones')];
+  const { url } = await open(root, ['--question', 'motion', '--question', 'bones']);
+  const view = await page(root, url);
+  const acts: JsonObject[] = [];
+  for (const value of values) {
+    const ask = view.asks.find(row => obj(row.subject).questionId === value.questionId)!;
+    const act = await view.act('interview-picks', 'interview-picks', value, { askId: ask.askId });
+    acts.push(commentedPicksAct(act, value.questionId === 'motion' ? [{ text: 'Synthetic motion feedback.' }] : []));
+  }
+  const [motion, bones] = acts;
+  const motionId = String(motion.actId);
+  const bonesId = String(bones.actId);
+  const args = ['--batch', root, '--from-review', motionId, '--from-review', bonesId];
+  const bytes = new Map(acts.map(act => [String(act.actId), JSON.stringify(act)]));
+  const ingest = () => interviewAnswerCommand(args, testClock.now(), { fetch: ({ actId }) => ({ bytes: bytes.get(actId)! }) });
+  const file = join(root, 'project.json');
+  const before = readFileSync(file);
+  const bonesBytes = bytes.get(bonesId)!;
+  bytes.set(bonesId, JSON.stringify({ ...bones, at: new Date(testClock.now() + 1000).toISOString() }));
+  expect(ingest).toThrow(expect.objectContaining({ code: 'REVIEW_ACT_INVALID' }));
+  expect(readFileSync(file)).toEqual(before);
+  bytes.set(bonesId, bonesBytes);
+
+  const answers = ingest();
+  const after = readFileSync(file);
+  const project = read(root);
+  const [motionEntry, bonesEntry] = arr(project.review_acts).slice(-2).map(obj);
+  expect(motionEntry).toMatchObject({ question: 'motion', bytes: bytes.get(motionId),
+    feedback_route: { question: 'motion', comments: [{ order: 1, text: 'Synthetic motion feedback.' }] } });
+  expect(bonesEntry).toMatchObject({ question: 'bones', bytes: bonesBytes, sha256: jobHash(bonesBytes) });
+  expect(bonesEntry).not.toHaveProperty('feedback_route');
+  expect(ingest()).toBe(answers);
+  expect(readFileSync(file)).toEqual(after);
+  const warnings: Finding[] = [];
+  const routed: Finding[] = [];
+  expect(reviewActFindings(project, warnings, routed)).toEqual([]);
+  expect(warnings.filter(finding => finding.code.startsWith('REVIEW_ANSWER_COMMENT'))).toEqual([]);
+  expect(routed.map(finding => finding.path)).toEqual([`review_acts[${arr(project.review_acts).length - 2}].feedback_route.comments[0]`]);
+  bonesEntry.feedback_route = { question: 'bones', comments: [] };
+  expect(reviewActFindings(project).map(finding => finding.code)).toEqual(['REVIEW_FEEDBACK_ROUTE_INVALID']);
 }, 30_000);
 
 test('merged record-mode host lists finalized picks and its printed writer command ingests them', async () => {

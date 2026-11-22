@@ -1208,14 +1208,14 @@ export function nextCollection(collectionDirArg: string): NextCollectionReport {
 
 export function nextProject(projectDirArg: string, now: number = Date.now()): NextReport {
   const dir = resolve(projectDirArg);
-  const report: CheckReport = checkProject(dir, undefined, { now, readOnly: true });
+  const report: CheckReport = checkProject(dir, undefined, { now, readOnly: true, includeRoutedAnswerWarnings: true });
   const fatal = report.refusals.find(r => FATAL_CODES.has(r.code));
   if (fatal !== undefined) refuse(fatal.code, fatal.message);
 
   const project = JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')) as JsonObject;
   const stage = String(project.stage ?? '');
   const effectiveStage = String(report.effective_stage ?? stage);
-  const structureWarnings = report.warnings.filter(w => w.code === 'STRUCTURE_DELTA_REVIEW');
+  const warnings = report.warnings.filter(w => w.code === 'STRUCTURE_DELTA_REVIEW' || w.code === 'REVIEW_ANSWER_COMMENT_ROUTED');
   const collection = loadCollection(dir);
   const allItems = collectItems(project, { collection });
   const answers = allItems.flatMap(item => {
@@ -1257,7 +1257,7 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
       }
     }
   }
-  const warningFields = { ...(structureWarnings.length ? { warnings: structureWarnings } : {}), answers,
+  const warningFields = { ...(warnings.length ? { warnings } : {}), answers,
     ...(bustCommands ? { bust_landmark_commands: bustCommands } : {}) };
   const jobId = readOptionalJobId(dir);
   const holes = report.holes ?? [];
@@ -2136,13 +2136,15 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
         const hasLiveAcceptedRigVerdict = !reviewVerdictSignable(project, rigN, 'rig-review');
         const verdictAwait = `versions[n=${rigN}].verdicts[review=rig-review]`;
         if (!hasLiveAcceptedRigVerdict && !recordedLapseTargets.has(verdictAwait)) {
+          const coversChangedStructure = warnings.some(w =>
+            w.code === 'STRUCTURE_DELTA_REVIEW' && w.path === `versions[v${rigN}].provenance.structure_delta`);
           addAwait(verdictAwait);
           moves.push({
             role: 'human',
             field: `versions[v${rigN}].verdicts`,
             awaits: verdictAwait,
             command: null,
-            act: `review-tool act review-verdict for versions[v${rigN}] (rig-review)${effectiveStage === 'rig-review' ? '; approve once to record the verdict and rig-review signature' : ''}${structureWarnings.some(w => w.path === `versions[v${rigN}].provenance.structure_delta`) ? '; verdict covers changed structure' : ''}`,
+            act: `review-tool act review-verdict for versions[v${rigN}] (rig-review)${effectiveStage === 'rig-review' ? '; approve once to record the verdict and rig-review signature' : ''}${coversChangedStructure ? '; verdict covers changed structure' : ''}`,
             review_act: {
               kind: 'review-verdict',
               stage: 'rig-review',

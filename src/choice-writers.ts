@@ -4,7 +4,7 @@ import { intakeItem, intakeWarnings, INTAKE_QUESTION } from './intake.ts';
 /** Public record writers; validation precedes every project write. */
 import { readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { acquireBoundJobWrite, beginJobProgress } from './job-writer.ts';
-import { assertActSubjectDeclared, decodeReviewAct, fetchReviewActBytes, isRecordPicksAct, matchesActProjectSource, reviewActBy, reviewActFindings, reviewActTransport, type ReviewActTransport, type InterviewPicksAct } from './review-act.ts';
+import { assertActSubjectDeclared, decodeReviewAct, fetchReviewActBytes, interviewFeedbackRoute, isRecordPicksAct, matchesActProjectSource, reviewActBy, reviewActFindings, reviewActTransport, type ReviewActTransport, type InterviewPicksAct } from './review-act.ts';
 import { dirname, join, resolve } from 'node:path';
 import { isDeepStrictEqual as equal } from 'node:util';
 import { answered, asArray, checkProject, collectItems, collectSignoffs, isObject, loadCollection, collectionAnswer, type Item } from './check.ts';
@@ -277,10 +277,12 @@ function prepareInterviewAnswer(
     });
   }
   validateChoice(dir,project,item,answer);
+  const route = review && interviewFeedbackRoute(review.act);
   return { item, answer, correction, receipt: review ? {
     schema:'rig-create/review-act@1',kind:'interview-picks',
     jobId:review.act.jobId,actId:review.act.actId,question:item.id,bytes:review.bytes,sha256:sha256(Buffer.from(review.bytes)),
     version_hash:sha256(Buffer.from(JSON.stringify(choice))),
+    ...(route ? { feedback_route: route } : {}),
   } : undefined };
 }
 

@@ -52,9 +52,25 @@ export function isRecordPicksAct<Act extends { readonly schema: string; readonly
   act is Act & { readonly kind: 'interview-picks'; readonly source: JobOptionSource } {
   return act.kind === 'interview-picks' && (act.schema === JOB_RECORD_ACT_SCHEMA || act.schema === JOB_COMMENTS_ACT_SCHEMA && 'record' in act.source);
 }
-/** Owner comments an act@6 answer carries. The answer record stays survey-only, so these live only in the act receipt. */
+/** Owner comments an act@6 answer carries. Older picks carry only the survey value. */
 export function picksActComments(act: InterviewPicksAct): CommentsPicksAct['value']['comments'] {
-  return 'comments' in act.value ? act.value.comments : [];
+  return act.schema === JOB_COMMENTS_ACT_SCHEMA ? act.value.comments : [];
+}
+
+/** The interview feedback route is a projection of the decoded receipt, in submitted order. */
+export function interviewFeedbackRoute(act: InterviewPicksAct):
+  { question: string; comments: { order: number; text: string; anchor?: JsonObject }[] } | undefined {
+  const comments = picksActComments(act);
+  if (!comments.length) return;
+  return {
+    question: act.value.questionId,
+    comments: comments.map(({ text, anchor }, index) => ({
+      order: index + 1,
+      text,
+      // Keep the full Review anchor in the JSON representation shared with project.json.
+      ...(anchor === undefined ? {} : { anchor: JSON.parse(JSON.stringify(anchor)) as JsonObject }),
+    })),
+  };
 }
 export type PartsVerdictActV2 = Extract<LegacyJobAct, { kind: 'parts-verdict' }>;
 export type PartsVerdictActV5 = Omit<PartsVerdictActV2, 'schema' | 'value'> & {
@@ -868,8 +884,8 @@ function validateDiscardReceipt(entry: JsonObject, path: string, warnings?: Find
   failure('REVIEW_ACT_LEDGER_INVALID', 'discarded act receipt requires by: agent with a reason, or the owner and their relayed words');
 }
 
-/** Ledger validation deliberately checks retained evidence, not current sources. */
-export function reviewActFindings(project: JsonObject, warnings?: Finding[]): Finding[] {
+/** Ledger validation checks retained evidence. Routed comment information is opt-in for next. */
+export function reviewActFindings(project: JsonObject, warnings?: Finding[], routedAnswerWarnings?: Finding[]): Finding[] {
   const findings: Finding[] = [];
   const seen = new Set<string>();
   const targets = new Set<string>();
@@ -894,7 +910,7 @@ export function reviewActFindings(project: JsonObject, warnings?: Finding[]): Fi
         || !sha(entry.sha256) || jobHash(entry.bytes) !== entry.sha256 || !sha(entry.version_hash)) failure('REVIEW_ACT_LEDGER_INVALID', 'receipt shape or bytes hash is invalid');
       const act = decodeReviewAct(entry.bytes, entry.kind === 'parts-verdict' ? 'parts-verdict' : entry.kind === 'interview-picks' ? 'interview-picks' : entry.kind === 'checkpoint' ? 'checkpoint' : entry.kind === 'signoff' ? 'signoff' : entry.kind === 'reopen' ? 'reopen' : 'review-verdict');
       if (entry.jobId !== act.jobId || entry.actId !== act.actId) failure('REVIEW_ACT_LEDGER_INVALID', 'receipt identity differs from its act');
-      if (entry.feedback_route !== undefined) {
+      if (act.kind !== 'interview-picks' && entry.feedback_route !== undefined) {
         const route = entry.feedback_route;
         const comment = act.kind === 'review-verdict' ? reviewFeedbackComment(act) : undefined;
         if (!object(route) || !comment || typeof route.item !== 'string' || !route.item || typeof route.at !== 'string'
@@ -941,6 +957,11 @@ export function reviewActFindings(project: JsonObject, warnings?: Finding[]): Fi
         return;
       }
       if (act.kind === 'interview-picks') {
+        const route = interviewFeedbackRoute(act);
+        const hasRoute = Object.hasOwn(entry, 'feedback_route');
+        if (hasRoute && (route === undefined || !isDeepStrictEqual(entry.feedback_route, route))) {
+          failure('REVIEW_FEEDBACK_ROUTE_INVALID', 'feedback_route must match the question and all ordered comments, including their anchors, from the retained interview act and be absent for an answer without comments');
+        }
         const item = act.value.questionId === INTAKE_QUESTION ? intakeItem(project)
           : collectItems(project, { collection: null }).find(item => item.id === act.value.questionId);
         const answers = item ? [item.raw, ...asArray(item.record.history)].filter(isObject) : [];
@@ -954,9 +975,17 @@ export function reviewActFindings(project: JsonObject, warnings?: Finding[]): Fi
             ? { itemId: raw.ask, optionId: raw.option_id, otherText: raw.other_text ?? null } : null), act.value.selections)) {
           failure('REVIEW_ACT_LEDGER_INVALID', 'recorded interview answer differs from the immutable act');
         }
-        const comments = picksActComments(act).length;
-        // Create has no feedback destination for interview answer comments yet; the receipt keeps them whole.
-        if (comments) warnings?.push({ code: 'REVIEW_ANSWER_COMMENTS_UNROUTED', path, message: `project.json.${path}: ${comments} owner comment${comments === 1 ? '' : 's'} on interview answer ${act.value.questionId} retained, not routed; the answer record stays survey-only, so read them in ${path}.bytes (value.comments) and preserve the receipt until Create routes interview answer comments to feedback` });
+        if (route && !hasRoute) {
+          const count = route.comments.length;
+          warnings?.push({ code: 'REVIEW_ANSWER_COMMENTS_UNROUTED', path, message: `project.json.${path}: ${count} owner comment${count === 1 ? '' : 's'} on interview answer ${route.question} retained, not routed; read them in ${path}.bytes (value.comments) and preserve the receipt` });
+        } else if (route && routedAnswerWarnings) {
+          for (const [commentIndex, { order, text, anchor }] of route.comments.entries()) {
+            const commentPath = `${path}.feedback_route.comments[${commentIndex}]`;
+            const anchorText = anchor === undefined ? '' : `\nAnchor: ${JSON.stringify(anchor)}`;
+            routedAnswerWarnings.push({ code: 'REVIEW_ANSWER_COMMENT_ROUTED', path: commentPath,
+              message: `project.json.${commentPath}: interview answer ${route.question}, owner comment ${order}\n${text}${anchorText}` });
+          }
+        }
         ownerPickActs.set(JSON.stringify([act.jobId, act.actId]), act);
         return;
       }

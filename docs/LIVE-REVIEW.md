@@ -484,8 +484,19 @@ open asks and finalized acts awaiting ingest still block replacement with
 ordered comments. An act@6 act is read through Review's `parseCommentsAct`
 ([Review #646](https://github.com/rig-c/review/issues/646)), and picks at a
 later act version refuse `REVIEW_ACT_INVALID`. The answer records the picks and
-note as before. Its comments stay in the act receipt, and `check` reports them
-as `REVIEW_ANSWER_COMMENTS_UNROUTED` until Create routes them to feedback.
+note. When the act carries comments, Create retains the original act bytes and
+records `review_acts[i].feedback_route` on the `interview-picks` receipt as
+`{question, comments: [{order, text, anchor?}]}`. The comments keep the act's
+order, with numbering from 1, and preserve the owner's exact text and any anchor, copied whole whatever its
+kind. `check` validates the route against the retained act and refuses a
+mismatch with `REVIEW_FEEDBACK_ROUTE_INVALID`. A retained receipt with comments
+and no route gives `REVIEW_ANSWER_COMMENTS_UNROUTED` in `check` at any date.
+Preserve that receipt and read its comments in `bytes` under `value.comments`.
+
+`next` and `next --json` show one informational
+`REVIEW_ANSWER_COMMENT_ROUTED` WARN per routed comment, with the question,
+order, exact text, any serialized anchor and its receipt path. The warnings
+leave the available moves and `FEEDBACK_OPEN` counts unchanged.
 
 After recording every pick, run `interview --check`, then `job open --plan`
 for the interview signature. The grouped, single-set and interview-signature routes are supported by

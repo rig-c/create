@@ -1241,7 +1241,7 @@ async function publishedComposed() {
     answer.choice = { ...oldChoice, set: { path, sha256: directionHash(bytes) }, picks: [{ ask: id, option_id: 'keep', shown }] };
   }
   putProject(root, project);
-  testClock.set(EXAMPLE_REOPEN_AT + 60_000);
+  testClock.set(Date.parse(EXAMPLE_REOPEN_AT) + 60_000);
   signoffCommand(['post-interview', root, '--by', 'user', '--verbatim-file', join(root, 'words.txt')]);
   advanceCommand(['post', root]);
   for (const step of ['camera', 'timing', 'composition']) {

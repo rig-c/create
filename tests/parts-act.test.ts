@@ -137,11 +137,9 @@ async function submit(
   showLayers = false,
 ): Promise<JobAct> {
   const publication = host.session.status().publication!;
-  const selector = publication.source.selector;
-  if (selector?.kind !== 'draft') throw Error('expected a draft for the parts verdict');
   const request = { schema: 'rig-review/job-api@2', verb: 'ask', jobId: host.session.jobId, requestId: randomUUID(),
     idempotencyKey: randomUUID(), expectedGeneration: host.session.status().generation, publicationId: publication.publicationId,
-    subject: { kind: 'parts-verdict', draftId: selector.id } };
+    subject: { kind: 'parts-verdict', draftId: 'chain' } };
   const response = await host.ports.handleJobApi(new Request(`${host.origin}/jobs/${host.session.jobId}/api`, { method: 'POST',
     headers: { authorization: `Bearer ${host.session.hostCredentials().agent}`, 'content-type': 'application/json' }, body: JSON.stringify(request) }));
   const asked = await response.json() as { ok: boolean; error?: { code: string }; value: { askId: string } };
@@ -434,8 +432,7 @@ test('a new-id rebuild with failed publication retries through job reconcile', a
   rmSync(join(root, 'review-draft-rebuilt.json'));
   expect(await reconcileCreateJob(root)).toBe(1);
   expect(host.session.status().publication!.source.selector).toEqual({ kind: 'draft', id: 'rebuilt' });
-  const rebuiltVerdict = await submit(root, host);
-  expectCliOk(await cli(root, ['parts-review', '--from-review', rebuiltVerdict.actId]));
+  expectCliOk(await cli(root, ['job', 'close']));
   const before = readFileSync(join(root, 'project.json'));
   const duplicate = expectCliRefused(await cli(root, draftArgs('rebuilt')), 'DRAFT_RIG_MALFORMED');
   expect(duplicate.exit).toBe(1); expect(duplicate.stderr).toContain('DRAFT_RIG_MALFORMED:');

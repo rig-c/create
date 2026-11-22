@@ -1,0 +1,51 @@
+{
+  "project": {
+    "plan": {
+      "steps": [
+        {
+          "id": "step-one"
+        }
+      ]
+    }
+  },
+  "input": [
+    {
+      "recommendationText": "HQ recommendation — (i), preserve raw FAIL & 한글",
+      "routesText": "(i) accept openings\n(ii) repair\twith tab\n(iii) change source",
+      "table": {
+        "label": "Complete 103 rows",
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "path": "evidence/checkpoint/table.json"
+      },
+      "tiles": [
+        {
+          "sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+          "path": "evidence/checkpoint/pair-0.png",
+          "label": "Pair 0 — setup beside worst, marked cells",
+          "id": "pair-0"
+        },
+        {
+          "sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+          "path": "evidence/checkpoint/pair-1.png",
+          "label": "Pair 1 — 한글\n<b>raw</b>\tframe",
+          "id": "pair-1"
+        },
+        {
+          "sha256": "3333333333333333333333333333333333333333333333333333333333333333",
+          "path": "evidence/checkpoint/pair-2.png",
+          "label": "Pair 2 — candidate A",
+          "id": "pair-2"
+        },
+        {
+          "sha256": "4444444444444444444444444444444444444444444444444444444444444444",
+          "path": "evidence/checkpoint/pair-3.png",
+          "label": "Pair 3 — candidate B",
+          "id": "pair-3"
+        }
+      ],
+      "planStepId": "step-one",
+      "checkpointId": "step-one",
+      "schema": "rig-review-checkpoint-evidence/1"
+    }
+  ]
+}

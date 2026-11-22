@@ -2,73 +2,56 @@
 import { createHash } from 'node:crypto';
 import { lstatSync, readFileSync, realpathSync, statSync } from './check-reads.ts';
 import { join } from 'node:path';
+import { parseCheckpointEvidencePacket, type JobCheckpointEvidence } from '@rig-c/review/job-host';
 import { asArray, isObject, type Finding } from './check.ts';
 import { Refusal, refuse } from './refusal.ts';
 import type { JsonObject } from './templates.ts';
 
 type Seal = { readonly path: string; readonly sha256: string };
-export type CheckpointEvidence = {
-  readonly schema: 'rig-review-checkpoint-evidence/1';
-  readonly checkpointId: string;
-  readonly planStepId: string;
-  readonly tiles: readonly (Seal & { readonly id: string; readonly label: string })[];
-  readonly table: Seal & { readonly label?: string };
-  readonly routesText: string;
-  readonly recommendationText: string;
-};
+export type CheckpointEvidence = JobCheckpointEvidence;
 export type CheckpointTable = {
   schema: 'rig-review-checkpoint-table/1';
   columns: string[];
   rows: (string | number | boolean | null)[][];
 };
 const RECORD_PATH = 'plan.checkpoint_evidence';
+const PACKET_REMEDY = 'supply the sealed checkpoint packet through checkpoint-evidence --file';
 const hash = (bytes: Buffer): string => createHash('sha256').update(bytes).digest('hex');
 const object = (value: unknown): value is Record<string, unknown> => value !== null && typeof value === 'object' && !Array.isArray(value);
-const text = (value: unknown, max: number): value is string => typeof value === 'string' && value.length > 0
-  && value.length <= max && !/[\x00-\x08\x0b-\x1f\x7f]/.test(value);
-const id = (value: unknown): value is string => typeof value === 'string' && /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(value);
+const tableColumn = (value: unknown): value is string => typeof value === 'string' && value.length > 0
+  && value.length <= 512 && !/[\x00-\x08\x0b-\x1f\x7f]/.test(value);
 
 function invalid(detail: string): never {
-  refuse('CHECKPOINT_EVIDENCE_INVALID', `${RECORD_PATH}: ${detail}; supply the sealed checkpoint packet through checkpoint-evidence --file`);
+  refuse('CHECKPOINT_EVIDENCE_INVALID', `${RECORD_PATH}: ${detail}; ${PACKET_REMEDY}`);
 }
 
-function exact(value: unknown, required: string[], optional: string[] = []): Record<string, unknown> {
-  if (!object(value) || required.some(key => !Object.hasOwn(value, key)) || Object.keys(value).some(key => !required.includes(key) && !optional.includes(key))) invalid('unexpected or missing declaration fields');
-  return value;
+class CheckpointPacketRefusal extends Refusal {
+  constructor(code: string, readonly path: string, reason: string) {
+    super(code, `${path}: ${PACKET_REMEDY}; ${reason}`);
+  }
 }
 
-function seal(value: Record<string, unknown>): Seal {
-  if (typeof value.path !== 'string' || value.path.length > 4096 || !value.path
-    || /[\\:%?#\x00-\x1f\x7f]/.test(value.path) || value.path.split('/').some(piece => !piece || piece === '.' || piece === '..')
-    || typeof value.sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(value.sha256)) invalid('a file needs its literal portable project-relative path and lowercase SHA-256');
-  return { path: value.path, sha256: value.sha256 };
-}
-
-/** Fixed key order, exact strings and list order. Absence is handled by the caller. */
+/** Review canonicalizes each packet. Create binds the ordered list to this plan. */
 export function parseCheckpointEvidence(raw: unknown, project: JsonObject): CheckpointEvidence[] {
   if (!Array.isArray(raw) || raw.length < 1 || raw.length > 8) invalid('expected 1–8 ordered packets');
   const steps = asArray(isObject(project.plan) ? project.plan.steps : undefined).filter(isObject);
   const seen = new Set<string>();
-  const packets = raw.map((value): CheckpointEvidence => {
-    const packet = exact(value, ['schema', 'checkpointId', 'planStepId', 'tiles', 'table', 'routesText', 'recommendationText']);
-    if (packet.schema !== 'rig-review-checkpoint-evidence/1' || !id(packet.checkpointId) || !id(packet.planStepId)
-      || seen.has(packet.checkpointId) || packet.checkpointId !== packet.planStepId
+  const packets = raw.map((value, packetIndex) => {
+    const result = parseCheckpointEvidencePacket(value);
+    if (!result.ok) {
+      const path = `${RECORD_PATH}[${packetIndex}].${result.member}`;
+      if (result.member === 'pair') {
+        throw new CheckpointPacketRefusal('CHECKPOINT_EVIDENCE_PAIR_INVALID',
+          result.side === undefined ? path : `${path}.${result.side}`, result.reason);
+      }
+      throw new CheckpointPacketRefusal('CHECKPOINT_EVIDENCE_INVALID',
+        result.index === undefined ? path : `${path}[${result.index}]`, result.reason);
+    }
+    const { packet } = result;
+    if (seen.has(packet.checkpointId) || packet.checkpointId !== packet.planStepId
       || steps.filter(step => step.id === packet.planStepId).length !== 1) invalid('checkpointId must name its unique existing plan step without an alias');
     seen.add(packet.checkpointId);
-    if (!Array.isArray(packet.tiles) || packet.tiles.length < 1 || packet.tiles.length > 8) invalid('expected 1–8 ordered tiles');
-    const tileIds = new Set<string>();
-    const tiles = packet.tiles.map(value => {
-      const tile = exact(value, ['id', 'label', 'path', 'sha256']);
-      if (!id(tile.id) || tileIds.has(tile.id) || !text(tile.label, 512)) invalid('tile IDs must be unique and labels must be bounded nonempty text');
-      tileIds.add(tile.id);
-      return { id: tile.id, label: tile.label, ...seal(tile) };
-    });
-    const table = exact(packet.table, ['path', 'sha256'], ['label']);
-    if ('label' in table && !text(table.label, 512)) invalid('table label must be bounded nonempty text');
-    if (!text(packet.routesText, 4096) || !text(packet.recommendationText, 4096)) invalid('routes and recommendation must be bounded nonempty text');
-    return { schema: 'rig-review-checkpoint-evidence/1', checkpointId: packet.checkpointId, planStepId: packet.planStepId,
-      tiles, table: { ...seal(table), ...('label' in table ? { label: table.label as string } : {}) },
-      routesText: packet.routesText, recommendationText: packet.recommendationText };
+    return packet;
   });
   if (Buffer.byteLength(JSON.stringify(packets)) > 32 * 1024) invalid('canonical declaration exceeds 32 KiB');
   return packets;
@@ -82,7 +65,7 @@ export function parseCheckpointTable(bytes: Buffer): CheckpointTable {
     const value: unknown = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
     if (!object(value) || Object.keys(value).length !== 3 || value.schema !== 'rig-review-checkpoint-table/1'
       || !Array.isArray(value.columns) || value.columns.length < 1 || value.columns.length > 32
-      || value.columns.some(column => !text(column, 512)) || !Array.isArray(value.rows) || value.rows.length > 2048
+      || value.columns.some(column => !tableColumn(column)) || !Array.isArray(value.rows) || value.rows.length > 2048
       || value.rows.length * value.columns.length > 16384) return bad();
     const width = value.columns.length;
     for (const row of value.rows) {
@@ -132,7 +115,7 @@ export function checkCheckpointEvidence(root: string, project: JsonObject, refus
   try { readCheckpointEvidence(root, project); }
   catch (error) {
     if (!(error instanceof Refusal)) throw error;
-    refusals.push({ code: error.code, path: RECORD_PATH, message: error.message });
+    refusals.push({ code: error.code, path: error instanceof CheckpointPacketRefusal ? error.path : RECORD_PATH, message: error.message });
   }
 }
 

@@ -118,39 +118,43 @@ export function interviewOptionsCommand(args: string[], now: number): string { r
   const opts = parse(args,['--file','--adopt']);
   if (opts.adopt) {
     if (opts.positional.length > 1 || Object.keys(opts.one).length) usage('--adopt takes only a project folder');
-    const dir = resolve(opts.positional[0] ?? process.cwd()); const {file,project} = readProject(dir); const next = structuredClone(project);
-    const interview = isObject(next.interview) ? next.interview : null;
-    if (interview && interview.order === undefined && isObject(interview.post)) {
-      if (project.stage !== 'post-interview') refuse('INTERVIEW_CHOICE_INVALID', 'interview.post: for post-only choices, advance to post-interview before interview-options --adopt; for full adoption, first adopt the split stage order with a fresh parts/rigging interview (docs/INTERVIEW.md)');
-      if (interview.post.choices_adopted_at !== undefined) {
-        if (!Number.isFinite(Date.parse(String(interview.post.choices_adopted_at)))) refuse('INTERVIEW_CHOICE_INVALID', 'interview.post: restore the original valid choices_adopted_at');
-        return 'interview: post choices already adopted; original date preserved';
+  } else if (opts.positional.length > 2 || !opts.one['--file']) usage('question and --file required');
+  const dir = resolve(opts.positional[opts.adopt ? 0 : 1] ?? process.cwd());
+  const release = acquireBoundJobWrite(dir, { kind: 'record-only', writer: 'interview' });
+  try {
+    const {file,project} = readProject(dir); const next = structuredClone(project);
+    if (opts.adopt) {
+      const interview = isObject(next.interview) ? next.interview : null;
+      if (interview && interview.order === undefined && isObject(interview.post)) {
+        if (project.stage !== 'post-interview') refuse('INTERVIEW_CHOICE_INVALID', 'interview.post: for post-only choices, advance to post-interview before interview-options --adopt; for full adoption, first adopt the split stage order with a fresh parts/rigging interview (docs/INTERVIEW.md)');
+        if (interview.post.choices_adopted_at !== undefined) {
+          if (!Number.isFinite(Date.parse(String(interview.post.choices_adopted_at)))) refuse('INTERVIEW_CHOICE_INVALID', 'interview.post: restore the original valid choices_adopted_at');
+          return 'interview: post choices already adopted; original date preserved';
+        }
+        interview.post.choices_adopted_at = new Date(now).toISOString();
+        save(file,dir,project,next,now); return 'interview: post choices adopted; stage order and earlier answers preserved';
       }
-      interview.post.choices_adopted_at = new Date(now).toISOString();
-      save(file,dir,project,next,now); return 'interview: post choices adopted; stage order and earlier answers preserved';
+      if (!interview || !isObject(interview.order) || !['rig-create/stage-order@1', CHOICE_ORDER_SPEC].includes(String(interview.order.spec))) refuse('INTERVIEW_CHOICE_INVALID','interview.order: first adopt the split stage order with a fresh parts/rigging interview; then adopt choices');
+      if (interview.order.spec === CHOICE_ORDER_SPEC) return 'interview: choices already adopted; original dates preserved';
+      interview.order = {...interview.order,spec:CHOICE_ORDER_SPEC,choices_adopted_at:new Date(now).toISOString()};
+      save(file,dir,project,next,now); return 'interview: choices adopted; earlier answers preserved';
     }
-    if (!interview || !isObject(interview.order) || !['rig-create/stage-order@1', CHOICE_ORDER_SPEC].includes(String(interview.order.spec))) refuse('INTERVIEW_CHOICE_INVALID','interview.order: first adopt the split stage order with a fresh parts/rigging interview; then adopt choices');
-    if (interview.order.spec === CHOICE_ORDER_SPEC) return 'interview: choices already adopted; original dates preserved';
-    interview.order = {...interview.order,spec:CHOICE_ORDER_SPEC,choices_adopted_at:new Date(now).toISOString()};
-    save(file,dir,project,next,now); return 'interview: choices adopted; earlier answers preserved';
-  }
-  if (opts.positional.length > 2 || !opts.one['--file']) usage('question and --file required');
-  const dir = resolve(opts.positional[1] ?? process.cwd()); const {file,project} = readProject(dir); const next = structuredClone(project);
-  const item = itemAt(next,dir,opts.positional[0]); const path = opts.one['--file'];
-  let binding: JsonObject;
-  try { binding = {path,sha256:sha256(readFileSync(literalFile(dir,path)))}; } catch (e) { throw new ChoiceError('INTERVIEW_OPTIONS_FILE',String(e)); }
-  const {set} = optionFile(dir,binding); validateSet(next,item,set,loadCollection(dir)); validateContext(dir,next,set,now,true);
-  if (choiceAdoption(next, item) === null) refuse('INTERVIEW_CHOICE_REQUIRED',`${item.path}: adopt choices before drafting a new question`);
-  // A retained path/id may never be reused with a different hash, even after answer replacement.
-  for (const other of [...collectItems(next,{collection:loadCollection(dir)}), ...(item.path === 'intake.choice.answer' ? [item] : [])]) {
-    const bindings = [other.record.pending_options, ...[other.raw,...asArray(other.record.history)].filter(isObject).map(a => isObject(a.choice) ? a.choice.set : undefined)];
-    for (const old of bindings) if (isObject(old)) {
-      if (old.path === path && !equal(old,binding)) refuse('INTERVIEW_OPTIONS_FILE',`${item.path}: option path is already bound to other bytes; retain the original and use a new set id/path`);
-      const retained = optionFile(dir,old).set;
-      if (retained.id === set.id && !equal(old,binding)) refuse('INTERVIEW_OPTIONS_FILE',`${item.path}: option id is already retained; use a new id/path for a redraft`);
+    const item = itemAt(next,dir,opts.positional[0]); const path = opts.one['--file'];
+    let binding: JsonObject;
+    try { binding = {path,sha256:sha256(readFileSync(literalFile(dir,path)))}; } catch (e) { throw new ChoiceError('INTERVIEW_OPTIONS_FILE',String(e)); }
+    const {set} = optionFile(dir,binding); validateSet(next,item,set,loadCollection(dir)); validateContext(dir,next,set,now,true);
+    if (choiceAdoption(next, item) === null) refuse('INTERVIEW_CHOICE_REQUIRED',`${item.path}: adopt choices before drafting a new question`);
+    // A retained path/id may never be reused with a different hash, even after answer replacement.
+    for (const other of [...collectItems(next,{collection:loadCollection(dir)}), ...(item.path === 'intake.choice.answer' ? [item] : [])]) {
+      const bindings = [other.record.pending_options, ...[other.raw,...asArray(other.record.history)].filter(isObject).map(a => isObject(a.choice) ? a.choice.set : undefined)];
+      for (const old of bindings) if (isObject(old)) {
+        if (old.path === path && !equal(old,binding)) refuse('INTERVIEW_OPTIONS_FILE',`${item.path}: option path is already bound to other bytes; retain the original and use a new set id/path`);
+        const retained = optionFile(dir,old).set;
+        if (retained.id === set.id && !equal(old,binding)) refuse('INTERVIEW_OPTIONS_FILE',`${item.path}: option id is already retained; use a new id/path for a redraft`);
+      }
     }
-  }
-  item.record.pending_options = binding; save(file,dir,project,next,now); return JSON.stringify(binding);
+    item.record.pending_options = binding; save(file,dir,project,next,now); return JSON.stringify(binding);
+  } finally { release(); }
 }); }
 
 export interface InterviewAnswerHooks {
@@ -301,10 +305,11 @@ export function interviewAnswerCommand(args: string[], now: number, hooks: Inter
   if (opts.one['--owner-chat'] !== undefined && opts.one['--by']?.toLowerCase() === 'agent') refuse('INTERVIEW_CHOICE_INVALID', 'project.json.interview: --by must name the owner; relay owner words without claiming agent authority');
   const chat = readOwnerChat(opts.one, opts.one['--by'] ?? '', now, 'project.json.interview');
   const dir = resolve(opts.positional[batch ? 0 : 1] ?? process.cwd());
-  const release = acquireBoundJobWrite(dir);
-  // The first milestone waits for the job gate: a refused write leaves the project untouched.
-  const progress = batch || opts.one['--from-review'] ? beginJobProgress(dir, 'ingest', 'Reading the Review interview answer') : undefined;
+  const actIds = batch ? opts.actIds : opts.one['--from-review'] ? [opts.one['--from-review']] : [];
+  const release = acquireBoundJobWrite(dir, actIds.length ? undefined : { kind: 'record-only', writer: 'interview' });
   try {
+    // The first milestone waits for the job gate: a refused write leaves the project untouched.
+    const progress = actIds.length ? beginJobProgress(dir, 'ingest', 'Reading the Review interview answer') : undefined;
     const {file,project} = readProject(dir);
     const original = readFileSync(file);
     // The parsed record and the hash must describe the same snapshot.
@@ -312,7 +317,6 @@ export function interviewAnswerCommand(args: string[], now: number, hooks: Inter
     try { captured = JSON.parse(original.toString('utf8')); } catch { /* The record changed during the read. */ }
     if (!equal(project, captured)) refuse('REVIEW_ACT_SOURCE_STALE', 'project.json: record changed during interview read; retry against the current job');
     const singleItem = batch ? undefined : itemAt(project, dir, opts.positional[0]);
-    const actIds = batch ? opts.actIds : opts.one['--from-review'] ? [opts.one['--from-review']] : [];
     const drafts: AnswerDraft[] = [];
     const answers: JsonObject[] = [];
     const reasons = opts.many['--why-file'];
@@ -364,15 +368,19 @@ export function interviewAnswerCommand(args: string[], now: number, hooks: Inter
 export function interviewDecisionCommand(args: string[], now: number): string { return run(() => {
   const opts = parse(args,['--by','--reasoning-file'],['--fragment']);
   if (opts.positional.length > 2 || !opts.one['--by'] || !opts.one['--reasoning-file']) usage('question, --by and --reasoning-file required');
-  const dir = resolve(opts.positional[1] ?? process.cwd()); const {file,project} = readProject(dir); const next = structuredClone(project);
-  const item = itemAt(next,dir,opts.positional[0]); checkNewAnswer(dir,next,item);
-  if (!isObject(item.raw) || !isObject(item.raw.choice)) refuse('INTERVIEW_CHOICE_INVALID',`${item.path}: explicitly choose auto before writing a decision`);
-  const {set} = optionFile(dir,item.raw.choice.set); validateContext(dir,next,set,now,true);
-  const result = selection(set,item.raw.choice); const supplied = opts.many['--fragment'] ?? new Map<string,string>();
-  if (!result.autos.length || supplied.size !== result.autos.length || [...supplied.keys()].some(k => !result.autos.includes(k))) usage('supply exactly the auto asks with --fragment');
-  const fragments = result.autos.map(ask => ({ask,fragment:jsonFile(supplied.get(ask) as string)}));
-  const pending = isObject(item.raw.agent_decision) && equal(Object.keys(item.raw.agent_decision),['covers']);
-  const baseline = pending ? refusalBaseline(item.raw) : [];
-  item.raw.agent_decision = {by:opts.one['--by'],at:new Date(now).toISOString(),reasoning:readText(opts.one['--reasoning-file']),covers:result.autos.join(','),fragments,value:assembleFragments(String((set.assembly as JsonObject).rule),fragments.map(f=>f.fragment))};
-  validateChoice(dir,next,item,item.raw); save(file,dir,project,next,now,baseline); return JSON.stringify(item.raw.agent_decision);
+  const dir = resolve(opts.positional[1] ?? process.cwd());
+  const release = acquireBoundJobWrite(dir, { kind: 'record-only', writer: 'interview' });
+  try {
+    const {file,project} = readProject(dir); const next = structuredClone(project);
+    const item = itemAt(next,dir,opts.positional[0]); checkNewAnswer(dir,next,item);
+    if (!isObject(item.raw) || !isObject(item.raw.choice)) refuse('INTERVIEW_CHOICE_INVALID',`${item.path}: explicitly choose auto before writing a decision`);
+    const {set} = optionFile(dir,item.raw.choice.set); validateContext(dir,next,set,now,true);
+    const result = selection(set,item.raw.choice); const supplied = opts.many['--fragment'] ?? new Map<string,string>();
+    if (!result.autos.length || supplied.size !== result.autos.length || [...supplied.keys()].some(k => !result.autos.includes(k))) usage('supply exactly the auto asks with --fragment');
+    const fragments = result.autos.map(ask => ({ask,fragment:jsonFile(supplied.get(ask) as string)}));
+    const pending = isObject(item.raw.agent_decision) && equal(Object.keys(item.raw.agent_decision),['covers']);
+    const baseline = pending ? refusalBaseline(item.raw) : [];
+    item.raw.agent_decision = {by:opts.one['--by'],at:new Date(now).toISOString(),reasoning:readText(opts.one['--reasoning-file']),covers:result.autos.join(','),fragments,value:assembleFragments(String((set.assembly as JsonObject).rule),fragments.map(f=>f.fragment))};
+    validateChoice(dir,next,item,item.raw); save(file,dir,project,next,now,baseline); return JSON.stringify(item.raw.agent_decision);
+  } finally { release(); }
 }); }

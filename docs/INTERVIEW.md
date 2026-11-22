@@ -926,13 +926,13 @@ Publish the stage's registered pending sets together with `job open --questions`
 Collect one act ID per set with `job acts --json --wait` and ingest them
 together after every set has a finalized act from the same publication.
 Use `job open --question <question>` and the single-act writer above when
-publishing one set. Owner chat still uses the per-set writer with the displayed
-set and hash, the owner's exact words and explicit option IDs.
+publishing one set. For an active published ask, the owner answers in Review
+and the operator records the act with `interview-answer --from-review`.
 
-After a partial ingest or owner-chat write, Review requires a fresh record
-publication before the owner can submit any remaining answers. Reopen the
-same job with one `--question` per unresolved question and keep the exact
-previously displayed sets. Unrelated asks still block publication.
+After a partial ingest, refresh the same job before the owner submits any
+remaining answers. Pass one `--question` per unresolved question to `job open`
+and keep each exact previously displayed option-set binding. Unrelated asks still
+block publication.
 
 The writer fetches the act using its private sibling capability, binds the
 question and displayed option-set ID and SHA-256 to the pending set, and retains
@@ -990,7 +990,8 @@ parts, but later signatures do not make a pending optional choice invalid.
 
 ### Relayed owner chat
 
-All interview questions may use `interview-answer --owner-chat <words file>
+When the project has no bound live job holding an unresolved owner ask,
+interview questions may use `interview-answer --owner-chat <words file>
 --said-at <ISO date> --relayed-by <operator> --by <owner>` alongside the
 existing `--set`, `--sha256` and explicit `--pick` flags. Shared context images
 are background and do not change this route. The writer retains generated

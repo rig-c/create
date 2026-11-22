@@ -213,7 +213,8 @@ export async function assertNoPendingJobAsk(
 /**
  * Publishing supersedes every pending ask on the job, and an answer to a superseded ask
  * never becomes an act. Refuse JOB_ASK_PENDING while an ask for another target is still
- * open, or answered but not ingested. Returns the job's head publication.
+ * open, or answered but not ingested. A record-only write checks every actionable ask
+ * so the owner can still answer against the displayed record. Returns the job's head publication.
  */
 export async function refusePendingJobAsks(root: string, jobId: string, host: JobOwnerHost, target: JobAskTarget): Promise<string | null> {
   const bytes = readFileSync(join(root, 'project.json'));
@@ -227,7 +228,8 @@ export async function refusePendingJobAsks(root: string, jobId: string, host: Jo
     const ingest = version === null || pending.some(item => item.version === null)
       ? `have the owner respond in Review, run ${wait}, and run the printed ingest commands`
       : `have the owner give the verdict in Review, run ${wait}, and ingest with rig-create review ${version} --from-review <actId> (review <n> --from-review <actId>)`;
-    let remedy = `${ingest}; re-run this command to publish into the existing job`;
+    const retry = target.kind === 'record-only' ? 're-run this command' : 're-run this command to publish into the existing job';
+    let remedy = `${ingest}; ${retry}`;
     const staleActIds = new Set(pending.flatMap(item => item.staleInterviewActId === undefined ? [] : [item.staleInterviewActId]));
     const [staleActId] = staleActIds;
     if (staleActId !== undefined) {
@@ -238,6 +240,11 @@ export async function refusePendingJobAsks(root: string, jobId: string, host: Jo
         ? `relay the owner's authorization with rig-create job withdraw-act ${shellWord(staleActId)} ${shellWord(root)} ${OWNER_CHAT_USAGE}`
         : 'use job close --discard-acts <reason> --by agent to record the stale acts';
       remedy = `run rig-create job acts ${shellWord(root)} to inspect the finalized acts. After ingesting any current acts, ${discard}, then open the remaining sets on the current record`;
+      if (target.kind === 'record-only') remedy += '; re-run this command once the remaining asks are settled';
+    } else if (target.kind === 'record-only' && target.writer === 'interview' && pending.some(item => item.interview)) {
+      remedy += '. For an interview ask, to keep the page, have the owner submit in Review if they have not already,'
+        + ' then run job acts --wait and interview-answer <question> --from-review <actId>,'
+        + " or, to record chat words, ingest finalized acts, run job close with the owner's authorization, then retry with --owner-chat.";
     }
     refuse('JOB_ASK_PENDING', `project.json: bound job ${jobId} holds pending owner ask(s) ${listed} with no ingested act; ${remedy}`);
   }

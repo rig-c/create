@@ -5,7 +5,7 @@ import { existsSync, lstatSync, readFileSync, readdirSync, realpathSync } from '
 import { acquireBoundJobWrite, beginJobProgress, prepareVersionIntent, publishCommittedVersion } from './job-writer.ts';
 import { cancelUncommittedIntent, isRecordResult, pendingPublications, type PendingPublication } from './job-outbox.ts';
 import { shellWord } from './job-acts.ts';
-import { partsFileReferences } from '@rig-c/parts/src/parts.ts';
+import { FIGURE_MASK_FILE, PAINTING_IN_RIG_FILE, partsFileReferences, readPartsManifest } from '@rig-c/parts/src/parts.ts';
 import { BODY_YAW_DIAL_BONE } from '@rig-c/parts/src/turn.ts';
 import { tmpdir } from 'node:os';
 import { basename, dirname, isAbsolute, join, posix, relative, resolve, sep, win32 } from 'node:path';
@@ -14,6 +14,7 @@ import { asArray, checkProject, collectItems, isObject, type Finding } from './c
 import { literalFile } from './choices.ts';
 import { configInputReferences } from './config-inputs.ts';
 import { assembleOnlyDraftPath, assertDraftHasRig } from './draft-layout.ts';
+import { DRAFT_ID } from './draft-reuse.ts';
 import { parseFeedbackAnswers, readProject } from './feedback.ts';
 import { carryRigDraftVerdict } from './rig-draft-verdict.ts';
 import { assertFigureMaskApproval } from './figure-mask.ts';
@@ -933,6 +934,55 @@ interface RegistrationAssetIO {
 
 interface SourceFile { source: string; bytes: Buffer }
 
+/** An optional snapshot of the original assembly, using the draft's recorded parts path. */
+function plateAssemblySources(dir: string, project: JsonObject, partsDir: string, versionOut: string): Map<string, SourceFile> | undefined {
+  const parts = asArray(project.drafts).filter(isObject).flatMap(draft => {
+    if (typeof draft.id !== 'string' || !DRAFT_ID.test(draft.id) || !isObject(draft.parts)) return [];
+    const path = draft.parts.path;
+    return typeof path === 'string' && literal(path) && path.startsWith(`derived/drafts/${draft.id}/`)
+      && path.endsWith('/rig') && resolve(dir, path) === partsDir ? [draft.parts] : [];
+  });
+  if (parts.length !== 1) return;
+  const draftParts = parts[0]!;
+  const manifestPath = `${String(draftParts.path)}/parts.json`;
+  const manifestBinding = asArray(draftParts.files).filter(isObject).find(file => file.path === manifestPath);
+  if (manifestBinding === undefined) return;
+  const assembly = posix.dirname(String(draftParts.path));
+  const read = (path: string): SourceFile => {
+    const source = literalFile(dir, `${assembly}/${path}`);
+    return { source, bytes: readFileSync(source) };
+  };
+  try {
+    const receipt = read('run.json');
+    const { spec, record } = validateRunRecord(receipt.bytes, `${assembly}/run.json`, { allowAssembleInputs: true });
+    if (spec !== 'rig-run/1' || record.command !== 'assemble') return;
+    const snapshot = new Map([['run.json', receipt]]);
+    const usedPaths = new Set(['run.json']);
+    for (const output of asArray(record.outputs).filter(isObject)) {
+      const path = String(output.path);
+      const portablePath = path.normalize('NFC').toLowerCase();
+      if (!literal(path) || usedPaths.has(portablePath)) return;
+      const file = read(path);
+      if (sha(file.bytes) !== output.sha256) return;
+      usedPaths.add(portablePath);
+      snapshot.set(path, file);
+    }
+    const manifest = readPartsManifest(join(versionOut, 'parts.json'));
+    if (manifest.scene?.figure_mask !== FIGURE_MASK_FILE) return;
+    const paths = ['parts.json', FIGURE_MASK_FILE];
+    if (manifest.painting_in_rig !== undefined) paths.push(PAINTING_IN_RIG_FILE);
+    const boundManifest = snapshot.get('rig/parts.json');
+    if (boundManifest === undefined || sha(boundManifest.bytes) !== manifestBinding.sha256) return;
+    for (const path of paths) {
+      if (!snapshot.get(`rig/${path}`)?.bytes.equals(readFileSync(join(versionOut, path)))) return;
+    }
+    return snapshot;
+  } catch {
+    // Missing, unreadable or malformed optional producer evidence cannot supply a plate source.
+    return;
+  }
+}
+
 function registrationSourceReader(dir: string, requestedDir: string, recordSource?: (file: SourceFile) => void) {
   const systemRoots = [resolve(tmpdir()), '/tmp', '/var', dirname(resolve(requestedDir)), dirname(dir)];
   const isSystemAncestor = (candidate: string): boolean =>
@@ -1594,6 +1644,11 @@ export function rigVersionCommand(args: string[], now: number): { stdout: string
     for (const reference of partReferences) {
       const target = `${out}/out/${reference.path}`;
       if (!copiedSources.has(target)) copyTree(join(partsDir, reference.path), target, true);
+    }
+    const plateAssembly = plateAssemblySources(dir, project, partsDir, join(dir, out, 'out'));
+    for (const [path, file] of plateAssembly ?? []) {
+      retain(`${out}/plate-assemble/${path}`, file.bytes, true);
+      sources.push(file);
     }
     copyTree(options['--rig']!, `${out}/out/rig`, true);
     copyTree(options['--build']!, `${out}/out/check/build`, true);

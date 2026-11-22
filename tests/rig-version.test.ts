@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test } from 'bun:test';
 import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import { dirname, join, posix, relative, resolve, sep } from 'node:path';
+import { readPlatePainting, readSourceMask } from '@rig-c/parts/src/plate.ts';
 import { TURN_OPTIONS, TURN_QUESTION } from '../src/waypoints.ts';
 import { DEPTH_MAP_BINDING_SINCE, RIG_PARTS_APPROVAL_SINCE, depthPlanFindings, depthPlanMoves, registeredDepthPartsMatch, rigRegistrationFindings, turnExtraGroup, turnExtraGroupMoves } from '../src/rig-version.ts';
 import { RIG_CHECK_REPORT_SINCE } from '../src/rig-check-report.ts';
@@ -64,6 +65,110 @@ function setup(review = false) {
   const load = (): JsonObject => JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8'));
   return { dir, args, load };
 }
+
+function setupPlateAssembly() {
+  const f = setup();
+  const draft = 'derived/drafts/plate-fixture';
+  const assembly = `${draft}/assembly`;
+  const painting = `${draft}/painting.png`;
+  const config = `${draft}/config.json`;
+  const layers = ['topwear', 'face', 'eyewhite-r', 'eyewhite-l'];
+  mkdirSync(join(f.dir, draft, 'full/parts'), { recursive: true });
+  cpSync(join(f.dir, 'source/rig/images/rectangle.png'), join(f.dir, painting));
+  for (const name of layers) cpSync(join(f.dir, painting), join(f.dir, draft, 'full/parts', `${name}.png`));
+  put(f.dir, `${draft}/full/layers.json`, { width: 8, height: 16, layers: layers.map(name => ({
+    name, filename: `${name}.png`, left: 0, top: 0, right: 8, bottom: 16, depth_median: 0.5,
+  })) });
+  put(f.dir, config, {
+    key: 'synthetic', scene: {}, seethrough: { resolution: 16, steps: 1, seed: 0, offload: false },
+    assemble: { rig_scale: 1, plan: [['rectangle', 'full', 'topwear']] },
+    bones: [{ name: 'anchor', parent: 'root', at: [0, 0] }], meshes: {}, regions: { rectangle: 'anchor' },
+    motion: { duration: 1, tracks: [{ bone: 'anchor', prop: 'translatey', amp: 1, period: 1, phase: 0 }] },
+  });
+  const env = { ...process.env, CODEX_HOME: join(dirname(f.dir), 'codex-home'), SOURCE_DATE_EPOCH: String(testClock.now() / 1000) };
+  const parts = (...args: string[]) => run([process.execPath, join(import.meta.dir, '../node_modules/@rig-c/parts/cli.ts'), ...args], f.dir, env);
+  const create = (...args: string[]) => run([process.execPath, ...clockedCli(), ...args], f.dir, env);
+  const assembled = parts('assemble', '--source', painting, '--full', `${draft}/full`, '--config', config, '--out', assembly);
+  expect(assembled.stderr).toBe('');
+  expect(assembled.code).toBe(0);
+  const rigged = parts('rig', '--parts', `${assembly}/rig`, '--config', config, '--out', `${draft}/rig-out`);
+  expect(rigged.stderr).toBe('');
+  expect(rigged.code).toBe(0);
+  const recorded = create('draft-rig', 'plate-fixture', f.dir, '--from', `${draft}/rig-out`, '--parts', `${assembly}/rig`, '--config', config);
+  expect(recorded.stderr).toBe('');
+  expect(recorded.code).toBe(0);
+  f.args[f.args.indexOf('--parts') + 1] = `${assembly}/rig`;
+  f.args[f.args.indexOf('--rig') + 1] = `${draft}/rig-out`;
+  f.args.push('--run-record', `${draft}/rig-out/run.json`);
+  return { ...f, assembly, painting, create };
+}
+
+describe('#871 the original assemble layout is an optional plate source', () => {
+  const target = 'outputs/v1/plate-assemble';
+
+  test('registration retains every receipt byte and Parts and Create reject a changed mask', () => {
+    const { dir, args, assembly, painting, create } = setupPlateAssembly();
+    const result = create('rig-version', ...args);
+    expect(result.stderr).toBe('');
+    expect(result.code).toBe(0);
+    const version = JSON.parse(result.stdout) as JsonObject;
+    const receipt = readFileSync(join(dir, assembly, 'run.json'));
+    const outputs = arr(obj(JSON.parse(receipt.toString())).outputs).map(row => String(obj(row).path));
+    for (const path of ['run.json', ...outputs]) {
+      const bytes = readFileSync(join(dir, assembly, path));
+      expect(readFileSync(join(dir, target, path))).toEqual(bytes);
+      expect(version.outputs).toContainEqual({ path: `${target}/${path}`, sha256: jobHash(bytes), bytes: bytes.length });
+    }
+    const frozenFiles = arr(version.outputs).map(obj);
+    expect(frozenFiles.filter(file => String(file.path).startsWith(`${target}/`))).toHaveLength(outputs.length + 1);
+    expect(obj(version.registration).copied).toEqual({
+      files: frozenFiles.length, bytes: frozenFiles.reduce((sum, file) => sum + Number(file.bytes), 0),
+    });
+    expect(checkProject(dir).refusals).toEqual([]);
+
+    const source = readPlatePainting(join(dir, painting));
+    const readMask = () => readSourceMask('figure-mask', join(dir, target, 'rig'), 8, 16, source.raster, source.bytes);
+    expect(readMask().inside.reduce((sum, pixel) => sum + pixel, 0)).toBe(128);
+    const maskPath = `${target}/rig/figure_rig.png`;
+    const mask = readFileSync(join(dir, maskPath));
+    mask[mask.length - 1] = mask[mask.length - 1]! ^ 1;
+    writeFileSync(join(dir, maskPath), mask);
+    expect(readMask).toThrow(expect.objectContaining({
+      problems: [expect.objectContaining({ code: 'PLATE_MASK_RUN', object: join(dir, maskPath) })],
+    }));
+    expect(checkProject(dir).refusals).toContainEqual(expect.objectContaining({
+      code: 'RIG_REGISTRATION_FILE_INVALID', message: expect.stringContaining(`${maskPath} changed`),
+    }));
+  });
+
+  test.each(['unrecorded-path', 'missing-receipt', 'output-mismatch'] as const)('%s skips the entire optional copy', defect => {
+    const { dir, args, assembly, create } = setupPlateAssembly();
+    if (defect === 'unrecorded-path') {
+      cpSync(join(dir, assembly), join(dir, 'source/unrecorded'), { recursive: true });
+      args[args.indexOf('--parts') + 1] = 'source/unrecorded/rig';
+    } else if (defect === 'missing-receipt') {
+      rmSync(join(dir, assembly, 'run.json'));
+    } else {
+      writeFileSync(join(dir, assembly, 'render/recomposite_error_rig.png'), 'changed receipt output');
+    }
+    const result = create('rig-version', ...args);
+    expect(result.stderr).toBe('');
+    expect(result.code).toBe(0);
+    expect(existsSync(join(dir, target))).toBe(false);
+    expect(checkProject(dir).refusals).toEqual([]);
+  });
+
+  test('a refused registration preserves the record and leaves no plate source', () => {
+    const { dir, args, create } = setupPlateAssembly();
+    put(dir, 'source/idle/frames.json', { spec: 'rigc-frames/1', sets: [] });
+    const before = readFileSync(join(dir, 'project.json'));
+    const result = create('rig-version', ...args);
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain('RIG_REGISTRATION_FILE_INVALID');
+    expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
+    expect(existsSync(join(dir, 'outputs/v1'))).toBe(false);
+  });
+});
 
 function setupSharedAssets() {
   const base = setup();

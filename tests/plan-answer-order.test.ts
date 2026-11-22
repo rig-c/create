@@ -7,7 +7,7 @@ import type { NextReport } from '../src/next.ts';
 import { stepHash } from '../src/step-hash.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { checkProject, testClock } from './clock.ts';
-import { arr, obj, step, waypoint } from './fixtures.ts';
+import { arr, obj, plantLegacyReopen, step, waypoint } from './fixtures.ts';
 import { cli, clockedCli, ownerChatArgs, run as runProcess, tempDir, treeDigest } from './helpers.ts';
 
 const CHECKPOINTS = join(import.meta.dir, '../templates/example-chain/checkpoints');
@@ -20,6 +20,19 @@ const read = (root: string): JsonObject => JSON.parse(readFileSync(file(root), '
 const write = (root: string, project: JsonObject): void => writeFileSync(file(root), `${JSON.stringify(project, null, 2)}\n`);
 const postItem = (project: JsonObject, id: string): JsonObject =>
   arr(obj(obj(project.interview).post).items).map(obj).find(item => item.id === id)!;
+const chronology = (report: CheckReport) => [...report.refusals, ...report.warnings]
+  .filter(finding => finding.code === STALE || finding.code === UNKNOWN)
+  .map(({ code, path }) => [code, path]);
+
+function completedRemesh(root: string): JsonObject {
+  cpSync(join(CHECKPOINTS, '../../example-remesh'), root, { recursive: true });
+  const project = read(root);
+  delete project.amendments;
+  for (const definition of arr(obj(project.plan).steps).map(obj)) {
+    definition.status = obj(arr(definition.status_history).at(-1)).status!;
+  }
+  return project;
+}
 
 function prepare(phase: 'rig' | 'post') {
   const root = join(tempDir(), 'project');
@@ -242,21 +255,51 @@ test('#561 stale steps block approval while the post interview continues', () =>
   assertNoApproval(answered);
 });
 
+test('#561 a recorded reopen restores chronology for previously signed stale and unstamped steps', () => {
+  const root = join(tempDir(), 'project');
+  const project = completedRemesh(root);
+  const camera = step(project, 'camera');
+  const timing = step(project, 'timing');
+  const signoffs = arr(project.signoffs).map(obj);
+  const index = signoffs.findIndex(signature => signature.stage === 'post-interview');
+  const hashes = obj(signoffs[index]!.step_hashes);
+  camera.drafted_at = PLAN_STEP_ANSWER_SINCE;
+  delete timing.drafted_at;
+  expect(stepHash(camera)).toBe(hashes.camera as string);
+  expect(stepHash(timing)).toBe(hashes.timing as string);
+  write(root, project);
+  testClock.set(T0);
+  expect(chronology(checkProject(root))).toEqual([]);
+  const edited = structuredClone(project);
+  step(edited, 'camera').does = 'Change the signed synthetic definition.';
+  expect(checkProject(root, edited).refusals).toContainEqual(expect.objectContaining({
+    code: 'STEP_EDITED_AFTER_SIGNOFF', path: 'plan.steps[camera]',
+  }));
+
+  // Persist a historical reopen because the current writer uses amendments.
+  plantLegacyReopen(root, 'post-interview');
+  const reopened = checkProject(root);
+  expect(reopened.effective_stage).toBe('post-interview');
+  expect(reopened.warnings).toContainEqual(expect.objectContaining({ code: 'REOPEN_SIGNOFF_LAPSED', path: `signoffs[${index}]` }));
+  expect(reopened.refusals).toContainEqual(expect.objectContaining({ code: STALE, path: 'plan.steps[camera]' }));
+  expect(reopened.warnings).toContainEqual(expect.objectContaining({ code: UNKNOWN, path: 'plan.steps[timing]' }));
+  expect(chronology(reopened)).toEqual([[STALE, 'plan.steps[camera]'], [UNKNOWN, 'plan.steps[timing]']]);
+  const retained = read(root);
+  expect(arr(retained.signoffs).map(obj)[index]).toEqual(signoffs[index]!);
+  expect(stepHash(step(retained, 'camera'))).toBe(hashes.camera as string);
+  expect(stepHash(step(retained, 'timing'))).toBe(hashes.timing as string);
+});
+
 test('#561 a completed step stays immutable after an owner amendment and next replaces it with its full definition', async () => {
   const root = join(tempDir("create-561-completed-step's-"), 'project');
-  cpSync(join(CHECKPOINTS, '../../example-remesh'), root, { recursive: true });
+  const project = completedRemesh(root);
   const env = { ...Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined)),
     CODEX_HOME: tempDir('create-561-codex-') };
   const run = (...args: string[]) => cli(args, root, env);
   const stage = 'rigging-interview';
   const id = 'bones';
   const stepPath = `plan.steps[${id}]`;
-  const project = read(root);
   // The captions bind the signed project immediately before the fixture's original amendment.
-  delete project.amendments;
-  for (const definition of arr(obj(project.plan).steps).map(obj)) {
-    definition.status = obj(arr(definition.status_history).at(-1)).status!;
-  }
   write(root, project);
   const captions = JSON.parse(readFileSync(join(root, 'evidence/captions.json'), 'utf8')) as JsonObject;
   expect(createHash('sha256').update(readFileSync(file(root))).digest('hex')).toBe(obj(obj(captions.inputs).project).sha256 as string);
@@ -264,21 +307,16 @@ test('#561 a completed step stays immutable after an owner amendment and next re
   expect(checkProject(root)).toMatchObject({ refusals: [], warnings: [] });
   const done = step(project, id);
   expect(done.status).toBe('done');
-  const withoutAmendment = structuredClone(project);
-  step(withoutAmendment, id).drafted_at = PLAN_STEP_ANSWER_SINCE;
-  write(root, withoutAmendment);
-  const needsOwner = JSON.parse(run('next', '--json').stdout) as NextReport;
-  expect(needsOwner.moves[0]?.role).toBe('human');
-  expect(needsOwner.moves[0]?.command).toBeNull();
-  expect(needsOwner.moves[0]?.act).toContain('record an owner amendment at rigging-interview or earlier after completion');
-  write(root, project);
-
   const words = join(root, 'owner-direction.txt');
   writeFileSync(words, 'Use the synthetic alternate chains, placement, and length.');
   expect(run('amend', stage, '--kind', 'interview-answer', '--target', `interview.waypoints[${id}].guide`,
     '--change', 'owner-direction.txt', '--by', 'user', ...ownerChatArgs(words))).toMatchObject({ code: 0, stderr: '' });
   const reset = step(read(root), id);
   expect(reset).toEqual({ ...done, status: 'pending' });
+  const scoped = read(root);
+  step(scoped, 'meshes').drafted_at = PLAN_STEP_ANSWER_SINCE;
+  write(root, scoped);
+  expect(chronology(checkProject(root))).toEqual([]);
 
   testClock.set(T0 + 1_000);
   const oldSet = obj(obj(obj(waypoint(project, id).guide).choice).set);
@@ -293,6 +331,7 @@ test('#561 a completed step stays immutable after an owner amendment and next re
   const picks = arr(options.asks).flatMap(ask => ['--pick', `${String(obj(ask).id)}=alternative`]);
   expect(run('interview-answer', id, '--set', path, '--sha256', createHash('sha256').update(bytes).digest('hex'),
     '--by', 'user', ...ownerChatArgs(words), ...picks)).toMatchObject({ code: 0, stderr: '' });
+  expect(chronology(checkProject(root))).toEqual([[STALE, stepPath]]);
 
   const rendered = run('next', '--json');
   expect(rendered.code).toBe(0);
@@ -359,7 +398,7 @@ test('#561 legacy rig dates prove staleness only in the earlier direction, and a
   expect(checkProject(root).warnings).toContainEqual(expect.objectContaining({ code: UNKNOWN, path: 'plan.steps[bones]' }));
 });
 
-test('#561 legacy post chronology remains unknown while a proved older rig record only warns', () => {
+test('#561 unsigned legacy post chronology remains unknown while a covering rig approval settles an older draft', () => {
   const fixture = prepare('post');
   const { root, id } = fixture;
   draftAndAnswer(fixture, 'post');
@@ -374,7 +413,11 @@ test('#561 legacy post chronology remains unknown while a proved older rig recor
   write(root, project);
   const older = checkProject(root);
   expect(older.refusals).toEqual([]);
-  expect(older.warnings).toContainEqual(expect.objectContaining({ code: STALE, path: 'plan.steps[bones]' }));
+  expect(chronology(older)).toEqual([[UNKNOWN, 'plan.steps[camera]'], [UNKNOWN, 'plan.steps[timing]']]);
+  plantLegacyReopen(root, 'rigging-interview');
+  const reopened = checkProject(root);
+  expect(reopened.refusals.some(finding => finding.code === STALE)).toBe(false);
+  expect(chronology(reopened)).toEqual([[STALE, 'plan.steps[bones]']]);
 });
 
 test('#561 approving an uncovered rig step leaves a stale step repairable', () => {

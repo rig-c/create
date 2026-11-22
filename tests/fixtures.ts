@@ -29,9 +29,6 @@ import { advanceCommand, signoffCommand, checkProject, testClock } from './clock
 
 export type Mutate = (project: JsonObject) => void;
 
-/** The sealed legacy example has three undated post definitions. */
-export const LEGACY_POST_DRAFT_WARNINGS = ['camera', 'timing', 'composition'].map(() => 'PLAN_STEP_DRAFT_DATE_UNKNOWN');
-
 /** Plant the persisted state of a historical reopen for an existing fixture. */
 export function plantLegacyReopen(dir: string, stage: string,
   { by = 'owner', wordsFile, at = testClock.iso() }: { by?: string; wordsFile?: string; at?: string } = {}): void {

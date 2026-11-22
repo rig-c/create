@@ -817,6 +817,9 @@ existing [phase-date contract](#explicit-adoption-of-the-split-interview),
 using both previous and resulting approval ownership on revision, with
 `drafted_by` updated only alongside `drafted_at`. Add and revise also stamp
 the current step's `drafted_at` for chronology, outside the signed step hash.
+Owner approval binds the displayed step definition, and draft chronology is
+checked only while the step lacks a live covering stage signoff, including
+when a reopen or amendment lapses that signoff.
 Record the answer first, then revise any earlier step that rests on it. Use
 the current guide's recorded `at`, regardless of the owner-chat `said_at`.
 If the existing definition still fits, use `plan revise <id> --by <drafter>

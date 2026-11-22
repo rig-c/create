@@ -681,8 +681,8 @@ function checkPlan(ctx: Ctx, replaced: JsonObject[], now: number): void {
       }
     }
     const approvedBy = approvalStageOfStep(step.phase, step.id, hasStageOrder(ctx.project));
-    checkPlanAnswerOrder(ctx, step, restsOn, approvedBy, previousEdits.get(step.id), now);
     const approval = latestSignoff(approving, approvedBy, step.id);
+    if (approval === undefined) checkPlanAnswerOrder(ctx, step, restsOn, approvedBy, previousEdits.get(step.id), now);
     const status = record.status === undefined ? 'pending' : record.status;
     if (typeof status !== 'string' || !['pending', 'in-progress', 'at-checkpoint', 'done'].includes(status)) {
       ctx.refusals.push({ code: 'STEP_STATUS_UNKNOWN', path: `${path}.status`, message: `${path}.status: unknown status ${JSON.stringify(status)}; use pending before approval, then in-progress, at-checkpoint or done` });

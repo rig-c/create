@@ -1,6 +1,7 @@
 import { afterEach, expect, test } from 'bun:test';
 import { readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { PLAN_STEP_ANSWER_SINCE } from '../src/check.ts';
 import { currentJobIdentity } from '../src/job-publication.ts';
 import { JOB_BINDING_FILE, jobHash, writePrivateJson } from '../src/job-outbox.ts';
 import { decodeReviewAct } from '../src/review-act.ts';
@@ -11,7 +12,7 @@ import { stepHash } from '../src/step-hash.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { advanceCommand, checkProject, diffClassesCommand, signoffCommand, testClock } from './clock.ts';
 import { EXAMPLE_DIFF_REPORT } from './diff-fixture.ts';
-import { arr, fixture, obj, retimeFixture, withdrawSignature } from './fixtures.ts';
+import { arr, fixture, obj, plantLegacyReopen, retimeFixture, step, withdrawSignature } from './fixtures.ts';
 import { preparePartsApproval } from './parts-receipt-fixture.ts';
 
 afterEach(() => testClock.reset());
@@ -89,6 +90,31 @@ test('a plan-bound sign-off ingests with the displayed plan and refuses a stale 
   // A replay returns the recorded signoff; changed act bytes are a conflict.
   refused(dir, 'NO_REFUSAL', () => fromReview(dir, 'plan-approved', act));
   refused(dir, 'REVIEW_ACT_REPLAY_CONFLICT', () => fromReview(dir, 'plan-approved', { ...act, at: '2026-11-19T00:00:00.000Z' }));
+});
+
+test('#561 from-review cannot use its candidate approval to settle an unsigned stale step', () => {
+  const dir = fixture(() => {}, 'example-project.json');
+  const stage = 'post-interview';
+  testClock.set(Date.parse(PLAN_STEP_ANSWER_SINCE) + 3_600_000);
+  plantLegacyReopen(dir, stage);
+  bindReview(dir);
+  const project = read(dir);
+  const camera = step(project, 'camera');
+  const originalDate = camera.drafted_at!;
+  const act = signoffAct(dir, stage, 'sign-camera');
+  camera.drafted_at = PLAN_STEP_ANSWER_SINCE;
+  save(dir, project);
+  expect(obj(obj(act.source).plan)).toEqual(displayedPlan(dir));
+  expect(checkProject(dir).refusals).toContainEqual(expect.objectContaining({
+    code: 'PLAN_STEP_PREDATES_ANSWER', path: 'plan.steps[camera]',
+  }));
+  testClock.set(testClock.now() + 1_000);
+  act.at = testClock.iso();
+  refused(dir, 'PLAN_STEP_PREDATES_ANSWER', () => fromReview(dir, stage, act));
+
+  camera.drafted_at = originalDate;
+  save(dir, project);
+  expect(fromReview(dir, stage, act).exit).toBe(0);
 });
 
 test('the wrong act kind or stage refuses', () => {

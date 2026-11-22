@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os';
 
 import { checkAppliedReview } from '../src/applied-review.ts';
 import { type JsonObject } from '../src/templates.ts';
-import { LEGACY_POST_DRAFT_WARNINGS, fixture, obj, version } from './fixtures.ts';
+import { fixture, obj, version } from './fixtures.ts';
 import { run } from './helpers.ts';
 import { checkProject } from './clock.ts';
 import { commentsComparison, correctionCommentsFixture, COMMENTS_APPLY_ID } from './correction-fixture.ts';
@@ -65,7 +65,7 @@ test('installed rig-review writes feedback that resolves to the recorded next ve
   expect(checked(dir, project)).toMatchObject({ refusals: [], warnings: [] });
   writeFileSync(join(dir, 'project.json'), JSON.stringify(project));
   expect(checkProject(dir).refusals).toEqual([]);
-  expect(checkProject(dir).warnings.map(f => f.code)).toEqual(['QUESTION_SET_STALE', 'PARTS_VERDICT_FILE_LEGACY', ...LEGACY_POST_DRAFT_WARNINGS, 'RIGGING_INTERVIEW_PAINTING_LEGACY', 'STAGE_ORDER_LEGACY', 'INPUT_WRITER_MISSING', 'CHOICE_ANSWERS_LEGACY', 'CORRECTION_PATH_LEGACY']);
+  expect(checkProject(dir).warnings.map(f => f.code)).toEqual(['QUESTION_SET_STALE', 'PARTS_VERDICT_FILE_LEGACY', 'RIGGING_INTERVIEW_PAINTING_LEGACY', 'STAGE_ORDER_LEGACY', 'INPUT_WRITER_MISSING', 'CHOICE_ANSWERS_LEGACY', 'CORRECTION_PATH_LEGACY']);
 });
 
 for (const [name, code, mutate] of [

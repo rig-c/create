@@ -66,7 +66,8 @@ export function assertSignoffCandidate(dir: string, asRead: CheckReport, project
     const depth = candidateRefusals.find(finding => finding.code === 'RIG_DEPTH_PLAN_MISSING');
     if (depth) refuse(depth.code, depth.message);
   }
-  const stale = candidateRefusals.find(f => f.code === 'PLAN_STEP_PREDATES_ANSWER'
+  // A signature in the candidate settles chronology, so check the covered steps before it was added.
+  const stale = asRead.refusals.find(f => f.code === 'PLAN_STEP_PREDATES_ANSWER'
     && covered.some(step => f.path === `plan.steps[${String(step.id)}]`));
   if (stale) refuse(stale.code, stale.message);
   // Refusals the record already carried do not block the signature (docs/PROJECT.md); a new one does.

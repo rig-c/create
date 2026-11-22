@@ -819,9 +819,10 @@ measurement:
   draft_id, parts:{path,files:[{path,sha256}]}}` binds the live parts-review,
   retained structure snapshot and full recorded draft input inventory,
   including parts.json and every image. Inventory file paths are project-relative.
-- `rig`: `{kind:"rig", rig_version, signoff_at, config:{path,sha256}, parts}`
+- `rig`: `{kind:"rig", rig_version, signoff_at, config:{path,sha256,bytes}, parts}`
   binds the accepted rig, its rig-review signoff, retained provenance config
   and the parts inventory from its build-time approval. Post asks wait for it.
+  Copy the recorded config binding as-is. Older bindings may omit the byte count.
 - `scene`: `{kind:"scene", scene:{n,path,sha256}}` replaces the rig kind for a
   post set while the latest scene is current on the latest live accepted rig
   ([PROJECT.md, "Scene option context"](PROJECT.md#scene-option-context)).

@@ -633,10 +633,12 @@ test.each(['before-commit', 'after-commit', 'publish-failed'])('process kill %s 
   const { root } = setup();
   const host = await openCreateJob(root, { id: 'reviewer', role: 'owner' }, now);
   hosts.push(host);
-  const original = readFileSync(join(root, 'project.json'));
-  const project = JSON.parse(original.toString());
+  const projectFile = join(root, 'project.json');
+  const original = readFileSync(projectFile);
+  const project = JSON.parse(original.toString()) as { inputs: JsonObject[]; versions: JsonObject[] };
   project.versions.push({ ...project.versions[0], n: 2 });
   const candidate = Buffer.from(JSON.stringify(project));
+  const result = { path: 'review-live-v2.json', selector: { kind: 'rig' as const, version: 2 } };
   cpSync(join(root, 'derived/review/v1'), join(root, 'derived/review/v2'), { recursive: true });
   const worker = `
     import { readFileSync, writeFileSync, renameSync } from 'node:fs';
@@ -663,29 +665,43 @@ test.each(['before-commit', 'after-commit', 'publish-failed'])('process kill %s 
   await child.exited;
   expect(child.signalCode).toBe('SIGKILL');
   if (phase !== 'before-commit') {
-    writeFileSync(join(root, 'later.txt'), 'Later independent input');
-    const input = Bun.spawnSync([process.execPath, ...jobRuntimeExecArgv(), join(import.meta.dir, '../src/cli.ts'), 'input', 'add', 'later.txt', root, '--origin', 'synthetic later input'], { stdout: 'pipe', stderr: 'pipe' });
-    expect(input.stderr.toString()).toBe('');
-    expect(input.exitCode).toBe(0);
+    const path = 'later.txt';
+    const bytes = Buffer.from('Later independent input');
+    const origin = 'synthetic later input';
+    writeFileSync(join(root, path), bytes);
+    const input = Bun.spawnSync([process.execPath, ...jobRuntimeExecArgv(), join(import.meta.dir, '../src/cli.ts'), 'input', 'add', path, root, '--origin', origin], { stdout: 'pipe', stderr: 'pipe' });
+    expect(input.stderr.toString()).toStartWith('rig-create: JOB_PUBLISH_PENDING: ');
+    expect(input.stdout.toString()).toBe('');
+    expect(input.exitCode).toBe(1);
+    expect(readFileSync(projectFile)).toEqual(candidate);
+
+    // Model an out-of-band edit after the crash to exercise recovery against a different record hash.
+    project.inputs.push({ path, sha256: jobHash(bytes), bytes: bytes.length, origin, at: new Date(now).toISOString() });
+    writeFileSync(projectFile, JSON.stringify(project));
   }
-  const current = readFileSync(join(root, 'project.json'));
+  const current = readFileSync(projectFile);
   const report = checkProject(root, undefined, { now });
   if (phase === 'before-commit') {
     expect(report.holes ?? []).toEqual([]);
-    expect(readFileSync(join(root, 'project.json'))).toEqual(original);
+    expect(current).toEqual(original);
     const discarded = JSON.parse(readFileSync(join(jobPrivateRoot(root), 'discarded-intents.jsonl'), 'utf8').trim());
-    expect(discarded.versionHash).toBe(publicationVersionHash(candidate, { path: 'review-live-v2.json', selector: { kind: 'rig', version: 2 } }));
+    expect(discarded.versionHash).toBe(publicationVersionHash(candidate, result));
     expect(discarded.id).toMatch(/^[a-f0-9]{64}$/);
     expect(await reconcileCreateJob(root)).toBe(0);
   } else {
     expect(report.holes?.map(hole => hole.code)).toEqual(['JOB_PUBLISH_PENDING']);
     expect(jobHash(current)).not.toBe(jobHash(candidate));
+    const versionHash = publicationVersionHash(candidate, result);
+    expect(publicationVersionHash(current, result)).toBe(versionHash);
+    expect(pendingPublications(root)).toEqual([expect.objectContaining({ recordHash: jobHash(candidate), versionHash })]);
     expect(await reconcileCreateJob(root)).toBe(1);
     expect(checkProject(root, undefined, { now }).holes ?? []).toEqual([]);
     expect(host.session.status().publication?.source.projectHash).toBe(jobHash(current));
     expect(host.session.status().publication?.source.selector).toEqual({ kind: 'rig', version: 2 });
-    expect(readFileSync(join(root, 'project.json'))).toEqual(current);
+    expect(readFileSync(projectFile)).toEqual(current);
+    expect(await reconcileCreateJob(root)).toBe(0);
   }
+  expect(pendingPublications(root)).toEqual([]);
 });
 
 function mockedOwnerHost(

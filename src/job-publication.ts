@@ -418,13 +418,17 @@ export function readRecordPublished({ root, record, result, phase, parts: sealed
     if (blocking.length && phase === 'retained') {
       throw new RecordClosureIncomplete(blocking.map(({ code, path }) => ({ code, path })));
     }
-    // A record publication necessarily owns an outbox entry while its official reader
-    // inventories it. Ignore only that exact record/result's pending transport hole;
-    // an unrelated, stale or malformed outbox continues to block publication.
+    // Reconcile publishes the record before queued drafts on the same record and job.
+    // Their transport holes do not invalidate the record. Stale and malformed receipts
+    // still have their own findings, and an unrelated publication still blocks.
     const pending = phase === 'inventory' ? pendingPublications(root) : [];
-    const ownPending = pending.length > 0 && pending.every(entry => entry.phase === 'pending'
+    const ownPending = pending.find(entry => entry.phase === 'pending'
       && entry.recordHash === record.sha256 && isRecordResult(entry.result) && isDeepStrictEqual(entry.result, result));
-    const holes = ownPending ? report.holes?.filter(hole => hole.code !== 'JOB_PUBLISH_PENDING') : report.holes;
+    const sameBatch = ownPending && pending.every(entry => entry.phase === 'pending'
+      && entry.recordHash === ownPending.recordHash && entry.jobId === ownPending.jobId
+      && entry.origin === ownPending.origin && isDeepStrictEqual(entry.identity, ownPending.identity)
+      && (isDeepStrictEqual(entry.result, result) || entry.result.selector?.kind === 'draft'));
+    const holes = sameBatch ? report.holes?.filter(hole => hole.code !== 'JOB_PUBLISH_PENDING') : report.holes;
     if (interviewSignoff) assertInterviewRecordSignable(project, { ...report, holes });
     const finding = blocking[0] ?? holes?.[0];
     if (finding) throw Error(`${finding.code} at ${finding.path}`);

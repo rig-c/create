@@ -12,10 +12,10 @@ import { startJobHost, type JobSelector } from '@rig-c/review/job-host';
 import { EXAMPLE_NOW } from '../scripts/example-time.ts';
 import { directionCommand } from '../src/direction-writers.ts';
 import { inputCommand } from '../src/inputs.ts';
-import { askDeclaredSubjects, openCreateJob, openDraftPublication, publishPending, reconcileCreateJob, refuseAskOutcomes } from '../src/job-host.ts';
-import { acknowledgePublication, enqueuePublication, jobHash, jobHostStateRoot, jobPrivateRoot, pendingPublications, readAcknowledgedPublication, readWriterBinding, type AcknowledgedPublication } from '../src/job-outbox.ts';
+import { askDeclaredSubjects, closeCreateJob, openCreateJob, openDraftPublication, publishPending, reconcileCreateJob, refuseAskOutcomes } from '../src/job-host.ts';
+import { acknowledgePublication, enqueuePublication, isRecordResult, jobHash, jobHostStateRoot, jobPrivateRoot, pendingPublications, publicationVersionHash, readAcknowledgedPublication, readWriterBinding, type AcknowledgedPublication } from '../src/job-outbox.ts';
 import { draftPublicationContext, livePublicationSubjects, prepareLiveManifest, readPublished } from '../src/job-publication.ts';
-import { jobRuntimeExecArgv } from '../src/job-writer.ts';
+import { draftPublicationResult, jobRuntimeExecArgv } from '../src/job-writer.ts';
 import { hostPortRefuses } from '../src/job-host-state.ts';
 import { advanceCommand } from '../src/progress-writers.ts';
 import { sceneCommand } from '../src/scene-writers.ts';
@@ -209,6 +209,123 @@ async function partsReview(prepareMap = true): Promise<string> {
   expect(advanced.exit).toBe(0);
   return root;
 }
+
+test.each(['record', 'draft'] as const)('#827 reconcile drains a pending plan and draft with the %s receipt ID first', async first => {
+  const root = await partsReview();
+  const openHost = () => openCreateJob(root, { id: 'synthetic-owner', role: 'owner' }, Date.now());
+  let host = await openHost();
+  const file = join(root, 'project.json');
+  const draft = draftPublicationResult('chain');
+  const plan = { kind: 'plan' } as const;
+  const id = (result: typeof draft | typeof plan) => jobHash(JSON.stringify([
+    host.session.jobId, publicationVersionHash(readFileSync(file), result), result,
+  ]));
+  const order = () => id(plan) < id(draft) ? 'record' : 'draft';
+  try {
+    // Avoid draft hashes near either extreme, where varying the record hash could
+    // require many writes. Both operations use the normal host and record writers.
+    const middle = () => /^[4-9ab]/.test(id(draft));
+    for (let n = 0; !middle() && n < 32; n++) {
+      await closeCreateJob(root);
+      host.stop();
+      host = await openHost();
+    }
+    expect(middle()).toBe(true);
+    for (let n = 0; order() !== first && n < 64; n++) {
+      const name = `order-control-${n}.txt`;
+      writeFileSync(join(root, name), `Synthetic receipt order control ${n}\n`);
+      expect(inputCommand(['add', name, root, '--origin', 'synthetic receipt order control'], EXAMPLE_NOW).exit).toBe(0);
+    }
+    expect(order()).toBe(first);
+    const before = readFileSync(file);
+    const config = join(root, 'bunfig.toml');
+    writeFileSync(config, 'preload = ["./fail-attach.ts"]\n');
+    // Fail only the publication probe after the CLI has enqueued the plan. The
+    // host stays live, and removing the preload restores the normal probe.
+    writeFileSync(join(root, 'fail-attach.ts'), `
+      import { existsSync } from 'node:fs';
+      const original = globalThis.fetch;
+      globalThis.fetch = (url, options) => {
+        if (String(url).endsWith('/host') && options?.method === 'POST' && existsSync('.rig-create-review/outbox/${id(plan)}.json')) {
+          throw Error('planted attachment probe failure after record enqueue');
+        }
+        return original(url, options);
+      };
+    `);
+    const openArgs = ['job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner'];
+    const planOpen = await cli(root, [...openArgs, '--plan']);
+    rmSync(config);
+    expect(planOpen).toMatchObject({ exit: 1, stderr: expect.stringMatching(/^JOB_PUBLISH_PENDING:.*JOB_HOST_ATTACH_REFUSED/) });
+    expect(readFileSync(file)).toEqual(before);
+    expect(pendingPublications(root)).toMatchObject([{ id: id(plan), result: plan, phase: 'pending', generation: 0,
+      failure: { code: 'JOB_HOST_ATTACH_REFUSED' } }]);
+    expect((await fetch(new URL(host.ownerUrl))).status).toBe(200);
+
+    const draftOpen = await cli(root, [...openArgs, '--draft', 'chain']);
+    expect(draftOpen).toMatchObject({ exit: 1, stderr: expect.stringMatching(/^JOB_PUBLISH_PENDING:.*job reconcile/) });
+    expect(pendingPublications(root).map(entry => entry.id)).toEqual([id(plan)]);
+    expect(readFileSync(file)).toEqual(before);
+
+    // Emulate the second receipt left by an older Create, using the real outbox writer.
+    enqueuePublication(root, readWriterBinding(root)!, draft);
+    const mixed = pendingPublications(root);
+    expect(mixed.map(entry => entry.id)).toEqual(first === 'record' ? [id(plan), id(draft)] : [id(draft), id(plan)]);
+    expect(mixed.find(entry => !isRecordResult(entry.result))).toMatchObject({ phase: 'pending', failure: null });
+    expect(host.session.status().generation).toBe(0);
+    expect(readFileSync(file)).toEqual(before);
+    const revise = await cli(root, ['plan', 'revise', 'meshes', root, '--by', 'agent', '--bar', 'Synthetic changed bar']);
+    expect(revise).toMatchObject({ exit: 1, stderr: expect.stringMatching(/^rig-create: JOB_PUBLISH_PENDING:/) });
+    expect(readFileSync(file)).toEqual(before);
+    const close = await cli(root, ['job', 'close', root, '--retire-refused']);
+    expect(close).toMatchObject({ exit: 1, stderr: expect.stringMatching(/^JOB_PUBLISH_PENDING:/) });
+    expect(pendingPublications(root)).toEqual(mixed);
+    expect(readFileSync(file)).toEqual(before);
+
+    const reconciled = await cli(root, ['job', 'reconcile', root]);
+    expect(reconciled).toEqual({ exit: 0, stdout: 'job: reconciled 2 publication(s)\n', stderr: '' });
+    expect(pendingPublications(root)).toEqual([]);
+    expect(readFileSync(file)).toEqual(before);
+    const receipts = join(jobPrivateRoot(root), 'acknowledged-publications');
+    const acknowledged = readdirSync(receipts)
+      .map(name => JSON.parse(readFileSync(join(receipts, name), 'utf8')) as AcknowledgedPublication)
+      .sort((a, b) => a.generation - b.generation);
+    expect(acknowledged.map(receipt => receipt.result)).toEqual([plan, draft]);
+    const status = host.session.status();
+    expect(status.publication?.publicationId).toBe(acknowledged[1]!.publicationId);
+    expect(status.pending.map(ask => ask.subject)).toEqual([{ kind: 'parts-verdict', draftId: 'chain' }]);
+    expect(await cli(root, ['job', 'reconcile', root])).toEqual({ exit: 0, stdout: 'job: reconciled 0 publication(s)\n', stderr: '' });
+  } finally { host.stop(); }
+}, 45_000);
+
+test('#827 an older mixed outbox preserves the interview ask opened by the record', async () => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'create-job-open-ask-')));
+  roots.push(root);
+  cpSync(join(import.meta.dir, '../templates/example-chain/checkpoints/2-rigging-answers'), root, { recursive: true });
+  const host = await openCreateJob(root, { id: 'synthetic-owner', role: 'owner' }, Date.now());
+  try {
+    const binding = readWriterBinding(root)!;
+    const file = join(root, 'project.json');
+    const before = readFileSync(file);
+    const record = { kind: 'option-set', questionId: 'bones', setId: 'chain-bones' } as const;
+    const draft = draftPublicationResult('chain');
+    enqueuePublication(root, binding, record);
+    enqueuePublication(root, binding, draft);
+
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const reconciled = await cli(root, ['job', 'reconcile', root]);
+      expect(reconciled).toMatchObject({ exit: 1, stderr: expect.stringMatching(/^JOB_PUBLISH_PENDING:.*JOB_ASK_PENDING/) });
+      expect(pendingPublications(root)).toMatchObject([{ result: draft, phase: 'pending', failure: { code: 'JOB_ASK_PENDING' } }]);
+      expect(readFileSync(file)).toEqual(before);
+      const status = host.session.status();
+      expect(readAcknowledgedPublication(root, binding.jobId, status.publication!.publicationId)?.result).toEqual(record);
+      expect(status.pending.map(ask => ask.subject)).toEqual([{ kind: 'interview-picks', questionId: 'bones', setId: 'chain-bones' }]);
+    }
+
+    expect(await cli(root, ['job', 'close', root, '--retire-refused'])).toEqual({ exit: 0, stdout: 'job: closed\n', stderr: '' });
+    expect(pendingPublications(root)).toEqual([]);
+    expect(readFileSync(file)).toEqual(before);
+  } finally { host.stop(); }
+}, 25_000);
 
 /** Start `job open` in the background and read its URL line and the summary it prints after publishing. */
 async function open(root: string, options: string[] = []): Promise<{ url: URL; lines: string[] }> {

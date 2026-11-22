@@ -225,6 +225,9 @@ export async function publishPending(
       if (isRecordResult(entry.result)) {
         // A recovered outbox entry may not have reached its first guarded attempt.
         await refusePendingJobAsks(entry.root, entry.jobId, host, entry.result);
+      } else if (entry.result.selector?.kind === 'draft' && status.publication && 'selection' in status.publication.source) {
+        // A record published earlier in this reconcile can have opened a new ask.
+        await refusePendingJobAsks(entry.root, entry.jobId, host, entry.result.selector);
       }
       entry.generation = status.generation;
     }
@@ -463,7 +466,12 @@ async function reconcileLocked(
   now?: number,
 ): Promise<{ count: number; outcomes: AskOutcome[] }> {
   const outcomes: AskOutcome[] = [];
+  // Receipt IDs are hashes. If a draft goes first, its publish and asks can
+  // invalidate the generation reserved by the queued record publication.
   const entries = pendingPublications(root, true);
+  if (entries.every(entry => isRecordResult(entry.result) || entry.result.selector?.kind === 'draft')) {
+    entries.sort((left, right) => Number(isRecordResult(right.result)) - Number(isRecordResult(left.result)));
+  }
   for (const entry of entries) {
     try {
       await reconcilePublication(root, entry, async item => {
@@ -702,6 +710,9 @@ export async function openDraftPublication(root: string, host: JobOwnerHost, now
     try {
       const binding = readWriterBinding(root);
       if (!binding || binding.jobId !== host.session.jobId) refuse('JOB_BINDING_INVALID', 'project.json: the open job has no matching writer-owned binding; restore the writer-owned binding and retry rig-create job open to publish into the existing job');
+      if (targetSelector.kind === 'draft' && pendingPublications(root, true).some(entry => isRecordResult(entry.result))) {
+        refuse('JOB_PUBLISH_PENDING', 'project.json: a record publication is pending; run rig-create job reconcile before opening the draft');
+      }
       const current = JSON.parse(readFileSync(join(root, 'project.json'), 'utf8')) as JsonObject;
       requireOwnerLanguage(current);
       // A new publication supersedes the job's pending asks: one ask at a time (#737, #740).

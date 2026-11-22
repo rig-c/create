@@ -537,13 +537,12 @@ export function publicationFile(root: string, path: string): Buffer {
 
 export function publicationFilePath(root: string, path: string): string {
   assertPublicationPath(path);
-  const absolute = join(root, path);
-  let regular = false;
-  try { regular = realpathSync(absolute) === absolute && lstatSync(absolute).isFile(); } catch { /* Named below. */ }
-  if (!regular) {
-    refuse('JOB_PUBLICATION_INVALID', `project.json: ${path} must be a regular source without symlinks; restore its retained bytes`);
-  }
-  return absolute;
+  try {
+    // Allow a project-root alias while still rejecting links below that root.
+    const absolute = join(realpathSync(root), path);
+    if (realpathSync(absolute) === absolute && lstatSync(absolute).isFile()) return absolute;
+  } catch { /* Named below. */ }
+  refuse('JOB_PUBLICATION_INVALID', `project.json: ${path} must be a regular source without symlinks; restore its retained bytes`);
 }
 
 export function composedPublishedBuildFiles(root: string, project: JsonObject, n: number): { doc: JsonObject; files: { path: string; sha256: string }[] } {

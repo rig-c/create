@@ -563,7 +563,8 @@ export function assertRequestedRig(root: string, requested?: string, draft?: str
     assertDraftHasRig(readAssembleOnlyDraftTarget(root, requested), 'project.json.versions');
     refuse('JOB_PUBLICATION_INVALID', 'project.json.versions: --rig needs a positive registered rig or post version (1 or v1); choose its recorded number');
   }
-  const project = JSON.parse(readFileSync(join(realpathSync(root), 'project.json'), 'utf8')) as JsonObject;
+  root = realpathSync(root);
+  const project = JSON.parse(readFileSync(join(root, 'project.json'), 'utf8')) as JsonObject;
   assertDraftHasRig(assembleOnlyDraftTarget(project, requested), 'project.json.versions');
   const matches = asArray(project.versions).filter(version => isObject(version) && version.n === n);
   if (matches.length === 1 && isObject(matches[0])) {
@@ -589,7 +590,7 @@ export function assertRequestedRig(root: string, requested?: string, draft?: str
   }
   publicationFile(root, `derived/review/v${rig}/out/check/build/skeleton.model.json`);
   const context = {
-    dir: realpathSync(root),
+    dir: root,
     // Explicit publication requires package integrity even for a pre-interview rig.
     project: { ...project, versions: asArray(project.versions).map(version => version === rigVersion ? { ...rigVersion, pre_interview: false } : version) },
     refusals: [] as Finding[], warnings: [] as Finding[],

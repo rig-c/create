@@ -838,7 +838,8 @@ for (const [label, execFlags] of [
     const project = JSON.parse(readFileSync(recordPath, 'utf8')) as { signoffs: { checkpoint?: string }[] };
     project.signoffs = project.signoffs.filter(signoff => signoff.checkpoint !== 'assemble');
     writeFileSync(recordPath, `${JSON.stringify(project, null, 2)}\n`);
-    const spawned = Bun.spawn([process.execPath, ...execFlags, activeCli, 'job', 'open', projectRoot, '--reviewer', 'synthetic-owner', '--role', 'owner'], {
+    // Start on the plan so the new draft is the first publication to ask for the parts checkpoint.
+    const spawned = Bun.spawn([process.execPath, ...execFlags, activeCli, 'job', 'open', projectRoot, '--plan', '--reviewer', 'synthetic-owner', '--role', 'owner'], {
       cwd: projectRoot,
       stdout: 'pipe',
       stderr: 'pipe',
@@ -855,7 +856,7 @@ for (const [label, execFlags] of [
     reader.releaseLock();
     const lines = text.trim().split('\n');
     expect(lines[0]).toStartWith('http://127.0.0.1:');
-    expect(lines.slice(1)).toEqual(['job: draft chain published', 'job: asked checkpoint assemble']);
+    expect(lines.slice(1)).toEqual(['job: plan published']);
 
     const drafted = Bun.spawnSync(
       [

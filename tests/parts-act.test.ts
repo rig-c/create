@@ -138,7 +138,7 @@ async function submit(
 ): Promise<JobAct> {
   const publication = host.session.status().publication!;
   const selector = publication.source.selector;
-  if (selector.kind !== 'draft') throw Error('expected a draft for the parts verdict');
+  if (selector?.kind !== 'draft') throw Error('expected a draft for the parts verdict');
   const request = { schema: 'rig-review/job-api@2', verb: 'ask', jobId: host.session.jobId, requestId: randomUUID(),
     idempotencyKey: randomUUID(), expectedGeneration: host.session.status().generation, publicationId: publication.publicationId,
     subject: { kind: 'parts-verdict', draftId: selector.id } };

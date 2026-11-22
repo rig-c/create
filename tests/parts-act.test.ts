@@ -137,9 +137,11 @@ async function submit(
   showLayers = false,
 ): Promise<JobAct> {
   const publication = host.session.status().publication!;
+  const selector = publication.source.selector;
+  if (selector.kind !== 'draft') throw Error('expected a draft for the parts verdict');
   const request = { schema: 'rig-review/job-api@2', verb: 'ask', jobId: host.session.jobId, requestId: randomUUID(),
     idempotencyKey: randomUUID(), expectedGeneration: host.session.status().generation, publicationId: publication.publicationId,
-    subject: { kind: 'parts-verdict', draftId: 'chain' } };
+    subject: { kind: 'parts-verdict', draftId: selector.id } };
   const response = await host.ports.handleJobApi(new Request(`${host.origin}/jobs/${host.session.jobId}/api`, { method: 'POST',
     headers: { authorization: `Bearer ${host.session.hostCredentials().agent}`, 'content-type': 'application/json' }, body: JSON.stringify(request) }));
   const asked = await response.json() as { ok: boolean; error?: { code: string }; value: { askId: string } };
@@ -414,6 +416,8 @@ for (const source of ['parts', 'config'] as const) test(`changed ${source} refus
 
 test('a new-id rebuild with failed publication retries through job reconcile', async () => {
   const { root, host } = await bound();
+  const originalVerdict = await submit(root, host);
+  expectCliOk(await cli(root, ['parts-review', '--from-review', originalVerdict.actId]));
   cpSync(join(root, 'derived/drafts/chain'), join(root, 'derived/drafts/rebuilt'), { recursive: true });
   const snapshot = JSON.parse(readFileSync(join(root, 'evidence/structure-chain.json'), 'utf8')) as JsonObject;
   snapshot.draft_id = 'rebuilt';
@@ -430,6 +434,8 @@ test('a new-id rebuild with failed publication retries through job reconcile', a
   rmSync(join(root, 'review-draft-rebuilt.json'));
   expect(await reconcileCreateJob(root)).toBe(1);
   expect(host.session.status().publication!.source.selector).toEqual({ kind: 'draft', id: 'rebuilt' });
+  const rebuiltVerdict = await submit(root, host);
+  expectCliOk(await cli(root, ['parts-review', '--from-review', rebuiltVerdict.actId]));
   const before = readFileSync(join(root, 'project.json'));
   const duplicate = expectCliRefused(await cli(root, draftArgs('rebuilt')), 'DRAFT_RIG_MALFORMED');
   expect(duplicate.exit).toBe(1); expect(duplicate.stderr).toContain('DRAFT_RIG_MALFORMED:');

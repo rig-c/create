@@ -182,14 +182,17 @@ test.each(['legacy-example-project.json', 'example-project.json'])('post re-plan
     if (obj(project.plan).rigging_drafted_at === undefined) obj(project.plan).rigging_drafted_at = obj(project.plan).drafted_at;
   }, template);
   reopen(dir, 'post-interview');
-  const before = read(dir);
-  const dateBytes = (): Buffer => Buffer.from(readFileSync(join(dir, 'project.json'), 'utf8')
-    .match(/^ {4}"(?:drafted_at|rigging_drafted_at)"\s*:\s*"[^"]*"/gm)!.join('\n'));
-  const dates = dateBytes();
+  const expected = read(dir);
+  const plan = obj(expected.plan);
+  const camera = step(expected, 'camera');
+  const at = testClock.iso();
+  const bar = 'Changed.';
+  plan.replaced = [...(plan.replaced === undefined ? [] : arr(plan.replaced)),
+    { ...retained(camera, at), reason: 'Revise the authored step fields.' }];
+  Object.assign(camera, { bar, drafted_at: at });
   const baseline = checkProject(dir).refusals;
-  write(dir, 'revise', 'camera', ['--bar', 'Changed.']);
-  expect(dateBytes()).toEqual(dates);
-  expect(obj(read(dir).plan).drafted_by).toEqual(obj(before.plan).drafted_by);
+  write(dir, 'revise', 'camera', ['--bar', bar]);
+  expect(read(dir)).toEqual(expected);
   expect(checkProject(dir).refusals).toEqual(baseline);
   expect(baseline).toEqual([]);
 });

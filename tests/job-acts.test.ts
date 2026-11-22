@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { checkProject, collectItems, type Finding } from '../src/check.ts';
 import { optionContext } from '../src/choices.ts';
-import { plantLegacyReopen, fixture, retainSignoffs, arr, obj } from './fixtures.ts';
+import { plantLegacyReopen, fixture, retainSignoffs, arr, obj, step } from './fixtures.ts';
 import { stageIndex } from '../src/stages.ts';
 import { recordPartsReceipt } from './parts-receipt-fixture.ts';
 import { nextCommand, nextProject } from '../src/next.ts';
@@ -21,7 +21,7 @@ import { currentJobIdentity } from '../src/job-publication.ts';
 import { JOB_COMMENTS_ACT_SCHEMA, parseCommentsAct, startJobHost, type ActV3, type JobOwnerHost, type JobHostOptions } from '@rig-c/review/job-host';
 import { interviewAnswerCommand } from '../src/choice-writers.ts';
 import { reviewActFindings } from '../src/review-act.ts';
-import { sorted } from '../src/step-hash.ts';
+import { sorted, stepHash } from '../src/step-hash.ts';
 import type { Json, JsonObject } from '../src/templates.ts';
 import { testClock } from './clock.ts';
 import { EXAMPLE_NOW, EXAMPLE_REOPEN_AT } from '../scripts/example-time.ts';
@@ -1358,14 +1358,21 @@ test('#698 timeout options require a bounded integer and --wait', async () => {
 test('#633 post composition Other leads to a cited scene through two Review picks', async () => {
   testClock.set(Date.now());
   const root = copy('4-direction-post', project => {
-    // This scene-authoring fixture revisits an unfinished composition definition.
-    const composition = arr(obj(project.plan).steps).map(obj).find(step => step.id === 'composition')!;
-    composition.status = 'pending';
-    delete composition.status_history;
+    // The chain seeds completion. Give this copy the full execution history to retain on replacement.
+    const postAt = Date.parse(String(arr(project.advances).map(obj).find(move => move.stage === 'post')!.at));
+    step(project, 'composition').status_history = [
+      { from_status: 'pending', status: 'in-progress', by: 'agent', at: new Date(postAt + 1).toISOString(), checkpoint_required: false, signoff: null },
+      { from_status: 'in-progress', status: 'done', by: 'agent', at: new Date(postAt + 2).toISOString(), checkpoint_required: false, signoff: null },
+    ];
   });
+  const completed = step(read(root), 'composition');
+  expect(completed.status).toBe('done');
   const reopenWords = join(root, 'reopen.txt');
   writeFileSync(reopenWords, 'Choose the synthetic two-plate scene.');
   plantLegacyReopen(root, 'post-interview', { by: 'user', wordsFile: reopenWords });
+  const reopened = read(root);
+  expect(obj(arr(reopened.reopens).at(-1)).steps_before).toContainEqual({ id: 'composition', status: 'done' });
+  expect(step(reopened, 'composition')).toEqual({ ...completed, status: 'pending' });
   const plate = readFileSync(join(import.meta.dir, '../templates/example-chain/inputs/background.png'));
   writeFileSync(join(root, 'background.png'), plate);
   writeFileSync(join(root, 'foreground.png'), Buffer.concat([plate, Buffer.from('\n')]));
@@ -1422,8 +1429,29 @@ test('#633 post composition Other leads to a cited scene through two Review pick
   const ingested = obj(composition().raw);
   expect(composition().record.history).toContainEqual(otherAnswer);
   expect(ingested.value).toEqual(option.fragment);
-  expectExit0(await cli(root, ['plan', 'revise', 'composition', root, '--by', 'agent',
-    '--does', 'Write the approved scene with a background and a foreground plate.']));
+  const beforeReplacement = read(root);
+  const previous = step(beforeReplacement, 'composition');
+  expect(previous).toEqual({ ...completed, status: 'pending' });
+  testClock.set(testClock.now() + 1_000);
+  expect(nextProject(root, testClock.now()).refusals).toContainEqual(expect.objectContaining({
+    code: 'PLAN_STEP_PREDATES_ANSWER', field: 'plan.steps[composition]',
+  }));
+  expectExit0(await cli(root, ['plan', 'remove', 'composition', root, '--by', 'agent']));
+  const removedAt = testClock.iso();
+  const does = 'Write the approved scene with a background and a foreground plate.';
+  testClock.set(testClock.now() + 1_000);
+  expectExit0(await cli(root, ['plan', 'add', 'composition', root, '--by', 'agent', '--phase', String(previous.phase),
+    '--order', String(previous.order), '--does', does, '--produces', String(previous.produces),
+    '--rests-on', arr(previous.rests_on).join(','), '--bar', String(previous.bar),
+    '--checkpoint-proposed', String(previous.checkpoint_proposed)]));
+  const replaced = read(root);
+  expect(obj(replaced.plan).replaced).toEqual([
+    ...arr(obj(beforeReplacement.plan).replaced),
+    { step: { ...completed, status: 'pending' }, sha256: stepHash(previous), action: 'removed', at: removedAt, by: 'agent' },
+  ]);
+  const replacement = step(replaced, 'composition');
+  expect(replacement).toMatchObject({ does, status: 'pending', checkpoint: null, drafted_at: testClock.iso() });
+  expect(replacement.status_history).toBeUndefined();
   writeCitations(ingested.verbatim);
   expectExit0(await cli(root, sceneArgs));
   expect(obj((read(root).scenes as JsonObject[]).at(-1)).by).toBe('agent');

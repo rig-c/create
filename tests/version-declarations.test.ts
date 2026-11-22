@@ -74,13 +74,10 @@ describe('rig-version --preflight names every missing declaration in one run', (
     expect(report.refusals.at(-1)?.message).toContain("parts' own pixel_count per region");
     expect(readFileSync(join(dir, 'project.json')).equals(before)).toBe(true);
 
-    expect(report.registration_only).toEqual([{
-      path: 'versions[v3].provenance.config requirements setup_painting.figure_mask', code: 'FIGURE_MASK_MISSING',
-      applies: 'busy grounds (assemble.ground busy)', reason: 'it reads the review package registration builds', tracked: 'rig-c/create#752',
-    }]);
+    expect(report.registration_only).toEqual([]);
 
     const human = preflight(dir);
-    expect(human.stdout).toContain('  not checked here: versions[v3].provenance.config requirements setup_painting.figure_mask (FIGURE_MASK_MISSING) on busy grounds (assemble.ground busy); only registration checks it, because it reads the review package registration builds (rig-c/create#752)');
+    expect(human.stdout).not.toContain('setup_painting.figure_mask');
     expect(human.stdout).toContain('missing versions[v3].provenance.config requirements behind_seams.threshold (CG_GATE_UNDECLARED)');
     expect(human.stdout).toContain('3 refusals, 0 warnings');
 
@@ -146,6 +143,30 @@ describe('rig-version --preflight names every missing declaration in one run', (
     const report = JSON.parse(preflight(dir, ['--at-source', 'work/run.json', '--at-pointer', '/finished_at', '--json']).stdout) as DeclarationReport;
     expect(report.refusals).toEqual([]);
     expect(report.warnings.map(f => f.code)).toEqual(['CG_GATE_UNDECLARED', 'SETUP_PAINTING_LEGACY']);
+  });
+
+  test('a visible busy-ground figure mask follows the cited contract date', () => {
+    const config = { ...CONFIG, assemble: { ...obj(CONFIG.assemble), project: 'visible', ground: 'busy' } };
+    const dir = project(REQUIREMENTS, COMPLETE_CITATIONS, config);
+    const date = (finished_at: string): { result: ReturnType<typeof preflight>; report: DeclarationReport } => {
+      writeFileSync(join(dir, 'work/run.json'), json({ finished_at }));
+      const result = preflight(dir, ['--at-source', 'work/run.json', '--at-pointer', '/finished_at', '--json']);
+      return { result, report: JSON.parse(result.stdout) as DeclarationReport };
+    };
+    const path = 'versions[v3].provenance.config requirements setup_painting.figure_mask';
+    const before = date('2026-11-05T23:59:59.999Z');
+    expect(before.result.exit).toBe(0);
+    expect(before.report.warnings.map(f => f.code)).toEqual(['FIGURE_MASK_LEGACY']);
+    expect(before.report.declarations).toContainEqual({ path, status: 'missing', codes: ['FIGURE_MASK_LEGACY'] });
+
+    const at = date('2026-11-06T00:00:00Z');
+    expect(at.result.exit).toBe(1);
+    expect(codes(at.report)).toEqual([`FIGURE_MASK_MISSING ${path}`]);
+
+    writeFileSync(join(dir, 'work/config.json'), json({ ...config, assemble: { ...config.assemble, ground: 'plain' } }));
+    const plain = date('2026-11-06T00:00:00Z');
+    expect(plain.result.exit).toBe(0);
+    expect(plain.report.declarations.some(d => d.path === path)).toBe(false);
   });
 
   test('through the CLI: exit 1 with the three codes', () => {

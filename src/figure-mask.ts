@@ -12,7 +12,7 @@ import type { JsonObject } from './templates.ts';
 
 export const FIGURE_MASK_SINCE = '2026-11-06T00:00:00Z';
 
-/** The busy-ground declaration's place after `<version>.provenance.config`; read from the review package registration builds. */
+/** The busy-ground declaration's place after `<version>.provenance.config`. */
 export const FIGURE_MASK_DECLARATION = 'requirements setup_painting.figure_mask';
 
 export const FIGURE_MASK_INPUTS_SINCE = '2026-11-06T00:00:00Z';
@@ -20,6 +20,61 @@ export const FIGURE_MASK_INPUTS_SINCE = '2026-11-06T00:00:00Z';
 export const FIGURE_MASK_MATTE_RECEIPT_SINCE = '2026-11-19T00:00:00Z';
 
 type MaskContext = Pick<Ctx, 'dir' | 'project' | 'refusals' | 'warnings'>;
+type MaskFindings = Pick<MaskContext, 'refusals' | 'warnings'>;
+
+function figureMaskRequired(config: JsonObject): boolean {
+  const assemble = isObject(config.assemble) ? config.assemble : {};
+  return assemble.project === 'visible' && assemble.ground === 'busy';
+}
+
+function figureMaskFinding(ctx: MaskFindings, path: string, at: number, code: string, detail: string): void {
+  const legacy = !Number.isFinite(at) || at < Date.parse(FIGURE_MASK_SINCE);
+  (legacy ? ctx.warnings : ctx.refusals).push({
+    code: legacy ? 'FIGURE_MASK_LEGACY' : code, path,
+    message: `${path}: ${detail}${legacy ? ` (${code}; record predates ${FIGURE_MASK_SINCE} or has no readable date).` : ''}`,
+  });
+}
+
+function checkFigureMaskDeclaration(
+  config: JsonObject, configPath: string,
+  readRequirements: (requirements: string) => ReturnType<typeof readObject> | undefined,
+  missing: (detail: string) => void,
+): { requirements: string; file: string; mask: { path: string; sha256: string } } | undefined {
+  const requirements = asString(config.requirements);
+  if (!requirements) {
+    missing(`${configPath}: declare requirements with setup_painting.figure_mask`);
+    return;
+  }
+  const req = readRequirements(requirements);
+  if (req === undefined) return;
+  if (!req.ok) {
+    missing(`${requirements}: ${req.why}; retain readable requirements JSON with setup_painting.figure_mask`);
+    return;
+  }
+  const setup = isObject(req.value.setup_painting) ? req.value.setup_painting : {};
+  const mask = isObject(setup.figure_mask) ? setup.figure_mask : {};
+  if (typeof mask.path !== 'string' || !mask.path.trim() || typeof mask.sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(mask.sha256)) {
+    missing(`${configPath}: declare setup_painting.figure_mask {path, sha256} in its requirements file, naming the externally produced figure PNG`);
+    return;
+  }
+  return { requirements, file: req.file, mask: { path: mask.path, sha256: mask.sha256 } };
+}
+
+/** Check the source declaration and return its report path when applicable. */
+export function checkSourceFigureMaskDeclaration(ctx: Pick<MaskContext, 'dir' | 'refusals' | 'warnings'>, version: JsonObject, label: string): string | undefined {
+  const provenance = isObject(version.provenance) ? version.provenance : {};
+  const binding = isObject(provenance.config) ? provenance.config : {};
+  const configPath = asString(binding.path);
+  if (!configPath || typeof binding.sha256 !== 'string') return;
+  const config = readObject(ctx.dir, resolve(ctx.dir, configPath), binding.sha256);
+  if (!config.ok || !figureMaskRequired(config.value)) return;
+  const path = `${label}.provenance.config ${FIGURE_MASK_DECLARATION}`;
+  const at = typeof version.at === 'string' ? Date.parse(version.at) : Number.NaN;
+  checkFigureMaskDeclaration(config.value, configPath,
+    requirements => readObject(ctx.dir, resolve(dirname(config.file), requirements), null),
+    detail => figureMaskFinding(ctx, path, at, 'FIGURE_MASK_MISSING', detail));
+  return path;
+}
 
 export function checkFigureMask(ctx: MaskContext): void {
   asArray(ctx.project.versions).forEach((version, index) => {
@@ -39,19 +94,11 @@ export function checkFigureMask(ctx: MaskContext): void {
     const configPath = asString(config.path);
     if (!configPath) return;
     const cfg = readObject(ctx.dir, join(root, 'config.json'), configEntry.sha256);
-    if (!cfg.ok) return;
-    const assemble = isObject(cfg.value.assemble) ? cfg.value.assemble : {};
-    if (assemble.project !== 'visible' || assemble.ground !== 'busy') return;
+    if (!cfg.ok || !figureMaskRequired(cfg.value)) return;
     const label = typeof version.n === 'number' ? `versions[v${version.n}]` : `versions[${index}]`;
     const path = `${label}.provenance.config ${FIGURE_MASK_DECLARATION}`;
     const at = typeof version.at === 'string' ? Date.parse(version.at) : Number.NaN;
-    const legacy = !Number.isFinite(at) || at < Date.parse(FIGURE_MASK_SINCE);
-    const finding = (code: string, detail: string): void => {
-      (legacy ? ctx.warnings : ctx.refusals).push({
-        code: legacy ? 'FIGURE_MASK_LEGACY' : code, path,
-        message: `${path}: ${detail}${legacy ? ` (${code}; record predates ${FIGURE_MASK_SINCE} or has no readable date).` : ''}`,
-      });
-    };
+    const finding = (code: string, detail: string): void => figureMaskFinding(ctx, path, at, code, detail);
     const unbound = (detail: string): void => {
       const old = !Number.isFinite(at) || at < Date.parse(FIGURE_MASK_INPUTS_SINCE);
       (old ? ctx.warnings : ctx.refusals).push({
@@ -59,34 +106,23 @@ export function checkFigureMask(ctx: MaskContext): void {
         message: `${path}: ${detail}; preserve this package and record a new build with review-package to bind the requirements and figure mask`,
       });
     };
-    const requirements = asString(cfg.value.requirements);
-    if (!requirements) {
-      finding('FIGURE_MASK_MISSING', `${configPath}: declare requirements with setup_painting.figure_mask`);
-      return;
-    }
-    let named: JsonObject[];
-    let unavailable = false;
-    try { named = reviewConfigInputs(record, ctx.dir, Number(version.n), () => {}, () => { unavailable = true; }); }
-    catch { return; } // The package checker owns loader and config diagnostics.
-    if (unavailable) return;
-    const reqPath = relative(root, resolve(root, requirements)).split(sep).join('/');
-    const reqEntry = named.find(f => f.path === reqPath);
-    if (typeof reqEntry?.sha256 !== 'string') {
-      unbound(`requirements ${requirements} has no frozen input binding`);
-      return;
-    }
-    const req = readObject(ctx.dir, resolve(root, requirements), reqEntry.sha256);
-    if (!req.ok) {
-      finding('FIGURE_MASK_MISSING', `${requirements}: ${req.why}; retain readable requirements JSON with setup_painting.figure_mask`);
-      return;
-    }
-    const setup = isObject(req.value.setup_painting) ? req.value.setup_painting : {};
-    const mask = isObject(setup.figure_mask) ? setup.figure_mask : {};
-    if (typeof mask.path !== 'string' || !mask.path.trim() || typeof mask.sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(mask.sha256)) {
-      finding('FIGURE_MASK_MISSING', `${configPath}: declare setup_painting.figure_mask {path, sha256} in its requirements file, naming the externally produced figure PNG`);
-      return;
-    }
-    const file = resolve(dirname(req.file), mask.path);
+    const declaration = checkFigureMaskDeclaration(cfg.value, configPath, requirements => {
+      let named: JsonObject[];
+      let unavailable = false;
+      try { named = reviewConfigInputs(record, ctx.dir, Number(version.n), () => {}, () => { unavailable = true; }); }
+      catch { return; } // The package checker owns loader and config diagnostics.
+      if (unavailable) return;
+      const reqPath = relative(root, resolve(root, requirements)).split(sep).join('/');
+      const reqEntry = named.find(f => f.path === reqPath);
+      if (typeof reqEntry?.sha256 !== 'string') {
+        unbound(`requirements ${requirements} has no frozen input binding`);
+        return;
+      }
+      return readObject(ctx.dir, resolve(root, requirements), reqEntry.sha256);
+    }, detail => finding('FIGURE_MASK_MISSING', detail));
+    if (!declaration) return;
+    const { requirements, mask } = declaration;
+    const file = resolve(dirname(declaration.file), mask.path);
     const maskPath = relative(root, file).split(sep).join('/');
     const maskEntry = files.find(f => f.path === maskPath);
     if (typeof maskEntry?.sha256 !== 'string') {

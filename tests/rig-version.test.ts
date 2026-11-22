@@ -89,6 +89,58 @@ function refused(args: string[], code: string): Refusal {
   return caught as Refusal;
 }
 
+function setupVisibleGround(ground: 'busy' | 'plain') {
+  const { dir, args, load } = setup();
+  put(dir, 'source/config.json', { key: 'synthetic', requirements: 'requirements.json', assemble: { project: 'visible', ground } });
+  put(dir, 'source/citations.json', { assemble: [{ entry: 'plan[lantern]', guide: 'assemble', quote: 'The lantern is its own part.', asks: ['emphasis', 'ground'] }] });
+  const project = load();
+  const guide = obj(waypoint(project, 'assemble').guide);
+  obj(guide.value).ground = ground;
+  arr(guide.asks).push({ id: 'ground', state: 'user' });
+  put(dir, 'project.json', project);
+  const register = [...args, '--citations', 'source/citations.json'];
+  return { dir, project, register, preflight: () => rigVersionCommand([...register, '--preflight']) };
+}
+
+test('#752 a busy visible build requires a figure mask before registration', () => {
+  const { dir, project, register, preflight } = setupVisibleGround('busy');
+  const before = readFileSync(join(dir, 'project.json'));
+  const missing = preflight();
+  expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
+  refused(register, 'FIGURE_MASK_MISSING');
+
+  const mask = readFileSync(join(dir, 'source/rig/images/rectangle.png'));
+  const figureMask = { path: '../mask.png', sha256: jobHash(mask) };
+  writeFileSync(join(dir, 'mask.png'), mask);
+  const painting = obj(arr(project.inputs)[0]);
+  project.derived = [...arr(project.derived), {
+    ...figureMask, path: 'mask.png', kind: 'prepared-input', bytes: mask.length,
+    at: '2026-11-06T20:00:00Z', tool: 'synthetic matte', operation: 'alpha >= 128; foreground subtracted: none',
+    source: { path: painting.path, sha256: painting.sha256 },
+  }];
+  put(dir, 'project.json', project);
+  const requirements = JSON.parse(readFileSync(join(dir, 'source/requirements.json'), 'utf8')) as JsonObject;
+  put(dir, 'source/requirements.json', { ...requirements, setup_painting: { required: true, figure_mask: figureMask } });
+  const complete = preflight();
+  expect(complete.exit).toBe(0);
+  expect(JSON.parse(complete.stdout).declarations).toContainEqual({
+    path: 'versions[v1].provenance.config requirements setup_painting.figure_mask', status: 'carried', codes: [],
+  });
+  expect(rigVersionCommand(register).exit).toBe(0);
+  expect(readFileSync(join(dir, 'derived/review/v1/inputs/setup_painting/figure_mask/path'))).toEqual(mask);
+
+  expect({ exit: missing.exit, figureMaskCodes: (JSON.parse(missing.stdout).refusals as JsonObject[]).map(f => f.code) })
+    .toEqual({ exit: 1, figureMaskCodes: ['FIGURE_MASK_MISSING'] });
+});
+
+test('#752 a plain visible build still passes without a figure mask', () => {
+  const { dir, register, preflight } = setupVisibleGround('plain');
+  const before = readFileSync(join(dir, 'project.json'));
+  expect(preflight().exit).toBe(0);
+  expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
+  expect(rigVersionCommand(register).exit).toBe(0);
+});
+
 test('frozen registration without a live parts approval refuses on the contract date', () => {
   const f = setup();
   testClock.set(new Date(RIG_PARTS_APPROVAL_SINCE));

@@ -962,7 +962,7 @@ plate-making fix; the default recipe above stays unchanged.
 
 | Code | Condition | Remedy |
 |---|---|---|
-| `FIGURE_MASK_MISSING` | busy visible retained config lacks a valid requirements figure-mask path and lowercase sha256 | declare `setup_painting.figure_mask` in the config-relative requirements file |
+| `FIGURE_MASK_MISSING` | a busy visible config lacks a readable requirements file with a valid figure-mask path and lowercase sha256. Preflight checks the supplied config and registration checks the retained one | declare `setup_painting.figure_mask` in the config-relative requirements file |
 | `FIGURE_MASK_CHANGED` | declared PNG is unreadable or its bytes differ from its declared sha256 | restore the PNG relative to requirements or update the declaration and derived record |
 | `FIGURE_MASK_UNRECORDED` | no prepared-input record binds that mask and hash with at least one source and operation | record with `derived add`, naming matte, threshold and foreground subtraction in the operation |
 | `FIGURE_MASK_MATTE_RECEIPT_INVALID` | a matching prepared figure mask declares a matte receipt that fails verification | restore the matte receipt, painting, raw mask and output, then record with `derived add --receipt` |
@@ -1403,15 +1403,14 @@ registrations by `registration.at`: before it they WARN under
 
 `rig-version <n> [<dir>] --preflight --config <file> [--citations <file>]
 [--at-source <file> --at-pointer </pointer>]` writes nothing. It runs the
-provenance, CG-gate and setup-painting checks registration applies, over that
-config, its requirements and the citations, and lists every declaration as
-`carried`, `missing` or `unread` with its code. It keeps no finding behind
-another at the same path, and exits 1 while any refusal remains. It also names,
-without judging it, the one declaration only registration checks:
-`setup_painting.figure_mask` on busy grounds (`FIGURE_MASK_MISSING`), because
-that check reads the review package registration builds (tracked in
-rig-c/create#752). `next` lists the same declarations on the move that
-registers a checked build. A refused registration names every new finding: the
+provenance, CG-gate, setup-painting and figure-mask declaration checks over
+that config, its requirements and the citations. A visible busy-ground config
+requires `setup_painting.figure_mask` with a path and lowercase SHA-256.
+Registration verifies the mask bytes and evidence. Preflight lists each
+declaration as `carried`, `missing` or `unread` with its code, shows all
+findings at the same path and exits 1 while any refusal remains. `next` lists
+the same declarations on the move that registers a checked build. A refused
+registration names every new finding: the
 first finding's code is the refusal's, and each further finding follows on its
 own line as `<code>: <message>`, in the order the preflight prints them.
 

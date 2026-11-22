@@ -1352,6 +1352,10 @@ read as an advance or reopen, so `STAGE_MOVE_UNLINKED` and the latest-move
 `STAGE_SKIPPED` read the same records as before it existed. `pauses[]` is new,
 so its shape check refuses no earlier record and has no contract date.
 
+Candidate validation for `resume` allows `STAGE_LAGGING` only when the live
+signature authorizing the stage window closes the exact resume target. The
+recorded stage still reports the lag on check until the normal advance.
+
 | Code | Fires when | Remedy |
 | --- | --- | --- |
 | `PAUSE_ALREADY_PAUSED` | pause runs on a project whose stage is already `paused` | resume it |

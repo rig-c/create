@@ -253,6 +253,13 @@ stage is still `STAGE_SKIPPED`. The check validates the shape of each entry
 validation before writing and replace `project.json` in one rename; refused
 writes leave it byte-identical.
 
+When the current live signature authorizing progress closes the paused-from
+stage itself, `resume` can return to that stage even though its advance is
+pending. This works whether the stage was signed before or during the pause.
+`resume` records the pause exit, and the check reports `STAGE_LAGGING` until
+the next normal `advance` succeeds. A lag authorized by a later stage or any
+other new refusal still blocks resume.
+
 ### Reopening a passed stage
 
 Existing records may contain `reopens[]` from the retired stage-reopen

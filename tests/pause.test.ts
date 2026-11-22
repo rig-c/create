@@ -1,11 +1,12 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { cpSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { checkProject as checkCandidate } from '../src/check.ts';
 import { Refusal } from '../src/refusal.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { plantLegacyReopen, arr, obj } from './fixtures.ts';
-import { clockedCli, run, tempDir } from './helpers.ts';
-import { checkProject, pauseCommand, resumeCommand, signoffCommand, testClock } from './clock.ts';
+import { clockedCli, ownerChatArgs, run, tempDir } from './helpers.ts';
+import { advanceCommand, checkProject, pauseCommand, resumeCommand, signoffCommand, testClock } from './clock.ts';
 
 const CHECKPOINTS = join(import.meta.dir, '../templates/example-chain/checkpoints');
 const read = (dir: string): JsonObject => JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8'));
@@ -21,6 +22,9 @@ let minute = 0;
 /** Each writer call runs one minute after the last, so every new record is ordered in time. */
 function tick(): void { testClock.set(Date.parse('2026-11-20T00:00:00Z') + 60_000 * minute++); }
 function signPaused(dir: string): void { tick(); signoffCommand(['paused', dir, '--by', 'owner', '--verbatim-file', words(dir)]); }
+function signStage(dir: string, stage: string): void {
+  tick(); signoffCommand([stage, dir, '--by', 'owner', ...ownerChatArgs(words(dir))]);
+}
 function pause(dir: string): void { tick(); pauseCommand([dir, '--by', 'owner', '--verbatim-file', words(dir)]); }
 function resume(dir: string, stage: string): void { tick(); resumeCommand([stage, dir, '--by', 'owner', '--verbatim-file', words(dir)]); }
 function clean(dir: string): void {
@@ -74,6 +78,23 @@ describe('pause and resume round trip through the writers', () => {
     expect(arr(read(dir).pauses)).toHaveLength(4);
   });
 
+  test.each([['1-parts-verdict', 'parts'], ['4-direction-post', 'post']])('%s: a signature at a bar stage while paused adds no lag', (checkpoint, stage) => {
+    const dir = chain(checkpoint);
+    signPaused(dir); pause(dir); signStage(dir, stage); clean(dir);
+    resume(dir, stage); clean(dir);
+  });
+
+  test('paused rig-review still requires a live accepted verdict for closing approval', () => {
+    const dir = chain('3-rig-review');
+    signPaused(dir); pause(dir);
+    refused(dir, 'OWNER_CHAT_GATE_VISUAL', () => signStage(dir, 'rig-review'));
+    refused(dir, 'SIGNOFF_TARGET_STALE', () => {
+      tick(); signoffCommand(['rig-review', dir, '--by', 'owner', '--verbatim-file', words(dir)]);
+    });
+    clean(dir);
+    resume(dir, 'rig-review'); clean(dir);
+  });
+
   test('the CLI process records the round trip at the injected instant', () => {
     const dir = chain('1-parts-verdict');
     const at = (args: string[]): { code: number; stderr: string } => { tick(); return run([process.execPath, ...clockedCli(), ...args], dir, process.env as Record<string, string>); };
@@ -124,6 +145,42 @@ describe('pause and resume refusals leave the bytes unchanged', () => {
     const dir = chain('1-parts-verdict');
     signPaused(dir); pause(dir);
     refused(dir, 'SIGNOFF_NOT_HUMAN', () => { tick(); resumeCommand(['parts', dir, '--by', 'agent', '--verbatim-file', words(dir)]); });
+  });
+
+  test('the resume exit still refuses unrelated history errors while its own advance is pending', () => {
+    const dir = chain('0b-plan-pending');
+    signPaused(dir);
+    const beforePause = testClock.now();
+    pause(dir); signStage(dir, 'plan-approved'); clean(dir);
+    refused(dir, 'PAUSE_MALFORMED', () => {
+      testClock.set(beforePause);
+      resumeCommand(['plan-approved', dir, '--by', 'owner', '--verbatim-file', words(dir)]);
+    });
+    refused(dir, 'RESUME_STAGE_MISMATCH', () => resume(dir, 'parts'));
+    refused(dir, 'ADVANCE_MALFORMED', () => { tick(); advanceCommand(['parts', dir]); });
+    resume(dir, 'plan-approved');
+    expect(checkProject(dir).refusals.map(f => f.code)).toEqual(['STAGE_LAGGING']);
+    refused(dir, 'STAGE_LAGGING', () => signPaused(dir));
+  });
+
+  test('resume candidate validation retains a lag owned by a later signature', () => {
+    const dir = chain('0b-plan-pending');
+    signPaused(dir); pause(dir); signStage(dir, 'plan-approved');
+    const paused = read(dir);
+    // A synthetic later signature isolates the lag decision from the earlier
+    // SIGNOFF_AHEAD_OF_STAGE refusal that the writer will report first.
+    paused.signoffs = [...arr(paused.signoffs), {
+      stage: 'parts-review', checkpoint: null, at: testClock.iso(), by: 'owner', verbatim: 'Later synthetic signature.',
+    }];
+    save(dir, paused);
+    tick();
+    const candidate: JsonObject = { ...paused, stage: 'plan-approved', pauses: [...arr(paused.pauses), {
+      from_stage: 'paused', stage: 'plan-approved', at: testClock.iso(), by: 'owner', verbatim: 'Resume the synthetic project.',
+    }] };
+    const strict = checkProject(dir, candidate).refusals;
+    expect(strict.map(f => [f.code, f.path])).toContainEqual(['STAGE_LAGGING', 'stage']);
+    expect(checkCandidate(dir, candidate, { now: testClock.now(), resumeStage: 'plan-approved' }).refusals).toEqual(strict);
+    refused(dir, 'SIGNOFF_AHEAD_OF_STAGE', () => resume(dir, 'plan-approved'));
   });
 });
 

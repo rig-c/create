@@ -327,11 +327,16 @@ test('#827 an older mixed outbox preserves the interview ask opened by the recor
   } finally { host.stop(); }
 }, 25_000);
 
-/** Start `job open` in the background and read its URL line and the summary it prints after publishing. */
-async function open(root: string, options: string[] = []): Promise<{ url: URL; lines: string[] }> {
-  const proc = Bun.spawn([process.execPath, ...jobRuntimeExecArgv(), CLI, 'job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner', ...options],
+function spawnJobOpen(root: string, options: string[], projectPath = root) {
+  const proc = Bun.spawn([process.execPath, ...jobRuntimeExecArgv(), CLI, 'job', 'open', projectPath, '--reviewer', 'synthetic-owner', '--role', 'owner', ...options],
     { cwd: root, stdout: 'pipe', stderr: 'pipe' });
   opened.push({ proc, root });
+  return proc;
+}
+
+/** Start `job open` in the background and read its URL line and the summary it prints after publishing. */
+async function open(root: string, options: string[] = [], projectPath = root): Promise<{ url: URL; lines: string[] }> {
+  const proc = spawnJobOpen(root, options, projectPath);
   const reader = proc.stdout.getReader();
   const decoder = new TextDecoder();
   let text = '';
@@ -453,6 +458,44 @@ test('#412 public job open selects a registered rig on a new empty head and retr
   expect(read(root).signoffs).toEqual(before.signoffs);
   expect(read(root).plan).toEqual(before.plan);
   expect(pendingPublications(root)).toEqual([]);
+}, 20_000);
+
+test('#852 job open --rig publishes through a symlink to the project root', async () => {
+  const root = registeredRig('rig-review');
+  const alias = `${root}-alias`;
+  symlinkSync(root, alias, 'dir');
+  try {
+    const opening = await open(root, ['--rig', '1'], alias);
+    expect(opening.lines).toEqual(['job: rig v1 published', 'job: asked review-verdict rig-review']);
+    const { head } = await publication(root, opening.url, 1);
+    expect((head.source as JsonObject).selector).toEqual({ kind: 'rig', version: 1 });
+  } finally {
+    rmSync(alias);
+  }
+}, 20_000);
+
+test('#852 job open --rig refuses a symlinked source inside the project before writing', async () => {
+  const root = registeredRig('rig-review');
+  const project = join(root, 'project.json');
+  const source = 'derived/review/v1/out/check/build/skeleton.model.json';
+  const model = join(root, source);
+  const target = join(root, 'model-target.json');
+  renameSync(model, target);
+  symlinkSync(target, model);
+  const before = readFileSync(project);
+
+  const proc = spawnJobOpen(root, ['--rig', '1']);
+  const stdout = proc.stdout.getReader();
+  try {
+    // Fail as soon as an unexpected host prints its URL, so teardown can close it.
+    expect((await stdout.read()).done).toBe(true);
+  } finally { stdout.releaseLock(); }
+  const [stderr, exit] = await Promise.all([new Response(proc.stderr).text(), proc.exited]);
+  expect(exit).toBe(1);
+  expect(stderr).toStartWith(`JOB_PUBLICATION_INVALID: project.json: ${source} must be a regular source without symlinks`);
+  expect(readFileSync(project)).toEqual(before);
+  expect(readWriterBinding(root)).toBeNull();
+  expect(existsSync(jobHostStateRoot(root))).toBe(false);
 }, 20_000);
 
 /** A rigging record whose motion bar is unmet: `advance rig-review` cannot run yet. */

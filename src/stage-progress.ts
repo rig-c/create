@@ -19,6 +19,30 @@ export const PROGRESS_HISTORY_SINCE = '2026-11-08T00:00:00Z';
 /** Dates the post authoring requirement on a post → direction-review move by the advance's own `at`. */
 export const DIRECTION_REVIEW_ADVANCE_SINCE = '2026-11-18T00:00:00Z';
 
+/** Dates the required painting declaration by the move into production rigging. */
+export const RIGGING_INTERVIEW_PAINTING_SINCE = '2026-11-22T00:00:00Z';
+
+export function checkRiggingInterviewPainting(ctx: Ctx): void {
+  if (ctx.project.painting !== undefined) return;
+  const exit = asArray(ctx.project.advances).findLast(move => isObject(move) && move.stage === 'rigging'
+    && ['rigging-interview', 'parts-review', 'plan-approved'].includes(String(move.from_stage)));
+  const rigging = stageIndex('rigging');
+  // Before explicit moves, a retained downstream signature witnesses that the project
+  // had already crossed the boundary, even when the project has since reopened.
+  const historicalDates = exit === undefined ? collectSignoffs(ctx.project, [])
+    .filter(s => stageIndex(s.stage) >= rigging
+      || (s.stage === 'rigging-interview' && s.checkpoint === null && stageIndex(ctx.stage) >= rigging))
+    .map(s => s.at).filter(Number.isFinite) : [];
+  if (!isObject(exit) && historicalDates.length === 0) return;
+  const at = isObject(exit) ? Date.parse(String(exit.at)) : Math.min(...historicalDates);
+  const old = at < Date.parse(RIGGING_INTERVIEW_PAINTING_SINCE);
+  (old ? ctx.warnings : ctx.refusals).push({
+    code: old ? 'RIGGING_INTERVIEW_PAINTING_LEGACY' : 'RIGGING_INTERVIEW_PAINTING_REQUIRED',
+    path: 'painting',
+    message: `painting: ${old ? 'historical rigging-interview exit has no declared painting' : 'declare a painting before leaving rigging-interview'}; run rig-create input painting <registered input path>`,
+  });
+}
+
 /** Select the latest signature at the furthest still-live closing stage. */
 export function furthestStageSignoff(signoffs: Ctx['signoffs']): Ctx['signoffs'][number] | undefined {
   return signoffs.filter(s => s.checkpoint === null && STAGES.some(stage => stage.id === s.stage && stage.closed_by === 'signoff'))

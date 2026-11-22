@@ -7,12 +7,12 @@
       "signoff": {
         "stage": "rig-review",
         "checkpoint": null,
-        "at": "2026-11-20T00:00:51.000Z"
+        "at": "2026-11-22T00:00:51.000Z"
       },
       "verdict": "versions[1].verdicts[0]",
       "review_package": {
         "path": "versions[1].review_package",
-        "sha256": "b6625b4287d4b71a7a5f7e0c57410ef6a607d43800007ce45dced1bbd0bb2e98"
+        "sha256": "ef315e37fec314539e96ff80bcc46bc0c71bfdc18234ff49d6f12bc632552cbb"
       }
     },
     "model": {
@@ -54,7 +54,7 @@
         "asks": [
           "post_composition"
         ],
-        "quote": "Keep the whole lighthouse in frame. It's night; don't brighten it.\nAs answered on 2026-11-20T00:00:56.000Z in post-interview, chat"
+        "quote": "Keep the whole lighthouse in frame. It's night; don't brighten it.\nAs answered on 2026-11-22T00:00:56.000Z in post-interview, chat"
       }
     }
   ],

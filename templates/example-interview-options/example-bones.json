@@ -4,15 +4,15 @@
   "question": "bones",
   "stage": "rigging-interview",
   "drafted_by": "agent",
-  "drafted_at": "2026-11-20T00:00:39.000Z",
+  "drafted_at": "2026-11-22T00:00:39.000Z",
   "context": {
     "kind": "parts",
     "accepted_parts": {
-      "signoff_at": "2026-11-20T00:00:37.000Z",
+      "signoff_at": "2026-11-22T00:00:37.000Z",
       "evidence": {
         "kind": "parts-verdict",
-        "path": "evidence/review-reads/cf072d7f7534cd03f4c8069aadf4e72d4d1b0889a3d9a2af479cb088c5d2aaac.json",
-        "sha256": "cf072d7f7534cd03f4c8069aadf4e72d4d1b0889a3d9a2af479cb088c5d2aaac",
+        "path": "evidence/review-reads/60086388862bec23b4e943fcbd56782355a86c17dd029bdc1dc1cff9e57a94ca.json",
+        "sha256": "60086388862bec23b4e943fcbd56782355a86c17dd029bdc1dc1cff9e57a94ca",
         "spec": "rig-create/parts-verdict-cli@1"
       }
     },
@@ -68,7 +68,7 @@
           "id": "keep",
           "kind": "value",
           "label": "Synthetic bones answer after viewing the approved parts and structure.",
-          "effect": "As answered on 2026-11-20T00:00:38.000Z in interview, chat",
+          "effect": "As answered on 2026-11-22T00:00:38.000Z in interview, chat",
           "fragment": {
             "chains": "synthetic chains on the approved parts"
           },

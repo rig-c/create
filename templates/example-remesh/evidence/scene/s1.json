@@ -7,12 +7,12 @@
       "signoff": {
         "stage": "rig-review",
         "checkpoint": null,
-        "at": "2026-11-20T00:01:17.000Z"
+        "at": "2026-11-22T00:01:17.000Z"
       },
       "verdict": "versions[2].verdicts[0]",
       "review_package": {
         "path": "versions[2].review_package",
-        "sha256": "450c46b6d25258262658a1010e8118fb70b7af06b66ea4c6d12b8bff451b5cc4"
+        "sha256": "5a9fb242190aa04e50d4199f0339707af2162f0e1e4b7d2e3860e0f3f96860dd"
       }
     },
     "model": {

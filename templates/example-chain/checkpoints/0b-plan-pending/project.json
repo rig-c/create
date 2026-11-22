@@ -649,6 +649,7 @@
   "owner": {
     "language": "en"
   },
+  "painting": "inputs/painting.png",
   "advances": [
     {
       "stage": "plan-approved",

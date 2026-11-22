@@ -21,7 +21,10 @@ const model = `${draft}/out/check/build/skeleton.model.json`;
 const selector = { kind: 'draft', id: draftId } as const;
 const comment = '  Hold the synthetic pose.\r\n두 번째 줄.\n ';
 const verbatim = `[general]\n${comment}`;
-const at = new Date(EXAMPLE_NOW).toISOString();
+// Review stamps its real HTTP acts with the wall clock. Keep their build and
+// draft sources in the past, including before noon on the example's anchor day.
+const fixtureNow = Math.min(EXAMPLE_NOW, Date.now() - 1000);
+const at = new Date(fixtureNow).toISOString();
 const testTimeoutMs = 60_000;
 // Each mesh edit is one Parts remesh with its own rigc build.
 const meshTimeoutMs = 300_000;
@@ -119,8 +122,8 @@ function rigging(build?: (root: string) => void): string {
   write(root, 'project.json', project);
   for (const path of ['outputs/v1', 'evidence/v1', 'derived/review/v1']) rmSync(join(root, path), { recursive: true, force: true });
 
-  prepareDraft(root, citations, EXAMPLE_NOW - 1000, build);
-  expect(checkProject(root, undefined, { now: EXAMPLE_NOW, readOnly: true }).effective_stage).toBe('rigging');
+  prepareDraft(root, citations, fixtureNow - 1000, build);
+  expect(checkProject(root, undefined, { now: fixtureNow, readOnly: true }).effective_stage).toBe('rigging');
   return root;
 }
 
@@ -329,7 +332,7 @@ async function register(root: string, variant: 'identical' | 'changed', n = 1, f
   write(root, 'producer/adapter.json', []);
   write(root, 'producer/at-source.json', { finished_at: at });
   write(root, 'producer/run.json', { spec: 'rigc-run/1', package: { name: 'rig-c', version: '3.4.1' }, command: 'build',
-    started_at: new Date(EXAMPLE_NOW - 1000).toISOString(), finished_at: at,
+    started_at: new Date(fixtureNow - 1000).toISOString(), finished_at: at,
     inputs: ['rig', 'motion'].map(role => ({ role, path: `rig/${role}.json`, sha256: jobHash(readFileSync(join(root, 'producer/rig', `${role}.json`))) })),
     outputs: [{ path: 'build/skeleton.model.json', sha256: jobHash(readFileSync(join(root, 'producer/build/skeleton.model.json'))) }] });
   return await cli(root, ['rig-version', String(n), root, '--parts', `${draft}/out`, '--rig', 'producer/rig',
@@ -389,14 +392,14 @@ test('#803 a pending correction refuses carry and offers same-input registration
   const citations = (historyRig.provenance as JsonObject).sections;
   const words = join(root, 'owner-words.txt');
   writeFileSync(words, 'Revise the synthetic rig.\n');
-  const amendAt = EXAMPLE_NOW - 2000;
+  const amendAt = fixtureNow - 2000;
   cpSync(join(root, 'derived/drafts/chain/config.json'), join(root, 'revised-config.json'));
   // A forward amendment is the current writer that returns the effective stage to rigging.
   assertSuccess(await cli(root, ['amend', 'rigging', root, '--kind', 'config-field', '--target', 'motion',
     '--change', 'revised-config.json', '--by', 'synthetic-owner', '--owner-chat', words,
     '--said-at', new Date(amendAt).toISOString(), '--relayed-by', 'synthetic-operator'], undefined, undefined, amendAt));
   expect(check().effective_stage).toBe('rigging');
-  prepareDraft(root, citations, EXAMPLE_NOW - 1000);
+  prepareDraft(root, citations, fixtureNow - 1000);
   const beforeCorrection = check();
   expect(beforeCorrection.refusals.map(f => f.code)).toEqual([]);
   assertSuccess(await cli(root, ['correction', 'record', root, '--stage', 'rig-review', '--version', '1',

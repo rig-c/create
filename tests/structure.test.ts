@@ -27,6 +27,8 @@ function setup(density?: number, reopen = true, productionParts = false): string
     for (const raw of arr(obj(p.plan).steps)) if (!['seethrough', 'assemble'].includes(String(obj(raw).id))) obj(raw).status = 'pending';
     step(p, 'assemble').rests_on = ['assemble']; rehashSignoffs(p);
   });
+  cpSync(join(import.meta.dir, '../templates/example-draft/inputs/painting.png'), join(dir, 'painting-source.png'));
+  inputCommand(['add', 'painting-source.png', dir, '--painting', '--origin', 'synthetic source painting']);
   if (productionParts) {
     const image = readFileSync(join(import.meta.dir, 'fixtures/rig-registration/rig/images/rectangle.png'));
     const manifest = JSON.stringify({ rig_size: [8, 16], scale_rig_per_source: 1, ghost_px: {},
@@ -165,7 +167,7 @@ test.each([false, true])('structure writer refuses ignored storage, including a 
   try { partsSign(dir, 'shape', path); throw Error('expected refusal'); } catch (error) { expect((error as Refusal).code).toBe('STRUCTURE_DECISIONS_INVALID'); }
   expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
 });
-import { checkProject, diffClassesCommand, draftRigCommand, advanceCommand, stepStatusCommand, signoffCommand, testClock } from './clock.ts';
+import { checkProject, diffClassesCommand, draftRigCommand, advanceCommand, inputCommand, stepStatusCommand, signoffCommand, testClock } from './clock.ts';
 
 test('reopen and re-approved density preserve v1 and bind v2 to its own build-time structure', () => {
   const dir = setup(10); partsSign(dir); freshRigInterview(dir);

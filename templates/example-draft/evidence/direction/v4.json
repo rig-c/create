@@ -3,7 +3,7 @@
   "scene": {
     "n": 1,
     "path": "evidence/scene/s1.json",
-    "sha256": "c0a0e7981769f8c03c3d2177eaf04ee3b25258b4e3bca207f0d4a213e37a85c3"
+    "sha256": "45333b63180e4066406c671aab414b7a47f1a6a7ad1d3664920763b46c1d04eb"
   },
   "rig": {
     "version": 2,
@@ -51,14 +51,14 @@
       "asks": [
         "camera_depth"
       ],
-      "quote": "A slow push-in, no parallax.\nAs answered on 2026-11-20T00:00:53.000Z in post-interview, chat"
+      "quote": "A slow push-in, no parallax.\nAs answered on 2026-11-22T00:00:53.000Z in post-interview, chat"
     },
     "timing": {
       "guide": "post_timing",
       "asks": [
         "post_timing"
       ],
-      "quote": "Eight seconds, looping. The beam sweeps past once, near the end.\nAs answered on 2026-11-20T00:00:55.000Z in post-interview, chat"
+      "quote": "Eight seconds, looping. The beam sweeps past once, near the end.\nAs answered on 2026-11-22T00:00:55.000Z in post-interview, chat"
     }
   }
 }

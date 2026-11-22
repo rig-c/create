@@ -5,7 +5,7 @@ exports[`#454 no-bounce direction write and next preserve previous bytes and out
   "exit": 0,
   "nextJson": "4d09d2a383a44b276054d0407b01551d95f9607fd99508e13c00dfb615843bc2",
   "nextText": "d21d2c90774d9dc5900933aa8e1ef93f1857c3cf0e0b3ab8b697919e9d4d3e8b",
-  "record": "e747e758d1cf381c9834a995cb39c64d2a1e30a959f0f91ed3866ece069820ca",
+  "record": "958ac90e4e0c574d2bfb2e44f1699cb77e398e0ac0466dde7a8c62a6f7ce7926",
   "stdout": "4c4c2cb5d2ed4ae18a58a9b30da2f9706fb47b430349b411044e9ad8e1507f99",
 }
 `;

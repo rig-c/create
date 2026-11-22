@@ -226,11 +226,11 @@ test('current per-ask Other with fragment and auto decided pass; their pending c
 test('authored document integrates into filled project with no refusals and packaging cannot rebind its model',async()=>{
   const {fixture}=await import('./fixtures.ts');const {collectItems}=await import('../src/check.ts');
   const dir=fixture(()=>{},'example-project.json');
-  testClock.set(new Date('2026-11-21T08:00:00Z'));
+  testClock.set(TEST_NOW);
   writeFileSync(join(dir,'words.txt'),'Revisit the synthetic post.');
   plantLegacyReopen(dir, 'post', { by: 'user', wordsFile: join(dir,'words.txt') });
-  testClock.set(new Date('2026-11-21T09:00:00Z'));directionCommand(['--adopt',dir]);
-  const p=JSON.parse(readFileSync(join(dir,'project.json'),'utf8')) as JsonObject;const f=setup();testClock.set(new Date('2026-11-21T09:10:00Z'));
+  testClock.set(TEST_NOW + 60 * 60_000);directionCommand(['--adopt',dir]);
+  const p=JSON.parse(readFileSync(join(dir,'project.json'),'utf8')) as JsonObject;const f=setup();testClock.set(TEST_NOW + 70 * 60_000);
   const doc=f.doc;doc.rig={version:2,model:{path:'derived/review/v2/out/check/build/skeleton.model.json',sha256:directionHash(readFileSync(join(dir,'derived/review/v2/out/check/build/skeleton.model.json')))}};
   doc.schema=DIRECTION_SCENE_SPEC;doc.scene=sceneReference(currentScene(p)!);
   const items=collectItems(p,{collection:null});for(const[section,id]of [['camera','camera_depth'],['timing','post_timing']]){const item=items.find(i=>i.id===id)!;(doc.citations as JsonObject)[section!]={guide:id!,asks:[id!],quote:(item.raw as JsonObject).verbatim as string};}

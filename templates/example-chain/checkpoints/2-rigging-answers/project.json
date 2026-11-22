@@ -765,6 +765,7 @@
   "owner": {
     "language": "en"
   },
+  "painting": "inputs/painting.png",
   "advances": [
     {
       "stage": "plan-approved",
@@ -1112,7 +1113,7 @@
       "files": [
         {
           "path": "derived/drafts/chain/out/check/build/run.json",
-          "sha256": "e4f29435d1c157cea1f52b75e700a7800bcfa745b41637094cb5cfa5b975c402"
+          "sha256": "f9c11c0ed89741ace9d0c9ca989e98b418bbac069c0340f77ec73eb4564d0ac7"
         },
         {
           "path": "derived/drafts/chain/out/check/build/skeleton.atlas",
@@ -1168,7 +1169,7 @@
         },
         {
           "path": "derived/drafts/chain/out/run.json",
-          "sha256": "1653140bb2ea21377ef6b2c309a322bafa2d622e32cc1a89fcc95d42aaac6eb3"
+          "sha256": "87a0111f605fac3a62cce17140c41c9022699e0c5de5f82fa2c5cd26b805983a"
         },
         {
           "path": "derived/drafts/chain/input/recomposite_rig.png",

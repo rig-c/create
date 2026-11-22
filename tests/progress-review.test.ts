@@ -3,11 +3,11 @@ import { cpSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { EXAMPLE_NOW } from '../scripts/example-time.ts';
 import { Refusal } from '../src/refusal.ts';
-import { DIRECTION_REVIEW_ADVANCE_SINCE, STAGE_PROGRESS_SINCE } from '../src/stage-progress.ts';
+import { DIRECTION_REVIEW_ADVANCE_SINCE, RIGGING_INTERVIEW_PAINTING_SINCE, STAGE_PROGRESS_SINCE } from '../src/stage-progress.ts';
 import { tempDir } from './helpers.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { plantLegacyReopen, arr, bindFixtureAnswers, fixture, obj, rehashSignoffs, retimeFixture, step } from './fixtures.ts';
-import { checkProject, advanceCommand, stepStatusCommand, reviewCommand, signoffCommand, testClock } from './clock.ts';
+import { checkProject, advanceCommand, inputCommand, stepStatusCommand, reviewCommand, signoffCommand, testClock } from './clock.ts';
 
 const read = (dir: string): JsonObject => JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8'));
 const codes = (dir: string): string[] => checkProject(dir).refusals.map(f => f.code);
@@ -57,6 +57,38 @@ test('review a new writer cannot bypass unfinished rigging with a legacy frontie
   expect(step(read(dir), 'bones').status).toBe('pending');
   testClock.set(new Date('2026-11-20T00:00:00Z'));
   unchangedRefusal(dir, 'STAGE_SKIPPED', () => advance(dir, 'rig-review'));
+});
+
+test('the rigging-interview exit needs an explicitly declared painting from the cutoff', () => {
+  const dir = riggingProject();
+  const file = join(dir, 'project.json');
+  const project = read(dir);
+  const painting = String(project.painting);
+  delete project.painting;
+  writeFileSync(file, JSON.stringify(project));
+  sign(dir, 'rigging-interview');
+  expect(codes(dir)).not.toContain('RIGGING_INTERVIEW_PAINTING_REQUIRED');
+
+  const cutoff = Date.parse(RIGGING_INTERVIEW_PAINTING_SINCE);
+  testClock.set(cutoff);
+  unchangedRefusal(dir, 'RIGGING_INTERVIEW_PAINTING_REQUIRED', () => advance(dir, 'rigging'));
+
+  testClock.set(cutoff - 1);
+  const signed = readFileSync(file);
+  advance(dir, 'rigging');
+  const historical = read(dir);
+  expect(checkProject(dir).warnings.filter(f => f.path === 'painting').map(f => f.code))
+    .toEqual(['RIGGING_INTERVIEW_PAINTING_LEGACY']);
+  obj(arr(historical.advances).at(-1)).at = RIGGING_INTERVIEW_PAINTING_SINCE;
+  expect(checkProject(dir, historical).refusals.map(f => f.code)).toContain('RIGGING_INTERVIEW_PAINTING_REQUIRED');
+
+  writeFileSync(file, signed);
+  testClock.set(cutoff);
+  expect(inputCommand(['painting', painting, dir]).exit).toBe(0);
+  expect(read(dir).inputs).toEqual(project.inputs);
+  advance(dir, 'rigging');
+  expect(codes(dir)).toEqual([]);
+  expect(checkProject(dir).warnings.some(f => f.path === 'painting')).toBe(false);
 });
 
 test.each(['plan-approved', 'interview'])('review pre-parts checkpoint history survives upstream reopen %s', stage => {

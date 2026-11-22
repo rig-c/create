@@ -94,7 +94,7 @@ describe('figure mask declaration and provenance', () => {
   test('declared and recorded legacy busy mask passes with an operation provenance warning', () => {
     const report = checkProject(resignAfterChange(project()));
     expect(report.refusals).toEqual([]);
-    expect(report.warnings.map(f => f.code)).toEqual(['QUESTION_SET_STALE', 'PARTS_VERDICT_FILE_LEGACY', legacyMatte, 'STAGE_ORDER_LEGACY', 'INPUT_WRITER_MISSING', 'CHOICE_ANSWERS_LEGACY', 'CORRECTION_PATH_LEGACY']);
+    expect(report.warnings.map(f => f.code)).toEqual(['QUESTION_SET_STALE', 'PARTS_VERDICT_FILE_LEGACY', 'RIGGING_INTERVIEW_PAINTING_LEGACY', legacyMatte, 'STAGE_ORDER_LEGACY', 'INPUT_WRITER_MISSING', 'CHOICE_ANSWERS_LEGACY', 'CORRECTION_PATH_LEGACY']);
   });
   test('valid producer matte clears the busy-ground gate at the cutoff without operation text', () => {
     const report = checkProject(resignAfterChange(matteProject()));

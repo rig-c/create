@@ -241,14 +241,14 @@ describe('frozen review package', () => {
     roots.push(dirname(dir));
     const report = checkProject(dir);
     expect(report.refusals.map(f => f.code)).toEqual(['SIGNOFF_TARGET_MISSING', 'SIGNOFF_TARGET_MISSING', 'SIGNOFF_ANSWERS_MISSING', 'SIGNOFF_ANSWERS_MISSING', 'SIGNOFF_ANSWERS_MISSING', 'SIGNOFF_ANSWERS_MISSING', 'PARTS_VERDICT_RECEIPT_REQUIRED', 'STAGE_SKIPPED', 'REVIEW_PACKAGE_CONFIG_MISMATCH', 'REVIEW_PACKAGE_PARTS_UNREAD', 'REVIEW_PACKAGE_CONFIG_MISMATCH', 'REVIEW_PACKAGE_PARTS_UNREAD', 'DIRECTION_SCENE_REQUIRED', 'DIRECTION_SCENE_REQUIRED']);
-    expect(report.warnings.map(f => f.code)).toEqual(['QUESTION_SET_STALE', 'STAGE_ORDER_LEGACY', 'INPUT_WRITER_MISSING', 'CHOICE_ANSWERS_LEGACY', 'CORRECTION_PATH_LEGACY', 'OWNER_LANGUAGE_MISSING']);
+    expect(report.warnings.map(f => f.code)).toEqual(['QUESTION_SET_STALE', 'RIGGING_INTERVIEW_PAINTING_LEGACY', 'STAGE_ORDER_LEGACY', 'INPUT_WRITER_MISSING', 'CHOICE_ANSWERS_LEGACY', 'CORRECTION_PATH_LEGACY', 'OWNER_LANGUAGE_MISSING']);
   });
   test('stripping a raw legacy package warns and still refuses the other build mismatch', () => {
     const dir = exampleFixture((project) => { delete version(project, 1).review_package; }, 'legacy-example-project.json', {}, true);
     roots.push(dirname(dir));
     const report = checkProject(dir);
     expect(report.refusals.map(f => f.code)).toEqual(['SIGNOFF_TARGET_MISSING', 'SIGNOFF_TARGET_MISSING', 'SIGNOFF_ANSWERS_MISSING', 'SIGNOFF_ANSWERS_MISSING', 'SIGNOFF_ANSWERS_MISSING', 'SIGNOFF_ANSWERS_MISSING', 'PARTS_VERDICT_RECEIPT_REQUIRED', 'STAGE_SKIPPED', 'REVIEW_PACKAGE_CONFIG_MISMATCH', 'REVIEW_PACKAGE_PARTS_UNREAD', 'DIRECTION_SCENE_REQUIRED', 'DIRECTION_SCENE_REQUIRED']);
-    expect(report.warnings.map((finding) => finding.code)).toEqual(['QUESTION_SET_STALE', 'REVIEW_PACKAGE_MISSING', 'STAGE_ORDER_LEGACY', 'INPUT_WRITER_MISSING', 'CHOICE_ANSWERS_LEGACY', 'CORRECTION_PATH_LEGACY', 'OWNER_LANGUAGE_MISSING']);
+    expect(report.warnings.map((finding) => finding.code)).toEqual(['QUESTION_SET_STALE', 'RIGGING_INTERVIEW_PAINTING_LEGACY', 'REVIEW_PACKAGE_MISSING', 'STAGE_ORDER_LEGACY', 'INPUT_WRITER_MISSING', 'CHOICE_ANSWERS_LEGACY', 'CORRECTION_PATH_LEGACY', 'OWNER_LANGUAGE_MISSING']);
   });
   test('removing a raw legacy package warns and keeps declared build mismatches visible', () => {
     const dir = exampleFixture(() => {}, 'legacy-example-project.json', {}, true);
@@ -256,8 +256,8 @@ describe('frozen review package', () => {
     rmSync(join(dir, 'derived/review/v1'), { recursive: true });
     const report = checkProject(dir);
     expect(report.refusals.map(f => f.code)).toEqual(['SIGNOFF_TARGET_MISSING', 'SIGNOFF_TARGET_MISSING', 'SIGNOFF_ANSWERS_MISSING', 'SIGNOFF_ANSWERS_MISSING', 'SIGNOFF_ANSWERS_MISSING', 'SIGNOFF_ANSWERS_MISSING', 'PARTS_VERDICT_RECEIPT_REQUIRED', 'STAGE_SKIPPED', 'REVIEW_PACKAGE_CONFIG_MISMATCH', 'REVIEW_PACKAGE_PARTS_UNREAD', 'REVIEW_PACKAGE_CONFIG_MISMATCH', 'REVIEW_PACKAGE_PARTS_UNREAD', 'DIRECTION_SCENE_REQUIRED', 'DIRECTION_SCENE_REQUIRED']);
-    expect(report.warnings.map((finding) => finding.code)).toEqual(['QUESTION_SET_STALE', 'REVIEW_PACKAGE_MISSING', 'STAGE_ORDER_LEGACY', 'INPUT_WRITER_MISSING', 'CHOICE_ANSWERS_LEGACY', 'CORRECTION_PATH_LEGACY', 'OWNER_LANGUAGE_MISSING']);
-    expect(report.warnings[1]?.message).toContain("--config 'evidence/v1/review-config.json' --from 'outputs/v1/out'");
+    expect(report.warnings.map((finding) => finding.code)).toEqual(['QUESTION_SET_STALE', 'RIGGING_INTERVIEW_PAINTING_LEGACY', 'REVIEW_PACKAGE_MISSING', 'STAGE_ORDER_LEGACY', 'INPUT_WRITER_MISSING', 'CHOICE_ANSWERS_LEGACY', 'CORRECTION_PATH_LEGACY', 'OWNER_LANGUAGE_MISSING']);
+    expect(report.warnings.find(f => f.code === 'REVIEW_PACKAGE_MISSING')?.message).toContain("--config 'evidence/v1/review-config.json' --from 'outputs/v1/out'");
   });
   test('normal CLI writes a package whose installed feedback resolves the config hash', () => {
     const dir = fixture();

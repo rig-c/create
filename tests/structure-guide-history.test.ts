@@ -9,7 +9,7 @@ import { STAGE_ORDER_SPEC, STAGE_VALUES } from '../src/stages.ts';
 import { structureSnapshotCommand } from '../src/structure-snapshot.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { advanceCommand, checkProject, diffClassesCommand, draftRigCommand, interviewAnswerCommand,
-  interviewCommand, interviewOptionsCommand, rigVersionCommand, signoffCommand, stepStatusCommand, testClock } from './clock.ts';
+  inputCommand, interviewCommand, interviewOptionsCommand, rigVersionCommand, signoffCommand, stepStatusCommand, testClock } from './clock.ts';
 import { EXAMPLE_DIFF_REPORT } from './diff-fixture.ts';
 import { plantLegacyReopen, arr, fixture, obj, rehashSignoffs, step, supersede, waypoint } from './fixtures.ts';
 import { withPartsCheck } from './parts-check-fixture.ts';
@@ -70,6 +70,8 @@ function retainedDelta(): string {
     for (const raw of arr(obj(p.plan).steps)) if (!['seethrough', 'assemble'].includes(String(obj(raw).id))) obj(raw).status = 'pending';
     step(p, 'assemble').rests_on = ['assemble']; rehashSignoffs(p);
   });
+  cpSync(join(import.meta.dir, '../templates/example-draft/inputs/painting.png'), join(dir, 'painting-source.png'));
+  inputCommand(['add', 'painting-source.png', dir, '--painting', '--origin', 'synthetic source painting']);
   const image = readFileSync(join(import.meta.dir, 'fixtures/rig-registration/rig/images/rectangle.png'));
   const manifest = JSON.stringify({ rig_size: [8, 16], scale_rig_per_source: 1, ghost_px: {},
     painting_in_rig: { path: 'painting_in_rig.png', sha256: createHash('sha256').update(image).digest('hex'), resample: 'lanczos3-rgb-opaque' },

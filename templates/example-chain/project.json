@@ -129,7 +129,7 @@
         "verdict": "versions[0].verdicts[0]",
         "review_package": {
           "path": "versions[0].review_package",
-          "sha256": "57dd6de9692d1bf4877bb62cee1855e851b581377e2d22af3d172fd91ad62d9e"
+          "sha256": "4b2ffef479e25855d9cd016a4ef6dffbf49e705f01b1294a81953a16645e389c"
         }
       }
     },
@@ -166,7 +166,7 @@
         "verdict": "versions[1].verdicts[0]",
         "direction": {
           "path": "evidence/direction/v2.json",
-          "sha256": "5a914eadab762551e4c34b3d9137bae1991a566514cac5ec771163ac2d329ffd"
+          "sha256": "fa970594a473690d906157fb6761ab2e1a41e2d2d3eb574030e639a7cdfb9ffa"
         }
       }
     }
@@ -1521,7 +1521,7 @@
           },
           {
             "path": "out/check/build/run.json",
-            "sha256": "e4f29435d1c157cea1f52b75e700a7800bcfa745b41637094cb5cfa5b975c402"
+            "sha256": "f9c11c0ed89741ace9d0c9ca989e98b418bbac069c0340f77ec73eb4564d0ac7"
           },
           {
             "path": "out/check/build/skeleton.atlas",
@@ -1605,7 +1605,7 @@
           },
           {
             "path": "out/rig/run.json",
-            "sha256": "1653140bb2ea21377ef6b2c309a322bafa2d622e32cc1a89fcc95d42aaac6eb3"
+            "sha256": "87a0111f605fac3a62cce17140c41c9022699e0c5de5f82fa2c5cd26b805983a"
           }
         ],
         "open": "rig-review open 'derived/review/v1/out'"
@@ -1624,7 +1624,7 @@
       "outputs": [
         {
           "path": "evidence/direction/v2.json",
-          "sha256": "5a914eadab762551e4c34b3d9137bae1991a566514cac5ec771163ac2d329ffd"
+          "sha256": "fa970594a473690d906157fb6761ab2e1a41e2d2d3eb574030e639a7cdfb9ffa"
         }
       ],
       "evidence": [],
@@ -1644,11 +1644,11 @@
       "provenance": {
         "config": {
           "path": "evidence/direction/v2.json",
-          "sha256": "5a914eadab762551e4c34b3d9137bae1991a566514cac5ec771163ac2d329ffd"
+          "sha256": "fa970594a473690d906157fb6761ab2e1a41e2d2d3eb574030e639a7cdfb9ffa"
         },
         "direction": {
           "path": "evidence/direction/v2.json",
-          "sha256": "5a914eadab762551e4c34b3d9137bae1991a566514cac5ec771163ac2d329ffd"
+          "sha256": "fa970594a473690d906157fb6761ab2e1a41e2d2d3eb574030e639a7cdfb9ffa"
         },
         "sections": {
           "camera": [
@@ -1680,6 +1680,7 @@
   "owner": {
     "language": "en"
   },
+  "painting": "inputs/painting.png",
   "advances": [
     {
       "stage": "plan-approved",
@@ -2538,7 +2539,7 @@
       "files": [
         {
           "path": "derived/drafts/chain/out/check/build/run.json",
-          "sha256": "e4f29435d1c157cea1f52b75e700a7800bcfa745b41637094cb5cfa5b975c402"
+          "sha256": "f9c11c0ed89741ace9d0c9ca989e98b418bbac069c0340f77ec73eb4564d0ac7"
         },
         {
           "path": "derived/drafts/chain/out/check/build/skeleton.atlas",
@@ -2594,7 +2595,7 @@
         },
         {
           "path": "derived/drafts/chain/out/run.json",
-          "sha256": "1653140bb2ea21377ef6b2c309a322bafa2d622e32cc1a89fcc95d42aaac6eb3"
+          "sha256": "87a0111f605fac3a62cce17140c41c9022699e0c5de5f82fa2c5cd26b805983a"
         },
         {
           "path": "derived/drafts/chain/input/recomposite_rig.png",
@@ -2654,7 +2655,7 @@
     {
       "n": 1,
       "path": "evidence/scene/s1.json",
-      "sha256": "e090096e8e1220d21ea02606c640f309e62cf9876a41d59a16a7db541bd65e3f",
+      "sha256": "53bedfe670567d19c108c840e5176dd1250b1051a313bce7f43c8d48671131c9",
       "at": "2026-11-06T01:01:15.000Z",
       "by": "agent"
     }

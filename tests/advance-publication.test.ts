@@ -248,8 +248,9 @@ test('forced publish failure after advance commits project.json, leaves JOB_PUBL
   writePrivateJson(join(root, JOB_BINDING_FILE), { ...binding, listenerIncarnation: 'offline-incarnation' }, true);
 
   const advanced = await cli(root, ['advance', 'rig-review', root, '--json']);
-  expect(advanced.exit).toBe(1);
-  expect(advanced.stderr).toContain('JOB_PUBLISH_PENDING');
+  // The advance is committed; only its publication waits (create#844).
+  expect(advanced.exit).toBe(0);
+  expect(advanced.stderr).toMatch(/^WARN JOB_PUBLISH_PENDING: project\.json: versions\[v\d+\] is recorded /);
   expect(read(root).stage).toBe('rig-review');
   expect(pendingPublications(root)).toHaveLength(1);
   expect(pendingPublications(root)[0]!.phase).toBe('pending');

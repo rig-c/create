@@ -423,9 +423,11 @@ test('a new-id rebuild with failed publication retries through job reconcile', a
   (snapshot.config as JsonObject).path = 'derived/drafts/rebuilt/config.json';
   writeFileSync(join(root, 'evidence/structure-rebuilt.json'), JSON.stringify(snapshot));
   writeFileSync(join(root, 'review-draft-rebuilt.json'), '{}\n');
-  const failed = expectCliRefused(await cli(root, draftArgs('rebuilt')), 'JOB_PUBLISH_PENDING');
-  expect(failed.exit).toBe(1); expect(failed.stderr).toContain('JOB_PUBLISH_PENDING:');
-  expect(failed.stderr).toContain('JOB_PUBLICATION_INVALID');
+  // The draft is committed; only its publication waits, so the writer succeeds and names the pending state (create#844).
+  const failed = await cli(root, draftArgs('rebuilt'));
+  expect({ exit: failed.exit, code: failed.code }).toEqual({ exit: 0, code: null });
+  expect(failed.stderr).toMatch(/^WARN JOB_PUBLISH_PENDING: project\.json: drafts\[rebuilt\] is recorded .*\(JOB_PUBLICATION_INVALID: /);
+  expect((JSON.parse(failed.stdout) as { publication: { status: string } }).publication.status).toBe('pending');
   expect((read(root).drafts as JsonObject[]).map(draft => draft.id)).toEqual(['chain', 'rebuilt']);
   const pending = pendingPublications(root);
   expect(pending.length).toBe(1);

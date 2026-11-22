@@ -143,13 +143,32 @@ export function beginJobProgress(root: string, phase: JobProgressUpdate['phase']
 }
 
 const publishedLines: string[] = [];
+const pendingNotices: string[] = [];
 
 export function takePublishedLines(): string[] {
   return publishedLines.splice(0);
 }
 
-/** Called by the committing writer, before its own locks are released. */
+/** WARN lines for records this process committed whose publication is pending (create#844). */
+export function takePendingNotices(): string[] {
+  return pendingNotices.splice(0);
+}
+
+export function hasPendingNotice(): boolean {
+  return pendingNotices.length > 0;
+}
+
+/** The record is committed; only its publication waits. The writer succeeds and names the pending state. */
+function deferPublication(n: number | string, entry: PendingPublication, failure: PendingPublication['failure']): void {
+  const path = typeof n === 'string' ? `drafts[${n}]` : `versions[v${n}]`;
+  pendingNotices.push(`WARN JOB_PUBLISH_PENDING: project.json: ${path} is recorded (record ${entry.recordHash}); its publication is pending${failure ? ` (${failure.code}: ${failure.message})` : ''}; restore the bound host and run rig-create job reconcile`);
+}
+
+/** Called by the committing writer, before its own locks are released. A publication that cannot
+ * complete leaves the committed record in place and a WARN JOB_PUBLISH_PENDING notice, not a refusal:
+ * a refusal means the record is byte-identical (AGENTS.md invariant 6). */
 export function publishCommittedVersion(root: string, n: number | string): string[] {
+  pendingNotices.length = 0; // A writer call commits one record, so a notice names this commit only.
   const binding = readWriterBinding(root);
   if (!binding) return [];
   const project = JSON.parse(readFileSync(join(root, 'project.json'), 'utf8')) as JsonObject;
@@ -171,7 +190,8 @@ export function publishCommittedVersion(root: string, n: number | string): strin
   } catch {
     const failure = { code: 'JOB_PUBLICATION_INVALID', message: 'project.json: retained review package cannot be prepared; restore its model/direction sources' };
     failPublication(root, entry, failure);
-    refuse('JOB_PUBLISH_PENDING', `project.json: committed record ${entry.recordHash} is pending (${failure.code}); run rig-create job reconcile`);
+    deferPublication(n, entry, failure);
+    return [];
   }
   // A separate Bun process runs asynchronous Review while this synchronous writer
   // keeps its existing call contract and retains both write locks.
@@ -181,7 +201,8 @@ export function publishCommittedVersion(root: string, n: number | string): strin
       stdin: Buffer.from(JSON.stringify({ root, id: entry.id })), stdout: 'pipe', stderr: 'pipe',
     });
   } catch {
-    refuse('JOB_PUBLISH_PENDING', `project.json: record ${entry.recordHash} committed but the publication process could not start; restore the runtime and run rig-create job reconcile`);
+    deferPublication(n, entry, { code: 'JOB_PUBLISH_PENDING', message: 'project.json: the publication process could not start; restore the runtime' });
+    return [];
   }
   const lines = child.stdout.toString('utf8').split('\n').map(line => line.trim()).filter(Boolean);
   publishedLines.push(...lines);
@@ -193,7 +214,7 @@ export function publishCommittedVersion(root: string, n: number | string): strin
       return lines; // The child acknowledged before its abnormal exit.
     }
     const pending = JSON.parse(readFileSync(path, 'utf8')) as PendingPublication;
-    refuse('JOB_PUBLISH_PENDING', `project.json: committed record ${entry.recordHash} awaits publication${pending.failure ? ` (${pending.failure.code}: ${pending.failure.message})` : ''}; run rig-create job reconcile`);
+    deferPublication(n, entry, pending.failure);
   }
   return lines;
 }

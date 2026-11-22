@@ -2,7 +2,7 @@ import { assemblyChangeDetail, assemblyConfigChanges } from '@rig-c/parts/assemb
 import { readPartsManifest } from '@rig-c/parts/src/parts.ts';
 import { latestPartsVerdictStatus } from './parts-verdict-record.ts';
 import { randomUUID } from 'node:crypto';
-import { acquireBoundJobWrite, beginJobProgress, prepareDraftIntent, publishCommittedVersion, takePublishedLines } from './job-writer.ts';
+import { acquireBoundJobWrite, beginJobProgress, hasPendingNotice, prepareDraftIntent, publishCommittedVersion, takePublishedLines } from './job-writer.ts';
 import { cancelUncommittedIntent, readWriterBinding, type PendingPublication } from './job-outbox.ts';
 /** Draft identity is create-owned inventory, never producer provenance or a measurement. */
 import { ConfigInputsUnavailable, configInputBindings, configInputReferences, DIRECTORY_INPUT_RECEIPT, DRAFT_CONFIG_INPUTS_SINCE, draftUnboundInputs, inputsUndeclaredByInstall, receiptSpec, releaseAfter } from './config-inputs.ts';
@@ -351,7 +351,7 @@ export const DRAFT_RIG_HELP = `draft-rig:
   Record existing labelled draft artifacts under derived/drafts/<id>/; run no producer.
   A bound draft updates the open Review page when its owner ask is ready.
   Prepare any missing evidence, then show the draft with job open --draft <id>.
-  With --json on a bound project, the record carries publication { status: published|deferred, lines }.
+  With --json on a bound project, the record carries publication { status: published|pending|deferred, lines }.
   Standalone rig output requires --parts. Build and assemble output roots supply their own parts.
   An assemble output root with parts and no rig records layout assemble-only for parts-review.
   Config/output association is declared, not measured reproducibility or producer provenance.
@@ -520,7 +520,7 @@ export function draftRigCommand(args: string[], now: number): { stdout: string; 
       // A bound project reports whether the open page was updated or the update was deferred; the record itself is unchanged.
       const notice = !readWriterBinding(dir) ? undefined
         : publication.deferred ? { status: 'deferred', lines: [publication.deferred] }
-        : { status: 'published', lines: takePublishedLines() };
+        : { status: hasPendingNotice() ? 'pending' : 'published', lines: takePublishedLines() };
       return { stdout: JSON.stringify(notice ? { ...record, publication: notice } : record, null, 2), exit: 0 };
     }
     const lines = [`draft-rig: recorded ${id}; no production version created`];

@@ -198,7 +198,14 @@ job is bound do not publish or touch the outbox.
 
 Run `job reconcile` after restoring the host or declared package. It holds the
 same lock, verifies the retained version and files, publishes against the
-current whole-record hash and removes the acknowledged entry. Later signoffs,
+current whole-record hash and removes the acknowledged entry. Reconcile and the
+publish step of `job open` take pending entries in record order, not receipt-hash
+order: record publications first, then drafts in `drafts[]` order, then rig and post
+versions by number, so after a host restart the newest committed version ends as the
+page head. A version or draft named with `job open --rig` or `--draft` goes last and
+ends as the head. `job open` prints `job: pending rig v<n> published` (or
+`draft <id>`, `post v<n>`, `plan`, `option-set …`) for every other pending entry it
+published. Later signoffs,
 inputs and other independent writes remain in that current record.
 Reconciliation never rewrites `project.json`. A changed or missing committed
 version refuses with `JOB_PUBLICATION_STALE`. Another participating writer and explicit close

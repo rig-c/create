@@ -178,11 +178,32 @@ describe('a section with no citation', () => {
 describe('a citation that does not resolve', () => {
   test('a quote not in the guide is refused by name', () => {
     const report = checkProject(fixture((p) => {
-      citedSections(p, 2).constraints = [{ entry: 'scarf_wind', guide: 'constraints', quote: 'the scarf whips like a flag' }];
+      citedSections(p, 2).constraints = [{ entry: 'scarf_wind', guide: 'constraints', quote: '「the scarf whips like a flag」' }];
     }));
     expect(codes(report)).toEqual(['QUOTE_NOT_FOUND']);
     expect(report.refusals[0]?.path).toBe('versions[v2].provenance.sections[constraints][0]');
     expect(report.refusals[0]?.message).toContain("('scarf_wind')");
+    expect(report.refusals[0]?.message.split('\n')).toHaveLength(1);
+  });
+
+  test.each(['「」', '『』', '""', "''", '“”', '‘’', '()', '[]'])('outer marks %s identify the exact stored verbatim on refusal', (marks) => {
+    const report = checkProject(fixture((p) => {
+      const guide = obj(waypoint(p, 'constraints').guide);
+      citedSections(p, 2).constraints = [{ entry: 'scarf_wind', guide: 'constraints', quote: `${marks[0]}${guide.verbatim}${marks[1]}` }];
+    }));
+    expect(codes(report)).toEqual(['QUOTE_NOT_FOUND']);
+    expect(report.refusals[0]?.path).toBe('versions[v2].provenance.sections[constraints][0]');
+    expect(report.refusals[0]?.message.split('\n')[1]).toBe(`  Removing the outer marks ${marks} would match interview.waypoints[constraints].guide.verbatim exactly. Quote that field verbatim.`);
+  });
+
+  test.each(['nested marks', 'extra space', 'wrapped fragment'])('refuses %s without a near-match hint', (kind) => {
+    const report = checkProject(fixture((p) => {
+      const words = String(obj(waypoint(p, 'constraints').guide).verbatim);
+      const inner = kind === 'nested marks' ? `(${words})` : kind === 'extra space' ? ` ${words}` : words.slice(0, -1);
+      citedSections(p, 2).constraints = [{ entry: 'scarf_wind', guide: 'constraints', quote: `「${inner}」` }];
+    }));
+    expect(codes(report)).toEqual(['QUOTE_NOT_FOUND']);
+    expect(report.refusals[0]?.message.split('\n')).toHaveLength(1);
   });
 
   test('a quote from an addition is found; the same quote against the original sentence alone is not', () => {
@@ -265,6 +286,18 @@ describe('an answer replaced after a version was built', () => {
   test('the old answer in history[] still resolves the earlier versions\' quotes', () => {
     // The step that ran on the old answer is sent back for a re-sign (its own check); provenance adds nothing.
     expect(codes(checkProject(fixture((p) => { supersede(waypoint(p, 'meshes'), 'guide', NEW_MESHES); })))).toEqual(['SIGNOFF_ANSWERS_STALE', 'SIGNOFF_ANSWERS_STALE', 'GUIDE_CHANGED_UNSIGNED']);
+  });
+
+  test('outer marks around an older answer identify its history field on refusal', () => {
+    const report = checkProject(fixture((p) => {
+      const meshes = waypoint(p, 'meshes');
+      const words = String(obj(meshes.guide).verbatim);
+      supersede(meshes, 'guide', NEW_MESHES);
+      citedSections(p, 2).meshes = [{ entry: 'torso', guide: 'meshes', quote: `"${words}"` }];
+    }));
+    const refusals = withCode(report, 'QUOTE_NOT_FOUND');
+    expect(refusals.map((f) => f.path)).toEqual(['versions[v2].provenance.sections[meshes][0]']);
+    expect(refusals[0]?.message.split('\n')[1]).toBe('  Removing the outer marks "" would match interview.waypoints[meshes].history[0].verbatim exactly. Quote that field verbatim.');
   });
 
   test('overwritten without history[], the quotes no longer resolve', () => {

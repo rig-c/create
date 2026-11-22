@@ -279,7 +279,11 @@ correction and mesh-edit retain Review's reserved status.
 
 `approved`, `changes-requested` and `pending` map to the existing verdict
 vocabulary `accepted`, `bounced` and `provisional`. Host-attested owner maps to
-`by: user`, and delegate maps to `by: delegate`. The complete reviewer identity,
+`by: user`, and delegate maps to `by: delegate`. An interview pick or a sign-off from
+an owner host opened for the agent (`--reviewer agent`) records the agent's id
+as `by` instead, so it refuses as a pick (`INTERVIEW_CHOICE_INVALID`) or a
+sign-off (`SIGNOFF_NOT_HUMAN`) and is never recorded as the owner's act.
+The complete reviewer identity,
 authority, original words, time and source remain in the immutable act receipt.
 Verdict ingestion records its verdict and bound still. Signoff and stage advance require their own
 separate writer invocations.

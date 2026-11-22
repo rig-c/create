@@ -19,6 +19,10 @@
       "agent draft evidence/interview/motion.json",
       "rig-create interview-options motion --file evidence/interview/motion.json",
       "rig-create interview-answer motion --set evidence/interview/motion.json --sha256 <sha256 of evidence/interview/motion.json> --by user --pick tracks=keep --pick extent=keep --pick speed=keep --pick loop=keep --pick blink=keep",
+      "rig-create plan revise bones --by agent --reason The synthetic step matches the recorded guides.",
+      "rig-create plan revise meshes --by agent --reason The synthetic step matches the recorded guides.",
+      "rig-create plan revise constraints --by agent --reason The synthetic step matches the recorded guides.",
+      "rig-create plan revise motion --by agent --reason The synthetic step matches the recorded guides.",
       "rig-create signoff rigging-interview --by user --verbatim-file evidence/approval.txt"
     ],
     "command_roles": [
@@ -35,6 +39,10 @@
       "agent",
       "agent",
       "human",
+      "agent",
+      "agent",
+      "agent",
+      "agent",
       "human"
     ],
     "awaits": [
@@ -76,7 +84,7 @@
     ],
     "warnings": []
   },
-  "project_sha256": "ca4bf98ba5bd81c813b196ca07a886768dc0130c6d397916f62e1b5cdc54ccf8",
+  "project_sha256": "03af88969e3e716a3e45c1c5815fd22a9cd9d2e316ce90f7f56fa5db8269204a",
   "files": [
     {
       "path": ".gitignore",
@@ -264,7 +272,7 @@
     },
     {
       "path": "project.json",
-      "sha256": "ca4bf98ba5bd81c813b196ca07a886768dc0130c6d397916f62e1b5cdc54ccf8"
+      "sha256": "03af88969e3e716a3e45c1c5815fd22a9cd9d2e316ce90f7f56fa5db8269204a"
     }
   ]
 }

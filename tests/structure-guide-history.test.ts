@@ -9,7 +9,7 @@ import { STAGE_ORDER_SPEC, STAGE_VALUES } from '../src/stages.ts';
 import { structureSnapshotCommand } from '../src/structure-snapshot.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { advanceCommand, checkProject, diffClassesCommand, draftRigCommand, interviewAnswerCommand,
-  inputCommand, interviewCommand, interviewOptionsCommand, rigVersionCommand, signoffCommand, stepStatusCommand, testClock } from './clock.ts';
+  inputCommand, interviewCommand, interviewOptionsCommand, planCommand, rigVersionCommand, signoffCommand, stepStatusCommand, testClock } from './clock.ts';
 import { EXAMPLE_DIFF_REPORT } from './diff-fixture.ts';
 import { plantLegacyReopen, arr, fixture, obj, rehashSignoffs, step, supersede, waypoint } from './fixtures.ts';
 import { withPartsCheck } from './parts-check-fixture.ts';
@@ -130,6 +130,10 @@ function answerQuestion(dir: string, shown: ReturnType<typeof showQuestion>): st
 
 test('meshes choice renewal preserves approved v1 structure delta and interview check stays green', () => {
   const dir = retainedDelta(), frozenV1 = JSON.stringify(arr(read(dir).versions)[0]);
+  const revise = (id: string): void => {
+    testClock.set(testClock.now() + 1000);
+    expect(planCommand(['revise', id, dir, '--by', 'agent', '--reason', 'Review the renewed synthetic answer.']).exit).toBe(0);
+  };
   const before = obj(waypoint(read(dir), 'meshes').guide);
   const shown = prepareRenewal(dir);
   testClock.set('2026-11-26T00:00:01Z');
@@ -137,12 +141,14 @@ test('meshes choice renewal preserves approved v1 structure delta and interview 
   expect(answer.at).toBe(testClock.iso());
   expect(arr(waypoint(read(dir), 'meshes').history)).toContainEqual(before);
   expect(JSON.stringify(arr(read(dir).versions)[0])).toBe(frozenV1);
+  revise('meshes');
   const result = interviewCommand(['--check', dir, '--json']);
   expect(JSON.parse(result.stdout).refusals).toEqual([]);
   expect(result.exit).toBe(0);
   for (const question of ['bones', 'constraints', 'motion']) {
     testClock.set(testClock.now() + 1000);
     answerQuestion(dir, showQuestion(dir, question));
+    revise(question);
   }
   testClock.set('2026-11-27T00:00:00Z');
   expect(signoffCommand(['rigging-interview', dir, ...words(dir)]).exit).toBe(0);

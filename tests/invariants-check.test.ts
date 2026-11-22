@@ -121,7 +121,11 @@ test('actual answer writer changes the next derived report, with the previous re
       ...arr(set.asks).flatMap(a => ['--pick', `${String(obj(a).id)}=${obj(a).id === 'tracks' ? 'other' : 'keep'}`]),
       '--other', `tracks=${join(dir, 'other.txt')}`, '--other-fragment', `tracks=${join(dir, 'fragment.json')}`]);
     const after = checkProject(dir);
-    expect(after.ok).toBe(true); expect(after.refusals).toEqual([]); expect(after.warnings).toEqual([]);
+    expect(after.ok).toBe(false);
+    expect(after.refusals.map(({ code, path }) => [code, path])).toEqual([
+      ['PLAN_STEP_PREDATES_ANSWER', 'plan.steps[motion]'],
+    ]);
+    expect(after.warnings).toEqual([]);
     expect(after.invariants?.entries.map(e => e.invariant)).toEqual([{ deformMayFold: [{ slot: 'page', why: 'deliberate fold' }] }]);
     expect(after.invariants).toEqual(translateInvariants(load()));
     expect(after.invariants).not.toEqual(before.invariants);

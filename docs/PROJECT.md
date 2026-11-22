@@ -815,7 +815,15 @@ Draft steps with `rig-create plan add|revise|remove <id> [<project dir>]
 --by <drafter>`. Its `--help` lists their field flags. Draft dates follow the
 existing [phase-date contract](#explicit-adoption-of-the-split-interview),
 using both previous and resulting approval ownership on revision, with
-`drafted_by` updated only alongside `drafted_at`. Every write refuses
+`drafted_by` updated only alongside `drafted_at`. Add and revise also stamp
+the current step's `drafted_at` for chronology, outside the signed step hash.
+Owner approval binds the displayed step definition, and draft chronology is
+checked only while the step lacks a live covering stage signoff, including
+when a reopen or amendment lapses that signoff.
+Record the answer first, then revise any earlier step that rests on it. Use
+the current guide's recorded `at`, regardless of the owner-chat `said_at`.
+If the existing definition still fits, use `plan revise <id> --by <drafter>
+--reason <why it still fits>` to record that review. Every write refuses
 additional checker findings counted by code and path before changing the file.
 Amend the stage that owns the change before replanning under a live covering
 approval. To replace completed work under the same id, record an amendment
@@ -823,7 +831,7 @@ after completion at the step's approval stage or an earlier stage. Remove the
 step and add its replacement with the same id and phase. Historical reopens
 still qualify under their original stage rules. Revise/remove append the full
 previous step to optional `replaced[]`, with its existing `stepHash`, action, ISO date and
-drafter. Entries retain write order, nondecreasing dates and unique
+drafter. A revision also records its reason. Entries retain write order, nondecreasing dates and unique
 `step.id` / `at` identities. Historical signatures may resolve hashes and
 checkpoints against history. Live approvals bind current steps.
 

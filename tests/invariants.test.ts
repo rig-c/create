@@ -142,7 +142,10 @@ function writtenMotion(otherPending = false): InvariantsDocument {
     const p = load();
     expect(obj(waypoint(p, 'motion').guide).value).toEqual(otherPending ? null : { ...fragment, extent: 'synthetic extent on the approved parts', speed: 'synthetic speed on the approved parts', loop: 'synthetic loop on the approved parts', blink: 'synthetic blink on the approved parts' });
     const checked = checkProject(dir);
-    expect(checked.ok).toBe(true); expect(checked.refusals).toEqual([]);
+    expect(checked.refusals.map(({ code, path }) => [code, path])).toEqual(otherPending ? [] : [
+      ['PLAN_STEP_PREDATES_ANSWER', 'plan.steps[motion]'],
+    ]);
+    expect(checked.ok).toBe(otherPending);
     return translateInvariants(p);
   } finally { testClock.reset(); }
 }

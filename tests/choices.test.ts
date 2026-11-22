@@ -153,6 +153,8 @@ test('#670 an earlier-stage set does not block the current rigging interview sig
   expect(code(sign)).toBe('SIGNOFF_REASK_PENDING');
 
   answer(w);
+  expect(planCommand(['revise', 'motion', w.dir, '--by', 'agent',
+    '--reason', 'The motion definition still fits the recorded rigging-interview choice.']).exit).toBe(0);
   expect(current(load(w.dir), 'reference').record.pending_options).toBeDefined();
   expect(next().moves.some(move => move.review_act?.kind === 'signoff' && move.review_act.stage === 'rigging-interview')).toBe(true);
   expect(sign().exit).toBe(0);
@@ -379,6 +381,9 @@ test('Other with multiline Unicode and explicit fragment preserves text; unresol
 });
 test('mixed auto needs exact ordered fragments/covers and blocks approval until decided',()=>{
   const w=working('meshes');const selected=JSON.parse(answer(w,['bend=keep','rigid=keep','density=auto']));expect(selected.delegated).toBe(false);expect(selected.agent_decision).toEqual({covers:'density'});
+  // Review the step against the recorded pick before isolating the unresolved delegation gate.
+  expect(planCommand(['revise', 'meshes', w.dir, '--by', 'agent',
+    '--reason', 'The mesh definition still covers the recorded choices and pending density decision.']).exit).toBe(0);
   writeFileSync(join(w.dir,'yes.txt'),'Approve');const before=readFileSync(join(w.dir,'project.json'));
   expect(code(()=>signoffCommand(['rigging-interview',w.dir,'--by','user','--verbatim-file',join(w.dir,'yes.txt')]))).toBe('DELEGATION_UNDECIDED');expect(readFileSync(join(w.dir,'project.json'))).toEqual(before);
   writeFileSync(join(w.dir,'density.json'),JSON.stringify({density:'synthetic density on the approved parts'}));writeFileSync(join(w.dir,'reason.txt'),'Use the offered density.');
@@ -443,7 +448,10 @@ test('multiple auto asks retain per-ask fragments and concatenate in set order',
   const w=working();rewriteSet(w,s=>{s.assembly={rule:'concat'};for(const a of arr(s.asks).map(obj))for(const o of arr(a.options).map(obj))if(o.kind==='value')o.fragment=[{ask:a.id as Json,variant:o.id as Json}];});
   const chosen=JSON.parse(answer(w,arr(w.set.asks).map(a=>`${String(obj(a).id)}=auto`)));expect(chosen.delegated).toBe(true);expect('value'in chosen).toBe(false);
   const flags:string[]=[];const expected:Json[]=[];for(const a of arr(w.set.asks).map(obj)){const fragment=[{ask:a.id as Json,variant:'keep'}];const path=join(w.dir,`fragment-${String(a.id)}.json`);writeFileSync(path,JSON.stringify(fragment));flags.push('--fragment',`${String(a.id)}=${path}`);expected.push(...fragment);}
-  writeFileSync(join(w.dir,'reason.txt'),'Use the offered contributions.');const decision=JSON.parse(interviewDecisionCommand(['motion',w.dir,'--by','agent','--reasoning-file',join(w.dir,'reason.txt'),...flags]));expect(decision.value).toEqual(expected);expect(decision.covers).toBe(arr(w.set.asks).map(a=>obj(a).id).join(','));expect(checkProject(w.dir).refusals).toEqual([]);
+  writeFileSync(join(w.dir,'reason.txt'),'Use the offered contributions.');const decision=JSON.parse(interviewDecisionCommand(['motion',w.dir,'--by','agent','--reasoning-file',join(w.dir,'reason.txt'),...flags]));expect(decision.value).toEqual(expected);expect(decision.covers).toBe(arr(w.set.asks).map(a=>obj(a).id).join(','));
+  expect(planCommand(['revise', 'motion', w.dir, '--by', 'agent',
+    '--reason', 'The motion definition still fits the recorded delegation and assembled contributions.']).exit).toBe(0);
+  expect(checkProject(w.dir).refusals).toEqual([]);
 });
 test('a mixed decision cannot overwrite a user fragment through merge',()=>{
   const w=working('meshes');answer(w,['bend=keep','rigid=keep','density=auto']);writeFileSync(join(w.dir,'density.json'),JSON.stringify({bend:'overwrite'}));writeFileSync(join(w.dir,'reason.txt'),'This is a planted collision.');const before=readFileSync(join(w.dir,'project.json'));
@@ -452,7 +460,7 @@ test('a mixed decision cannot overwrite a user fragment through merge',()=>{
 
 import { generateExampleChoices } from '../scripts/generate-example-choices.ts';
 import { tempDir, ownerChatArgs } from './helpers.ts';
-import { advanceCommand, checkProject, interviewAnswerCommand, interviewOptionsCommand, interviewDecisionCommand, interviewCommand, signoffCommand, testClock } from './clock.ts';
+import { advanceCommand, checkProject, interviewAnswerCommand, interviewOptionsCommand, interviewDecisionCommand, interviewCommand, planCommand, signoffCommand, testClock } from './clock.ts';
 test('the public-writer consumer fixture and raw option files reproduce exactly',()=>{
   const outputs=generateExampleChoices(join(tempDir(),'choice-generation'));
   for(const[path,bytes]of Object.entries(outputs))expect(readFileSync(join(import.meta.dir,'../templates',path),'utf8')).toBe(bytes);
@@ -690,6 +698,10 @@ test('#701 all rigging picks reach rigging without a plan publication', () => {
   }
   const lastPickAt = new Date(testClock.now()).toISOString();
   testClock.set(testClock.now() + 2_000);
+  for (const id of ['bones', 'meshes', 'constraints', 'motion']) {
+    expect(planCommand(['revise', id, dir, '--by', 'agent',
+      '--reason', `The ${id} definition still fits the recorded synthetic picks.`]).exit).toBe(0);
+  }
   const moves = nextProject(dir, testClock.now()).moves;
   expect(moves.some(move => move.command?.endsWith('--from-picks'))).toBe(true);
   expect(moves.some(move => move.act.includes('job open --plan') || move.command?.includes('job open --plan'))).toBe(false);

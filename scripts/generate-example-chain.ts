@@ -295,6 +295,9 @@ export function generateExampleChain(destination: string): Record<string, Buffer
       writer(['interview-answer', item.id, '--set', path, '--sha256', String(binding(path).sha256), '--by', 'user', ...asks.flatMap(ask => ['--pick', `${ask}=${item.id === 'turn' ? 'fixed' : 'keep'}`])]);
     }
   };
+  const reviewPlan = (ids: readonly string[]): void => {
+    for (const id of ids) writer(['plan', 'revise', id, '--by', 'agent', '--reason', 'The synthetic step matches the recorded guides.']);
+  };
   try {
     tick();
     // init's temporary Git repository is excluded from all generated template bytes.
@@ -366,7 +369,7 @@ export function generateExampleChain(destination: string): Record<string, Buffer
     writer(['diff-classes', '--diff-report', 'evidence/diff-components.json', '--by', 'agent',
       ...diffReport.components.flatMap(c => ['--component', `${c.id}=in-painting:the generated synthetic painting contains this component`])]);
     sign('parts-review', ['--draft', 'chain', '--structure-file', 'evidence/structure-chain.json']);
-    advance('rigging-interview'); choices('rigging-interview'); sign('rigging-interview');
+    advance('rigging-interview'); choices('rigging-interview'); reviewPlan(ids.slice(2)); sign('rigging-interview');
     advance('rigging'); status(['bones', 'meshes', 'constraints', 'motion'], ['interview', '--check']);
     writer(['interview', '--check', '--json']);
     const built = generateExampleMeshDraft(join(scratch, 'rig-producer'), input);
@@ -411,7 +414,7 @@ export function generateExampleChain(destination: string): Record<string, Buffer
         (p.plan as JsonObject).steps = [...asArray((p.plan as JsonObject).steps), step];
       });
     }
-    choices('post-interview'); sign('post-interview');
+    choices('post-interview'); reviewPlan(['camera', 'timing', 'composition']); sign('post-interview');
     advance('post'); status(['camera', 'timing', 'composition'], ['direction', '--adopt']);
     writer(['direction', '--adopt']);
     checkpoint(4, '4-direction-post', 'Author the direction post and approve its review',
@@ -488,7 +491,7 @@ export function generateExampleChain(destination: string): Record<string, Buffer
     write('README.md', '# Synthetic bound chain\n\n'
       + 'The geometric painting and parts come from generateExampleParts. The labelled draft and production model come from generateExampleMeshDraft on those exact parts, with a producer-made torso mesh.\n\n'
       + 'The setup still is the assembly recomposite, retained as synthetic setup evidence. The example demonstrates record binding. Rendered motion and camera behaviour require separate producer validation.\n\n'
-      + 'The public create CLI writes stage moves, signoffs, rig plan steps (plan add), parts step progress (step-status), rig/post review verdicts, the review package, immutable input inventory, the sealed scene and authored direction. The direction is direction@2, bound to that scene. The parts verdict is a synthetic review-tool export from tests/parts-package.ts, recorded as a producer step.\n\n'
+      + 'The public create CLI writes stage moves, signoffs, rig plan steps (plan add), plan revisions after recording the guides (plan revise), parts step progress (step-status), rig/post review verdicts, the review package, immutable input inventory, the sealed scene and authored direction. The direction is direction@2, bound to that scene. The parts verdict is a synthetic review-tool export from tests/parts-package.ts, recorded as a producer step.\n\n'
       + 'Two seed kinds cover plan.steps (setup and status progress) with split.parts, and the rig version declaration. Source inventory is registered by input add. Each seed declares its consuming command and records that command’s step index in chain.json.\n\n'
       + 'checkpoints/ contains frozen prefix projects and adjacent pending-act declarations. Checkpoint 0a-interview-options follows interview-options rig_type and precedes the interview answers, the plan add calls and signoff interview; it has no skeleton.model.json and four expected INTERVIEW_INCOMPLETE refusal codes (interview.framing[rig_type].answer, interview.framing[reference].answer, interview.waypoints[seethrough].guide, interview.waypoints[assemble].guide) with zero warnings. Checkpoint 0b-plan-pending follows advance plan-approved with the plan add steps drafted and precedes signoff plan-approved; it has no skeleton.model.json, zero refusals and zero warnings. Stage 1 (1-parts-verdict, zero refusals, zero warnings) follows the producer parts-stage check report that the parts-review move binds, and precedes the synthetic review-tool parts verdict export and the structure-snapshot writer, which copies the meshes declarations of the labelled draft once that verdict is approved. Stage 2 (2-rigging-answers) precedes the first rigging answer and still needs later option sets to be agent-drafted in declared steps before registration by public writers. Pending answers use the SHA-256 of the file drafted during the walk. Stage 3 (3-rig-review, zero refusals, zero warnings) precedes rig review. Stage 4 (4-direction-post, zero refusals, zero warnings) precedes the background plate registration, the scene write, the declared agent-authored direction@2 input and the direction write. Pending stage moves use advance with the existing authorizing signoffs. Every file authored or copied for a later writer has a declared producer step with output hashes. The chain_step indices are zero-based. Stage 2 has five expected INTERVIEW_INCOMPLETE findings for its unanswered rigging guides (interview.waypoints[bones].guide, interview.waypoints[meshes].guide, interview.waypoints[constraints].guide, interview.waypoints[turn].guide, interview.waypoints[motion].guide) and zero warnings. Every prefix has zero warnings and records its stage moves in advances[]. tests/example-chain.test.ts checks these states.\n\n'
       + 'Reproduce with `bun scripts/generate-example-chain.ts <fresh-dir> --check` from the create repository.\n');

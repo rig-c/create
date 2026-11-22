@@ -64,7 +64,9 @@ test('add, partial revise and remove preserve previous full steps, hashes and wr
   testClock.set('2026-11-20T00:00:01Z');
   write(dir, 'revise', 'camera', ['--does', 'Use the revised framing.', '--checkpoint-proposed', 'true']);
   const second = read(dir);
-  expect(obj(arr(obj(second.plan).replaced)[0])).toEqual({ ...retained(step(first, 'camera'), '2026-11-20T00:00:01.000Z'), action: 'revised' });
+  expect(obj(arr(obj(second.plan).replaced)[0])).toEqual({
+    ...retained(step(first, 'camera'), '2026-11-20T00:00:01.000Z'), reason: 'Revise the authored step fields.',
+  });
   expect(step(second, 'camera')['x-note']).toEqual(step(first, 'camera')['x-note']);
   expect(step(second, 'camera').checkpoint).toBeNull();
   expect(step(second, 'camera').checkpoint_proposed).toBe(true);
@@ -180,14 +182,17 @@ test.each(['legacy-example-project.json', 'example-project.json'])('post re-plan
     if (obj(project.plan).rigging_drafted_at === undefined) obj(project.plan).rigging_drafted_at = obj(project.plan).drafted_at;
   }, template);
   reopen(dir, 'post-interview');
-  const before = read(dir);
-  const dateBytes = (): Buffer => Buffer.from(readFileSync(join(dir, 'project.json'), 'utf8')
-    .match(/"(?:drafted_at|rigging_drafted_at)"\s*:\s*"[^"]*"/g)!.join('\n'));
-  const dates = dateBytes();
+  const expected = read(dir);
+  const plan = obj(expected.plan);
+  const camera = step(expected, 'camera');
+  const at = testClock.iso();
+  const bar = 'Changed.';
+  plan.replaced = [...(plan.replaced === undefined ? [] : arr(plan.replaced)),
+    { ...retained(camera, at), reason: 'Revise the authored step fields.' }];
+  Object.assign(camera, { bar, drafted_at: at });
   const baseline = checkProject(dir).refusals;
-  write(dir, 'revise', 'camera', ['--bar', 'Changed.']);
-  expect(dateBytes()).toEqual(dates);
-  expect(obj(read(dir).plan).drafted_by).toEqual(obj(before.plan).drafted_by);
+  write(dir, 'revise', 'camera', ['--bar', bar]);
+  expect(read(dir)).toEqual(expected);
   expect(checkProject(dir).refusals).toEqual(baseline);
   expect(baseline).toEqual([]);
 });
@@ -258,21 +263,28 @@ test('done work cannot be revised after reopen, can be removed with checkpoint h
   expect(step(read(dir), 'camera-next').status).toBe('pending');
 });
 
-function rigReplacement(): { dir: string; original: JsonObject; flags: string[] } {
+function rigReplacement(): { dir: string; original: JsonObject; removedStep: JsonObject; priorHistory: Json[]; flags: string[] } {
   testClock.set(EXAMPLE_NOW);
   const dir = fixture(() => {}, 'example-project.json');
-  const original = structuredClone(step(read(dir), 'seethrough'));
+  const project = read(dir);
+  const original = step(project, 'seethrough');
+  const priorHistory = arr(obj(project.plan).replaced);
   reopen(dir);
+  const removedStep = step(read(dir), 'seethrough');
   write(dir, 'remove', 'seethrough');
   const flags = ['--phase', 'rig', '--order', String(original.order), '--does', 'Rebuild the approved parts.',
     '--produces', 'Replacement parts.', '--rests-on', 'seethrough', '--bar', 'The replacement meets the owner answer.', '--checkpoint-proposed', 'false'];
-  return { dir, original, flags };
+  return { dir, original, removedStep, priorHistory, flags };
 }
 
 test('a removed done rig step accepts its waypoint id after a later plan-approved reopen and keeps full history', () => {
-  const { dir, flags } = rigReplacement();
+  const { dir, removedStep, priorHistory, flags } = rigReplacement();
   const before = read(dir);
-  const history = structuredClone(obj(before.plan).replaced);
+  const history = arr(obj(before.plan).replaced);
+  expect(priorHistory.length).toBeGreaterThan(0);
+  expect(history.slice(0, -1)).toEqual(priorHistory);
+  const removal = obj(history.at(-1));
+  expect(removal).toEqual({ ...retained(removedStep, testClock.iso()), action: 'removed' });
   unchanged(dir, 'STEP_NOT_A_WAYPOINT', () => write(dir, 'add', 'seethrough-raw', flags));
   write(dir, 'add', 'seethrough', flags);
   const after = read(dir);
@@ -280,7 +292,7 @@ test('a removed done rig step accepts its waypoint id after a later plan-approve
   expect(step(after, 'seethrough')).toMatchObject({ status: 'pending', checkpoint: null });
   expect(step(after, 'seethrough').status_history).toBeUndefined();
   expect(obj(after.plan).replaced).toEqual(history);
-  expect(obj(obj(arr(history)[0]).step).status_history).toBeDefined();
+  expect(obj(removal.step).status_history).toBeDefined();
   expect(codes(dir)).toEqual([]);
   testClock.set(EXAMPLE_NOW + 1_000);
   write(dir, 'revise', 'seethrough', ['--bar', 'A refined replacement bar.']);
@@ -338,28 +350,35 @@ test.each(['absent', 'earlier', 'equal', 'later-stage', 'rig-review', 'post-inte
   unchanged(dir, 'PLAN_STEP_DONE', () => write(dir, 'add', 'seethrough', flags));
 });
 
-function postReplacement(stage = 'rig-review'): { dir: string; original: JsonObject; flags: string[] } {
+function postReplacement(stage = 'rig-review'): { dir: string; original: JsonObject; removedStep: JsonObject; priorHistory: Json[]; flags: string[] } {
   testClock.set(EXAMPLE_NOW);
   const dir = fixture(() => {}, 'example-project.json');
-  const original = structuredClone(step(read(dir), 'camera'));
+  const project = read(dir);
+  const original = step(project, 'camera');
+  const priorHistory = arr(obj(project.plan).replaced);
   reopen(dir, stage);
+  const removedStep = step(read(dir), 'camera');
   write(dir, 'remove', 'camera');
   const flags = ['--phase', 'post', '--order', String(original.order), '--does', 'Frame the second take.',
     '--produces', 'The second take camera track.', '--rests-on', 'camera_depth', '--bar', 'The second take push-in closes cleanly.', '--checkpoint-proposed', 'false'];
-  return { dir, original, flags };
+  return { dir, original, removedStep, priorHistory, flags };
 }
 
 test.each(['rig-review', 'post-interview'])('a removed done post step accepts its id after a later %s reopen and retains the first take record in plan.replaced', stage => {
-  const { dir, original, flags } = postReplacement(stage);
+  const { dir, original, removedStep, priorHistory, flags } = postReplacement(stage);
   const before = read(dir);
-  const history = structuredClone(obj(before.plan).replaced);
+  const history = arr(obj(before.plan).replaced);
+  expect(priorHistory.length).toBeGreaterThan(0);
+  expect(history.slice(0, -1)).toEqual(priorHistory);
+  const removal = obj(history.at(-1));
+  expect(removal).toEqual({ ...retained(removedStep, testClock.iso()), action: 'removed' });
   write(dir, 'add', 'camera', flags);
   const after = read(dir);
   expect(arr(obj(after.plan).steps).filter(value => obj(value).id === 'camera')).toHaveLength(1);
   expect(step(after, 'camera')).toMatchObject({ does: 'Frame the second take.', bar: 'The second take push-in closes cleanly.', status: 'pending', checkpoint: null });
   expect(step(after, 'camera').status_history).toBeUndefined();
   expect(obj(after.plan).replaced).toEqual(history);
-  const archived = obj(obj(arr(obj(after.plan).replaced)[0]).step);
+  const archived = obj(removal.step);
   expect(archived.does).toBe(original.does);
   expect(archived.bar).toBe(original.bar);
   expect(obj(arr(archived.status_history).at(-1)).status).toBe('done');

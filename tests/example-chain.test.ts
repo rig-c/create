@@ -171,11 +171,14 @@ test('the finished chain binds its own approved parts, package model and signed 
   const receipt = JSON.parse(readFileSync(join(shipped, 'chain.json'), 'utf8')) as { steps: ChainStep[]; stack_equals_painting: boolean };
   validateChainSteps(receipt.steps);
   expect(receipt.stack_equals_painting).toBe(true);
-  expect(receipt.steps.filter(step => step.kind === 'writer')).toHaveLength(71);
+  expect(receipt.steps.filter(step => step.kind === 'writer')).toHaveLength(78);
   expect(receipt.steps.some(step => step.seed?.field === 'plan.steps')).toBe(false);
   expect(receipt.steps.some(step => step.seed?.field === 'plan.steps[seethrough].status' || step.seed?.field === 'plan.steps[assemble].status')).toBe(false);
   expect(receipt.steps.filter(step => step.command[1] === 'plan' && step.command[2] === 'add').map(step => step.command[3])).toEqual([
     'seethrough', 'assemble', 'bones', 'meshes', 'constraints', 'motion',
+  ]);
+  expect(receipt.steps.filter(step => step.command[1] === 'plan' && step.command[2] === 'revise').map(step => step.command[3])).toEqual([
+    'bones', 'meshes', 'constraints', 'motion', 'camera', 'timing', 'composition',
   ]);
   expect(receipt.steps.filter(step => step.command[1] === 'step-status').map(step => [step.command[2], step.command[3]])).toEqual([
     ['seethrough', 'in-progress'], ['seethrough', 'at-checkpoint'], ['seethrough', 'done'],
@@ -284,8 +287,8 @@ test.each([
   ['0b-plan-pending', 0, 26, 'plan-approved', 0],
   ['1-parts-verdict', 1, 39, 'parts', 0],
   ['2-rigging-answers', 2, 49, 'rigging-interview', 5],
-  ['3-rig-review', 3, 74, 'rig-review', 0],
-  ['4-direction-post', 4, 95, 'post', 0],
+  ['3-rig-review', 3, 78, 'rig-review', 0],
+  ['4-direction-post', 4, 102, 'post', 0],
 ] as const)('checkpoint %s preserves its complete prefix and pending state', (name, stage, index, projectStage, count) => {
   const root = join(shipped, 'checkpoints', name);
   const declaration = JSON.parse(readFileSync(`${root}.json`, 'utf8')) as CheckpointDeclaration;
@@ -353,7 +356,8 @@ test.each([
   if (stage === 2) {
     expect(report.refusals.map(finding => [finding.code, finding.path])).toEqual(
       ['bones', 'meshes', 'constraints', 'turn', 'motion'].map(id => ['INTERVIEW_INCOMPLETE', `interview.waypoints[${id}].guide`]));
-    expect(declaration.pending.command_roles).toEqual(['human', 'agent', 'agent', 'human', 'agent', 'agent', 'human', 'agent', 'agent', 'human', 'agent', 'agent', 'human', 'human']);
+    expect(declaration.pending.command_roles).toEqual(['human', 'agent', 'agent', 'human', 'agent', 'agent', 'human', 'agent', 'agent', 'human', 'agent', 'agent', 'human',
+      'agent', 'agent', 'agent', 'agent', 'human']);
   }
   if (stage === 3) {
     expect(report.refusals).toEqual([]);

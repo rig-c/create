@@ -515,6 +515,13 @@ comment records agent work. Owner answers and approvals still follow their
 existing routes, and version `FEEDBACK_OPEN` counts continue to track bounced
 verdicts.
 
+At rigging-interview and post-interview, record the answer first, then revise
+each earlier step that rests on it before running `job open --plan`. Compare
+the step with the effective guide's recorded `at` even when owner chat carries
+an earlier `said_at`. For previously completed work, `next` asks for an owner
+amendment when needed, then prints the paired remove and add commands that
+retain the completed definition and execution history.
+
 After recording every pick, run `interview --check`, then `job open --plan`
 for the interview signature. The grouped, single-set and interview-signature routes are supported by
 release-pinned [Review 4.17.0](https://github.com/rig-c/review/tree/v4.17.0),

@@ -2,7 +2,7 @@
   "schema": "rig-create/example-checkpoint@1",
   "stage": 4,
   "name": "4-direction-post",
-  "chain_step": 95,
+  "chain_step": 102,
   "pending": {
     "act": "Author the direction post and approve its review",
     "commands": [
@@ -42,7 +42,7 @@
     "refusals": [],
     "warnings": []
   },
-  "project_sha256": "71e79d9f0b850ec6ad9d9b899d8fd271b17bd17f204753bd4dbf2c8609ccf076",
+  "project_sha256": "3bf3a7ce44fb8b3e158740823d4ffbc61782ca5762f4499c8d31dd27c83512a4",
   "files": [
     {
       "path": ".gitignore",
@@ -282,7 +282,7 @@
     },
     {
       "path": "evidence/interview/camera_depth.json",
-      "sha256": "2b22ec06087543299145b56ab255d22257b0bc772cd3682f7c70cca2223eb2c6"
+      "sha256": "ea7b52206e58185ff3a5455840ee178d316df22919025f77ea0d3a197692bca4"
     },
     {
       "path": "evidence/interview/constraints.json",
@@ -298,11 +298,11 @@
     },
     {
       "path": "evidence/interview/post_composition.json",
-      "sha256": "4f8f84bc2896d97c29bfa1974e1f176a1f787016e3935e6e5b97e41565fe23ba"
+      "sha256": "342f8d67c6802711b5eaccbf739d657650becfec72c9711d88f647c10f6abef1"
     },
     {
       "path": "evidence/interview/post_timing.json",
-      "sha256": "251a7ffa03ba1ff9a2afa7d0cffac8c382c43b5f933059d89407ea8b96a74983"
+      "sha256": "16a8fef8385ea7cc4eb616a4272a45792205d1c7116402e3f4df9a623fc7bbe6"
     },
     {
       "path": "evidence/interview/reference.json",
@@ -458,7 +458,7 @@
     },
     {
       "path": "project.json",
-      "sha256": "71e79d9f0b850ec6ad9d9b899d8fd271b17bd17f204753bd4dbf2c8609ccf076"
+      "sha256": "3bf3a7ce44fb8b3e158740823d4ffbc61782ca5762f4499c8d31dd27c83512a4"
     }
   ]
 }

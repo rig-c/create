@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, relative } from 'node:path';
 import { JOB_COMMENTS_ACT_SCHEMA, type ActV3, type JobOwnerHost } from '@rig-c/review/job-host';
 import { main } from '../src/cli.ts';
-import { checkProject } from '../src/check.ts';
+import { checkProject, PLAN_STEP_ANSWER_SINCE } from '../src/check.ts';
 import { openCreateJob } from '../src/job-host.ts';
 import { readRecordPublished } from '../src/job-publication.ts';
 import { stageIndex } from '../src/stages.ts';
@@ -21,8 +21,8 @@ import { NEXT_SCHEMA, nextCommand, nextProject, type NextReport } from '../src/n
 import { Refusal, USAGE_EXIT } from '../src/refusal.ts';
 import { EXAMPLE_NOW } from '../scripts/example-time.ts';
 import { planCommand, stepStatusCommand, amendCommand, reviewCommand, signoffCommand, testClock } from './clock.ts';
-import { plantLegacyReopen, arr, fixture, obj, retimeFixture, retainSignoffs } from './fixtures.ts';
-import { tempDir, treeDigest } from './helpers.ts';
+import { plantLegacyReopen, arr, fixture, obj, retimeFixture, retainSignoffs, waypoint } from './fixtures.ts';
+import { ownerChatArgs, tempDir, treeDigest } from './helpers.ts';
 import { recordPartsReceipt } from './parts-receipt-fixture.ts';
 import { latestPartsVerdictStatus } from '../src/parts-verdict-record.ts';
 import { selectAnswerHashes } from '../src/signoff-answers.ts';
@@ -1723,6 +1723,99 @@ function postInterviewPlan(): string {
   return dir;
 }
 
+test('#561 tower shows rig repair at post-interview and gates only covered approval', () => {
+  const dir = postInterviewPlan();
+  const file = join(dir, 'project.json');
+  const project = JSON.parse(readFileSync(file, 'utf8')) as JsonObject;
+  const now = Date.parse(PLAN_STEP_ANSWER_SINCE) + 3_600_000;
+  const answeredAt = new Date(now + 1000).toISOString();
+  const rigApproval = arr(project.signoffs).map(obj).find(row => row.stage === 'rigging-interview')!;
+  // The earlier approval binds the old guide, but does not cover the pending definition.
+  rigApproval.steps = arr(rigApproval.steps).filter(id => id !== 'bones');
+  const laterApproval: JsonObject = { ...structuredClone(rigApproval), at: answeredAt };
+  delete obj(laterApproval.answer_hashes).bones;
+  project.signoffs = [...arr(project.signoffs), laterApproval];
+  arr(obj(project.plan).steps).map(obj).find(step => step.id === 'bones')!.status = 'pending';
+  writeFileSync(file, JSON.stringify(project));
+  expect(checkProject(dir, undefined, { now }).refusals).toEqual([]);
+
+  const guide = obj(waypoint(project, 'bones').guide);
+  const set = obj(obj(guide.choice).set);
+  const path = String(set.path);
+  const words = join(dir, 'correction.txt');
+  writeFileSync(words, 'Use the synthetic alternate chains, placement, and length.');
+  expect(runMainCapture(['interview-options', 'bones', dir, '--file', path], now)).toMatchObject({ code: 0, stderr: '' });
+  const picks = arr(obj(guide.choice).picks).flatMap(pick => ['--pick', `${String(obj(pick).ask)}=alternative`]);
+  expect(runMainCapture(['interview-answer', 'bones', dir, '--set', path, '--sha256', String(set.sha256), '--by', 'user',
+    ...ownerChatArgs(words, answeredAt), ...picks], now + 1000)).toMatchObject({ code: 0, stderr: '' });
+  const corrected = JSON.parse(readFileSync(file, 'utf8')) as JsonObject;
+  const bones = waypoint(corrected, 'bones');
+  expect(bones.guide).toMatchObject({ at: answeredAt });
+  expect(arr(bones.history)).toContainEqual(guide);
+
+  const result = runMainCapture(['next', dir, '--json'], now + 2000);
+  expect(result).toMatchObject({ code: 0, stderr: '' });
+  const report = JSON.parse(result.stdout) as NextReport;
+  const stale = { code: 'PLAN_STEP_PREDATES_ANSWER', field: 'plan.steps[bones]' };
+  const repair = { field: 'plan.steps[bones]', awaits: 'plan.steps[bones]', command: expect.stringContaining('plan revise bones ') };
+  expect(report.effective_stage).toBe('post-interview');
+  expect(report.refusals).toContainEqual(expect.objectContaining(stale));
+  expect(report.refusals.map(finding => finding.code)).toContain('SIGNOFF_ANSWERS_STALE');
+  expect(report.moves).toContainEqual(expect.objectContaining(repair));
+  expect(report.awaits).toContain(repair.awaits);
+  expect(report.moves.some(move => move.awaits === 'signoffs[stage=rigging-interview]')).toBe(false);
+
+  // Isolate the plan refusal to exercise the ordinary post-interview return as well.
+  const previous = arr(corrected.signoffs).map(obj).find(row => row.stage === 'rigging-interview')!;
+  delete obj(previous.answer_hashes).bones;
+  writeFileSync(file, JSON.stringify(corrected));
+  const scoped = nextProject(dir, now + 2000);
+  expect(scoped.refusals).toEqual([expect.objectContaining(stale)]);
+  expect(scoped.moves).toContainEqual(expect.objectContaining(repair));
+  expect(scoped.awaits).toContain(repair.awaits);
+  expect(scoped.moves).toContainEqual(expect.objectContaining({
+    review_act: { kind: 'signoff', stage: 'post-interview' },
+  }));
+});
+
+test('#561 tower shows stale bones repair and missing answered meshes before rig approval', () => {
+  const dir = realpathSync(fixture(project => {
+    project.stage = 'rigging-interview';
+    project.versions = []; project.scenes = [];
+    delete project.direction_contract;
+    retainSignoffs(project, row => stageIndex(String(row.stage)) < stageIndex('rigging-interview'));
+    project.advances = arr(project.advances).filter(row => stageIndex(String(obj(row).stage)) <= stageIndex('rigging-interview'));
+    for (const item of arr(obj(obj(project.interview).post).items).map(obj)) item.guide = null;
+    const plan = obj(project.plan);
+    plan.steps = arr(plan.steps).filter(row => obj(row).phase === 'rig' && obj(row).id !== 'meshes');
+    for (const step of arr(plan.steps).map(obj)) {
+      if (['seethrough', 'assemble'].includes(String(step.id))) continue;
+      step.status = 'pending'; delete step.status_history;
+      if (step.id === 'bones') step.drafted_at = PLAN_STEP_ANSWER_SINCE;
+    }
+  }, 'example-project.json'));
+  const before = readFileSync(join(dir, 'project.json'));
+  const report = nextProject(dir, CHAIN_NOW);
+  expect(report.effective_stage).toBe('rigging-interview');
+  expect(report.refusals).toEqual([expect.objectContaining({ code: 'PLAN_STEP_PREDATES_ANSWER', field: 'plan.steps[bones]' })]);
+  expect(report.moves.map(move => printedArgs(move.command!).slice(1, 4))).toEqual([
+    ['plan', 'revise', 'bones'], ['plan', 'add', 'meshes'],
+  ]);
+  expect(report.moves[1]).toMatchObject({ role: 'agent', unanswered_by_record: 'plan.steps' });
+  expect(report.moves[1]?.command).toContain('--rests-on meshes');
+  expect(report.awaits).toEqual(['plan.steps[bones]', 'plan.steps']);
+  expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
+  const argv = printedArgs(report.moves[1]!.command!).slice(1);
+  const values: Record<string, string> = { '<work>': 'Implement the approved synthetic meshes.',
+    '<result>': 'Synthetic meshes with the requested topology.', '<acceptance bar>': 'Match the recorded meshes guide.' };
+  expect(argv.slice(0, 3)).toEqual(['plan', 'add', 'meshes']);
+  expect(runMainCapture(argv.map(arg => values[arg] ?? arg), CHAIN_NOW))
+    .toMatchObject({ code: 0, stdout: expect.stringContaining('plan: add meshes'), stderr: '' });
+  const after = nextProject(dir, CHAIN_NOW);
+  expect(after.refusals).toEqual(report.refusals);
+  expect(after.moves).toEqual([report.moves[0]!]);
+});
+
 function followupReceipt(row: object): void {
   if (process.env.NEXT_FOLLOWUP_RECEIPT) appendFileSync(process.env.NEXT_FOLLOWUP_RECEIPT, JSON.stringify(row) + '\n');
 }
@@ -2036,6 +2129,14 @@ test('#596 undecided delegation emits an agent interview-decision move and clear
     '--by', 'user',
     '--pick', 'camera_depth=auto',
   ], CHAIN_NOW)).toMatchObject({ code: 0, stderr: '' });
+
+  expect(nextProject(dir, CHAIN_NOW).refusals).toContainEqual(expect.objectContaining({
+    code: 'PLAN_STEP_PREDATES_ANSWER',
+    field: 'plan.steps[camera]',
+  }));
+  expect(runMainCapture(['plan', 'revise', 'camera', dir, '--by', 'agent',
+    '--reason', 'Keep the camera step after reviewing the recorded delegation.'], CHAIN_NOW + 1))
+    .toMatchObject({ code: 0, stderr: '' });
 
   const signRes = runMainCapture(['signoff', 'post-interview', dir, '--by', 'user', '--verbatim-file', join(dir, 'evidence/approval.txt')], CHAIN_NOW + 1000);
   expect(signRes.code).toBe(1);

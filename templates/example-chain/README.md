@@ -4,7 +4,7 @@ The geometric painting and parts come from generateExampleParts. The labelled dr
 
 The setup still is the assembly recomposite, retained as synthetic setup evidence. The example demonstrates record binding. Rendered motion and camera behaviour require separate producer validation.
 
-The public create CLI writes stage moves, signoffs, rig plan steps (plan add), parts step progress (step-status), rig/post review verdicts, the review package, immutable input inventory, the sealed scene and authored direction. The direction is direction@2, bound to that scene. The parts verdict is a synthetic review-tool export from tests/parts-package.ts, recorded as a producer step.
+The public create CLI writes stage moves, signoffs, rig plan steps (plan add), plan revisions after recording the guides (plan revise), parts step progress (step-status), rig/post review verdicts, the review package, immutable input inventory, the sealed scene and authored direction. The direction is direction@2, bound to that scene. The parts verdict is a synthetic review-tool export from tests/parts-package.ts, recorded as a producer step.
 
 Two seed kinds cover plan.steps (setup and status progress) with split.parts, and the rig version declaration. Source inventory is registered by input add. Each seed declares its consuming command and records that command’s step index in chain.json.
 

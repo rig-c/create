@@ -568,6 +568,14 @@ test('retained parts approval survives real rigging signoff checkpoint changes a
   const result = expectCliOk(await cli(root, ['parts-review', '--from-review', act.actId, '--json']));
   expect(result.exit).toBe(0);
   answerRiggingInterview(root);
+  const revisingAt = Date.now();
+  const staleIds = ['bones', 'meshes', 'constraints', 'motion'];
+  expect(checkProject(root, undefined, { now: revisingAt }).refusals.map(({ code, path }) => [code, path]))
+    .toEqual(staleIds.map(id => ['PLAN_STEP_PREDATES_ANSWER', `plan.steps[${id}]`]));
+  for (const id of staleIds) {
+    expect(planCommand(['revise', id, root, '--by', 'agent',
+      '--reason', 'Keep the existing definition after reviewing the recorded rigging guides.'], revisingAt).exit).toBe(0);
+  }
   const steps = (read(root).plan as JsonObject).steps as JsonObject[];
   const before = steps.find(step => step.id === 'bones')!;
   expect(before.checkpoint).toBeNull();

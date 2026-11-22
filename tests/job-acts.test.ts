@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { checkProject, collectItems, type Finding } from '../src/check.ts';
 import { optionContext } from '../src/choices.ts';
-import { plantLegacyReopen, fixture, retainSignoffs, arr, obj } from './fixtures.ts';
+import { plantLegacyReopen, fixture, retainSignoffs, arr, obj, step } from './fixtures.ts';
 import { stageIndex } from '../src/stages.ts';
 import { recordPartsReceipt } from './parts-receipt-fixture.ts';
 import { nextCommand, nextProject } from '../src/next.ts';
@@ -21,7 +21,7 @@ import { currentJobIdentity } from '../src/job-publication.ts';
 import { JOB_COMMENTS_ACT_SCHEMA, parseCommentsAct, startJobHost, type ActV3, type JobOwnerHost, type JobHostOptions } from '@rig-c/review/job-host';
 import { interviewAnswerCommand } from '../src/choice-writers.ts';
 import { reviewActFindings } from '../src/review-act.ts';
-import { sorted } from '../src/step-hash.ts';
+import { sorted, stepHash } from '../src/step-hash.ts';
 import type { Json, JsonObject } from '../src/templates.ts';
 import { testClock } from './clock.ts';
 import { EXAMPLE_NOW, EXAMPLE_REOPEN_AT } from '../scripts/example-time.ts';
@@ -592,6 +592,10 @@ function commentedPicksAct(act4: JsonObject, comments: { text: string; anchor?: 
 }
 
 const COMMENT_CLOSURE_INVALID = 'INTERVIEW_COMMENT_CLOSURE_INVALID';
+const stalePlanStep = (id: string) => ({ code: 'PLAN_STEP_PREDATES_ANSWER', path: `plan.steps[${id}]` });
+const findingPaths = (findings: Finding[]) => findings.map(({ code, path }) => ({ code, path }));
+// The closure fixture records a newer bones guide. Both steps depend on that guide.
+const STALE_BONES_PLAN = [stalePlanStep('bones'), stalePlanStep('constraints')];
 
 function ingestClosureFixturePicks(
   root: string, value: Awaited<ReturnType<typeof registerQuestion>>, comments: { text: string }[] = [],
@@ -703,20 +707,25 @@ test('#856 enforces source, resolving answer and closure time order', async () =
   const { interview_comment_closures: closures, ...rest } = recorded;
   const closure = obj(arr(closures)[0]);
   expect(rest).toEqual(before);
-  expect(check().refusals).toEqual([]);
-  expect(check({ ...recorded, interview_comment_closures: [{ ...closure, at: source.at }] }).refusals)
-    .toContainEqual(expect.objectContaining({ code: COMMENT_CLOSURE_INVALID, path: 'interview_comment_closures[0]' }));
+  const stale = [...STALE_BONES_PLAN, stalePlanStep('motion')];
+  expect(findingPaths(check().refusals)).toEqual(stale);
+  expect(findingPaths(check({ ...recorded, interview_comment_closures: [{ ...closure, at: source.at }] }).refusals))
+    .toEqual([...stale, { code: COMMENT_CLOSURE_INVALID, path: 'interview_comment_closures[0]' }]);
 });
 
 test('#856 refuses duplicate retained closures for the same comment', async () => {
   const { root, close, refuses, check } = await commentClosureFixture();
   close();
-  expect(check().refusals).toEqual([]);
+  expect(findingPaths(check().refusals)).toEqual(STALE_BONES_PLAN);
   const project = read(root);
   const closure = obj(arr(project.interview_comment_closures)[0]);
   project.interview_comment_closures = [closure, { ...closure }];
   write(root, project);
-  expect(check().refusals).toContainEqual(expect.objectContaining({ code: COMMENT_CLOSURE_INVALID, path: 'interview_comment_closures[1]' }));
+  expect(findingPaths(check().refusals)).toEqual([
+    ...STALE_BONES_PLAN,
+    { code: COMMENT_CLOSURE_INVALID, path: 'interview_comment_closures[0]' },
+    { code: COMMENT_CLOSURE_INVALID, path: 'interview_comment_closures[1]' },
+  ]);
   refuses();
 });
 
@@ -768,21 +777,21 @@ test('#856 accepts a later owner-chat answer and binds its exact record', async 
     kind: 'answer', question: 'motion', answer_sha256: jobHash(JSON.stringify(sorted(answer))),
   });
   expect(recorded.review_acts).toEqual(receipts);
-  expect(check().refusals).toEqual([]);
+  expect(findingPaths(check().refusals)).toEqual([...STALE_BONES_PLAN, stalePlanStep('motion')]);
 });
 
 test('#856 refuses tampered retained owner-chat evidence and preserves project bytes', async () => {
   const { root, close, refuses, check } = await commentClosureFixture();
   await recordClosureOwnerChatAnswer(root);
   close('motion');
-  expect(check().refusals).toEqual([]);
+  const stale = [...STALE_BONES_PLAN, stalePlanStep('motion')];
+  expect(findingPaths(check().refusals)).toEqual(stale);
   const project = read(root);
   const item = collectItems(project, { collection: null }).find(item => item.id === 'motion')!;
   obj(item.raw).owner_words = 'Different but still valid owner chat words.\n';
   write(root, project);
 
-  const findings = check().refusals.map(({ code, path }) => ({ code, path }));
-  expect(findings).toEqual([{ code: COMMENT_CLOSURE_INVALID, path: 'interview_comment_closures[0]' }]);
+  expect(findingPaths(check().refusals)).toEqual([...stale, { code: COMMENT_CLOSURE_INVALID, path: 'interview_comment_closures[0]' }]);
   refuses('motion');
 });
 
@@ -942,14 +951,18 @@ test('#860 act@6 interview feedback preserves a rig point and check refuses an e
   const entry = obj(arr(project.review_acts).at(-1));
   expect(entry.feedback_route).toEqual({ question: 'motion', comments: [{ order: 1, ...comment }] });
   const check = () => checkProject(root, project, { now: testClock.now(), readOnly: true });
-  expect(check().refusals).toEqual([]);
+  expect(findingPaths(check().refusals)).toEqual([stalePlanStep('motion')]);
 
   const routed = obj(arr(obj(entry.feedback_route).comments)[0]);
   const mark = obj(obj(obj(routed.anchor).context).comment);
   obj(mark.world).x = 1;
   const after = check();
   expect(after.ok).toBe(false);
-  expect(after.refusals.map(finding => finding.code)).toContain('REVIEW_FEEDBACK_ROUTE_INVALID');
+  expect(findingPaths(after.refusals)).toEqual([
+    { code: 'REVIEW_FEEDBACK_ROUTE_INVALID', path: 'signoffs[3].evidence' },
+    stalePlanStep('motion'),
+    { code: 'REVIEW_FEEDBACK_ROUTE_INVALID', path: `review_acts[${arr(project.review_acts).length - 1}]` },
+  ]);
 }, 30_000);
 
 test('#846 batch ingest routes comments atomically and omits the route for an empty act', async () => {
@@ -1021,8 +1034,11 @@ test('merged record-mode host lists finalized picks and its printed writer comma
   expect(timeout.stderr).toContain(`1 already ingested for 1 current ask(s) (${act.actId} question motion -> interview.waypoints[motion].guide)`);
   // #738: next shows the guide as answered and offers no second publication of the question.
   const report = nextProject(root);
+  expect(report.refusals.map(({ code, field }) => ({ code, path: field }))).toEqual([stalePlanStep('motion')]);
   expect(report.moves.filter(move => move.command?.includes('--question motion') || move.review_act?.question_id === 'motion')).toEqual([]);
   expect(report.answers!.find(answer => answer.question_id === 'motion')).toMatchObject({ field: 'interview.waypoints[motion].guide', at: act.at });
+  expectExit0(await cli(root, ['plan', 'revise', 'motion', root, '--by', 'agent',
+    '--reason', 'The motion definition still covers the recorded synthetic choices.']));
   expectExit0(await cli(root, ['interview', '--check', root]));
 }, 30_000);
 
@@ -1341,10 +1357,22 @@ test('#698 timeout options require a bounded integer and --wait', async () => {
 
 test('#633 post composition Other leads to a cited scene through two Review picks', async () => {
   testClock.set(Date.now());
-  const root = copy('4-direction-post');
+  const root = copy('4-direction-post', project => {
+    // The chain seeds completion. Give this copy the full execution history to retain on replacement.
+    const postAt = Date.parse(String(arr(project.advances).map(obj).find(move => move.stage === 'post')!.at));
+    step(project, 'composition').status_history = [
+      { from_status: 'pending', status: 'in-progress', by: 'agent', at: new Date(postAt + 1).toISOString(), checkpoint_required: false, signoff: null },
+      { from_status: 'in-progress', status: 'done', by: 'agent', at: new Date(postAt + 2).toISOString(), checkpoint_required: false, signoff: null },
+    ];
+  });
+  const completed = step(read(root), 'composition');
+  expect(completed.status).toBe('done');
   const reopenWords = join(root, 'reopen.txt');
   writeFileSync(reopenWords, 'Choose the synthetic two-plate scene.');
   plantLegacyReopen(root, 'post-interview', { by: 'user', wordsFile: reopenWords });
+  const reopened = read(root);
+  expect(obj(arr(reopened.reopens).at(-1)).steps_before).toContainEqual({ id: 'composition', status: 'done' });
+  expect(step(reopened, 'composition')).toEqual({ ...completed, status: 'pending' });
   const plate = readFileSync(join(import.meta.dir, '../templates/example-chain/inputs/background.png'));
   writeFileSync(join(root, 'background.png'), plate);
   writeFileSync(join(root, 'foreground.png'), Buffer.concat([plate, Buffer.from('\n')]));
@@ -1401,6 +1429,29 @@ test('#633 post composition Other leads to a cited scene through two Review pick
   const ingested = obj(composition().raw);
   expect(composition().record.history).toContainEqual(otherAnswer);
   expect(ingested.value).toEqual(option.fragment);
+  const beforeReplacement = read(root);
+  const previous = step(beforeReplacement, 'composition');
+  expect(previous).toEqual({ ...completed, status: 'pending' });
+  testClock.set(testClock.now() + 1_000);
+  expect(nextProject(root, testClock.now()).refusals).toContainEqual(expect.objectContaining({
+    code: 'PLAN_STEP_PREDATES_ANSWER', field: 'plan.steps[composition]',
+  }));
+  expectExit0(await cli(root, ['plan', 'remove', 'composition', root, '--by', 'agent']));
+  const removedAt = testClock.iso();
+  const does = 'Write the approved scene with a background and a foreground plate.';
+  testClock.set(testClock.now() + 1_000);
+  expectExit0(await cli(root, ['plan', 'add', 'composition', root, '--by', 'agent', '--phase', String(previous.phase),
+    '--order', String(previous.order), '--does', does, '--produces', String(previous.produces),
+    '--rests-on', arr(previous.rests_on).join(','), '--bar', String(previous.bar),
+    '--checkpoint-proposed', String(previous.checkpoint_proposed)]));
+  const replaced = read(root);
+  expect(obj(replaced.plan).replaced).toEqual([
+    ...arr(obj(beforeReplacement.plan).replaced),
+    { step: { ...completed, status: 'pending' }, sha256: stepHash(previous), action: 'removed', at: removedAt, by: 'agent' },
+  ]);
+  const replacement = step(replaced, 'composition');
+  expect(replacement).toMatchObject({ does, status: 'pending', checkpoint: null, drafted_at: testClock.iso() });
+  expect(replacement.status_history).toBeUndefined();
   writeCitations(ingested.verbatim);
   expectExit0(await cli(root, sceneArgs));
   expect(obj((read(root).scenes as JsonObject[]).at(-1)).by).toBe('agent');
@@ -1644,7 +1695,7 @@ test('#502 all post-interview picks and plan signoff execute next host and expor
       step.status = 'pending'; delete step.status_history;
     }
   });
-  for (const question of ['camera_depth', 'post_timing', 'post_composition']) {
+  for (const [question, step] of [['camera_depth', 'camera'], ['post_timing', 'timing'], ['post_composition', null]] as const) {
     const project = read(root);
     const item = collectItems(project, { collection: null }).find(item => item.id === question)!;
     const binding = obj(obj(obj(item.raw).choice).set);
@@ -1658,6 +1709,8 @@ test('#502 all post-interview picks and plan signoff execute next host and expor
     const selections = arr(set.asks).map(obj).map(ask => ({ itemId: ask.id,
       optionId: arr(ask.options).map(obj).find(option => option.kind === 'value')!.id, otherText: null }));
     await nextReview(root, 'interview-picks', { questionId: question, selections, note: WORDS }, question);
+    if (step !== null) expectExit0(await cli(root, ['plan', 'revise', step, root, '--by', 'agent',
+      '--reason', `The ${step} definition still fits the recorded synthetic choice.`]));
   }
   const composition = nextProject(root, testClock.now()).moves.find(move => move.command?.startsWith('rig-create plan add composition'))!;
   expect(composition.command).toContain('--rests-on post_composition');

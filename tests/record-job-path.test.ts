@@ -3,7 +3,7 @@ import { afterEach, expect, test } from 'bun:test';
 import { randomUUID } from 'node:crypto';
 import { appendFileSync, cpSync, existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { collectItems } from '../src/check.ts';
+import { collectItems, type CheckReport } from '../src/check.ts';
 import { interviewAnswerCommand } from '../src/choice-writers.ts';
 import { Refusal } from '../src/refusal.ts';
 import { loadedPartsIdentity } from '../src/job-publication.ts';
@@ -171,6 +171,17 @@ function synthetic(stage: string, legacy = false, ownerLanguage?: string): strin
 async function checked(root: string) {
   const result = await cli(root, ['interview', '--check', root]);
   expect(result.exit, result.stderr + result.stdout).toBe(0);
+}
+
+async function reviseAfterAnswer(root: string, step: string, reason: string) {
+  const before = bytes(root);
+  const stale = await cli(root, ['interview', '--check', root, '--json']);
+  expect({ exit: stale.exit, stderr: stale.stderr }).toEqual({ exit: 1, stderr: '' });
+  const { refusals } = JSON.parse(stale.stdout) as CheckReport;
+  expect(refusals.map(({ code, path }) => [code, path])).toEqual([['PLAN_STEP_PREDATES_ANSWER', `plan.steps[${step}]`]]);
+  expect(bytes(root)).toEqual(before);
+  const revised = await cli(root, ['plan', 'revise', step, root, '--by', 'agent', '--reason', reason]);
+  expect(revised.exit, revised.stderr).toBe(0);
 }
 
 async function unchanged(root: string, args: string[], code: string) {
@@ -351,6 +362,7 @@ test('record question public path, API@2 fetch, retry, stale source and wrong su
   const resolvedAnswer = collectItems(read(root), { collection: null }).find(item => item.id === 'motion')!.raw;
   const resolvedPick = obj(arr(obj(obj(resolvedAnswer).choice).picks)[0]);
   expect(resolvedPick.shown).toEqual({ label: 'Spine', effect: '24' });
+  await reviseAfterAnswer(root, 'motion', '기록된 선택에 기존 모션 계획이 맞는지 확인했어요.');
   await checked(root);
 }, 30_000);
 
@@ -426,6 +438,8 @@ test.each(['rigging-interview', 'post-interview'])('first unanswered %s question
   const act = await owner.act('interview-picks', 'interview-picks', { questionId: question, selections, note: WORDS });
   const ingested = await cli(root, ['interview-answer', question, root, '--from-review', String(act.actId)]);
   expect(ingested.exit, ingested.stderr).toBe(0);
+  const step = stage === 'rigging-interview' ? 'motion' : 'camera';
+  await reviseAfterAnswer(root, step, `The ${step} definition still fits the recorded synthetic choice.`);
   await checked(root);
 }, 30_000);
 

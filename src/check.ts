@@ -84,7 +84,8 @@ import type { Json, JsonObject } from './templates.ts';
 import { collectReopens, liveSignoff } from './reopen.ts';
 import { reopenLapseWarnings } from './reopen-lapses.ts';
 import { stepHash } from './step-hash.ts';
-import { collectPlanReplaced, checkReplacedSignoffs, collectCheckpointWithdrawals, checkpointRequired } from './plan-history.ts';
+import { collectPlanReplaced, checkReplacedSignoffs, collectCheckpointWithdrawals, checkpointRequired,
+  completedPlanStepNeedsAmendment, planStepCompleted } from './plan-history.ts';
 import { deriveWaypoints, FRAMING_IDS, TURN_QUESTION_SPEC, type DerivedSet } from './waypoints.ts';
 
 export const PROJECT_SCHEMA = 'rig-create/project@0';
@@ -604,7 +605,47 @@ function checkAnswers(ctx: Ctx): void {
 
 const curStageIndex = (ctx: Ctx): number => stageIndex(ctx.effectiveStage);
 
-function checkPlan(ctx: Ctx): void {
+export const PLAN_STEP_ANSWER_SINCE = '2026-11-22T00:00:00Z';
+
+function checkPlanAnswerOrder(ctx: Ctx, step: Step, restsOn: string[], approval: string, previousEdit: JsonObject | undefined, now: number): void {
+  if ((approval !== 'rigging-interview' && approval !== 'post-interview') || curStageIndex(ctx) < stageIndex(approval)) return;
+  let latest: { path: string; at: number } | undefined;
+  for (const id of restsOn) {
+    const item = itemFor(ctx, id);
+    const state = item?.state;
+    if (!item || item.kind === 'framing' || !state || !('answer' in state)) continue;
+    const at = time(state.answer.at);
+    if (Number.isFinite(at) && (!latest || at > latest.at)) latest = { path: item.path, at };
+  }
+  if (!latest) return;
+  const stamp = time(step.record.drafted_at);
+  const revision = previousEdit?.action === 'revised' ? time(previousEdit.at) : NaN;
+  const plan = isObject(ctx.project.plan) ? ctx.project.plan : undefined;
+  const rigging = approval === 'rigging-interview' ? time(plan?.rigging_drafted_at) : NaN;
+  const known = Number.isFinite(stamp) ? stamp : revision;
+  const at = Number.isFinite(known) ? known : rigging;
+  if (Number.isFinite(known) && at >= latest.at) return;
+  const proof = Number.isFinite(stamp) ? `${step.path}.drafted_at`
+    : Number.isFinite(revision) ? 'last same-id plan.replaced revision'
+    : 'plan.rigging_drafted_at (latest rigging plan edit)';
+  const basis = `${latest.path}.at ${new Date(latest.at).toISOString()}`;
+  const remedy = planStepCompleted(ctx.project, step.record)
+    ? `review the recorded answer, ${completedPlanStepNeedsAmendment(ctx.project, step.record, now)
+      ? `record an owner amendment at ${approval} or earlier after completion, ` : ''}then use plan remove ${step.id} followed by plan add ${step.id} with the same phase and the reviewed definition`
+    : `record the answer, then use plan revise ${step.id}`;
+  if (at < latest.at) {
+    const findings = latest.at >= Date.parse(PLAN_STEP_ANSWER_SINCE) ? ctx.refusals : ctx.warnings;
+    findings.push({ code: 'PLAN_STEP_PREDATES_ANSWER', path: step.path,
+      message: `${step.path}: ${proof} at ${new Date(at).toISOString()} precedes ${basis}; ${remedy}` });
+  } else {
+    const evidence = Number.isFinite(rigging) ? `${proof} at ${new Date(rigging).toISOString()} does not date this step`
+      : 'no per-step draft or revision date is recorded';
+    ctx.warnings.push({ code: 'PLAN_STEP_DRAFT_DATE_UNKNOWN', path: step.path,
+      message: `${step.path}: ${evidence} to compare with ${basis}; ${remedy}` });
+  }
+}
+
+function checkPlan(ctx: Ctx, replaced: JsonObject[], now: number): void {
   const planSigned = signed(ctx, 'plan-approved') || signed(ctx, 'rigging-interview');
   if (planSigned && ctx.steps.length === 0) {
     ctx.refusals.push({ code: 'PLAN_EMPTY', path: 'plan.steps', message: 'plan-approved is signed, but plan.steps is empty' });
@@ -613,6 +654,7 @@ function checkPlan(ctx: Ctx): void {
   const seen = new Set<string>();
   const events = collectReopens(ctx.project, []);
   const history = collectSignoffs(ctx.project, []);
+  const previousEdits = new Map(replaced.map(entry => [(entry.step as JsonObject).id, entry]));
   for (const step of ctx.steps) {
     const { path, record } = step;
     // An interview-answer amendment cuts only the approvals of steps resting on the changed answer.
@@ -639,14 +681,15 @@ function checkPlan(ctx: Ctx): void {
       }
     }
     const approvedBy = approvalStageOfStep(step.phase, step.id, hasStageOrder(ctx.project));
-    const approvals = signoffsFor(approving, approvedBy);
+    checkPlanAnswerOrder(ctx, step, restsOn, approvedBy, previousEdits.get(step.id), now);
+    const approval = latestSignoff(approving, approvedBy, step.id);
     const status = record.status === undefined ? 'pending' : record.status;
     if (typeof status !== 'string' || !['pending', 'in-progress', 'at-checkpoint', 'done'].includes(status)) {
       ctx.refusals.push({ code: 'STEP_STATUS_UNKNOWN', path: `${path}.status`, message: `${path}.status: unknown status ${JSON.stringify(status)}; use pending before approval, then in-progress, at-checkpoint or done` });
       continue;
     }
     const checkpoint = classify(record.checkpoint, { collection: null });
-    if (approvals.length > 0) {
+    if (approval !== undefined) {
       if (checkpoint.state === 'silent') {
         ctx.refusals.push({ code: 'CHECKPOINT_UNANSWERED', path: `${path}.checkpoint`, message: `${path}.checkpoint is null, yet ${approvedBy} is signed; the user sets each step's checkpoint (or delegates it) before signing` });
       } else if (
@@ -659,7 +702,6 @@ function checkPlan(ctx: Ctx): void {
     if (checkpoint.state === 'malformed') {
       ctx.refusals.push({ code: 'ANSWER_MALFORMED', path: `${path}.checkpoint`, message: `${path}.checkpoint: ${checkpoint.why}` });
     }
-    const approval = latestSignoff(approving, approvedBy, step.id);
     if (approval !== undefined) {
       const hashes = approval.record.step_hashes;
       const signoffPath = `signoffs[${approval.index}]`;
@@ -717,9 +759,17 @@ function checkStages(ctx: Ctx): void {
   const plan = isObject(ctx.project.plan) ? ctx.project.plan : {};
   const draftedAt = time(plan.drafted_at);
   const riggingApproval = latestSignoff(ctx, 'rigging-interview');
-  if (hasStageOrder(ctx.project) && riggingApproval !== undefined && Number.isFinite(time(plan.rigging_drafted_at)) && riggingApproval.at < time(plan.rigging_drafted_at)) {
-    const path = `signoffs[${riggingApproval.index}]`;
-    ctx.refusals.push({ code: 'SIGNOFF_BEFORE_PLAN', path, message: `${path}: sign the rigging plan at or after plan.rigging_drafted_at` });
+  if (hasStageOrder(ctx.project) && riggingApproval !== undefined) {
+    const riggingSteps = ctx.steps.filter(step => approvalStageOfStep(step.phase, step.id, true) === 'rigging-interview');
+    const fullPlan = riggingApproval.steps === null || riggingSteps.every(step => riggingApproval.steps?.includes(step.id));
+    // A subset signature stays valid when an uncovered step is drafted later.
+    const laterStep = riggingSteps.find(step => (riggingApproval.steps === null || riggingApproval.steps.includes(step.id))
+      && time(step.record.drafted_at) > riggingApproval.at);
+    if ((fullPlan && riggingApproval.at < time(plan.rigging_drafted_at)) || laterStep) {
+      const path = `signoffs[${riggingApproval.index}]`;
+      const proof = laterStep ? `${laterStep.path}.drafted_at` : 'plan.rigging_drafted_at';
+      ctx.refusals.push({ code: 'SIGNOFF_BEFORE_PLAN', path, message: `${path}: sign the rigging plan at or after ${proof}` });
+    }
   }
   const approval = latestSignoff(ctx, 'plan-approved');
   if (approval !== undefined && Number.isFinite(draftedAt) && !(approval.at >= draftedAt)) {
@@ -996,7 +1046,7 @@ function checkProjectOnce(projectDirArg: string, candidate: JsonObject | undefin
   checkAskCoverage(ctx);
   if (!options.recordPublication) checkPreparedInputs(ctx);
   checkAgentBounces(ctx);
-  checkPlan(ctx);
+  checkPlan(ctx, replaced, options.now);
   checkCheckpointEvidence(dir, project, refusals);
   warnings.push(...appearanceBarWarnings(project, options.now));
   checkStages(ctx);

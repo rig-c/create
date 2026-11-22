@@ -1,4 +1,4 @@
-import { resignAfterChange } from './fixtures.ts';
+import { LEGACY_POST_DRAFT_WARNINGS, resignAfterChange } from './fixtures.ts';
 import { describe, expect, test } from 'bun:test';
 import { createHash } from 'node:crypto';
 import { mkdirSync, writeFileSync } from 'node:fs';
@@ -42,9 +42,9 @@ const V2_CONFIG: JsonObject = {
 describe('the filled example', () => {
   const report = checkProject(fixture(() => {}, 'legacy-example-project.json', {}, false, { scope: 'suite' }));
 
-  test('passes: 0 refusals, 0 warnings', () => {
+  test('passes with the legacy record warnings', () => {
     expect(report.refusals).toEqual([]);
-    expect(report.warnings.map(f => f.code)).toEqual(['QUESTION_SET_STALE', 'PARTS_VERDICT_FILE_LEGACY', 'RIGGING_INTERVIEW_PAINTING_LEGACY', 'STAGE_ORDER_LEGACY', 'INPUT_WRITER_MISSING', 'CHOICE_ANSWERS_LEGACY', 'CORRECTION_PATH_LEGACY']);
+    expect(report.warnings.map(f => f.code)).toEqual(['QUESTION_SET_STALE', 'PARTS_VERDICT_FILE_LEGACY', ...LEGACY_POST_DRAFT_WARNINGS, 'RIGGING_INTERVIEW_PAINTING_LEGACY', 'STAGE_ORDER_LEGACY', 'INPUT_WRITER_MISSING', 'CHOICE_ANSWERS_LEGACY', 'CORRECTION_PATH_LEGACY']);
     expect(report.ok).toBe(true);
   });
 
@@ -94,7 +94,7 @@ describe('a section with no citation', () => {
     }));
     expect(report.provenance[1]?.config).toBe('changed');
     expect(report.refusals).toEqual([]);
-    expect(report.warnings.map((w) => w.code)).toEqual(['QUESTION_SET_STALE', 'PARTS_VERDICT_FILE_LEGACY', 'RIGGING_INTERVIEW_PAINTING_LEGACY', 'PROVENANCE_CONFIG_CHANGED', 'STAGE_ORDER_LEGACY', 'INPUT_WRITER_MISSING', 'CHOICE_ANSWERS_LEGACY', 'CORRECTION_PATH_LEGACY']);
+    expect(report.warnings.map((w) => w.code)).toEqual(['QUESTION_SET_STALE', 'PARTS_VERDICT_FILE_LEGACY', ...LEGACY_POST_DRAFT_WARNINGS, 'RIGGING_INTERVIEW_PAINTING_LEGACY', 'PROVENANCE_CONFIG_CHANGED', 'STAGE_ORDER_LEGACY', 'INPUT_WRITER_MISSING', 'CHOICE_ANSWERS_LEGACY', 'CORRECTION_PATH_LEGACY']);
   });
 
   test('a section placed `none` (not a direction call) passes without provenance', () => {
@@ -413,7 +413,7 @@ describe('citations name the recorded ask', () => {
   test('omitting asks warns on covered guides', () => {
     const r = checkProject(cited({ quote: 'The coat is one piece' }));
     expect(r.refusals).toEqual([]);
-    expect(r.warnings.map((f) => f.code)).toEqual(['QUESTION_SET_STALE', 'PARTS_VERDICT_FILE_LEGACY', 'RIGGING_INTERVIEW_PAINTING_LEGACY', 'CITATION_ASKS_MISSING', 'STAGE_ORDER_LEGACY', 'INPUT_WRITER_MISSING', 'CHOICE_ANSWERS_LEGACY', 'CORRECTION_PATH_LEGACY']);
+    expect(r.warnings.map((f) => f.code)).toEqual(['QUESTION_SET_STALE', 'PARTS_VERDICT_FILE_LEGACY', ...LEGACY_POST_DRAFT_WARNINGS, 'RIGGING_INTERVIEW_PAINTING_LEGACY', 'CITATION_ASKS_MISSING', 'STAGE_ORDER_LEGACY', 'INPUT_WRITER_MISSING', 'CHOICE_ANSWERS_LEGACY', 'CORRECTION_PATH_LEGACY']);
   });
 
   test('unknown and unrecorded asks have distinct refusals', () => {
@@ -439,7 +439,7 @@ describe('citations name the recorded ask', () => {
       for (const entry of citedSections(p, 2).meshes as JsonObject[]) if (entry.guide === 'meshes') delete entry.asks;
     })));
     expect(r.refusals).toEqual([]);
-    expect(r.warnings.map((f) => f.code)).toEqual(['QUESTION_SET_STALE', 'PARTS_VERDICT_FILE_LEGACY', 'GUIDE_ASKS_LEGACY', 'RIGGING_INTERVIEW_PAINTING_LEGACY', 'STAGE_ORDER_LEGACY', 'INPUT_WRITER_MISSING', 'CHOICE_ANSWERS_LEGACY', 'CORRECTION_PATH_LEGACY']);
+    expect(r.warnings.map((f) => f.code)).toEqual(['QUESTION_SET_STALE', 'PARTS_VERDICT_FILE_LEGACY', 'GUIDE_ASKS_LEGACY', ...LEGACY_POST_DRAFT_WARNINGS, 'RIGGING_INTERVIEW_PAINTING_LEGACY', 'STAGE_ORDER_LEGACY', 'INPUT_WRITER_MISSING', 'CHOICE_ANSWERS_LEGACY', 'CORRECTION_PATH_LEGACY']);
   });
 
   test('history coverage cannot borrow the current quote', () => {

@@ -77,7 +77,8 @@ function run(action: () => string): string {
   try { return action(); } catch (e) { if (e instanceof ChoiceError) refuse(e.code, `interview: ${e.message}; retain the shown set and explicitly record each ask`); throw e; }
 }
 /** Partial interviews may retain unrelated pre-existing refusals, but a writer cannot add a new one. */
-export function save(file: string, dir: string, original: JsonObject, candidate: JsonObject, now: number, baseline: JsonObject[] = [], correctedAnswers: readonly string[] = [], originalBytes?: Buffer): void {
+export function save(file: string, dir: string, original: JsonObject, candidate: JsonObject, now: number, baseline: JsonObject[] = [],
+  recordedAnswers: readonly { id: string; correction: boolean }[] = [], originalBytes?: Buffer): void {
   const asRead = checkProject(dir,original,{now});
   const counts = baselineOf(asRead);
   // A pending answer's stored baseline widens the record's own; it never stands in for a check that stopped early.
@@ -88,16 +89,22 @@ export function save(file: string, dir: string, original: JsonObject, candidate:
   const findings = newFindings(counts,checkProject(dir,candidate,{now}).refusals);
   const staleBinding = (finding: (typeof findings)[number], id: string): boolean =>
     finding.code === 'SIGNOFF_ANSWERS_STALE' && finding.path.endsWith(`.answer_hashes[${id}]`);
-  const unsignedAnswers = correctedAnswers.filter(id => findings.some(finding => staleBinding(finding, id)));
+  const unsignedAnswers = recordedAnswers.filter(({ id, correction }) => correction && findings.some(finding => staleBinding(finding, id))).map(({ id }) => id);
   const affectedSteps = new Set<string>();
-  if (unsignedAnswers.length && isObject(candidate.plan)) {
+  const stepsToRevise = new Set<string>();
+  if (recordedAnswers.length && isObject(candidate.plan)) {
     for (const step of asArray(candidate.plan.steps).filter(isObject)) {
-      if (unsignedAnswers.some(id => asArray(step.rests_on).includes(id))) affectedSteps.add(`plan.steps[${String(step.id)}]`);
+      const basis = asArray(step.rests_on);
+      const stepPath = `plan.steps[${String(step.id)}]`;
+      if (unsignedAnswers.some(id => basis.includes(id))) affectedSteps.add(stepPath);
+      if (recordedAnswers.some(({ id }) => basis.includes(id))) stepsToRevise.add(stepPath);
     }
   }
   // A guide correction can also require its already-run steps to be re-signed.
+  // Record an answer before asking for revisions to steps that depend on it.
   const first = findings.find(finding => !unsignedAnswers.some(id => staleBinding(finding, id))
-    && !(finding.code === 'GUIDE_CHANGED_UNSIGNED' && affectedSteps.has(finding.path)));
+    && !(finding.code === 'GUIDE_CHANGED_UNSIGNED' && affectedSteps.has(finding.path))
+    && !(finding.code === 'PLAN_STEP_PREDATES_ANSWER' && stepsToRevise.has(finding.path)));
   if (first) refuse(first.code,first.message);
   if (originalBytes && !readFileSync(file).equals(originalBytes)) refuse('REVIEW_ACT_SOURCE_STALE', 'project.json: record changed during interview validation; retry against the current job');
   const tmp = join(dirname(file), `.interview-${process.pid}-${crypto.randomUUID()}.tmp`);
@@ -396,7 +403,7 @@ export function interviewAnswerCommand(args: string[], now: number, hooks: Inter
     if (drafts.length) {
       const next = structuredClone(project);
       for (const draft of drafts) applyInterviewAnswer(dir, next, draft);
-      save(file,dir,project,next,now,[],drafts.filter(draft => draft.correction).map(draft => draft.item.id),original);
+      save(file,dir,project,next,now,[],drafts.map(draft => ({ id: draft.item.id, correction: draft.correction })),original);
     }
     if (actIds.length) progress?.(drafts.length ? 'Review interview answer recorded' : 'Review interview answer already recorded');
     return JSON.stringify(batch ? answers : answers[0]);

@@ -64,7 +64,9 @@ test('add, partial revise and remove preserve previous full steps, hashes and wr
   testClock.set('2026-11-20T00:00:01Z');
   write(dir, 'revise', 'camera', ['--does', 'Use the revised framing.', '--checkpoint-proposed', 'true']);
   const second = read(dir);
-  expect(obj(arr(obj(second.plan).replaced)[0])).toEqual({ ...retained(step(first, 'camera'), '2026-11-20T00:00:01.000Z'), action: 'revised' });
+  expect(obj(arr(obj(second.plan).replaced)[0])).toEqual({
+    ...retained(step(first, 'camera'), '2026-11-20T00:00:01.000Z'), reason: 'Revise the authored step fields.',
+  });
   expect(step(second, 'camera')['x-note']).toEqual(step(first, 'camera')['x-note']);
   expect(step(second, 'camera').checkpoint).toBeNull();
   expect(step(second, 'camera').checkpoint_proposed).toBe(true);
@@ -182,7 +184,7 @@ test.each(['legacy-example-project.json', 'example-project.json'])('post re-plan
   reopen(dir, 'post-interview');
   const before = read(dir);
   const dateBytes = (): Buffer => Buffer.from(readFileSync(join(dir, 'project.json'), 'utf8')
-    .match(/"(?:drafted_at|rigging_drafted_at)"\s*:\s*"[^"]*"/g)!.join('\n'));
+    .match(/^ {4}"(?:drafted_at|rigging_drafted_at)"\s*:\s*"[^"]*"/gm)!.join('\n'));
   const dates = dateBytes();
   const baseline = checkProject(dir).refusals;
   write(dir, 'revise', 'camera', ['--bar', 'Changed.']);

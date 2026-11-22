@@ -4,7 +4,7 @@ import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node
 import { join } from 'node:path';
 import { AGENT_BOUNCE_SINCE } from '../src/stages.ts';
 import type { Json } from '../src/templates.ts';
-import { arr, fixture, obj, waypoint, withCode } from './fixtures.ts';
+import { LEGACY_POST_DRAFT_WARNINGS, arr, fixture, obj, waypoint, withCode } from './fixtures.ts';
 import { cli, gitEnv, tempDir } from './helpers.ts';
 import { checkProject } from './clock.ts';
 
@@ -16,7 +16,7 @@ describe('prepared inputs recorded after external work', () => {
   test('the filled example verifies both shipped files and its agent bounce', () => {
     const r = checkProject(fixture());
     expect(r.refusals).toEqual([]);
-    expect(r.warnings.map(f => f.code)).toEqual(['QUESTION_SET_STALE', 'PARTS_VERDICT_FILE_LEGACY', 'RIGGING_INTERVIEW_PAINTING_LEGACY', 'STAGE_ORDER_LEGACY', 'INPUT_WRITER_MISSING', 'CHOICE_ANSWERS_LEGACY', 'CORRECTION_PATH_LEGACY']);
+    expect(r.warnings.map(f => f.code)).toEqual(['QUESTION_SET_STALE', 'PARTS_VERDICT_FILE_LEGACY', ...LEGACY_POST_DRAFT_WARNINGS, 'RIGGING_INTERVIEW_PAINTING_LEGACY', 'STAGE_ORDER_LEGACY', 'INPUT_WRITER_MISSING', 'CHOICE_ANSWERS_LEGACY', 'CORRECTION_PATH_LEGACY']);
   });
 
   test('derived add appends source, result, operation and both measured hashes through the CLI', () => {

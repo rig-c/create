@@ -1733,6 +1733,7 @@
           "value": false
         },
         "status": "done",
+        "drafted_at": "2026-11-22T00:00:43.000Z",
         "status_history": [
           {
             "from_status": "pending",
@@ -1780,6 +1781,7 @@
           "value": false
         },
         "status": "done",
+        "drafted_at": "2026-11-22T00:00:43.000Z",
         "status_history": [
           {
             "from_status": "pending",
@@ -1833,6 +1835,7 @@
           }
         },
         "status": "done",
+        "drafted_at": "2026-11-22T00:00:43.000Z",
         "status_history": [
           {
             "from_status": "pending",
@@ -1884,6 +1887,7 @@
           "value": false
         },
         "status": "done",
+        "drafted_at": "2026-11-22T00:00:43.000Z",
         "status_history": [
           {
             "from_status": "pending",
@@ -1930,6 +1934,7 @@
           "value": false
         },
         "status": "done",
+        "drafted_at": "2026-11-22T00:00:55.000Z",
         "status_history": [
           {
             "from_status": "pending",
@@ -1977,6 +1982,7 @@
           "value": false
         },
         "status": "done",
+        "drafted_at": "2026-11-22T00:00:55.000Z",
         "status_history": [
           {
             "from_status": "pending",
@@ -2023,6 +2029,7 @@
           "value": false
         },
         "status": "done",
+        "drafted_at": "2026-11-22T00:00:55.000Z",
         "status_history": [
           {
             "from_status": "pending",
@@ -2049,6 +2056,207 @@
             "signoff": null
           }
         ]
+      }
+    ],
+    "replaced": [
+      {
+        "step": {
+          "id": "bones",
+          "phase": "rig",
+          "order": 3,
+          "does": "Place the bones; chains on the scarf, both coat tails and the hair tail; a hinge for the lantern under hand_r",
+          "produces": "config bones",
+          "rests_on": [
+            "bones"
+          ],
+          "bar": "Exactly the four chains the sentence names, plus the lantern hinge from the v1 feedback; no other chain",
+          "checkpoint_proposed": false,
+          "checkpoint": {
+            "delegated": false,
+            "by": "user",
+            "at": "2026-11-22T00:00:25.000Z",
+            "verbatim": "no",
+            "value": false
+          },
+          "status": "pending"
+        },
+        "sha256": "cffe56df69960bb17b835ceab52188775d9eae650f2fc9145042b5ab24f6214c",
+        "action": "revised",
+        "at": "2026-11-22T00:00:43.000Z",
+        "by": "agent",
+        "reason": "The synthetic step matches the recorded guides."
+      },
+      {
+        "step": {
+          "id": "meshes",
+          "phase": "rig",
+          "order": 4,
+          "does": "Torso as a weighted mesh; head and lantern as rigid regions; the rest proposed",
+          "produces": "config meshes, regions",
+          "rests_on": [
+            "meshes",
+            "assemble"
+          ],
+          "bar": "torso is a mesh; head and lantern are regions; 0 changed pixels inside the face box outside the eyelid masks, every frame",
+          "checkpoint_proposed": false,
+          "checkpoint": {
+            "delegated": false,
+            "by": "user",
+            "at": "2026-11-22T00:00:26.000Z",
+            "verbatim": "no",
+            "value": false
+          },
+          "status": "pending"
+        },
+        "sha256": "b92e4c9659775d2b79e9da5a41ef1c7d13edacaf808e738f9054bded9797321f",
+        "action": "revised",
+        "at": "2026-11-22T00:00:43.000Z",
+        "by": "agent",
+        "reason": "The synthetic step matches the recorded guides."
+      },
+      {
+        "step": {
+          "id": "constraints",
+          "phase": "rig",
+          "order": 5,
+          "does": "Wind physics on scarf, coat tails and hair tail; a stop on the lantern hinge; nothing else on physics",
+          "produces": "config constraints, stops",
+          "rests_on": [
+            "constraints",
+            "bones"
+          ],
+          "bar": "Only scarf, coat tails, hair tail and the lantern hinge move on physics; the scarf's amplitude is the largest and the hair tail's the smallest; every other part changes 0 pixels from physics",
+          "checkpoint_proposed": true,
+          "checkpoint": {
+            "delegated": true,
+            "by": "user",
+            "at": "2026-11-22T00:00:27.000Z",
+            "verbatim": "you decide",
+            "source": "plan review, chat",
+            "agent_decision": {
+              "value": true,
+              "by": "agent",
+              "at": "2026-11-22T00:00:28.000Z",
+              "reasoning": "Physics extents are the item most often sent back; a motion sketch before the build is cheaper than a rebuild after."
+            }
+          },
+          "status": "pending"
+        },
+        "sha256": "b6b79b340ef98b7d884c8206538147bf376a8617ecdd048ab03ebc46e7c55dba",
+        "action": "revised",
+        "at": "2026-11-22T00:00:43.000Z",
+        "by": "agent",
+        "reason": "The synthetic step matches the recorded guides."
+      },
+      {
+        "step": {
+          "id": "motion",
+          "phase": "rig",
+          "order": 6,
+          "does": "Breath on the torso, blink on the eyelids, flicker on the lantern; render the still-frame check",
+          "produces": "config motion; the still-frame check for rig-review",
+          "rests_on": [
+            "motion",
+            "rig_type"
+          ],
+          "bar": "Every loop closes; breath, blink and flicker are each present as a track; the still-frame check renders at a fixed camera",
+          "checkpoint_proposed": false,
+          "checkpoint": {
+            "delegated": false,
+            "by": "user",
+            "at": "2026-11-22T00:00:29.000Z",
+            "verbatim": "no",
+            "value": false
+          },
+          "status": "pending"
+        },
+        "sha256": "90062d796ecb02ff9a4bbe119047fc78c0f250466f477137bf27838d31005787",
+        "action": "revised",
+        "at": "2026-11-22T00:00:43.000Z",
+        "by": "agent",
+        "reason": "The synthetic step matches the recorded guides."
+      },
+      {
+        "step": {
+          "id": "camera",
+          "phase": "post",
+          "order": 7,
+          "does": "A slow push-in over the loop; no depth built",
+          "produces": "the take's camera track",
+          "rests_on": [
+            "camera_depth"
+          ],
+          "bar": "The push-in spans the full loop; no layer parallax; no depth sheet is built",
+          "checkpoint_proposed": false,
+          "checkpoint": {
+            "delegated": false,
+            "by": "user",
+            "at": "2026-11-22T00:00:57.000Z",
+            "verbatim": "no",
+            "value": false
+          },
+          "status": "pending"
+        },
+        "sha256": "4b703ffbf112e340c7b43ed1e53e1df1719ad515e0d6d7cdf35e50fa55ab1455",
+        "action": "revised",
+        "at": "2026-11-22T00:00:55.000Z",
+        "by": "agent",
+        "reason": "The synthetic step matches the recorded guides."
+      },
+      {
+        "step": {
+          "id": "timing",
+          "phase": "post",
+          "order": 8,
+          "does": "Eight-second loop; one beam sweep late in the loop",
+          "produces": "the take's length and beat sheet",
+          "rests_on": [
+            "post_timing",
+            "motion"
+          ],
+          "bar": "The loop closes at 8.0 s; exactly one beam sweep, starting between 5.5 s and 7.0 s; for the scarf, coat_tail_l, coat_tail_r, hair_tail and lantern_hinge chain tips, each boundary jump at 8 s and 16 s in a three-period measurement twin is no larger than that tip's own largest in-loop step in the adjacent periods. Run node_modules/.bin/rigc render --candidate derived/loop-twin --animation idle --fps 24 --geometry --out derived/loop-reading. Read each named chain's tip bone in the built rig's geometry.json, compute its world-space endpoint per frame, take Euclidean distances between consecutive endpoints, and compare steps 191-to-192 and 383-to-384 with that tip's largest consecutive step inside each adjacent 192-frame period, excluding the boundary steps",
+          "checkpoint_proposed": false,
+          "checkpoint": {
+            "delegated": false,
+            "by": "user",
+            "at": "2026-11-22T00:00:58.000Z",
+            "verbatim": "no",
+            "value": false
+          },
+          "status": "pending"
+        },
+        "sha256": "200419878cf7bd7367db5151a261992fb3d54554a3cbe78f2a993527363ca289",
+        "action": "revised",
+        "at": "2026-11-22T00:00:55.000Z",
+        "by": "agent",
+        "reason": "The synthetic step matches the recorded guides."
+      },
+      {
+        "step": {
+          "id": "composition",
+          "phase": "post",
+          "order": 9,
+          "does": "Frame with the whole lighthouse in shot; keep the painting's exposure",
+          "produces": "the take's framing",
+          "rests_on": [
+            "post_composition"
+          ],
+          "bar": "The lighthouse is fully in frame on every frame; mean luminance within 2% of the painting's",
+          "checkpoint_proposed": false,
+          "checkpoint": {
+            "delegated": false,
+            "by": "user",
+            "at": "2026-11-22T00:00:59.000Z",
+            "verbatim": "no",
+            "value": false
+          },
+          "status": "pending"
+        },
+        "sha256": "083c9c35e46ea859fbd9e35da57163db41628856a0de9b6dda02358361c9bd91",
+        "action": "revised",
+        "at": "2026-11-22T00:00:55.000Z",
+        "by": "agent",
+        "reason": "The synthetic step matches the recorded guides."
       }
     ],
     "rigging_drafted_at": "2026-11-22T00:00:43.000Z"

@@ -84,7 +84,7 @@
       "stage": "rigging-interview",
       "checkpoint": null,
       "by": "user",
-      "at": "2026-11-06T01:00:54.000Z",
+      "at": "2026-11-06T01:00:58.000Z",
       "verbatim": "Approve this synthetic geometric example.\n",
       "steps": [
         "bones",
@@ -93,10 +93,10 @@
         "motion"
       ],
       "step_hashes": {
-        "bones": "94dc05f173ea780f34210bde676be1838e5ae8bb2331c8387beb55b38c8bfadc",
-        "meshes": "ad53bc5dac7eb56479fc2912442a52a0490375261a90a8d1ae60ec1030a36b74",
-        "constraints": "0d142b7fc27029cd2b86e678f70b2025c29d1632acb38e8f98c6646826b564c3",
-        "motion": "518ff49c26fa26b0fd8fe95308ab991468fbed4756336f5d4ee473e9165985ac"
+        "bones": "97a4c6a89f842b1559b36d8746b8afb4b18ec877b52eb84d441874513ca97af2",
+        "meshes": "acc614294d745a15c94c8c531c2b2fcccd4cb670068f095ae514214a7409cdca",
+        "constraints": "c0c4657a7ff6235c89e43bfc4feb7e7c52d4bd3a198ba71bb220d7de619be001",
+        "motion": "14c713d0c3463fe7e153e0b3bedfb096085076e10c7c47a3d048da96c10cc3d6"
       },
       "answer_hashes": {
         "bones": "0f3046e361445e9f16f1a66d72f89acc588b4c586ce10bbb6a9f99213546f6f7",
@@ -933,6 +933,7 @@
           "value": false
         },
         "status": "done",
+        "drafted_at": "2026-11-06T01:00:15.000Z",
         "status_history": [
           {
             "from_status": "pending",
@@ -979,6 +980,7 @@
           "value": true
         },
         "status": "done",
+        "drafted_at": "2026-11-06T01:00:16.000Z",
         "status_history": [
           {
             "from_status": "pending",
@@ -1024,11 +1026,12 @@
         "checkpoint": {
           "delegated": false,
           "by": "user",
-          "at": "2026-11-06T01:00:54.000Z",
+          "at": "2026-11-06T01:00:58.000Z",
           "verbatim": "Approve this synthetic geometric example.\n",
           "value": false
         },
-        "status": "done"
+        "status": "done",
+        "drafted_at": "2026-11-06T01:00:54.000Z"
       },
       {
         "id": "meshes",
@@ -1044,11 +1047,12 @@
         "checkpoint": {
           "delegated": false,
           "by": "user",
-          "at": "2026-11-06T01:00:54.000Z",
+          "at": "2026-11-06T01:00:58.000Z",
           "verbatim": "Approve this synthetic geometric example.\n",
           "value": false
         },
-        "status": "done"
+        "status": "done",
+        "drafted_at": "2026-11-06T01:00:55.000Z"
       },
       {
         "id": "constraints",
@@ -1064,11 +1068,12 @@
         "checkpoint": {
           "delegated": false,
           "by": "user",
-          "at": "2026-11-06T01:00:54.000Z",
+          "at": "2026-11-06T01:00:58.000Z",
           "verbatim": "Approve this synthetic geometric example.\n",
           "value": false
         },
-        "status": "done"
+        "status": "done",
+        "drafted_at": "2026-11-06T01:00:56.000Z"
       },
       {
         "id": "motion",
@@ -1084,14 +1089,105 @@
         "checkpoint": {
           "delegated": false,
           "by": "user",
-          "at": "2026-11-06T01:00:54.000Z",
+          "at": "2026-11-06T01:00:58.000Z",
           "verbatim": "Approve this synthetic geometric example.\n",
           "value": false
         },
-        "status": "done"
+        "status": "done",
+        "drafted_at": "2026-11-06T01:00:57.000Z"
       }
     ],
-    "rigging_drafted_at": "2026-11-06T01:00:20.000Z"
+    "rigging_drafted_at": "2026-11-06T01:00:57.000Z",
+    "replaced": [
+      {
+        "step": {
+          "id": "bones",
+          "phase": "rig",
+          "order": 3,
+          "does": "Execute synthetic bones",
+          "produces": "Synthetic bones output",
+          "rests_on": [
+            "bones"
+          ],
+          "bar": "The synthetic output matches its declared input.",
+          "checkpoint_proposed": false,
+          "checkpoint": null,
+          "status": "pending",
+          "drafted_at": "2026-11-06T01:00:17.000Z"
+        },
+        "sha256": "d99b67ae15e9652e3f23701aeb271b798356923c9094f1493a7af7d61c8a786d",
+        "action": "revised",
+        "at": "2026-11-06T01:00:54.000Z",
+        "by": "agent",
+        "reason": "The synthetic step matches the recorded guides."
+      },
+      {
+        "step": {
+          "id": "meshes",
+          "phase": "rig",
+          "order": 4,
+          "does": "Execute synthetic meshes",
+          "produces": "Synthetic meshes output",
+          "rests_on": [
+            "meshes"
+          ],
+          "bar": "The synthetic output matches its declared input.",
+          "checkpoint_proposed": false,
+          "checkpoint": null,
+          "status": "pending",
+          "drafted_at": "2026-11-06T01:00:18.000Z"
+        },
+        "sha256": "03af9c46dfc76201d14d9a439b2839405d129b0a7cf0b6cdf5c0753e4e575a8c",
+        "action": "revised",
+        "at": "2026-11-06T01:00:55.000Z",
+        "by": "agent",
+        "reason": "The synthetic step matches the recorded guides."
+      },
+      {
+        "step": {
+          "id": "constraints",
+          "phase": "rig",
+          "order": 5,
+          "does": "Execute synthetic constraints",
+          "produces": "Synthetic constraints output",
+          "rests_on": [
+            "constraints"
+          ],
+          "bar": "The synthetic output matches its declared input.",
+          "checkpoint_proposed": false,
+          "checkpoint": null,
+          "status": "pending",
+          "drafted_at": "2026-11-06T01:00:19.000Z"
+        },
+        "sha256": "46493c6aa6e863f513accd88480e59e80843c37f9b9225bbd54a04ac4b629a7e",
+        "action": "revised",
+        "at": "2026-11-06T01:00:56.000Z",
+        "by": "agent",
+        "reason": "The synthetic step matches the recorded guides."
+      },
+      {
+        "step": {
+          "id": "motion",
+          "phase": "rig",
+          "order": 6,
+          "does": "Execute synthetic motion",
+          "produces": "Synthetic motion output",
+          "rests_on": [
+            "motion"
+          ],
+          "bar": "The synthetic output matches its declared input.",
+          "checkpoint_proposed": false,
+          "checkpoint": null,
+          "status": "pending",
+          "drafted_at": "2026-11-06T01:00:20.000Z"
+        },
+        "sha256": "1b5638281e508e9907ad5e9ee2aff2d7103928698a7f036a94d3afe16dab54e1",
+        "action": "revised",
+        "at": "2026-11-06T01:00:57.000Z",
+        "by": "agent",
+        "reason": "The synthetic step matches the recorded guides."
+      }
+    ]
   },
   "split": {
     "label_values": [
@@ -1153,7 +1249,7 @@
       "n": 1,
       "kind": "rig",
       "rig_version": null,
-      "at": "2026-11-06T01:00:56.000Z",
+      "at": "2026-11-06T01:01:00.000Z",
       "built_by": "agent",
       "built_with": {
         "@rig-c/parts": "2.52.1",
@@ -1676,7 +1772,7 @@
     {
       "stage": "rigging",
       "from_stage": "rigging-interview",
-      "at": "2026-11-06T01:00:55.000Z",
+      "at": "2026-11-06T01:00:59.000Z",
       "post_not_passed": false,
       "order": "split",
       "signoffs_before": [
@@ -1703,13 +1799,13 @@
         {
           "stage": "rigging-interview",
           "checkpoint": null,
-          "at": "2026-11-06T01:00:54.000Z"
+          "at": "2026-11-06T01:00:58.000Z"
         }
       ],
       "signoff": {
         "stage": "rigging-interview",
         "checkpoint": null,
-        "at": "2026-11-06T01:00:54.000Z"
+        "at": "2026-11-06T01:00:58.000Z"
       },
       "steps_before": [
         {
@@ -1747,7 +1843,7 @@
     {
       "stage": "rig-review",
       "from_stage": "rigging",
-      "at": "2026-11-06T01:00:58.000Z",
+      "at": "2026-11-06T01:01:02.000Z",
       "post_not_passed": false,
       "order": "split",
       "signoffs_before": [
@@ -1774,13 +1870,13 @@
         {
           "stage": "rigging-interview",
           "checkpoint": null,
-          "at": "2026-11-06T01:00:54.000Z"
+          "at": "2026-11-06T01:00:58.000Z"
         }
       ],
       "signoff": {
         "stage": "rigging-interview",
         "checkpoint": null,
-        "at": "2026-11-06T01:00:54.000Z"
+        "at": "2026-11-06T01:00:58.000Z"
       },
       "steps_before": [
         {

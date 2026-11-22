@@ -1094,6 +1094,7 @@
           "value": false
         },
         "status": "done",
+        "drafted_at": "2026-11-22T00:00:15.000Z",
         "status_history": [
           {
             "from_status": "pending",
@@ -1140,6 +1141,7 @@
           "value": true
         },
         "status": "done",
+        "drafted_at": "2026-11-22T00:00:16.000Z",
         "status_history": [
           {
             "from_status": "pending",
@@ -1190,6 +1192,7 @@
           "value": false
         },
         "status": "pending",
+        "drafted_at": "2026-11-22T00:00:50.000Z",
         "status_history": [
           {
             "from_status": "pending",
@@ -1236,6 +1239,7 @@
           "value": false
         },
         "status": "pending",
+        "drafted_at": "2026-11-22T00:00:51.000Z",
         "status_history": [
           {
             "from_status": "pending",
@@ -1282,6 +1286,7 @@
           "value": false
         },
         "status": "pending",
+        "drafted_at": "2026-11-22T00:00:52.000Z",
         "status_history": [
           {
             "from_status": "pending",
@@ -1328,6 +1333,7 @@
           "value": false
         },
         "status": "pending",
+        "drafted_at": "2026-11-22T00:00:53.000Z",
         "status_history": [
           {
             "from_status": "pending",
@@ -1374,6 +1380,7 @@
           "value": false
         },
         "status": "pending",
+        "drafted_at": "2026-11-22T00:01:28.000Z",
         "status_history": [
           {
             "from_status": "pending",
@@ -1420,6 +1427,7 @@
           "value": false
         },
         "status": "pending",
+        "drafted_at": "2026-11-22T00:01:29.000Z",
         "status_history": [
           {
             "from_status": "pending",
@@ -1466,6 +1474,7 @@
           "value": false
         },
         "status": "pending",
+        "drafted_at": "2026-11-22T00:01:30.000Z",
         "status_history": [
           {
             "from_status": "pending",

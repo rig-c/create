@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import { type CheckReport } from '../src/check.ts';
 import { SETUP_PAINTING_SINCE } from '../src/setup-painting.ts';
 import type { JsonObject } from '../src/templates.ts';
-import { fixture, framing, obj, version, type Mutate } from './fixtures.ts';
+import { LEGACY_POST_DRAFT_WARNINGS, fixture, framing, obj, version, type Mutate } from './fixtures.ts';
 import { cli, gitEnv, tempDir } from './helpers.ts';
 import { checkProject } from './clock.ts';
 
@@ -122,10 +122,10 @@ describe('setup painting on readable retained configs', () => {
     expect(setup(report)[0]?.code).toBe('SETUP_PAINTING_REQUIRED_MISSING');
   });
 
-  test('the filled example remains at zero refusals and warnings', () => {
+  test('the legacy example keeps its existing setup painting behavior', () => {
     const report = checkProject(fixture());
     expect(report.refusals).toEqual([]);
-    expect(report.warnings.map(f => f.code)).toEqual(['QUESTION_SET_STALE', 'PARTS_VERDICT_FILE_LEGACY', 'RIGGING_INTERVIEW_PAINTING_LEGACY', 'STAGE_ORDER_LEGACY', 'INPUT_WRITER_MISSING', 'CHOICE_ANSWERS_LEGACY', 'CORRECTION_PATH_LEGACY']);
+    expect(report.warnings.map(f => f.code)).toEqual(['QUESTION_SET_STALE', 'PARTS_VERDICT_FILE_LEGACY', ...LEGACY_POST_DRAFT_WARNINGS, 'RIGGING_INTERVIEW_PAINTING_LEGACY', 'STAGE_ORDER_LEGACY', 'INPUT_WRITER_MISSING', 'CHOICE_ANSWERS_LEGACY', 'CORRECTION_PATH_LEGACY']);
   });
 
   test('the normal interview CLI reports the named refusal', () => {

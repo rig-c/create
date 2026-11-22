@@ -12,7 +12,7 @@ import { PARTS_VERDICT_RECEIPT_SINCE } from '../src/parts-verdict-record.ts';
 import { describe, expect, test } from 'bun:test';
 import { PARTS_REVIEW_SINCE, STAGE_VALUES, STAGES } from '../src/stages.ts';
 import type { Json, JsonObject } from '../src/templates.ts';
-import { arr, codes, fixture as baseFixture, historicalFixture, obj, rehashSignoffs, retimeFixture, step, withCode } from './fixtures.ts';
+import { LEGACY_POST_DRAFT_WARNINGS, arr, codes, fixture as baseFixture, historicalFixture, obj, rehashSignoffs, retimeFixture, step, withCode } from './fixtures.ts';
 import { checkProject, testClock } from './clock.ts';
 
 function fixture(mutate: (project: JsonObject) => void): string {
@@ -222,7 +222,7 @@ describe('a project that passed plan-approved before the stages existed', () => 
     expect(warned).toHaveLength(1);
     expect(warned[0]?.message).toContain("project 'lantern-keeper'");
     expect(warned[0]?.message).toContain(PARTS_REVIEW_SINCE);
-    expect(report.warnings.map((w) => w.code).sort()).toEqual(['CHOICE_ANSWERS_LEGACY', 'CORRECTION_PATH_LEGACY', 'INPUT_WRITER_MISSING', 'PARTS_REVIEW_PREDATES_STAGE', 'QUESTION_SET_STALE', 'RIGGING_INTERVIEW_PAINTING_LEGACY', 'SIGNOFF_ANSWERS_MISSING_LEGACY', 'SIGNOFF_ANSWERS_MISSING_LEGACY', 'SIGNOFF_ANSWERS_MISSING_LEGACY', 'SIGNOFF_ANSWERS_MISSING_LEGACY', 'STAGE_MOVE_UNLINKED', 'STAGE_ORDER_LEGACY', 'STAGE_VALUES_STALE']);
+    expect(report.warnings.map((w) => w.code).sort()).toEqual(['CHOICE_ANSWERS_LEGACY', 'CORRECTION_PATH_LEGACY', 'INPUT_WRITER_MISSING', 'PARTS_REVIEW_PREDATES_STAGE', ...LEGACY_POST_DRAFT_WARNINGS, 'QUESTION_SET_STALE', 'RIGGING_INTERVIEW_PAINTING_LEGACY', 'SIGNOFF_ANSWERS_MISSING_LEGACY', 'SIGNOFF_ANSWERS_MISSING_LEGACY', 'SIGNOFF_ANSWERS_MISSING_LEGACY', 'SIGNOFF_ANSWERS_MISSING_LEGACY', 'STAGE_MOVE_UNLINKED', 'STAGE_ORDER_LEGACY', 'STAGE_VALUES_STALE']);
   });
 
   test('one that a person did review is not warned about as predating the stage; its evidence-less approval gets one build-identity WARN per rig version', () => {
@@ -235,7 +235,7 @@ describe('a project that passed plan-approved before the stages existed', () => 
       }),
     );
     expect(codes(report)).toEqual([]);
-    expect(report.warnings.map((w) => w.code)).toEqual(['STAGE_VALUES_STALE', 'SIGNOFF_ANSWERS_MISSING_LEGACY', 'SIGNOFF_ANSWERS_MISSING_LEGACY', 'SIGNOFF_ANSWERS_MISSING_LEGACY', 'SIGNOFF_ANSWERS_MISSING_LEGACY', 'QUESTION_SET_STALE', 'PARTS_VERDICT_FILE_LEGACY', 'RIGGING_INTERVIEW_PAINTING_LEGACY', 'STAGE_MOVE_UNLINKED', 'STAGE_ORDER_LEGACY', 'INPUT_WRITER_MISSING', 'CHOICE_ANSWERS_LEGACY', 'CORRECTION_PATH_LEGACY']);
+    expect(report.warnings.map((w) => w.code)).toEqual(['STAGE_VALUES_STALE', 'SIGNOFF_ANSWERS_MISSING_LEGACY', 'SIGNOFF_ANSWERS_MISSING_LEGACY', 'SIGNOFF_ANSWERS_MISSING_LEGACY', 'SIGNOFF_ANSWERS_MISSING_LEGACY', 'QUESTION_SET_STALE', 'PARTS_VERDICT_FILE_LEGACY', ...LEGACY_POST_DRAFT_WARNINGS, 'RIGGING_INTERVIEW_PAINTING_LEGACY', 'STAGE_MOVE_UNLINKED', 'STAGE_ORDER_LEGACY', 'INPUT_WRITER_MISSING', 'CHOICE_ANSWERS_LEGACY', 'CORRECTION_PATH_LEGACY']);
   });
 
   test('one signed before the stages existed but still at plan-approved goes through them: no exemption', () => {

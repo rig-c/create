@@ -1,8 +1,58 @@
 import { asArray, classify, collectSignoffs, isObject, type Finding } from './check.ts';
 import { collectReopens, liveSignoff } from './reopen.ts';
-import { approvalStageOfStep, hasStageOrder } from './stages.ts';
+import { approvalStageOfStep, hasStageOrder, stageIndex } from './stages.ts';
 import { stepHash } from './step-hash.ts';
 import type { JsonObject } from './templates.ts';
+
+/** Limit id-only reopen snapshots to the definition's replacement generation. */
+function doneSnapshots(project: JsonObject, step: JsonObject, after: number, before: number): number[] {
+  return asArray(project.reopens).filter(isObject)
+    .filter(entry => asArray(entry.steps_before).some(value => isObject(value) && value.id === step.id && value.status === 'done'))
+    .map(entry => Date.parse(String(entry.at))).filter(at => at > after && at <= before);
+}
+
+export function planGenerationStart(project: JsonObject, id: unknown, index = Infinity): number {
+  return Math.max(-Infinity, ...asArray(isObject(project.plan) ? project.plan.replaced : undefined)
+    .slice(0, index).filter(isObject).filter(entry => isObject(entry.step) && entry.step.id === id)
+    .map(entry => Date.parse(String(entry.at))));
+}
+
+/** Resets retain the dated completion of this definition and legacy reopen snapshots. */
+export function planStepCompleted(project: JsonObject, step: JsonObject, after = planGenerationStart(project, step.id), before = Infinity): boolean {
+  return step.status === 'done' || asArray(step.status_history).some(event => isObject(event) && event.status === 'done')
+    || doneSnapshots(project, step, after, before).length > 0;
+}
+
+/** A removed rig or post definition can be replaced only after its recorded completion. */
+export function planStepReplacementAuthorized(project: JsonObject, step: JsonObject, now: number, after = planGenerationStart(project, step.id), before = now): boolean {
+  if (step.phase !== 'rig' && step.phase !== 'post') return false;
+  const dates = asArray(step.status_history).filter(isObject).filter(event => event.status === 'done')
+    .map(event => Date.parse(String(event.at)));
+  // A legacy snapshot supplies only an upper bound, frozen within its own generation.
+  if (!dates.length) dates.push(...doneSnapshots(project, step, after, before));
+  if (!dates.length || dates.some(date => !Number.isFinite(date))) return false;
+  const completion = Math.max(...dates);
+  const approval = approvalStageOfStep(step.phase, String(step.id), hasStageOrder(project));
+  return collectReopens(project, []).some(cutoff => {
+    if (cutoff.at <= completion || cutoff.at > now) return false;
+    if ('target' in cutoff) return completion <= before && stageIndex(cutoff.stage) <= stageIndex(approval);
+    // Historical reopen authority keeps its original stage rules.
+    return step.phase === 'rig' ? cutoff.stage === 'plan-approved' : stageIndex(cutoff.stage) < stageIndex('post');
+  });
+}
+
+export function planStepHasLiveApproval(project: JsonObject, step: JsonObject): boolean {
+  if (step.phase !== 'rig' && step.phase !== 'post') return false;
+  const id = String(step.id);
+  const approval = approvalStageOfStep(step.phase, id, hasStageOrder(project));
+  const reopens = collectReopens(project, []);
+  return collectSignoffs(project, []).some(signature => signature.stage === approval && signature.checkpoint === null
+    && (signature.steps === null || signature.steps.includes(id)) && liveSignoff(reopens, signature.stage, signature.at));
+}
+
+export function completedPlanStepNeedsAmendment(project: JsonObject, step: JsonObject, now: number): boolean {
+  return planStepHasLiveApproval(project, step) || !planStepReplacementAuthorized(project, step, now);
+}
 
 /** Invalid history is reported and never used to resolve a historical signature. */
 export function collectPlanReplaced(project: JsonObject, refusals: Finding[]): JsonObject[] {

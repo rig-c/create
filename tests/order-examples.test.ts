@@ -4,7 +4,7 @@ import { readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { validateCorrectionIdentity } from '../src/corrections.ts';
 import { readTemplate, type JsonObject } from '../src/templates.ts';
-import { fixture, plantLegacyReopen } from './fixtures.ts';
+import { LEGACY_POST_DRAFT_WARNINGS, fixture, plantLegacyReopen } from './fixtures.ts';
 import { checkProject } from './clock.ts';
 
 test('all generated example events satisfy every source contract date within two minutes', () => {
@@ -75,7 +75,7 @@ test('a clean older record with no declaration still passes the check', () => {
 test('frozen pre-split example is refused by build-identity and missing review targets', () => {
   const report = checkProject(fixture(() => {}, 'legacy-example-project.json', {}, true));
   expect(report.refusals.map(f => f.code)).toEqual(['SIGNOFF_TARGET_MISSING', 'SIGNOFF_TARGET_MISSING', 'SIGNOFF_ANSWERS_MISSING', 'SIGNOFF_ANSWERS_MISSING', 'SIGNOFF_ANSWERS_MISSING', 'SIGNOFF_ANSWERS_MISSING', 'PARTS_VERDICT_RECEIPT_REQUIRED', 'STAGE_SKIPPED', 'REVIEW_PACKAGE_CONFIG_MISMATCH', 'REVIEW_PACKAGE_PARTS_UNREAD', 'REVIEW_PACKAGE_CONFIG_MISMATCH', 'REVIEW_PACKAGE_PARTS_UNREAD', 'DIRECTION_SCENE_REQUIRED', 'DIRECTION_SCENE_REQUIRED']);
-  expect(report.warnings.map(f => f.code)).toEqual(['QUESTION_SET_STALE', 'RIGGING_INTERVIEW_PAINTING_LEGACY', 'STAGE_ORDER_LEGACY', 'INPUT_WRITER_MISSING', 'CHOICE_ANSWERS_LEGACY', 'CORRECTION_PATH_LEGACY', 'OWNER_LANGUAGE_MISSING']);
+  expect(report.warnings.map(f => f.code)).toEqual(['QUESTION_SET_STALE', ...LEGACY_POST_DRAFT_WARNINGS, 'RIGGING_INTERVIEW_PAINTING_LEGACY', 'STAGE_ORDER_LEGACY', 'INPUT_WRITER_MISSING', 'CHOICE_ANSWERS_LEGACY', 'CORRECTION_PATH_LEGACY', 'OWNER_LANGUAGE_MISSING']);
   const bytes = readFileSync(join(import.meta.dir, '../templates/legacy-example-project.json'));
   // Sealed original bytes from the pre-split main head, not a rewritten migration.
   expect(createHash('sha256').update(bytes).digest('hex')).toBe('257482dcd2ea43d93903075116706067f278137296e1cb57b3df943c2a604985');

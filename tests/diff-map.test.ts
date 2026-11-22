@@ -12,7 +12,7 @@ import { acquireJobLock, enqueuePublication, JOB_BINDING_FILE, jobPrivateRoot, r
 import { currentJobIdentity } from '../src/job-publication.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { EXAMPLE_DIFF_REPORT, generateDiffFixture } from './diff-fixture.ts';
-import { plantLegacyReopen, arr, fixture, historicalFixture, obj, rehashSignoffs, retimeFixture } from './fixtures.ts';
+import { LEGACY_POST_DRAFT_WARNINGS, plantLegacyReopen, arr, fixture, historicalFixture, obj, rehashSignoffs, retimeFixture } from './fixtures.ts';
 import { cli, gitEnv, tempDir } from './helpers.ts';
 import { EXAMPLE_PARTS_DIR as SOURCE_PARTS_DIR } from './parts-package.ts';
 const EXAMPLE_PARTS_DIR = 'derived/drafts/receipt-fixture/input/rig';
@@ -298,9 +298,9 @@ test('report symlinks cannot leave the project', () => {
   renameSync(path, target); symlinkSync(target, path);
   only(dir, 'DIFF_MAP_REPORT');
 });
-test('B5 example has no findings and generation reproduces all shipped bytes', () => {
+test('B5 example has no refusals and generation reproduces all shipped bytes', () => {
   const report = checkProject(fixture());
-  expect(report.refusals).toEqual([]); expect(report.warnings.map(f => f.code)).toEqual(['QUESTION_SET_STALE', 'PARTS_VERDICT_FILE_LEGACY', 'RIGGING_INTERVIEW_PAINTING_LEGACY', 'STAGE_ORDER_LEGACY', 'INPUT_WRITER_MISSING', 'CHOICE_ANSWERS_LEGACY', 'CORRECTION_PATH_LEGACY']);
+  expect(report.refusals).toEqual([]); expect(report.warnings.map(f => f.code)).toEqual(['QUESTION_SET_STALE', 'PARTS_VERDICT_FILE_LEGACY', ...LEGACY_POST_DRAFT_WARNINGS, 'RIGGING_INTERVIEW_PAINTING_LEGACY', 'STAGE_ORDER_LEGACY', 'INPUT_WRITER_MISSING', 'CHOICE_ANSWERS_LEGACY', 'CORRECTION_PATH_LEGACY']);
   const generated = generateExampleDiff(join(tempDir(), 'generated'));
   expect(generated.report).toBe(reports.normal);
   const p = JSON.parse(readFileSync(join(fixture(() => {}, 'example-project.json'), 'project.json'), 'utf8')) as JsonObject;

@@ -546,6 +546,7 @@
           "value": false
         },
         "status": "done",
+        "drafted_at": "2026-11-06T01:00:15.000Z",
         "status_history": [
           {
             "from_status": "pending",
@@ -592,6 +593,7 @@
           "value": true
         },
         "status": "done",
+        "drafted_at": "2026-11-06T01:00:16.000Z",
         "status_history": [
           {
             "from_status": "pending",
@@ -635,7 +637,8 @@
         "bar": "The synthetic output matches its declared input.",
         "checkpoint_proposed": false,
         "checkpoint": null,
-        "status": "pending"
+        "status": "pending",
+        "drafted_at": "2026-11-06T01:00:17.000Z"
       },
       {
         "id": "meshes",
@@ -649,7 +652,8 @@
         "bar": "The synthetic output matches its declared input.",
         "checkpoint_proposed": false,
         "checkpoint": null,
-        "status": "pending"
+        "status": "pending",
+        "drafted_at": "2026-11-06T01:00:18.000Z"
       },
       {
         "id": "constraints",
@@ -663,7 +667,8 @@
         "bar": "The synthetic output matches its declared input.",
         "checkpoint_proposed": false,
         "checkpoint": null,
-        "status": "pending"
+        "status": "pending",
+        "drafted_at": "2026-11-06T01:00:19.000Z"
       },
       {
         "id": "motion",
@@ -677,7 +682,8 @@
         "bar": "The synthetic output matches its declared input.",
         "checkpoint_proposed": false,
         "checkpoint": null,
-        "status": "pending"
+        "status": "pending",
+        "drafted_at": "2026-11-06T01:00:20.000Z"
       }
     ],
     "rigging_drafted_at": "2026-11-06T01:00:20.000Z"

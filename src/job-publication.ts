@@ -407,13 +407,19 @@ export function readRecordPublished({ root, record, result, phase, parts: sealed
       ? new Set(items.filter(item => item.state.state === 'silent'
         && interviewStageOfGuide(item.id, item.kind === 'post', hasStageOrder(project)) === report.effective_stage).map(item => item.path))
       : new Set<string>();
-    const scopedRefusals = report.refusals.filter(finding => finding.code !== 'INTERVIEW_INCOMPLETE' || !openQuestions.has(finding.path));
+    const coversPlanDate = (finding: Finding): boolean => finding.code !== 'PLAN_STEP_PREDATES_ANSWER'
+      || (result.kind === 'plan' && steps.some(step => finding.path === `plan.steps[${String(step.id)}]`
+        && stepCoveredByApproval(project, step, report.effective_stage)));
+    const scopedRefusals = report.refusals.filter(finding => coversPlanDate(finding)
+      && (finding.code !== 'INTERVIEW_INCOMPLETE' || !openQuestions.has(finding.path)));
+    const stalePlan = scopedRefusals.find(finding => finding.code === 'PLAN_STEP_PREDATES_ANSWER');
+    if (stalePlan) refuse(stalePlan.code, stalePlan.message);
     const canResign = result.kind === 'plan' && !pausedPlan && !interviewSignoff
       && scopedRefusals.some(finding => staleSignoffAnswer(finding) !== undefined);
     // Inventory sees the live project. A re-sign may only repair the scoped findings,
     // even when another refusal depends on producer files outside the retained plan.
     const baseline = canResign && phase === 'inventory' ? checkProject(root, project, { now, readOnly: true }) : undefined;
-    const refusals = baseline?.refusals ?? scopedRefusals;
+    const refusals = baseline?.refusals.filter(coversPlanDate) ?? scopedRefusals;
     const { stage: resignStage, blocking } = canResign ? planResignScope(project, steps, refusals) : { stage: null, blocking: refusals };
     if (blocking.length && phase === 'retained') {
       throw new RecordClosureIncomplete(blocking.map(({ code, path }) => ({ code, path })));
@@ -497,7 +503,7 @@ export function readRecordPublished({ root, record, result, phase, parts: sealed
     return { label, parts, inputs, files, ...evidence, ...(planPicture ? { planPicture } : {}),
       plan: { steps: steps.map(step => ({ id: String(step.id), hash: stepHash(step) })) }, subjects };
   } catch (error) {
-    const failure = error instanceof Refusal && (phase === 'retained' || ['JOB_RECORD_SUBJECT_INVALID', 'JOB_OPTION_SET_DUPLICATE', 'JOB_RECORD_COLLECTION_EXTERNAL', 'JOB_RECORD_PARTS_LOCK_MISSING', 'JOB_DIRECTION_VERDICT_REQUIRED', 'REVIEW_ACT_RECORD_TARGET_INVALID', 'REVIEW_ACT_TARGET_MISMATCH', 'INTERVIEW_SIGNOFF_NOT_CLEAN', 'INTERVIEW_SIGNOFF_PLAN_REQUIRED'].includes(error.code))
+    const failure = error instanceof Refusal && (phase === 'retained' || ['JOB_RECORD_SUBJECT_INVALID', 'JOB_OPTION_SET_DUPLICATE', 'JOB_RECORD_COLLECTION_EXTERNAL', 'JOB_RECORD_PARTS_LOCK_MISSING', 'JOB_DIRECTION_VERDICT_REQUIRED', 'REVIEW_ACT_RECORD_TARGET_INVALID', 'REVIEW_ACT_TARGET_MISMATCH', 'INTERVIEW_SIGNOFF_NOT_CLEAN', 'INTERVIEW_SIGNOFF_PLAN_REQUIRED', 'PLAN_STEP_PREDATES_ANSWER'].includes(error.code))
       ? error
       : new Refusal('JOB_RECORD_INCOMPLETE', `project.json: ${error instanceof Refusal ? `${error.code}: ` : ''}${error instanceof Error ? error.message : String(error)}; restore the requested record and retained evidence, resolve check refusals and reconcile pending publications before publishing`);
     // Review returns only a safe producer token. Its retained root is private and may

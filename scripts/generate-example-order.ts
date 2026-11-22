@@ -18,6 +18,7 @@ import { sha256, CHOICE_ORDER_SPEC } from '../src/choices.ts';
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { checkProject } from '../src/check.ts';
+import { planCommand } from '../src/plan-writers.ts';
 import { diffClassesCommand } from '../src/diff-classes.ts';
 import { draftRigCommand } from '../src/drafts.ts';
 import { reviewPackageCommand } from '../src/review-package.ts';
@@ -104,6 +105,14 @@ export function generateExampleOrder(dir: string): { project: JsonObject; files:
       stepStatusCommand([String(step.id), status, dir, '--by', 'agent'], clock.now); reload();
     }
   };
+  const reviewPlan = (phase: string, at: string, ids?: string[]): void => {
+    clock.now = Date.parse(exampleTime(at));
+    const steps = arr(obj(p.plan).steps).map(obj).filter(step => step.phase === phase && (!ids || ids.includes(String(step.id))));
+    for (const step of steps) {
+      planCommand(['revise', String(step.id), dir, '--by', 'agent', '--reason', 'The synthetic step matches the recorded guides.'], clock.now);
+      reload();
+    }
+  };
   p.stage = 'plan-approved'; p.stage_values = [...STAGE_VALUES]; p.versions = [];
   save();
   ownerLanguageCommand(['set', 'en', dir]);
@@ -157,7 +166,6 @@ export function generateExampleOrder(dir: string): { project: JsonObject; files:
     '--component', 'p10-n3=in-painting:the synthetic painting deliberately differs here', '--component', 'p1000-n3=in-painting:the synthetic painting deliberately differs here',
     '--by', 'agent'], clock.now); reload();
   sign('parts-review', '2026-11-11T10:20:00Z', ['--draft', 'example', '--structure-file', 'evidence/structure-example.json']);
-  obj(p.plan).rigging_drafted_at = exampleTime('2026-11-11T11:05:00Z');
   for (const w of arr(obj(p.interview).waypoints).map(obj)) {
     if (!['bones', 'meshes', 'constraints', 'motion'].includes(String(w.id))) continue;
     const old = arr(obj(original.interview).waypoints).map(obj).find(x => x.id === w.id);
@@ -167,6 +175,7 @@ export function generateExampleOrder(dir: string): { project: JsonObject; files:
   }
   save(); Object.assign(files,writeExampleChoices(dir,'rigging-interview',clock)); reload();
   advanceCommand(['rigging-interview', dir], clock.now); reload();
+  reviewPlan('rig', '2026-11-11T11:05:00Z', ['bones', 'meshes', 'constraints', 'motion']);
   sign('rigging-interview', '2026-11-11T11:10:00Z');
   sign('rigging-interview', '2026-11-12T10:30:00Z', ['--steps', 'bones,constraints']);
   // Retain the already writer-shaped synthetic execution/review history; new approvals are all writer-generated.
@@ -198,6 +207,7 @@ export function generateExampleOrder(dir: string): { project: JsonObject; files:
   for (const s of arr(obj(p.plan).steps).map(obj)) s.status = s.phase === 'post' ? 'pending' : 'done';
   save(); Object.assign(files,writeExampleChoices(dir,'post-interview',clock)); reload();
   advanceCommand(['post-interview', dir], clock.now); reload();
+  reviewPlan('post', '2026-11-13T10:04:00Z');
   save(); sign('post-interview', '2026-11-13T10:30:00Z');
   // The plate bytes are producer-generated and registered through input add.
   const background = 'evidence/scene-background.png';

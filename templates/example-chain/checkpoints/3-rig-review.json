@@ -2,7 +2,7 @@
   "schema": "rig-create/example-checkpoint@1",
   "stage": 3,
   "name": "3-rig-review",
-  "chain_step": 74,
+  "chain_step": 78,
   "pending": {
     "act": "Review and approve the rig",
     "commands": [
@@ -22,7 +22,7 @@
     "refusals": [],
     "warnings": []
   },
-  "project_sha256": "db76e3d3b760ec2f2930665d889ebe7ae4195e8120715845fccecaf7ecee30d1",
+  "project_sha256": "fde464eee68e976b1821fc2a362efd240542522f80801d6e8132b7a32a01e3d9",
   "files": [
     {
       "path": ".gitignore",
@@ -426,7 +426,7 @@
     },
     {
       "path": "project.json",
-      "sha256": "db76e3d3b760ec2f2930665d889ebe7ae4195e8120715845fccecaf7ecee30d1"
+      "sha256": "fde464eee68e976b1821fc2a362efd240542522f80801d6e8132b7a32a01e3d9"
     }
   ]
 }

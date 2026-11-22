@@ -950,6 +950,7 @@ test('#774 mixed act@9 keeps the act@8 mesh correction path and validates both i
 
 /** Inject consumer API responses without materializing a saved Review export. */
 function fetchAdapter(root: string, act: { jobId: string }, raw: string | (() => string), png?: Buffer) {
+  root = realpathSync(root);
   const server = Bun.serve({ hostname: '127.0.0.1', port: 0, async fetch(request) {
     if (request.headers.get('accept') === 'image/png') {
       return png === undefined ? new Response(null, { status: 404 }) : new Response(new Uint8Array(png));
@@ -962,14 +963,19 @@ function fetchAdapter(root: string, act: { jobId: string }, raw: string | (() =>
     }
     return new Response(text, { headers: { 'content-type': 'application/vnd.rig-review.act+json' } });
   } });
-  const binding = readWriterBinding(root)!;
-  expect(binding.jobId).toBe(act.jobId);
-  binding.origin = `http://127.0.0.1:${server.port}`;
-  writePrivateJson(join(root, JOB_BINDING_FILE), binding, true);
-  const project = projectAt(root);
-  (project.review_job as JsonObject).origin = binding.origin;
-  putProject(root, project);
-  return server;
+  try {
+    const binding = readWriterBinding(root)!;
+    expect(binding.jobId).toBe(act.jobId);
+    binding.origin = `http://127.0.0.1:${server.port}`;
+    writePrivateJson(join(root, JOB_BINDING_FILE), binding, true);
+    const project = projectAt(root);
+    (project.review_job as JsonObject).origin = binding.origin;
+    putProject(root, project);
+    return server;
+  } catch (error) {
+    server.stop(true);
+    throw error;
+  }
 }
 
 /** A comments fixture binds the actual published files and captured still. */

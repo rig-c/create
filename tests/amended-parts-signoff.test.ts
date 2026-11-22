@@ -307,6 +307,8 @@ const targetManifest = `${targetParts}/parts.json`;
 async function crossDraft(differentImage = false) {
   const { root, binding } = fixture();
   const { act } = await retainVerdict(root, binding);
+  // Retire the synthetic binding once its act is ingested, retaining the acknowledged evidence.
+  rmSync(join(root, JOB_BINDING_FILE));
   cpSync(join(root, draftRoot), join(root, targetRoot), { recursive: true });
   if (differentImage) appendFileSync(join(root, targetParts, 'parts/face.png'), '\n');
   // The owner saw these bytes on the source draft before the target got its own registration.
@@ -370,7 +372,6 @@ test('cross-draft identical parts carry approval and pass real rig-version regis
   expect(readFileSync(file(root))).toEqual(committed);
   refuses(root, 'PARTS_VERDICT_DRAFT_MISMATCH', () => sign(root, act.actId));
 
-  rmSync(join(root, JOB_BINDING_FILE));
   const register = rigRegistration(root);
   refuses(root, 'REVIEW_PACKAGE_PARTS_MISMATCH', () => register('derived/drafts/chain/input'));
   expect(existsSync(join(root, 'outputs/v2'))).toBe(false);

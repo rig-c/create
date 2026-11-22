@@ -215,12 +215,7 @@ test('a target stage needs its own version kind and a plan-bound stage needs pla
   expect(packageSignSubjects(project, 'rigging-interview', { kind: 'draft', id: 'chain' }, 0)).toEqual([]);
 });
 
-test('bar: parts-verdict is not declared once the verdict for the draft is ingested', async () => {
-  const root = preparedParts();
-  const host = await open(root);
-  enqueuePublication(root, readWriterBinding(root)!, draftPublicationResult('chain'));
-  expect(await reconcileCreateJob(root)).toBe(1);
-  expect(declared(root, host)).toEqual([{ kind: 'parts-verdict', draftId: 'chain' }]);
+async function ingestChainVerdict(root: string, host: JobOwnerHost) {
   const verdictAsk = await ask(host, { kind: 'parts-verdict', draftId: 'chain' });
   expect(verdictAsk.ok).toBe(true);
   const verdict = await (await page(host)).act(String(verdictAsk.value.askId), 'parts-verdict', {
@@ -230,6 +225,15 @@ test('bar: parts-verdict is not declared once the verdict for the draft is inges
   });
   const ingested = await cli(root, ['parts-review', root, '--from-review', String(verdict.actId), '--json']);
   expect({ exit: ingested.exit, stderr: ingested.stderr }).toEqual({ exit: 0, stderr: '' });
+}
+
+test('bar: parts-verdict is not declared once the verdict for the draft is ingested', async () => {
+  const root = preparedParts();
+  const host = await open(root);
+  enqueuePublication(root, readWriterBinding(root)!, draftPublicationResult('chain'));
+  expect(await reconcileCreateJob(root)).toBe(1);
+  expect(declared(root, host)).toEqual([{ kind: 'parts-verdict', draftId: 'chain' }]);
+  await ingestChainVerdict(root, host);
   enqueuePublication(root, readWriterBinding(root)!, draftPublicationResult('chain'));
   expect(await reconcileCreateJob(root)).toBe(1);
   expect(declared(root, host)).toEqual([]);
@@ -243,19 +247,23 @@ test('bar: parts-verdict is declared when the draft has no receipt or a new draf
   // Initial draft with no receipt declares parts-verdict.
   expect(declared(root, host)).toEqual([{ kind: 'parts-verdict', draftId: 'chain' }]);
   const originalPublication = host.session.status().publication!.publicationId;
-  // The fresh draft records before it can ask for its verdict.
+  // The fresh draft needs the original verdict ingested before it can be registered.
   cpSync(join(root, 'derived/drafts/chain'), join(root, 'derived/drafts/chain-2'), { recursive: true });
-  const drafted = await cli(root, [
+  const args = [
     'draft-rig', 'chain-2', root,
     '--config', 'derived/drafts/chain-2/config.json',
     '--from', 'derived/drafts/chain-2/out',
     '--parts', 'derived/drafts/chain-2/input',
     '--json',
-  ]);
-  expect({ exit: drafted.exit, stderr: drafted.stderr }).toEqual({ exit: 0, stderr: '' });
-  // The open page and its ask remain bound to the original draft.
+  ];
+  const before = readFileSync(join(root, 'project.json'));
+  expect(await cli(root, args)).toMatchObject({ exit: 1, stdout: '', stderr: expect.stringMatching(/^rig-create: JOB_ASK_PENDING: /) });
+  expect(readFileSync(join(root, 'project.json'))).toEqual(before);
   expect(host.session.status().publication!.publicationId).toBe(originalPublication);
   expect(declared(root, host)).toEqual([{ kind: 'parts-verdict', draftId: 'chain' }]);
+  await ingestChainVerdict(root, host);
+  const drafted = await cli(root, args);
+  expect({ exit: drafted.exit, stderr: drafted.stderr }).toEqual({ exit: 0, stderr: '' });
   structureSnapshotCommand([root, '--draft', 'chain-2', '--out', 'evidence/structure-chain-2.json']);
   enqueuePublication(root, readWriterBinding(root)!, draftPublicationResult('chain-2'));
   expect(await reconcileCreateJob(root)).toBe(1);

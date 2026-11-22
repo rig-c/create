@@ -459,19 +459,55 @@ export async function reconcileCreateJob(root: string, publish?: (entry: Pending
   return count;
 }
 
+/**
+ * Receipt IDs are hashes and carry no order, so pending entries go in record order (#849).
+ * Record results go first: a draft or version published before them could invalidate the
+ * generation a queued record publication reserved. Drafts follow in project.drafts order,
+ * then rig and post versions by number, so the newest version ends as the page head.
+ * `last` names the entry the caller asked for; it goes last and ends as the head.
+ */
+function inRecordOrder(root: string, entries: PendingPublication[], last?: string): PendingPublication[] {
+  const project = JSON.parse(readFileSync(join(root, 'project.json'), 'utf8')) as JsonObject;
+  const drafts = asArray(project.drafts).map(draft => isObject(draft) ? draft.id : undefined);
+  const unknown = Number.MAX_SAFE_INTEGER;
+  const rank = (entry: PendingPublication): [number, number] => {
+    if (entry.id === last) return [3, 0];
+    if (isRecordResult(entry.result)) return [0, 0];
+    const selector = entry.result.selector;
+    if (selector?.kind === 'draft') {
+      const index = drafts.indexOf(selector.id);
+      return [1, index < 0 ? unknown : index];
+    }
+    return [2, typeof selector?.version === 'number' ? selector.version : unknown];
+  };
+  return entries.map((entry, index) => ({ entry, index, rank: rank(entry) }))
+    .sort((left, right) => left.rank[0] - right.rank[0] || left.rank[1] - right.rank[1] || left.index - right.index)
+    .map(item => item.entry);
+}
+
+/** The label `job open` prints for a publication result. */
+function resultLabel(result: PublicationResult): string {
+  if (isRecordResult(result)) {
+    return result.kind === 'plan' ? 'plan' : `option-set ${recordOptionSets(result).map(({ questionId, setId }) => `${questionId}/${setId}`).join(', ')}`;
+  }
+  return result.selector ? selectorLabel(result.selector) : 'publication';
+}
+
+/** One line for every pending publication a `job open` published besides the one it asked for (#849). */
+function pendingPublishedLines(published: readonly PendingPublication[], target: string): string[] {
+  return published.filter(entry => entry.id !== target).map(entry => `job: pending ${resultLabel(entry.result)} published`);
+}
+
 /** Publish every pending entry under the caller's job lock. Ask outcomes are returned, not thrown. */
 async function reconcileLocked(
   root: string,
   publish: (entry: PendingPublication) => Promise<unknown> = entry => publishPending(entry, undefined, undefined, undefined, undefined, now),
   now?: number,
-): Promise<{ count: number; outcomes: AskOutcome[] }> {
+  last?: string,
+): Promise<{ count: number; outcomes: AskOutcome[]; published: PendingPublication[] }> {
   const outcomes: AskOutcome[] = [];
-  // Receipt IDs are hashes. If a draft goes first, its publish and asks can
-  // invalidate the generation reserved by the queued record publication.
-  const entries = pendingPublications(root, true);
-  if (entries.every(entry => isRecordResult(entry.result) || entry.result.selector?.kind === 'draft')) {
-    entries.sort((left, right) => Number(isRecordResult(right.result)) - Number(isRecordResult(left.result)));
-  }
+  const published: PendingPublication[] = [];
+  const entries = inRecordOrder(root, pendingPublications(root, true), last);
   for (const entry of entries) {
     try {
       await reconcilePublication(root, entry, async item => {
@@ -484,8 +520,9 @@ async function reconcileLocked(
       failPublication(root, entry, failure);
       refuse('JOB_PUBLISH_PENDING', `project.json: record ${entry.recordHash} remains pending (${failure.code}: ${failure.message}); run rig-create job reconcile after restoring the sources, or job close --retire-refused to archive failed publications and close without publishing them`);
     }
+    published.push(entry);
   }
-  return { count: entries.length, outcomes };
+  return { count: entries.length, outcomes, published };
 }
 
 /** The stages whose record consumes a draft: `job open` publishes the latest one there. */
@@ -623,6 +660,7 @@ export async function openRecordPublication(root: string, host: JobOwnerHost, qu
   const release = acquireJobLock(root)!;
   let outcomes: AskOutcome[];
   let reused = false;
+  let others: string[] = [];
   let result: RecordPublicationResult;
   try {
     const publication = requestedRecordPublication(root, question, plan, now);
@@ -645,12 +683,13 @@ export async function openRecordPublication(root: string, host: JobOwnerHost, qu
         pending.generation = generation;
         failPublication(root, pending, pending.failure);
       }
-      ({ outcomes } = await reconcileLocked(root, undefined, now));
+      let published: PendingPublication[];
+      ({ outcomes, published } = await reconcileLocked(root, undefined, now));
+      others = pendingPublishedLines(published, pending.id);
     }
   } finally { release(); }
-  const label = result.kind === 'plan' ? 'plan' : `option-set ${recordOptionSets(result).map(({ questionId, setId }) => `${questionId}/${setId}`).join(', ')}`;
   refuseAskOutcomes(outcomes);
-  return [`job: ${label} ${reused ? 'already published' : 'published'}`, ...askOutcomeLines(outcomes)];
+  return [`job: ${resultLabel(result)} ${reused ? 'already published' : 'published'}`, ...others, ...askOutcomeLines(outcomes)];
 }
 
 /**
@@ -695,6 +734,7 @@ export async function openDraftPublication(root: string, host: JobOwnerHost, now
   let selector: JobSelector;
   let outcomes: AskOutcome[];
   let published: boolean;
+  let others: string[] = [];
   if (reuseHead && head && headSelector) {
     const result = acknowledged?.result ?? selectorResult(root, headSelector, draft?.rigging);
     const subjects = acknowledged?.subjects
@@ -720,14 +760,18 @@ export async function openDraftPublication(root: string, host: JobOwnerHost, now
       const rigging = targetSelector.kind === 'draft' && inspectDraftPublication(root, current, targetSelector.id).rigging;
       const result = selectorResult(root, targetSelector, rigging);
       if (rigSelector) prepareLiveManifest(root, current, rigSelector.version, warnings);
-      enqueuePublication(root, binding, result);
-      ({ outcomes } = await reconcileLocked(root, undefined, now));
+      const pending = enqueuePublication(root, binding, result);
+      // A named --rig or --draft ends as the head; a republished head yields to newer pending versions (#849).
+      const named = rigSelector !== undefined || requested !== undefined;
+      let published: PendingPublication[];
+      ({ outcomes, published } = await reconcileLocked(root, undefined, now, named ? pending.id : undefined));
+      others = pendingPublishedLines(published, pending.id);
     } finally { release(); }
     selector = targetSelector;
     published = true;
   }
   const lines = [...warnings.map(finding => `WARN ${finding.code}: ${finding.message}`),
-    `job: ${selectorLabel(selector)} ${published ? 'published' : 'already published'}`, ...askOutcomeLines(outcomes)];
+    `job: ${selectorLabel(selector)} ${published ? 'published' : 'already published'}`, ...others, ...askOutcomeLines(outcomes)];
   refuseAskOutcomes(outcomes);
   return lines;
 }

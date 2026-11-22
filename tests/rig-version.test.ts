@@ -803,6 +803,82 @@ describe('frozen rig registration', () => {
     expect(regenerated.review_package).toEqual(version.review_package);
   });
 
+  // #849: v1 is the page head and v2 is pending when the host restarts. Search fresh jobs until the
+  // receipt-hash order of v1's republication and v2's pending entry falls the requested way.
+  test.each(['v1 sorts first', 'v1 sorts last', 'named --rig 1'] as const)('#849 job open after a restart ends on the newest version unless one is named, and names each pending publication: %s', async order => {
+    const runCli = async (dir: string, ...argv: string[]) => {
+      const child = Bun.spawn([process.execPath, ...clockedCli(), ...argv], { cwd: dir, stdout: 'pipe', stderr: 'pipe' });
+      const [exit, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
+      return { exit, stdout, stderr };
+    };
+    const receipts = (dir: string) => {
+      const directory = join(jobPrivateRoot(dir), 'acknowledged-publications');
+      return readdirSync(directory).map(name => JSON.parse(readFileSync(join(directory, name), 'utf8')) as JsonObject);
+    };
+    for (let attempt = 0; attempt < 12; attempt++) {
+      const { dir, args, load } = setup();
+      const source = readFileSync(join(dir, 'source/rig/images/rectangle.png'));
+      writeFileSync(join(dir, 'inputs/painting.png'), source);
+      const record = load();
+      record.inputs = [{ path: 'inputs/painting.png', sha256: jobHash(source), bytes: source.length,
+        origin: 'synthetic original painting', at: new Date(testClock.now()).toISOString() }];
+      writeFileSync(join(dir, 'project.json'), `${JSON.stringify(record, null, 2)}\n`);
+      const host = await openCreateJob(dir, { id: 'reviewer', role: 'owner' }, testClock.now());
+      let reopened: Bun.Subprocess<'ignore', 'pipe', 'pipe'> | undefined;
+      try {
+        expect((await runCli(dir, 'rig-version', ...args)).exit).toBe(0);
+        const [v1] = receipts(dir);
+        const v1Id = jobHash(JSON.stringify([v1!.jobId, v1!.versionHash, v1!.result]));
+        host.stop();
+        // The writer commits v2 and leaves its publication pending (its exit is #844's subject).
+        const committed = await runCli(dir, 'rig-version', '2', ...args.slice(1));
+        expect(committed.stderr).toContain('JOB_PUBLISH_PENDING');
+        expect(arr(load().versions).map(v => obj(v).n)).toEqual([1, 2]);
+        const [v2] = pendingPublications(dir);
+        expect(v2!.result.selector).toEqual({ kind: 'rig', version: 2 });
+        if (order !== 'named --rig 1' && (v1Id < v2!.id) !== (order === 'v1 sorts first')) continue;
+        const bytes = readFileSync(join(dir, 'project.json'));
+        // A refused open writes nothing and leaves v2 pending.
+        const unknown = await runCli(dir, 'job', 'open', dir, '--reviewer', 'reviewer', '--role', 'owner', '--rig', '3');
+        expect(unknown.exit).toBe(1);
+        expect(unknown.stderr).toStartWith('JOB_PUBLICATION_INVALID: versions[v3]: --rig needs one recorded rig or post version');
+        expect(readFileSync(join(dir, 'project.json'))).toEqual(bytes);
+        expect(pendingPublications(dir).map(entry => entry.id)).toEqual([v2!.id]);
+
+        const named = order === 'named --rig 1' ? ['--rig', '1'] : [];
+        // --rig reads its files under the real root path (a temporary directory can sit behind a symlink).
+        reopened = Bun.spawn([process.execPath, ...clockedCli(), 'job', 'open', realpathSync(dir), '--reviewer', 'reviewer', '--role', 'owner', ...named], { cwd: dir, stdout: 'pipe', stderr: 'pipe' });
+        const stderr = new Response(reopened.stderr).text();
+        const reader = reopened.stdout.getReader();
+        let printed = '';
+        while (!/\njob: .*\n$/.test(printed)) {
+          const chunk = await reader.read();
+          if (chunk.done) break;
+          printed += new TextDecoder().decode(chunk.value);
+        }
+        reader.releaseLock();
+        const byGeneration = receipts(dir).filter(receipt => receipt.jobId === v1!.jobId).sort((a, b) => Number(a.generation) - Number(b.generation));
+        // The page head is the newest committed version, whatever the hash order; a named --rig ends as the head.
+        expect(byGeneration.map(receipt => obj(obj(receipt.result).selector).version)).toEqual(order === 'named --rig 1' ? [1, 2, 1] : [1, 1, 2]);
+        // job open names the head it republished and, on its own line, every other pending publication it published.
+        expect(printed).toMatch(/\njob: rig v1 published\njob: pending rig v2 published\n(job: asked .*\n)?$/);
+        expect(pendingPublications(dir)).toEqual([]);
+        expect(readFileSync(join(dir, 'project.json'))).toEqual(bytes);
+        expect(await runCli(dir, 'job', 'reconcile', dir)).toEqual({ exit: 0, stdout: 'job: reconciled 0 publication(s)\n', stderr: '' });
+        expect(await runCli(dir, 'job', 'close', dir)).toEqual({ exit: 0, stdout: 'job: closed\n', stderr: '' });
+        expect(await reopened.exited).toBe(0);
+        expect(await stderr).toBe('');
+        expect(readFileSync(join(dir, 'project.json'))).toEqual(bytes);
+        return;
+      } finally {
+        reopened?.kill(); host.stop();
+        rmSync(jobPrivateRoot(dir), { recursive: true, force: true });
+        rmSync(jobHostStateRoot(dir), { recursive: true, force: true });
+      }
+    }
+    throw new Error(`#849: no job in 12 put the receipt hashes in the order "${order}"`);
+  }, 180_000);
+
   test.skipIf(process.env.RIG_CREATE_NETWORK !== '1')('registers a planted run with the unmodified lock from init', () => {
     const planted = setup();
     const dir = join(dirname(planted.dir), 'initialized');

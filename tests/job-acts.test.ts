@@ -540,7 +540,7 @@ test.each([false, true])('agent next pagination is shared and read failures rema
 });
 
 
-function riggingInterviewRoot(): string {
+function riggingInterviewRoot(edit?: (project: JsonObject) => void): string {
   testClock.set(Date.now());
   const root = realpathSync(fixture(project => {
     project.stage = 'rigging-interview'; project.versions = []; project.scenes = []; delete project.direction_contract;
@@ -548,6 +548,7 @@ function riggingInterviewRoot(): string {
     project.advances = arr(project.advances).filter(value => stageIndex(String(obj(value).stage)) <= stageIndex('rigging-interview'));
     for (const item of arr(obj(obj(project.interview).post).items).map(obj)) item.guide = null;
     for (const step of arr(obj(project.plan).steps).map(obj)) if (!['seethrough', 'assemble'].includes(String(step.id))) step.status = 'pending';
+    edit?.(project);
   }, 'example-project.json'));
   roots.push(root);
   return root;
@@ -567,8 +568,8 @@ async function registerQuestion(root: string, question: string) {
   return { questionId: question, selections, note: WORDS };
 }
 
-async function openMotionQuestion(also: string[] = []) {
-  const root = riggingInterviewRoot();
+async function openMotionQuestion(also: string[] = [], edit?: (project: JsonObject) => void) {
+  const root = riggingInterviewRoot(edit);
   const value = await registerQuestion(root, 'motion');
   const others = [];
   for (const question of also) others.push(await registerQuestion(root, question));
@@ -691,7 +692,10 @@ test('#826 record-only writers preserve an open interview ask and its finalized 
 }, 60_000);
 
 test('#833 draft and owner-language writers refuse until the finalized Review answer is ingested', async () => {
-  const { root, view, value } = await openMotionQuestion();
+  const { root, view, value } = await openMotionQuestion([], project => {
+    // This draft tests the owner-ask gate without an unrelated ledger report.
+    project.fix_ledger = [];
+  });
   const base = 'derived/drafts/pending-ask';
   cpSync(join(import.meta.dir, '../templates/example-chain/checkpoints/1-parts-verdict/derived/drafts/chain'), join(root, base), { recursive: true });
   const draft = ['draft-rig', 'pending-ask', root, '--config', `${base}/config.json`,

@@ -72,7 +72,7 @@ function resolveSignoff(project: JsonObject, identity: Json | undefined): JsonOb
 }
 
 /** Re-signing an earlier plan does not revoke later live approvals. Reopen/amend owns revocation. */
-export function stageWindow(ctx: Ctx): { minimum: string; maximum: string; signoff: string | null; at: number } {
+export function stageWindow(ctx: Ctx): { minimum: string; maximum: string; signoff: Ctx['signoffs'][number] | undefined } {
   const order = (hasStageOrder(ctx.project) ? STAGES : LEGACY_STAGES).filter(s =>
     !(ctx.predatesPartsReview !== null && ['parts', 'parts-review'].includes(s.id))
     && !(postNotPassed(ctx) && SKIPPED_WHEN_NO_POST.includes(s.id)));
@@ -86,11 +86,10 @@ export function stageWindow(ctx: Ctx): { minimum: string; maximum: string; signo
     if (steps.length === 0 || steps.some(s => s.record.status !== 'done')) break;
     end++;
   }
-  return { minimum: order[start]!.id, maximum: order[Math.min(end, order.length - 1)]!.id,
-    signoff: latest === undefined ? null : `signoffs[${latest.index}]`, at: latest?.at ?? NaN };
+  return { minimum: order[start]!.id, maximum: order[Math.min(end, order.length - 1)]!.id, signoff: latest };
 }
 
-export function checkStageProgress(ctx: Ctx, forwardWrite = false): void {
+export function checkStageProgress(ctx: Ctx, forwardWrite = false, resumeStage?: string): void {
   if (ctx.stage === PAUSED_STAGE) return;
   // Amend retains the stored stage while its approvals lapse, so only the recorded-move check applies (PROJECT.md).
   const amended = ctx.effectiveStage !== ctx.stage;
@@ -128,8 +127,14 @@ export function checkStageProgress(ctx: Ctx, forwardWrite = false): void {
   const code = current < stageIndex(window.minimum) ? 'STAGE_LAGGING'
     : current > stageIndex(window.maximum) ? 'STAGE_SKIPPED' : null;
   if (code === null) return;
-  const finding = { code, path: 'stage', message: `stage: ${ctx.stage} is outside ${window.minimum} through ${window.maximum} authorized by ${window.signoff ?? 'the unsigned interview'}; use advance for the next authorized stage or reopen the unfinished stage` };
-  (forwardWrite || window.at >= since || !Number.isFinite(window.at) ? ctx.refusals : ctx.warnings).push(finding);
+  const authority = window.signoff === undefined ? 'the unsigned interview' : `signoffs[${window.signoff.index}]`;
+  const at = window.signoff?.at ?? NaN;
+  const refused = forwardWrite || at >= since || !Number.isFinite(at);
+  // Resume records the pause exit. The target's own closing signature still needs a normal advance.
+  if (refused && !forwardWrite && code === 'STAGE_LAGGING'
+    && ctx.stage === resumeStage && window.signoff?.stage === resumeStage) return;
+  const finding = { code, path: 'stage', message: `stage: ${ctx.stage} is outside ${window.minimum} through ${window.maximum} authorized by ${authority}; use advance for the next authorized stage or reopen the unfinished stage` };
+  (refused ? ctx.refusals : ctx.warnings).push(finding);
 }
 
 /** The stage order an advance entry's `order` names. */

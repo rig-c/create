@@ -78,7 +78,7 @@ function options(args: string[], command: 'pause' | 'resume'): { positional: str
 function commit(dir: string, file: string, project: JsonObject, entry: JsonObject, stage: string, now: number): void {
   if (project.pauses !== undefined && !Array.isArray(project.pauses)) refuse('PAUSE_MALFORMED', 'pauses: must be a list; preserve existing history');
   const candidate: JsonObject = { ...project, pauses: [...asArray(project.pauses), entry], stage };
-  const rejected = newRefusals(dir, project, candidate, { now })[0];
+  const rejected = newRefusals(dir, project, candidate, { now, resumeStage: stage === PAUSED_STAGE ? undefined : stage })[0];
   if (rejected !== undefined) refuse(rejected.code, rejected.message);
   const tmp = join(dirname(file), `.pause-${process.pid}-${crypto.randomUUID()}.tmp`);
   try { writeFileSync(tmp, `${JSON.stringify(candidate, null, 2)}\n`, { flag: 'wx' }); renameSync(tmp, file); }

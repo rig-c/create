@@ -854,6 +854,16 @@ function latestSignoff(ctx: Ctx, stage: string, stepId?: string): Signoff | unde
 
 // ---------------------------------------------------------------------- entry
 
+interface CheckOptions {
+  now: number;
+  forwardWrite?: boolean;
+  readOnly?: boolean;
+  recordReads?: boolean;
+  recordPublication?: boolean;
+  /** Exact target selected by the resume writer when validating the pause exit. */
+  resumeStage?: string;
+}
+
 /**
  * With a candidate record, validate the would-be write against the same project files without writing it.
  * `options.now` is the instant the check runs at (ms since the epoch); see README.md "The clock".
@@ -862,7 +872,7 @@ function latestSignoff(ctx: Ctx, stage: string, stepId?: string): Signoff | unde
  * without revalidating producer artifacts. Stage resolution and record predicates
  * are shared; the default remains the full project check.
  */
-export function checkProject(projectDirArg: string, candidate: JsonObject | undefined, options: { now: number; forwardWrite?: boolean; readOnly?: boolean; recordReads?: boolean; recordPublication?: boolean }): CheckReport {
+export function checkProject(projectDirArg: string, candidate: JsonObject | undefined, options: CheckOptions): CheckReport {
   const run = (): CheckReport => candidate === undefined
     ? checkProjectOnce(projectDirArg, candidate, options)
     : withCandidateProject(projectDirArg, candidate, () => checkProjectOnce(projectDirArg, candidate, options));
@@ -871,7 +881,7 @@ export function checkProject(projectDirArg: string, candidate: JsonObject | unde
   return { ...value, reads };
 }
 
-function checkProjectOnce(projectDirArg: string, candidate: JsonObject | undefined, options: { now: number; forwardWrite?: boolean; readOnly?: boolean; recordPublication?: boolean }): CheckReport {
+function checkProjectOnce(projectDirArg: string, candidate: JsonObject | undefined, options: CheckOptions): CheckReport {
   const dir = resolve(projectDirArg);
   const refusals: Finding[] = [];
   const warnings: Finding[] = [];
@@ -987,7 +997,7 @@ function checkProjectOnce(projectDirArg: string, candidate: JsonObject | undefin
   checkCheckpointEvidence(dir, project, refusals);
   warnings.push(...appearanceBarWarnings(project, options.now));
   checkStages(ctx);
-  checkStageProgress(ctx, options.forwardWrite);
+  checkStageProgress(ctx, options.forwardWrite, options.resumeStage);
   checkAdvanceBars(ctx);
   checkRiggingInterviewPainting(ctx);
   checkStepStatusHistory(ctx);

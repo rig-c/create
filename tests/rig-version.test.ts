@@ -2250,6 +2250,16 @@ describe('#812 page-level rig feedback', () => {
       expect(human[0]?.command).toContain('signoff plan-approved');
       await sign();
       expect(arr((await cli('next', dir, '--json')).refusals)).toEqual([]);
+      if (mode === 'first ingest') {
+        put(dir, 'source/citations.json', { motion: [{ entry: 'animations_from', guide: 'motion', quote: `「${words}」` }] });
+        const before = recordBytes();
+        const refusedVersion = await runCli('rig-version', ...second);
+        expect(refusedVersion.exit).toBe(1);
+        expect(refusedVersion.stderr).toContain('QUOTE_NOT_FOUND:');
+        expect(refusedVersion.stderr.split('\n')).toContain('  Removing the outer marks 「」 would match interview.waypoints[motion].guide.additions[0].verbatim exactly. Quote that field verbatim.');
+        expect(recordBytes()).toEqual(before);
+        put(dir, 'source/citations.json', { motion: [{ entry: 'animations_from', guide: 'motion', quote: words }] });
+      }
       const version = await cli('rig-version', ...second);
       expect(version.answers_feedback).toEqual([{ version: 1, verdict: 0 }]);
       expect(obj(obj(version.provenance!).sections!).motion).toEqual([{ entry: 'animations_from', guide: 'motion', quote: words }]);

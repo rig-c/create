@@ -110,29 +110,63 @@ function readConfigSections(
  * replaced was built from the answer as it was then (INTERVIEW.md § Answer
  * shape: a replaced answer moves whole into `history[]`).
  */
-export function answersOf(item: Item, ctx: Pick<Ctx, 'collection'>): JsonObject[] {
+function locatedAnswers(item: Item, ctx: Pick<Ctx, 'collection'>): { answer: JsonObject; path: string }[] {
   const s = item.state;
-  const current = s.state === 'user' || s.state === 'delegated' || s.state === 'not_applicable' ? [s.answer] : [];
-  const history = asArray(item.record.history).filter(isObject);
+  const current = s.state === 'user' || s.state === 'delegated' || s.state === 'not_applicable' ? s.answer : null;
+  const recordPath = item.path.slice(0, item.path.lastIndexOf('.'));
+  let currentPath = item.path;
+  const history = asArray(item.record.history).flatMap((answer, index) =>
+    isObject(answer) ? [{ answer, path: `${recordPath}.history[${index}]` }] : []);
   // An inherited answer's earlier versions live in the collection question's history, not the member's.
   if (isObject(item.raw) && item.raw.basis === 'inherited' && ctx.collection !== null && isObject(item.raw.from)) {
     const question = asString(item.raw.from.question);
     const source = question === null ? undefined : collectionQuestion(ctx.collection, question);
-    if (source !== undefined) history.push(...asArray(source.history).filter(isObject));
+    if (source !== undefined) {
+      const interview = isObject(ctx.collection.interview) ? ctx.collection.interview : {};
+      const post = isObject(interview.post) ? interview.post : {};
+      const lists = [
+        [interview.questions, 'questions', 'answer'],
+        [interview.framing, 'framing', 'answer'],
+        [interview.waypoints, 'waypoints', 'guide'],
+        [post.items, 'post.items', 'guide'],
+      ] as const;
+      const location = lists.find(([entries]) => asArray(entries).includes(source));
+      if (location) {
+        const [, list, field] = location;
+        const sourcePath = `collection.json:interview.${list}[${question}]`;
+        currentPath = `${sourcePath}.${field}`;
+        asArray(source.history).forEach((answer, index) => {
+          if (isObject(answer)) history.push({ answer, path: `${sourcePath}.history[${index}]` });
+        });
+      }
+    }
   }
-  return [...current, ...history];
+  return current === null ? history : [{ answer: current, path: currentPath }, ...history];
+}
+
+export function answersOf(item: Item, ctx: Pick<Ctx, 'collection'>): JsonObject[] {
+  return locatedAnswers(item, ctx).map(({ answer }) => answer);
 }
 
 /** The stored sentences a quote may be taken from: each answer's `verbatim` and every `additions[].verbatim`. */
-function sentences(item: Item, ctx: Pick<Ctx, 'collection'>): string[] {
-  const out: string[] = [];
-  for (const answer of answersOf(item, ctx)) {
+function sentences(item: Item, ctx: Pick<Ctx, 'collection'>): { text: string; path: string }[] {
+  const out: { text: string; path: string }[] = [];
+  for (const { answer, path } of locatedAnswers(item, ctx)) {
     const verbatim = asString(answer.verbatim);
-    if (verbatim !== null) out.push(verbatim);
-    for (const add of asArray(answer.additions)) if (isObject(add) && asString(add.verbatim) !== null) out.push(add.verbatim as string);
+    if (verbatim !== null) out.push({ text: verbatim, path: `${path}.verbatim` });
+    asArray(answer.additions).forEach((addition, index) => {
+      if (!isObject(addition)) return;
+      const text = asString(addition.verbatim);
+      if (text !== null) out.push({ text, path: `${path}.additions[${index}].verbatim` });
+    });
   }
   return out;
 }
+
+const OUTER_MARKS = [
+  ['「', '」'], ['『', '』'], ['"', '"'], ["'", "'"],
+  ['“', '”'], ['‘', '’'], ['(', ')'], ['[', ']'],
+] as const;
 
 /** A delegation the citation can rest on: an answer that is delegated, or a user answer that left part open, with the agent's decision written. */
 function delegationOf(item: Item, ctx: Pick<Ctx, 'collection'>): 'ok' | 'not-delegated' | 'undecided' {
@@ -226,8 +260,18 @@ export function checkEntry(ctx: Ctx, kind: 'rig' | 'post', path: string, raw: Js
   }
   checkCitationAsks(ctx, item, raw, path);
   if (quote !== null && quote !== '') {
-    if (!sentences(item, ctx).some((s) => s.includes(quote))) {
-      ctx.refusals.push({ code: 'QUOTE_NOT_FOUND', path, message: `${named}: quote ${JSON.stringify(quote)} is in no verbatim or additions[] of ${item.path} (current or history[]); a quote is an exact fragment of a stored sentence` });
+    const candidates = sentences(item, ctx);
+    if (!candidates.some(({ text }) => text.includes(quote))) {
+      const marks = quote.length >= 2
+        ? OUTER_MARKS.find(([open, close]) => quote.startsWith(open) && quote.endsWith(close))
+        : undefined;
+      let detail = '';
+      if (marks) {
+        const inner = quote.slice(1, -1);
+        const match = candidates.find(({ text }) => text === inner);
+        if (match) detail = `\n  Removing the outer marks ${marks.join('')} would match ${match.path} exactly. Quote that field verbatim.`;
+      }
+      ctx.refusals.push({ code: 'QUOTE_NOT_FOUND', path, message: `${named}: quote ${JSON.stringify(quote)} is in no verbatim or additions[] of ${item.path} (current or history[]); a quote is an exact fragment of a stored sentence${detail}` });
     }
   } else {
     const d = delegationOf(item, ctx);

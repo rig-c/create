@@ -27,6 +27,12 @@ rig-create job open <project> --reviewer <id> --role <owner|delegate> [--draft <
   and verifies that the stored `fetchCapability` is authorized for the bound live
   job before closing (`JOB_BINDING_INVALID`). A copied binding or unauthorized
   grant is refused before any unrelated or bound host is retired.
+- **`job close` needs the bound live host.** It reads the job's finalized owner
+  acts from that host and retires the job there, so a stopped host refuses
+  `JOB_HOST_ATTACH_REFUSED` and the message names the `job open` restart. The
+  restart serves the same job. A restarted host holds the job write lock while it
+  publishes; `job close` waits up to 120 s for it, then refuses `JOB_WRITE_BUSY`
+  naming the holding process.
 - **Ordinary `job open`, `job reconcile` and bound writers stay strict.** Only
   `job close` accepts the stored binding's earlier hook identifiers and Parts
   enumerator version (within Review's supported `>=2.25.0 <3.0.0` range), with

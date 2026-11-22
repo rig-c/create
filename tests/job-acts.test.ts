@@ -942,15 +942,14 @@ test('#860 act@6 interview feedback preserves a rig point and check refuses an e
   const entry = obj(arr(project.review_acts).at(-1));
   expect(entry.feedback_route).toEqual({ question: 'motion', comments: [{ order: 1, ...comment }] });
   const check = () => checkProject(root, project, { now: testClock.now(), readOnly: true });
-  const before = check();
-  expect(before.refusals.map(finding => finding.code)).not.toContain('REVIEW_FEEDBACK_ROUTE_INVALID');
+  expect(check().refusals).toEqual([]);
 
   const routed = obj(arr(obj(entry.feedback_route).comments)[0]);
   const mark = obj(obj(obj(routed.anchor).context).comment);
   obj(mark.world).x = 1;
   const after = check();
-  expect(after.refusals).toHaveLength(before.refusals.length + 1);
-  expect(after.refusals).toEqual(expect.arrayContaining([...before.refusals, expect.objectContaining({ code: 'REVIEW_FEEDBACK_ROUTE_INVALID' })]));
+  expect(after.ok).toBe(false);
+  expect(after.refusals.map(finding => finding.code)).toContain('REVIEW_FEEDBACK_ROUTE_INVALID');
 }, 30_000);
 
 test('#846 batch ingest routes comments atomically and omits the route for an empty act', async () => {

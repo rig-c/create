@@ -6,11 +6,14 @@ import {
   JOB_ACT_SCHEMA,
   JOB_API_SCHEMA,
   JOB_API_V3_SCHEMA,
+  JOB_CHEST_LANDMARKS_ACT_SCHEMA,
   JOB_COMMENT_CONTEXT_ACT_SCHEMA,
+  JOB_COMMENTS_ACT_SCHEMA,
   JOB_MESH_EDITS_ACT_SCHEMA,
   JOB_PREVIOUS_DRAFT_SCHEMA,
   JOB_RECORD_ACT_SCHEMA,
   JOB_RECORD_READER_ID,
+  parseCommentsAct,
   parseContextCommentsAct,
   parseMeshEditsAct,
   parseRecordAct,
@@ -23,7 +26,7 @@ import { closeCreateJob, openCreateJob } from '../src/job-host.ts';
 import { jobHostStateRoot, jobPrivateRoot, readWriterBinding } from '../src/job-outbox.ts';
 import { currentJobIdentity, JOB_BINDING_ID, JOB_ENUMERATOR_ID, JOB_READER_ID } from '../src/job-publication.ts';
 import { Refusal } from '../src/refusal.ts';
-import { decodeReviewAct, decodeReviewResponse } from '../src/review-act.ts';
+import { decodeReviewAct, decodeReviewResponse, isRecordPicksAct, picksActComments } from '../src/review-act.ts';
 
 function expectRefusalCode(fn: () => unknown, code: string): void {
   try {
@@ -64,8 +67,8 @@ function makeProject(): string {
   return root;
 }
 
-test('installed Review 4.13.0 exports the act and previous-draft contracts and retains package-only job schemas', () => {
-  expect(reviewPackage.version).toBe('4.13.0');
+test('installed Review 4.14.0 exports the act and previous-draft contracts and retains package-only job schemas', () => {
+  expect(reviewPackage.version).toBe('4.14.0');
   expect(reviewPackage.dependencies['@rig-c/play']).toBe('1.24.0');
   expect(JOB_API_SCHEMA).toBe('rig-review/job-api@2');
   expect(JOB_ACT_SCHEMA).toBe('rig-review/act@2');
@@ -275,7 +278,7 @@ test('#789 record interview-picks act@4 decodes optional words, preserves pre-wo
   const withWordsBytes = JSON.stringify(withWords);
   const decodedWithWords = decodeReviewAct(withWordsBytes, 'interview-picks');
   expect(decodedWithWords).toEqual(withWords);
-  expect(decodedWithWords.value.words).toBe(words);
+  expect((decodedWithWords.value as { words?: string }).words).toBe(words);
 
   const response = decodeReviewResponse(JSON.stringify({ schema: 'rig-review/job-api@2', verb: 'fetch-act',
     jobId: withWords.jobId, requestId: 'synthetic-picks-words', generation: 1, ok: true, value: withWords }),
@@ -295,6 +298,79 @@ test('#789 record interview-picks act@4 decodes optional words, preserves pre-wo
     () => decodeReviewAct(JSON.stringify({ ...original, value: { ...original.value, words: 123 } }), 'interview-picks'),
     'REVIEW_ACT_INVALID',
   );
+});
+
+/** #838: the captured record act@4 re-enveloped at act@6, as Review's own #646 record test does. Review's parser must accept it as is. */
+function picksAt6(): Record<string, unknown> & { value: Record<string, unknown> } {
+  const old = JSON.parse(readFileSync(join(import.meta.dir, 'fixtures/record-acts/picks.json'), 'utf8'));
+  const sha256 = 'a'.repeat(64);
+  const crop = { path: `comment-crops/${sha256}.png`, sha256, width: 2, height: 3 };
+  const { words: _, ...survey } = old.value;
+  const act = { ...old, schema: JOB_COMMENTS_ACT_SCHEMA, value: { ...survey, comments: [
+    { text: '  General owner comment.\r\n' },
+    { text: 'On the reference picture.', anchor: { name: 'reference.png' } },
+    { text: 'Pinned region.\n끝', anchor: { name: 'reference.png', imageRegion: { x: 1, y: 2, width: 2, height: 3 }, crop, nativeCrop: crop } },
+  ] } };
+  expect(parseCommentsAct(act) as unknown).toEqual(act);
+  return act;
+}
+
+test('#838 interview-picks act@6 decodes through Review parseCommentsAct with exact comment text, order and image anchors', () => {
+  const act = picksAt6();
+  const bytes = JSON.stringify(act);
+  const decoded = decodeReviewAct(bytes, 'interview-picks');
+  expect(decoded as unknown).toEqual(act);
+  expect(JSON.stringify(decoded)).toBe(bytes);
+  expect(isRecordPicksAct(decoded)).toBe(true);
+  expect(picksActComments(decoded) as unknown).toEqual(act.value.comments);
+  const response = decodeReviewResponse(JSON.stringify({ schema: 'rig-review/job-api@2', verb: 'fetch-act',
+    jobId: act.jobId, requestId: 'synthetic-838', generation: 1, ok: true, value: act }), String(act.jobId), String(act.actId), 'synthetic-838', 'interview-picks');
+  expect(response.bytes).toBe(bytes);
+  // The same act asked for as another writer's kind names the mismatch.
+  expectRefusalCode(() => decodeReviewAct(bytes), 'REVIEW_ACT_KIND_MISMATCH');
+  expectRefusalCode(() => decodeReviewAct(bytes, 'signoff'), 'REVIEW_ACT_KIND_MISMATCH');
+});
+
+test('#838 interview-picks act@6 refuses words, unknown members, non-image anchors and picks at act@7 or later', () => {
+  const act = picksAt6();
+  const refuses = (raw: unknown) => {
+    expect(() => parseCommentsAct(raw)).toThrow('JOB_ACT_INVALID');
+    expectRefusalCode(() => decodeReviewAct(JSON.stringify(raw), 'interview-picks'), 'REVIEW_ACT_INVALID');
+  };
+  const selections = act.value.selections as Record<string, unknown>[];
+  for (const value of [
+    { ...act.value, words: '' },
+    { ...act.value, extra: 'unknown' },
+    { ...act.value, selections: [{ ...selections[0], extra: true }, ...selections.slice(1)] },
+    { ...act.value, comments: [{ text: 'x', extra: true }] },
+    { ...act.value, comments: [{ text: 'x', anchor: { name: 'reference.png', extra: true } }] },
+    { ...act.value, comments: [{ text: 'x', anchor: { questionId: 'motion', itemId: 'tracks' } }] },
+    { ...act.value, comments: [{ text: 'x', anchor: { checkpointId: 'motion', planStepId: 'motion' } }] },
+  ]) refuses({ ...act, value });
+  refuses({ ...act, extra: 'unknown' });
+  for (const schema of [JOB_COMMENT_CONTEXT_ACT_SCHEMA, JOB_MESH_EDITS_ACT_SCHEMA, JOB_CHEST_LANDMARKS_ACT_SCHEMA]) {
+    expectRefusalCode(() => decodeReviewAct(JSON.stringify({ ...act, schema }), 'interview-picks'), 'REVIEW_ACT_INVALID');
+  }
+  expect(() => parseContextCommentsAct({ ...act, schema: JOB_COMMENT_CONTEXT_ACT_SCHEMA })).toThrow('JOB_ACT_INVALID');
+});
+
+test('#838 picks at act@2 and act@4 keep their decoded bytes and carry no comments', () => {
+  const record = readFileSync(join(import.meta.dir, 'fixtures/record-acts/picks.json'), 'utf8');
+  const recordBytes = JSON.stringify(JSON.parse(record));
+  const decoded = decodeReviewAct(recordBytes, 'interview-picks');
+  expect(JSON.stringify(decoded)).toBe(recordBytes);
+  expect(isRecordPicksAct(decoded)).toBe(true);
+  expect(picksActComments(decoded)).toEqual([]);
+  const original = JSON.parse(record);
+  const legacy = { schema: JOB_ACT_SCHEMA, actId: original.actId, jobId: original.jobId, askId: original.askId, publicationId: original.publicationId,
+    kind: 'interview-picks', authority: original.authority, at: original.at,
+    source: { sourceHash: '1'.repeat(64), projectHash: '2'.repeat(64), package: { id: 'synthetic-package', revision: 'one' },
+      parts: { enumeratorVersion: '2.30.1' }, optionSet: original.source.optionSet }, value: original.value };
+  const legacyBytes = JSON.stringify(legacy);
+  const legacyDecoded = decodeReviewAct(legacyBytes, 'interview-picks');
+  expect(JSON.stringify(legacyDecoded)).toBe(legacyBytes);
+  expect(isRecordPicksAct(legacyDecoded)).toBe(false);
+  expect(picksActComments(legacyDecoded)).toEqual([]);
 });
 
 

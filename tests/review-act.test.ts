@@ -1069,9 +1069,9 @@ test('@6 source asset change refuses through the normal verdict writer', async (
   } finally { server.stop(true); }
 });
 
-test('@6 interview is refused before any survey projection', () => {
+test('#838 an incomplete @6 interview act is refused by Review\'s parser before any survey projection', () => {
   expect(() => decodeReviewAct(JSON.stringify({ schema: JOB_COMMENTS_ACT_SCHEMA, kind: 'interview-picks' }), 'interview-picks'))
-    .toThrow(expect.objectContaining({ code: 'REVIEW_ACT_KIND_MISMATCH' }));
+    .toThrow(expect.objectContaining({ code: 'REVIEW_ACT_INVALID' }));
 });
 
 for (const invalid of ['words', 'question-anchor', 'blank', 'too-long'] as const) {

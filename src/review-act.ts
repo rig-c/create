@@ -7,10 +7,10 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { jobRuntimeExecArgv } from './job-writer.ts';
 import { isDeepStrictEqual } from 'node:util';
-import { JOB_CHEST_LANDMARKS_ACT_SCHEMA, JOB_COMMENT_CONTEXT_ACT_SCHEMA, JOB_COMMENTS_ACT_SCHEMA, JOB_MESH_EDITS_ACT_SCHEMA,
+import { JOB_CHEST_LANDMARKS_ACT_SCHEMA, JOB_COMMENT_CONTEXT_ACT_SCHEMA, JOB_COMMENTS_ACT_SCHEMA, JOB_MESH_EDITS_ACT_SCHEMA, JOB_RECORD_ACT_SCHEMA,
   parseChestLandmarksAct, parseCommentsAct, parseContextCommentsAct, parseMeshEditsAct, parseRecordAct, projectComments,
   type JobAct, type JobChestLandmarksAct, type JobCommentPartsAnchor, type JobCommentsAct, type JobContextCommentsAct, type JobMeshEditsAct,
-  type JobModelSourceBinding, type JobPublishedChestLandmark, type JobRigStill, type RecordAct } from '@rig-c/review/job-host';
+  type JobModelSourceBinding, type JobOptionSource, type JobPublishedChestLandmark, type JobRigStill, type RecordAct } from '@rig-c/review/job-host';
 import { DIRECTION_COMPOSE_SPEC } from './direction-compose.ts';
 import { assembleOnlyDraftPath, assembleOnlyDraftTarget, assembleOnlyVersionFinding, assertDraftHasRig } from './draft-layout.ts';
 import { PICK_SIGNOFF_STAGES } from './stages.ts';
@@ -44,7 +44,18 @@ type CommentAct = JobCommentsAct | JobContextCommentsAct;
 export type ReopenAct = Extract<RecordAct, { kind: 'reopen' }>;
 export type ReviewActKind = 'review-verdict' | 'parts-verdict' | 'interview-picks' | 'checkpoint' | 'signoff' | 'reopen';
 export type DecodedReviewAct = ReviewVerdictAct | PartsVerdictAct | InterviewPicksAct | CheckpointAct | SignoffAct | ReopenAct;
-export type InterviewPicksAct = Extract<LegacyJobAct | RecordAct, { kind: 'interview-picks' }>;
+/** act@6 picks: the survey value plus ordered owner comments (Review #646). */
+type CommentsPicksAct = Extract<JobCommentsAct, { kind: 'interview-picks' }>;
+export type InterviewPicksAct = Extract<LegacyJobAct | RecordAct, { kind: 'interview-picks' }> | CommentsPicksAct;
+/** Record-route picks: act@4, or act@6 on the same option-set record source. */
+export function isRecordPicksAct<Act extends { readonly schema: string; readonly kind: string; readonly source: object }>(act: Act):
+  act is Act & { readonly kind: 'interview-picks'; readonly source: JobOptionSource } {
+  return act.kind === 'interview-picks' && (act.schema === JOB_RECORD_ACT_SCHEMA || act.schema === JOB_COMMENTS_ACT_SCHEMA && 'record' in act.source);
+}
+/** Owner comments an act@6 answer carries. The answer record stays survey-only, so these live only in the act receipt. */
+export function picksActComments(act: InterviewPicksAct): CommentsPicksAct['value']['comments'] {
+  return 'comments' in act.value ? act.value.comments : [];
+}
 export type PartsVerdictActV2 = Extract<LegacyJobAct, { kind: 'parts-verdict' }>;
 export type PartsVerdictActV5 = Omit<PartsVerdictActV2, 'schema' | 'value'> & {
   readonly schema: 'rig-review/act@5';
@@ -209,8 +220,8 @@ function failure(code: string, detail: string): never {
 }
 
 /** The shared decoder validates grammar; Create separately admits its existing source adapters. */
-function decodeCommentsReviewAct(raw: JsonObject, kind: ReviewActKind): ReviewVerdictAct | PartsVerdictAct | CheckpointAct | SignoffAct {
-  if (kind === 'interview-picks' || raw.kind === 'interview-picks') failure('REVIEW_ACT_KIND_MISMATCH', 'comments acts do not carry interview answers');
+function decodeCommentsReviewAct(raw: JsonObject, kind: ReviewActKind): ReviewVerdictAct | PartsVerdictAct | InterviewPicksAct | CheckpointAct | SignoffAct {
+  // Review's parsers own the grammar: picks decode at act@6 only, and later versions refuse them.
   let act: CommentAct | JobMeshEditsAct | JobChestLandmarksAct;
   try {
     act = raw.schema === JOB_CHEST_LANDMARKS_ACT_SCHEMA ? parseChestLandmarksAct(raw)
@@ -225,6 +236,7 @@ function decodeCommentsReviewAct(raw: JsonObject, kind: ReviewActKind): ReviewVe
   }
   const source = act.source as unknown as JsonObject;
   if ('record' in source) {
+    if (act.kind === 'interview-picks' && source.subject === 'option-set') return act;
     if (act.kind !== 'checkpoint' || source.subject !== 'plan') failure('REVIEW_ACT_KIND_MISMATCH', 'this record-source kind has no Create writer mapping');
     return act as CheckpointAct;
   }
@@ -254,6 +266,7 @@ function decodeCommentsReviewAct(raw: JsonObject, kind: ReviewActKind): ReviewVe
     return act as CheckpointAct;
   }
   if (act.kind === 'signoff') return act as SignoffAct;
+  if (act.kind === 'interview-picks') return act;
   if (!composedPost && (!object(parts) || !file(parts.manifest) || !Array.isArray(parts.images)
     || parts.images.some(image => !file(image) || typeof image.role !== 'string'))) {
     failure('REVIEW_ACT_INVALID', 'comments act has no admitted parts binding');
@@ -941,6 +954,9 @@ export function reviewActFindings(project: JsonObject, warnings?: Finding[]): Fi
             ? { itemId: raw.ask, optionId: raw.option_id, otherText: raw.other_text ?? null } : null), act.value.selections)) {
           failure('REVIEW_ACT_LEDGER_INVALID', 'recorded interview answer differs from the immutable act');
         }
+        const comments = picksActComments(act).length;
+        // Create has no feedback destination for interview answer comments yet; the receipt keeps them whole.
+        if (comments) warnings?.push({ code: 'REVIEW_ANSWER_COMMENTS_UNROUTED', path, message: `project.json.${path}: ${comments} owner comment${comments === 1 ? '' : 's'} on interview answer ${act.value.questionId} retained, not routed; the answer record stays survey-only, so read them in ${path}.bytes (value.comments) and preserve the receipt until Create routes interview answer comments to feedback` });
         ownerPickActs.set(JSON.stringify([act.jobId, act.actId]), act);
         return;
       }

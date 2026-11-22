@@ -351,7 +351,7 @@ test('#756 job acts shows a pending act verdict and comments byte-equal to the h
   expect(readFileSync(join(root, 'project.json'))).toEqual(projectBefore);
 }, 30_000);
 
-test('#789 job acts shows record checkpoint and signoff words labels byte-for-byte in text and JSON', async () => {
+test('#789 job acts preserves checkpoint and signoff words and interview comments in text and JSON', async () => {
   const root = copy('1-parts-verdict', project => {
     project.stage = 'parts';
     retainSignoffs(project, signature => stageIndex(String(obj(signature).stage)) < stageIndex('parts'));
@@ -420,7 +420,7 @@ test('#789 job acts shows record checkpoint and signoff words labels byte-for-by
     `  ${signoffParsed.acts[0]!.command!}`,
   ].join('\n'));
 
-  // Record interview-picks act words also print byte-for-byte in text and JSON and ingest cleanly.
+  // Review wraps legacy submission words in a comment, preserving the text byte-for-byte.
   const { root: picksRoot, view: picksView, value: picksValue } = await openMotionQuestion();
   const picksLabel = `["rig-review-comment/1","setup","reference","evidence/setup.png","${'c'.repeat(64)}",14,28,40,30]`;
   const picksWords = `[${picksLabel}]\nPin on the interview question image.`;
@@ -428,19 +428,19 @@ test('#789 job acts shows record checkpoint and signoff words labels byte-for-by
     ...picksValue,
     words: picksWords,
   });
-  expect(picksAct.schema).toBe('rig-review/act@4');
+  expect(picksAct.schema).toBe(JOB_COMMENTS_ACT_SCHEMA);
   const picksJson = await cli(picksRoot, ['job', 'acts', picksRoot, '--json']);
   expectExit0(picksJson);
   const picksParsed = JSON.parse(picksJson.stdout) as { acts: PendingJobAct[] };
   expect(picksParsed.acts).toHaveLength(1);
-  expect((picksParsed.acts[0]!.value as { words?: string }).words).toBe(picksWords);
+  expect(picksParsed.acts[0]!.value).toMatchObject({ comments: [{ text: picksWords }] });
   expect(JSON.stringify(picksParsed.acts[0]!.value)).toBe(JSON.stringify(picksAct.value));
 
   const picksText = await cli(picksRoot, ['job', 'acts', picksRoot]);
   expectExit0(picksText);
   expect(picksText.stdout).toContain([
     `${String(picksAct.actId)} interview-picks question motion at ${String(picksAct.at)}`,
-    `  words: ${picksWords}`,
+    `  comment: ${picksWords}`,
     `  ${picksParsed.acts[0]!.command!}`,
   ].join('\n'));
   await executePrinted(picksRoot, picksParsed.acts[0]!.command!);
@@ -582,7 +582,7 @@ async function openMotionQuestion(also: string[] = [], edit?: (project: JsonObje
   return { root, url: opening.url, view, value, others };
 }
 
-// Review's record host writes act@4. Its decoder also admits the act@6 picks envelope.
+// Re-envelope the synthetic legacy picks fixture for the comment-closure tests.
 function commentedPicksAct(act4: JsonObject, comments: { text: string; anchor?: JsonObject }[] = []): JsonObject {
   expect(act4.schema).toBe('rig-review/act@4');
   const { words: _, ...survey } = obj(act4.value);
@@ -788,7 +788,6 @@ test('#856 refuses tampered retained owner-chat evidence and preserves project b
 
 test('#846 single ingest routes exact comments and preserves survey, receipt and replay bytes', async () => {
   const { root, view, value } = await openMotionQuestion();
-  const act4 = await view.act('interview-picks', 'interview-picks', value);
   const cropHash = 'b'.repeat(64);
   const nativeCropHash = 'c'.repeat(64);
   const crop = { path: `comment-crops/${cropHash}.png`, sha256: cropHash, width: 2, height: 3 };
@@ -798,10 +797,13 @@ test('#846 single ingest routes exact comments and preserves survey, receipt and
     { text: 'On the picture.', anchor: { name: 'reference.png' } },
     { text: 'Pinned here.\n끝', anchor: { name: 'reference.png', imageRegion: { x: 1, y: 2, width: 4, height: 5 }, crop, nativeCrop } },
   ];
-  const bytes = JSON.stringify(commentedPicksAct(act4, comments), null, 2) + '\n';
+  const act6 = await view.act('interview-picks', 'interview-picks', { ...value, comments });
+  expect(parseCommentsAct(act6) as unknown).toEqual(act6);
+  const act4 = { ...act6, schema: 'rig-review/act@4', value };
+  const bytes = JSON.stringify(act6, null, 2) + '\n';
   const file = join(root, 'project.json');
   const before = readFileSync(file);
-  const ingest = (bytes: string) => interviewAnswerCommand(['motion', root, '--from-review', String(act4.actId)], testClock.now(),
+  const ingest = (bytes: string) => interviewAnswerCommand(['motion', root, '--from-review', String(act6.actId)], testClock.now(),
     { fetch: () => ({ bytes }) });
   const answer = ingest(bytes);
   const at6 = readFileSync(file);
@@ -828,7 +830,7 @@ test('#846 single ingest routes exact comments and preserves survey, receipt and
   const project6 = JSON.parse(at6.toString('utf8')) as JsonObject;
   const index = arr(project6.review_acts).length - 1;
   const entry = obj(arr(project6.review_acts)[index]);
-  expect(entry).toMatchObject({ kind: 'interview-picks', actId: act4.actId, bytes, sha256: jobHash(bytes) });
+  expect(entry).toMatchObject({ kind: 'interview-picks', actId: act6.actId, bytes, sha256: jobHash(bytes) });
   expect(entry.feedback_route).toEqual({ question: 'motion', comments: comments.map((comment, i) => ({ order: i + 1, ...comment })) });
   expect(JSON.parse(answer).choice.note).toBe(value.note);
   expect(JSON.parse(answer).choice).not.toHaveProperty('comments');
@@ -848,13 +850,13 @@ test('#846 single ingest routes exact comments and preserves survey, receipt and
 
 test('#846 the ledger refuses tampered routes and warns for missing routes at any act date', async () => {
   const { root, view, value } = await openMotionQuestion();
-  const act4 = await view.act('interview-picks', 'interview-picks', value);
-  const bytes = JSON.stringify(commentedPicksAct(act4, [
+  const act = await view.act('interview-picks', 'interview-picks', { ...value, comments: [
     { text: 'First synthetic comment.' },
     { text: 'Second synthetic comment.', anchor: { name: 'reference.png' } },
-  ]));
+  ] });
+  const bytes = JSON.stringify(act);
   const file = join(root, 'project.json');
-  const ingest = () => interviewAnswerCommand(['motion', root, '--from-review', String(act4.actId)], testClock.now(),
+  const ingest = () => interviewAnswerCommand(['motion', root, '--from-review', String(act.actId)], testClock.now(),
     { fetch: () => ({ bytes }) });
   const answer = ingest();
   const project = read(root);
@@ -907,6 +909,49 @@ test('#846 the ledger refuses tampered routes and warns for missing routes at an
   }
 }, 30_000);
 
+test('#860 act@6 interview feedback preserves a rig point and check refuses an edited anchor', async () => {
+  const { root, view, value } = await openMotionQuestion();
+  const png = readFileSync(join(root, 'evidence/scene-background.png'));
+  const sha256 = jobHash(png);
+  const sourceHash = obj(view.head.source).sourceHash;
+  const modelHash = 'd'.repeat(64);
+  const comment = {
+    text: 'Review this point on the rig.',
+    anchor: {
+      id: 'synthetic-rig-point', frameStart: 3, frameEnd: 3, target: { kind: 'rig', name: 'synthetic-rig' }, category: 'quality',
+      context: { comment: {
+        schema: 'rig-review-comment/1', mode: 'animate', viewport: 'rig', frame: { index: 3, basis: 'producer' },
+        time: 0.25, animation: null, sourceHash, modelHash, referenceHash: null, referenceId: null,
+        camera: { space: 'world', center: { x: 0, y: 0 }, zoom: 1,
+          viewport: { width: 100, height: 100 }, visible: { x: -50, y: -50, width: 100, height: 100 } },
+        screen: { x: 50, y: 50, width: 0, height: 0 }, world: { x: 0, y: 0, width: 0, height: 0 }, slots: [],
+        crop: { path: `comment-crops/${sha256}.png`, sha256, png: `data:image/png;base64,${png.toString('base64')}`,
+          width: png.readUInt32BE(16), height: png.readUInt32BE(20) },
+        bookmark: { schema: 'rig-review-inspection/1', binding: { mode: 'single', sourceHash, rigs: [modelHash] },
+          selection: { inspector: 'playback' } },
+      } },
+    },
+  };
+  const act = await view.act('interview-picks', 'interview-picks', { ...value, comments: [comment] });
+  const decoded = parseCommentsAct(act);
+  expect(decoded.kind).toBe('interview-picks');
+  expect(decoded.value).toMatchObject({ comments: [comment] });
+  expectExit0(await cli(root, ['interview-answer', 'motion', root, '--from-review', decoded.actId]));
+
+  const project = read(root);
+  const entry = obj(arr(project.review_acts).at(-1));
+  expect(entry.feedback_route).toEqual({ question: 'motion', comments: [{ order: 1, ...comment }] });
+  const check = () => checkProject(root, project, { now: testClock.now(), readOnly: true });
+  expect(check().refusals).toEqual([]);
+
+  const routed = obj(arr(obj(entry.feedback_route).comments)[0]);
+  const mark = obj(obj(obj(routed.anchor).context).comment);
+  obj(mark.world).x = 1;
+  const after = check();
+  expect(after.ok).toBe(false);
+  expect(after.refusals.map(finding => finding.code)).toContain('REVIEW_FEEDBACK_ROUTE_INVALID');
+}, 30_000);
+
 test('#846 batch ingest routes comments atomically and omits the route for an empty act', async () => {
   const root = riggingInterviewRoot();
   const values = [await registerQuestion(root, 'motion'), await registerQuestion(root, 'bones')];
@@ -915,8 +960,8 @@ test('#846 batch ingest routes comments atomically and omits the route for an em
   const acts: JsonObject[] = [];
   for (const value of values) {
     const ask = view.asks.find(row => obj(row.subject).questionId === value.questionId)!;
-    const act = await view.act('interview-picks', 'interview-picks', value, { askId: ask.askId });
-    acts.push(commentedPicksAct(act, value.questionId === 'motion' ? [{ text: 'Synthetic motion feedback.' }] : []));
+    const comments = value.questionId === 'motion' ? [{ text: 'Synthetic motion feedback.' }] : [];
+    acts.push(await view.act('interview-picks', 'interview-picks', { ...value, comments }, { askId: ask.askId }));
   }
   const [motion, bones] = acts;
   const motionId = String(motion.actId);
@@ -954,7 +999,7 @@ test('#846 batch ingest routes comments atomically and omits the route for an em
 test('merged record-mode host lists finalized picks and its printed writer command ingests them', async () => {
   const { root, view, value } = await openMotionQuestion();
   const act = await view.act('interview-picks', 'interview-picks', value);
-  expect(act.schema).toBe('rig-review/act@4');
+  expect(act.schema).toBe(JOB_COMMENTS_ACT_SCHEMA);
   const before = snapshot(root); const listed = await cli(root, ['job', 'acts', root, '--json']); expectExit0(listed);
   expect(snapshot(root)).toEqual(before);
   const row = JSON.parse(listed.stdout).acts[0];

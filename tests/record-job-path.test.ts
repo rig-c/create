@@ -7,7 +7,7 @@ import { collectItems } from '../src/check.ts';
 import { interviewAnswerCommand } from '../src/choice-writers.ts';
 import { Refusal } from '../src/refusal.ts';
 import { loadedPartsIdentity } from '../src/job-publication.ts';
-import { startJobHost, type JobHostOptions } from '@rig-c/review/job-host';
+import { JOB_COMMENTS_ACT_SCHEMA, startJobHost, type JobHostOptions } from '@rig-c/review/job-host';
 import { openCreateJob } from '../src/job-host.ts';
 import reviewPackage from '@rig-c/review/package.json';
 import corePackage from '@rig-c/core/package.json';
@@ -290,7 +290,7 @@ test('record question public path, API@2 fetch, retry, stale source and wrong su
   const otherWords = '  Exact Other words.\n끝  ';
   const otherSelections = selections.map((row, index) => index === 0 ? { ...row, optionId: 'other', otherText: otherWords } : row);
   const act = await owner.act('interview-picks', 'interview-picks', { questionId: 'motion', selections: otherSelections, note: WORDS });
-  expect(act.schema).toBe('rig-review/act@4');
+  expect(act.schema).toBe(JOB_COMMENTS_ACT_SCHEMA);
   for (let n = 0; n < 2; n++) {
     const original = bytes(root);
     expect(() => interviewAnswerCommand(['motion', root, '--from-review', String(act.actId)], Date.now(), { fetch: () => ({ bytes: JSON.stringify({ ...act, value: {} }) }) })).toThrow(Refusal);

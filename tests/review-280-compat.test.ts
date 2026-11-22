@@ -67,8 +67,8 @@ function makeProject(): string {
   return root;
 }
 
-test('installed Review 4.14.0 exports the act and previous-draft contracts and retains package-only job schemas', () => {
-  expect(reviewPackage.version).toBe('4.14.0');
+test('installed Review 4.15.0 exports the act and previous-draft contracts and retains package-only job schemas', () => {
+  expect(reviewPackage.version).toBe('4.15.0');
   expect(reviewPackage.dependencies['@rig-c/play']).toBe('1.24.0');
   expect(JOB_API_SCHEMA).toBe('rig-review/job-api@2');
   expect(JOB_ACT_SCHEMA).toBe('rig-review/act@2');
@@ -331,7 +331,7 @@ test('#838 interview-picks act@6 decodes through Review parseCommentsAct with ex
   expectRefusalCode(() => decodeReviewAct(bytes, 'signoff'), 'REVIEW_ACT_KIND_MISMATCH');
 });
 
-test('#838 interview-picks act@6 refuses words, unknown members, non-image anchors and picks at act@7 or later', () => {
+test('#838 interview-picks act@6 refuses words, unknown members, invalid anchors and picks at act@7 or later', () => {
   const act = picksAt6();
   const refuses = (raw: unknown) => {
     expect(() => parseCommentsAct(raw)).toThrow('JOB_ACT_INVALID');

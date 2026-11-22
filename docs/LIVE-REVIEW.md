@@ -282,7 +282,11 @@ vocabulary `accepted`, `bounced` and `provisional`. Host-attested owner maps to
 `by: user`, and delegate maps to `by: delegate`. An interview pick or a sign-off from
 an owner host opened for the agent (`--reviewer agent`) records the agent's id
 as `by` instead, so it refuses as a pick (`INTERVIEW_CHOICE_INVALID`) or a
-sign-off (`SIGNOFF_NOT_HUMAN`) and is never recorded as the owner's act.
+sign-off (`SIGNOFF_NOT_HUMAN`) and is never recorded as the owner's act. A
+verdict from such a host refuses the same way: a rig, post or draft verdict
+with `REVIEW_NOT_HUMAN`, and a parts verdict with `SIGNOFF_NOT_HUMAN`.
+Create cannot tell an agent driving a page opened for the owner's own id from
+the owner, so that act keeps the role mapping.
 The complete reviewer identity,
 authority, original words, time and source remain in the immutable act receipt.
 Verdict ingestion records its verdict and bound still. Signoff and stage advance require their own

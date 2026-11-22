@@ -4,12 +4,12 @@ import { cpSync, existsSync, linkSync, mkdirSync, mkdtempSync, readFileSync, rea
 import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { JOB_CHEST_LANDMARKS_ACT_SCHEMA, JOB_COMMENTS_ACT_SCHEMA, startJobHost, type JobOwnerHost, type JobVerdict } from '@rig-c/review/job-host';
-import { collectItems } from '../src/check.ts';
+import { collectItems, type Finding } from '../src/check.ts';
 import { optionContext } from '../src/choices.ts';
 import { directionHash, objects } from '../src/direction.ts';
 import { acknowledgePublication, enqueuePublication, jobHash, JOB_BINDING_FILE, jobHostStateRoot, readAcknowledgedPublication, readWriterBinding, writePrivateJson, type WriterBinding } from '../src/job-outbox.ts';
 import { currentJobIdentity, partsEnumerator, prepareLiveManifest, readPublished, readRecordPublished } from '../src/job-publication.ts';
-import { assertReviewActSource, decodeReviewAct, decodeReviewResponse, fetchReviewAct, reviewActFindings, reviewActTransport } from '../src/review-act.ts';
+import { assertReviewActSource, decodeReviewAct, decodeReviewResponse, fetchReviewAct, REVIEW_ACT_ACTOR_SINCE, reviewActFindings, reviewActTransport } from '../src/review-act.ts';
 import { pendingMeshDeltaRevision } from '../src/corrections.ts';
 import { republishCommand } from '../src/republish.ts';
 import { formatNext, nextProject } from '../src/next.ts';
@@ -50,7 +50,7 @@ function reviewVerdictReceipts(project: JsonObject): JsonObject[] {
 
 async function published(checkpoint = '3-rig-review', n = 1, role: 'owner' | 'delegate' = 'owner', words = '  Synthetic approval.\r\n', verdict: JobVerdict = 'approved', generation = 1, legacySubjects = false, existing?: { root: string; rigVersion: number; reader?: typeof readPublished },
   extraValue?: (root: string, source: JsonObject, publication: JsonObject) => JsonObject,
-  attachable?: 'package-only' | 'record-and-package') {
+  attachable?: 'package-only' | 'record-and-package', reviewerId = 'synthetic-reviewer') {
   // Keep authored moves after the fixture and before the live host's receipts.
   if (!existing) testClock.set(EXAMPLE_REOPEN_AT);
   const root = existing?.root ?? temporary('create-act-project-');
@@ -73,7 +73,7 @@ async function published(checkpoint = '3-rig-review', n = 1, role: 'owner' | 'de
   const hidden = temporary('create-act-hidden-');
   // Existing fetch-only fixtures omit the actual host state path.
   const stateDir = join(hidden, 'relocated-state');
-  const identity = currentJobIdentity({ root, stateDir, fingerprint: 'rig-create/live-review/1', reviewer: { id: 'synthetic-reviewer', role },
+  const identity = currentJobIdentity({ root, stateDir, fingerprint: 'rig-create/live-review/1', reviewer: { id: reviewerId, role },
     ...(attachable === 'record-and-package' ? { publicationMode: attachable } : {}) }, root);
   let reader = existing?.reader ?? readPublished;
   if (legacySubjects) {
@@ -1350,4 +1350,50 @@ test('#618 composed post act refuses differing model path, model hash or on-disk
   const staleDisk = await command(diskRoot, diskAct.actId, diskN);
   expect(staleDisk.exit).toBe(1); expect(staleDisk.stderr).toContain('REVIEW_ACT_SOURCE_STALE:');
   expect(readFileSync(join(diskRoot, 'project.json'))).toEqual(beforeDisk);
+});
+
+/** #840: the version verdict record an owner-host act writes, as exact bytes. */
+function ownerVerdictBytes(act: { jobId: string; actId: string; at: string }, verdict: string, verbatim: string): string {
+  return `{"by":"user","at":"${act.at}","review":"rig-review","verdict":"${verdict}","verbatim":${JSON.stringify(verbatim)},"source":"review act ${act.jobId}/${act.actId}","on_items":[]}`;
+}
+
+for (const [verdict, recorded, words] of [['approved', 'accepted', '  Synthetic approval.\r\n'], ['changes-requested', 'bounced', '  Synthetic changes.\r\n']] as const) {
+  test(`#840 an owner ${verdict} verdict from an owner host keeps its record bytes`, async () => {
+    const { root, act } = await published('3-rig-review', 1, 'owner', words, verdict, 1, false, undefined, undefined, undefined, 'synthetic-owner');
+    const result = await command(root, act.actId);
+    expect(result.stderr).toBe(''); expect(result.exit).toBe(0);
+    const record = ((projectAt(root).versions as JsonObject[])[0]!.verdicts as JsonObject[]).at(-1)!;
+    expect(JSON.stringify(record)).toBe(ownerVerdictBytes(act, recorded, `[general]\n${words}`));
+    expect(reviewActFindings(projectAt(root))).toEqual([]);
+  });
+
+  test(`#840 a ${verdict} verdict from an owner host opened for the agent refuses REVIEW_NOT_HUMAN and writes nothing`, async () => {
+    const { root, act } = await published('3-rig-review', 1, 'owner', words, verdict, 1, false, undefined, undefined, undefined, verdict === 'approved' ? 'Agent' : 'agent');
+    const before = treeDigest(root);
+    const result = await command(root, act.actId);
+    expect(result.exit).toBe(1);
+    expect(result.stderr).toContain('REVIEW_NOT_HUMAN:');
+    expect(treeDigest(root)).toEqual(before);
+  });
+}
+
+test('#840 the ledger keeps an earlier agent verdict recorded as user with a WARN and refuses one from REVIEW_ACT_ACTOR_SINCE', async () => {
+  const { root, act } = await published('3-rig-review', 1, 'owner', '  Synthetic approval.\r\n', 'approved', 1, false, undefined, undefined, undefined, 'synthetic-owner');
+  expect((await command(root, act.actId)).exit).toBe(0);
+  const recorded = projectAt(root);
+  const agentAct = (project: JsonObject, at?: string): void => {
+    const receipt = reviewVerdictReceipts(project)[0]!;
+    const value = JSON.parse(String(receipt.bytes)) as JsonObject;
+    ((value.authority as JsonObject).reviewer as JsonObject).id = 'agent';
+    if (at) { value.at = at; ((project.versions as JsonObject[])[0]!.verdicts as JsonObject[])[Number(receipt.verdict)]!.at = at; }
+    receipt.bytes = JSON.stringify(value); receipt.sha256 = jobHash(String(receipt.bytes));
+  };
+  const current = structuredClone(recorded);
+  agentAct(current);
+  expect(reviewActFindings(current).map(f => f.code)).toEqual(['REVIEW_ACT_LEDGER_INVALID']);
+  const earlier = structuredClone(recorded);
+  agentAct(earlier, new Date(Date.parse(REVIEW_ACT_ACTOR_SINCE) - 60_000).toISOString());
+  const warnings: Finding[] = [];
+  expect(reviewActFindings(earlier, warnings)).toEqual([]);
+  expect(warnings.map(f => f.code)).toEqual(['REVIEW_ACT_ACTOR_LEGACY']);
 });

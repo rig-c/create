@@ -70,11 +70,11 @@ function assertSuccess(result: { exit: number; stderr: string }): void {
   expect({ exit: result.exit, stderr: result.stderr }).toEqual({ exit: 0, stderr: '' });
 }
 
-const openArgs = (root: string, id: string, kind: 'draft' | 'rig' = 'draft') =>
-  ['job', 'open', root, `--${kind}`, id, '--reviewer', 'synthetic-owner', '--role', 'owner'];
+const openArgs = (root: string, id: string, kind: 'draft' | 'rig' = 'draft', reviewer = 'synthetic-owner') =>
+  ['job', 'open', root, `--${kind}`, id, '--reviewer', reviewer, '--role', 'owner'];
 
-async function open(root: string, id: string, kind: 'draft' | 'rig' = 'draft') {
-  const proc = spawn(root, openArgs(root, id, kind));
+async function open(root: string, id: string, kind: 'draft' | 'rig' = 'draft', reviewer?: string) {
+  const proc = spawn(root, openArgs(root, id, kind, reviewer));
   hosts.push(proc);
   const reader = proc.stdout.getReader();
   const errors = proc.stderr.getReader();
@@ -429,3 +429,23 @@ test('#803 a pending correction refuses carry and offers same-input registration
   expect(read(root).corrections).toEqual((JSON.parse(before.toString()) as JsonObject).corrections);
   expect(check().refusals.map(f => f.code)).toEqual([]);
 }, testTimeoutMs);
+
+for (const [verdict, recorded] of [['approved', 'accepted'], ['changes-requested', 'bounced']] as const) {
+  test(`#840 an owner ${verdict} draft verdict from an owner host keeps its receipt verdict bytes`, async () => {
+    const root = rigging();
+    const opening = await open(root, draftId);
+    const receipt = await submit(root, opening.url, verdict);
+    expect(JSON.stringify(receipt.verdict)).toBe(`{"by":"user","at":"${String(JSON.parse(String(receipt.bytes)).at)}","review":"rig-review","verdict":"${recorded}","verbatim":${JSON.stringify(verbatim)},"source":"review act ${String(receipt.jobId)}/${String(receipt.actId)}","on_items":[]}`);
+  }, testTimeoutMs);
+
+  test(`#840 a ${verdict} draft verdict from an owner host opened for the agent refuses REVIEW_NOT_HUMAN and writes nothing`, async () => {
+    const root = rigging();
+    const opening = await open(root, draftId, 'draft', verdict === 'approved' ? 'AGENT' : 'agent');
+    const { args } = await post(root, opening.url, verdict);
+    const before = treeDigest(root);
+    const refused = await cli(root, args);
+    expect(refused.exit).toBe(1);
+    expect(refused.stderr).toMatch(/\bREVIEW_NOT_HUMAN:/);
+    expect(treeDigest(root)).toEqual(before);
+  }, testTimeoutMs);
+}

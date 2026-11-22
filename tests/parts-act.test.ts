@@ -29,6 +29,7 @@ import { assertPartsActSource, partsActDraftHash, partsActFindings } from '../sr
 import { latestPartsReceipt, latestPartsVerdictStatus, partsReadFindings, recordedPartsVerdict } from '../src/parts-verdict-record.ts';
 import { decodeReviewAct, partsActIssues, reviewActFindings, type PartsVerdictActV5 } from '../src/review-act.ts';
 import { EXAMPLE_NOW } from '../scripts/example-time.ts';
+import { treeDigest } from './helpers.ts';
 import type { JsonObject } from '../src/templates.ts';
 
 const roots: string[] = [];
@@ -109,9 +110,9 @@ function expectCliRefused(result: CliResult, code: string, exit = 1): CliResult 
 }
 
 const draftArgs = (id = 'chain') => ['draft-rig', id, '--config', `derived/drafts/${id}/config.json`, '--from', `derived/drafts/${id}/out`, '--parts', `derived/drafts/${id}/input`, '--json'];
-async function bound(ready = true) {
+async function bound(ready = true, reviewer = 'synthetic-owner') {
   const root = fixture();
-  const host = await openCreateJob(root, { id: 'synthetic-owner', role: 'owner' }, Date.now());
+  const host = await openCreateJob(root, { id: reviewer, role: 'owner' }, Date.now());
   hosts.push(host);
   const result = expectCliOk(await cli(root, draftArgs()));
   expect(result.stderr).toBe(''); expect(result.exit).toBe(0);
@@ -1096,3 +1097,26 @@ test('historical approved UI receipt stays unsigned on replay and accepts the ol
   expect(reviewActFindings(project)).toEqual([]);
   expect(checkProject(root, undefined, { now: Date.now() }).refusals.map(f => f.code)).toEqual(['STAGE_LAGGING']);
 }, SINGLE_ACT_TIMEOUT_MS);
+
+for (const verdict of ['approved', 'changes-requested'] as const) {
+  test(`#840 an owner ${verdict} parts verdict from an owner host keeps its record bytes`, async () => {
+    const { root, host } = await bound();
+    const act = await submit(root, host, verdict, verdict === 'approved' ? 'clean' : 'flagged');
+    const before = read(root);
+    const result = JSON.parse(expectCliOk(await cli(root, ['parts-review', '--from-review', act.actId, '--json'])).stdout);
+    expect(result.by).toBe('user');
+    const signoffs = read(root).signoffs as JsonObject[];
+    if (verdict === 'changes-requested') { expect(signoffs).toEqual(before.signoffs as JsonObject[]); return; }
+    const evidence = result.evidence as JsonObject;
+    const structure = (signoffs.at(-1)!.structure as JsonObject).sha256;
+    expect(JSON.stringify(signoffs.at(-1))).toBe(`{"stage":"parts-review","checkpoint":null,"by":"user","at":"${act.at}","verbatim":${JSON.stringify(result.verbatim)},"source":"review act ${act.jobId}/${act.actId}","evidence":{"kind":"parts-verdict","path":"${String(evidence.path)}","sha256":"${String(evidence.sha256)}","spec":"${act.schema}"},"draft_id":"chain","structure":{"path":"evidence/structure-chain.json","sha256":"${String(structure)}"}}`);
+  }, MULTI_SPAWN_TIMEOUT_MS);
+
+  test(`#840 a ${verdict} parts verdict from an owner host opened for the agent refuses SIGNOFF_NOT_HUMAN and writes nothing`, async () => {
+    const { root, host } = await bound(true, verdict === 'approved' ? ' agent ' : 'agent');
+    const act = await submit(root, host, verdict, verdict === 'approved' ? 'clean' : 'flagged');
+    const before = treeDigest(root);
+    expectCliRefused(await cli(root, ['parts-review', '--from-review', act.actId, '--json']), 'SIGNOFF_NOT_HUMAN');
+    expect(treeDigest(root)).toEqual(before);
+  }, MULTI_SPAWN_TIMEOUT_MS);
+}

@@ -179,7 +179,7 @@ test('#561 a completed step stays immutable after an owner amendment and next re
   }
   write(root, project);
   const captions = JSON.parse(readFileSync(join(root, 'evidence/captions.json'), 'utf8')) as JsonObject;
-  expect(createHash('sha256').update(readFileSync(file(root))).digest('hex')).toBe(obj(obj(captions.inputs).project).sha256);
+  expect(createHash('sha256').update(readFileSync(file(root))).digest('hex')).toBe(obj(obj(captions.inputs).project).sha256 as string);
   testClock.set(T0);
   expect(checkProject(root)).toMatchObject({ refusals: [], warnings: [] });
   const done = step(project, id);

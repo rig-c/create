@@ -2307,8 +2307,9 @@ checks every live pilot for new same-day refusals.
 ### Scene option context
 
 A post option set takes one of two contexts: the rig kind
-(docs/INTERVIEW.md) or the scene kind. This section is the scene kind's
-contract.
+([INTERVIEW.md](INTERVIEW.md)) or the scene kind. The rig kind copies the
+accepted rig's recorded config binding `{path,sha256,bytes}`; older bindings
+may omit the byte count. This section is the scene kind's contract.
 
 1. **Entries.** `project.scenes[]` is append-only. Each entry is exactly
    `{n,path,sha256,at,by}`: `n` counts from 1 in array order, `path` is

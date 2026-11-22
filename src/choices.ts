@@ -203,6 +203,22 @@ function verifyBinding(dir: string, binding: Json, fresh: boolean): void {
     if (rel === '' || rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel) || !lstatSync(file).isFile() || sha256(readFileSync(file)) !== binding.sha256) throw Error('context file changed or escaped');
   } catch (e) { fail('INTERVIEW_OPTIONS_STALE', `${String(binding.path)}: ${e instanceof Error ? e.message : String(e)}; redraft against current retained context`); }
 }
+function contextDifference(expected: Json | undefined, actual: Json | undefined, path: string): string {
+  const arrays = Array.isArray(expected) && Array.isArray(actual);
+  if (arrays || (isObject(expected) && isObject(actual))) {
+    const fields: JsonObject = { ...expected };
+    const supplied: JsonObject = { ...actual };
+    for (const key of new Set([...Object.keys(fields), ...Object.keys(supplied)])) {
+      const segment = arrays ? `[${key}]` : /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(key) ? `.${key}` : `[${JSON.stringify(key)}]`;
+      const field = path + segment;
+      if (!Object.hasOwn(supplied, key)) return `${field} is missing`;
+      if (!Object.hasOwn(fields, key)) return `${field} is different`;
+      if (!equal(fields[key], supplied[key])) return contextDifference(fields[key], supplied[key], field);
+    }
+  }
+  return `${path} is different`;
+}
+
 /** `warn` receives the reason when a set drafted before SCENE_CONTEXT_SINCE holds only under that day's rule. */
 export function validateContext(dir: string, project: JsonObject, set: JsonObject, at: number, fresh = false, warn?: (why: string) => void): void {
   const drafted = date(set.drafted_at);
@@ -215,7 +231,13 @@ export function validateContext(dir: string, project: JsonObject, set: JsonObjec
     if (!Array.isArray(set.context.files) || !set.context.files.length || set.context.files.some(f => !isObject(f) || !declared.some(d => d.path === f.path && d.sha256 === f.sha256 && (d.at === undefined || date(d.at) <= drafted)))) fail('INTERVIEW_OPTIONS_STALE','shown source identity is no longer declared; restore the original inputs');
   } else {
     const live = (legacyScene: boolean): void => {
-      if (!equal(optionContext(contextProject, String(set.stage), drafted, dir, legacyScene), set.context) || !equal(optionContext(contextProject, String(set.stage), at, dir, legacyScene), set.context)) fail('INTERVIEW_OPTIONS_STALE', 'options no longer match the live context; redraft against current accepted inputs');
+      for (const time of [drafted, at]) {
+        const expected = optionContext(contextProject, String(set.stage), time, dir, legacyScene);
+        if (!equal(expected, set.context)) {
+          const difference = contextDifference(expected, set.context, 'context');
+          fail('INTERVIEW_OPTIONS_STALE', `options no longer match the live context: ${difference}; redraft against current accepted inputs`);
+        }
+      }
     };
     if (!isObject(set.context) || set.context.kind !== 'scene' || !(drafted < Date.parse(SCENE_CONTEXT_SINCE))) live(false);
     else {

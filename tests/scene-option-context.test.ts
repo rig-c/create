@@ -48,7 +48,7 @@ const answer = (dir: string, set: string) => () => interviewAnswerCommand(['post
 const optionCodes = (dir: string): string[] => checkProject(dir).refusals.filter(f => f.path.startsWith('interview.post.items[')).map(f => f.code);
 
 /** A new rig v3 accepted after s1, through review-package, review and signoff, from tick `start`. */
-function acceptNewRig(dir: string, start = 0): void {
+function acceptNewRig(dir: string, start = 0, configBytes = false): void {
   const tick = (seconds: number): void => testClock.set(base + (start + seconds) * 1000);
   tick(0); reopen(dir, 'rig-review');
   const p = load(dir);
@@ -56,6 +56,10 @@ function acceptNewRig(dir: string, start = 0): void {
   tick(1);
   // The chain's declared seed kind: one new rig version declaration, no binding fields.
   const { review_package: _package, ...declaration } = structuredClone(v1);
+  if (configBytes) {
+    const config = (declaration.provenance as JsonObject).config as JsonObject;
+    config.bytes = readFileSync(join(dir, String(config.path))).length;
+  }
   p.versions = [...asArray(p.versions), { ...declaration, n: 3, at: testClock.iso(), verdicts: [] }];
   writeFileSync(join(dir, 'project.json'), `${JSON.stringify(p, null, 2)}\n`);
   tick(2); expect(main(['review-package', '3', dir, '--config', 'evidence/v1/config.json', '--from', 'outputs/v1/out'])).toBe(0);
@@ -65,12 +69,26 @@ function acceptNewRig(dir: string, start = 0): void {
 }
 
 test('(a) a rig accepted after the scene anchors post sets on that rig, never on the previous rig\'s scene', () => {
-  const dir = chainProject(); acceptNewRig(dir);
+  const dir = chainProject(); acceptNewRig(dir, 0, true);
   tick(6);
   const context = optionContext(load(dir), 'post-interview', at(), dir);
   expect(context.kind).toBe('rig');
   expect(context.rig_version).toBe(3);
-  register(dir, draft(dir, 'post-composition-rig', context));
+  const config = context.config as JsonObject;
+  const { path, sha256, bytes } = config;
+  const before = readFileSync(join(dir, 'project.json'));
+  for (const [binding, reason] of [
+    [{ path, sha256 }, 'missing'],
+    [{ path, sha256, bytes: Number(bytes) + 1 }, 'different'],
+  ] as const) {
+    const stale = draft(dir, 'post-composition-stale', { ...context, config: binding });
+    expect(() => register(dir, stale)).toThrow(expect.objectContaining({
+      code: 'INTERVIEW_OPTIONS_STALE',
+      message: expect.stringContaining(`context.config.bytes is ${reason}`),
+    }));
+    expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
+  }
+  register(dir, draft(dir, 'post-composition-rig', { ...context, config: { path, sha256, bytes } }));
   tick(7);
   refused('INTERVIEW_OPTIONS_STALE', () => register(dir, draft(dir, 'post-composition-scene', scene(dir))), dir);
   expect(checkProject(dir).refusals).toEqual([]);

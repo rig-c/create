@@ -48,7 +48,7 @@ import { checkFixLedger, type LedgerSummary } from './fix-ledger.ts';
 import { checkCgGates } from './cg-gates.ts';
 import { checkFigureMask } from './figure-mask.ts';
 import { checkSetupPainting } from './setup-painting.ts';
-import { checkChoices } from './choices.ts';
+import { checkChoices, hasPendingOther } from './choices.ts';
 import { translateInvariants, type InvariantsDocument } from './invariants.ts';
 import { checkAskCoverage } from './ask-coverage.ts';
 import { checkAgentBounces } from './agent-bounce.ts';
@@ -613,7 +613,7 @@ function checkPlanAnswerOrder(ctx: Ctx, step: Step, restsOn: string[], approval:
   for (const id of restsOn) {
     const item = itemFor(ctx, id);
     const state = item?.state;
-    if (!item || item.kind === 'framing' || !state || !('answer' in state)) continue;
+    if (!item || item.kind === 'framing' || !state || !('answer' in state) || hasPendingOther(item)) continue;
     const at = time(state.answer.at);
     if (Number.isFinite(at) && (!latest || at > latest.at)) latest = { path: item.path, at };
   }

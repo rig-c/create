@@ -2037,6 +2037,14 @@ test('#596 undecided delegation emits an agent interview-decision move and clear
     '--pick', 'camera_depth=auto',
   ], CHAIN_NOW)).toMatchObject({ code: 0, stderr: '' });
 
+  expect(nextProject(dir, CHAIN_NOW).refusals).toContainEqual(expect.objectContaining({
+    code: 'PLAN_STEP_PREDATES_ANSWER',
+    field: 'plan.steps[camera]',
+  }));
+  expect(runMainCapture(['plan', 'revise', 'camera', dir, '--by', 'agent',
+    '--reason', 'Keep the camera step after reviewing the recorded delegation.'], CHAIN_NOW + 1))
+    .toMatchObject({ code: 0, stderr: '' });
+
   const signRes = runMainCapture(['signoff', 'post-interview', dir, '--by', 'user', '--verbatim-file', join(dir, 'evidence/approval.txt')], CHAIN_NOW + 1000);
   expect(signRes.code).toBe(1);
   expect(signRes.stderr).toContain('DELEGATION_UNDECIDED');

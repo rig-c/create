@@ -17,7 +17,7 @@ import { reviewPackageCommand } from '../src/review-package.ts';
 import { selectSignoffTarget } from '../src/signoff-target.ts';
 import { stepHash } from '../src/step-hash.ts';
 import type { JsonObject } from '../src/templates.ts';
-import { advanceCommand, checkProject, directionCommand, inputCommand, reviewCommand, sceneCommand, signoffCommand, stepStatusCommand, testClock } from './clock.ts';
+import { advanceCommand, checkProject, directionCommand, inputCommand, planCommand, reviewCommand, sceneCommand, signoffCommand, stepStatusCommand, testClock } from './clock.ts';
 import { composeFixture, composeRunFixture } from './direction-compose-fixture.ts';
 import { plantLegacyReopen, fixture } from './fixtures.ts';
 import { clockedCli, staleRecordPlant, treeDigest } from './helpers.ts';
@@ -1247,6 +1247,20 @@ async function publishedComposed() {
     answer.choice = { ...oldChoice, set: { path, sha256: directionHash(bytes) }, picks: [{ ask: id, option_id: 'keep', shown }] };
   }
   putProject(root, project);
+  // The owner reopened completed work. Replace only the definitions whose answers changed.
+  const plan = project.plan as JsonObject;
+  const replacements = [...objects(plan.replaced)];
+  for (const id of ['timing', 'composition']) {
+    const step = objects(plan.steps).find(candidate => candidate.id === id)!;
+    testClock.set(testClock.now() + 1_000);
+    expect(planCommand(['remove', id, root, '--by', 'agent']).exit).toBe(0);
+    replacements.push({ step, sha256: stepHash(step), action: 'removed', at: testClock.iso(), by: 'agent' });
+    testClock.set(testClock.now() + 1_000);
+    expect(planCommand(['add', id, root, '--by', 'agent', '--phase', String(step.phase), '--order', String(step.order),
+      '--does', String(step.does), '--produces', String(step.produces), '--rests-on', (step.rests_on as string[]).join(','),
+      '--bar', String(step.bar), '--checkpoint-proposed', String(step.checkpoint_proposed)]).exit).toBe(0);
+  }
+  expect((projectAt(root).plan as JsonObject).replaced).toEqual(replacements);
   testClock.set(Date.parse(EXAMPLE_REOPEN_AT) + 60_000);
   signoffCommand(['post-interview', root, '--by', 'user', '--verbatim-file', join(root, 'words.txt')]);
   advanceCommand(['post', root]);

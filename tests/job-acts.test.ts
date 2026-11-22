@@ -592,6 +592,10 @@ function commentedPicksAct(act4: JsonObject, comments: { text: string; anchor?: 
 }
 
 const COMMENT_CLOSURE_INVALID = 'INTERVIEW_COMMENT_CLOSURE_INVALID';
+const stalePlanStep = (id: string) => ({ code: 'PLAN_STEP_PREDATES_ANSWER', path: `plan.steps[${id}]` });
+const findingPaths = (findings: Finding[]) => findings.map(({ code, path }) => ({ code, path }));
+// The closure fixture records a newer bones guide. Both steps depend on that guide.
+const STALE_BONES_PLAN = [stalePlanStep('bones'), stalePlanStep('constraints')];
 
 function ingestClosureFixturePicks(
   root: string, value: Awaited<ReturnType<typeof registerQuestion>>, comments: { text: string }[] = [],
@@ -703,20 +707,25 @@ test('#856 enforces source, resolving answer and closure time order', async () =
   const { interview_comment_closures: closures, ...rest } = recorded;
   const closure = obj(arr(closures)[0]);
   expect(rest).toEqual(before);
-  expect(check().refusals).toEqual([]);
-  expect(check({ ...recorded, interview_comment_closures: [{ ...closure, at: source.at }] }).refusals)
-    .toContainEqual(expect.objectContaining({ code: COMMENT_CLOSURE_INVALID, path: 'interview_comment_closures[0]' }));
+  const stale = [...STALE_BONES_PLAN, stalePlanStep('motion')];
+  expect(findingPaths(check().refusals)).toEqual(stale);
+  expect(findingPaths(check({ ...recorded, interview_comment_closures: [{ ...closure, at: source.at }] }).refusals))
+    .toEqual([...stale, { code: COMMENT_CLOSURE_INVALID, path: 'interview_comment_closures[0]' }]);
 });
 
 test('#856 refuses duplicate retained closures for the same comment', async () => {
   const { root, close, refuses, check } = await commentClosureFixture();
   close();
-  expect(check().refusals).toEqual([]);
+  expect(findingPaths(check().refusals)).toEqual(STALE_BONES_PLAN);
   const project = read(root);
   const closure = obj(arr(project.interview_comment_closures)[0]);
   project.interview_comment_closures = [closure, { ...closure }];
   write(root, project);
-  expect(check().refusals).toContainEqual(expect.objectContaining({ code: COMMENT_CLOSURE_INVALID, path: 'interview_comment_closures[1]' }));
+  expect(findingPaths(check().refusals)).toEqual([
+    ...STALE_BONES_PLAN,
+    { code: COMMENT_CLOSURE_INVALID, path: 'interview_comment_closures[0]' },
+    { code: COMMENT_CLOSURE_INVALID, path: 'interview_comment_closures[1]' },
+  ]);
   refuses();
 });
 
@@ -768,21 +777,21 @@ test('#856 accepts a later owner-chat answer and binds its exact record', async 
     kind: 'answer', question: 'motion', answer_sha256: jobHash(JSON.stringify(sorted(answer))),
   });
   expect(recorded.review_acts).toEqual(receipts);
-  expect(check().refusals).toEqual([]);
+  expect(findingPaths(check().refusals)).toEqual([...STALE_BONES_PLAN, stalePlanStep('motion')]);
 });
 
 test('#856 refuses tampered retained owner-chat evidence and preserves project bytes', async () => {
   const { root, close, refuses, check } = await commentClosureFixture();
   await recordClosureOwnerChatAnswer(root);
   close('motion');
-  expect(check().refusals).toEqual([]);
+  const stale = [...STALE_BONES_PLAN, stalePlanStep('motion')];
+  expect(findingPaths(check().refusals)).toEqual(stale);
   const project = read(root);
   const item = collectItems(project, { collection: null }).find(item => item.id === 'motion')!;
   obj(item.raw).owner_words = 'Different but still valid owner chat words.\n';
   write(root, project);
 
-  const findings = check().refusals.map(({ code, path }) => ({ code, path }));
-  expect(findings).toEqual([{ code: COMMENT_CLOSURE_INVALID, path: 'interview_comment_closures[0]' }]);
+  expect(findingPaths(check().refusals)).toEqual([...stale, { code: COMMENT_CLOSURE_INVALID, path: 'interview_comment_closures[0]' }]);
   refuses('motion');
 });
 
@@ -942,14 +951,18 @@ test('#860 act@6 interview feedback preserves a rig point and check refuses an e
   const entry = obj(arr(project.review_acts).at(-1));
   expect(entry.feedback_route).toEqual({ question: 'motion', comments: [{ order: 1, ...comment }] });
   const check = () => checkProject(root, project, { now: testClock.now(), readOnly: true });
-  expect(check().refusals).toEqual([]);
+  expect(findingPaths(check().refusals)).toEqual([stalePlanStep('motion')]);
 
   const routed = obj(arr(obj(entry.feedback_route).comments)[0]);
   const mark = obj(obj(obj(routed.anchor).context).comment);
   obj(mark.world).x = 1;
   const after = check();
   expect(after.ok).toBe(false);
-  expect(after.refusals.map(finding => finding.code)).toContain('REVIEW_FEEDBACK_ROUTE_INVALID');
+  expect(findingPaths(after.refusals)).toEqual([
+    { code: 'REVIEW_FEEDBACK_ROUTE_INVALID', path: 'signoffs[3].evidence' },
+    stalePlanStep('motion'),
+    { code: 'REVIEW_FEEDBACK_ROUTE_INVALID', path: `review_acts[${arr(project.review_acts).length - 1}]` },
+  ]);
 }, 30_000);
 
 test('#846 batch ingest routes comments atomically and omits the route for an empty act', async () => {
@@ -1021,8 +1034,11 @@ test('merged record-mode host lists finalized picks and its printed writer comma
   expect(timeout.stderr).toContain(`1 already ingested for 1 current ask(s) (${act.actId} question motion -> interview.waypoints[motion].guide)`);
   // #738: next shows the guide as answered and offers no second publication of the question.
   const report = nextProject(root);
+  expect(report.refusals.map(({ code, field }) => ({ code, path: field }))).toEqual([stalePlanStep('motion')]);
   expect(report.moves.filter(move => move.command?.includes('--question motion') || move.review_act?.question_id === 'motion')).toEqual([]);
   expect(report.answers!.find(answer => answer.question_id === 'motion')).toMatchObject({ field: 'interview.waypoints[motion].guide', at: act.at });
+  expectExit0(await cli(root, ['plan', 'revise', 'motion', root, '--by', 'agent',
+    '--reason', 'The motion definition still covers the recorded synthetic choices.']));
   expectExit0(await cli(root, ['interview', '--check', root]));
 }, 30_000);
 
@@ -1341,7 +1357,12 @@ test('#698 timeout options require a bounded integer and --wait', async () => {
 
 test('#633 post composition Other leads to a cited scene through two Review picks', async () => {
   testClock.set(Date.now());
-  const root = copy('4-direction-post');
+  const root = copy('4-direction-post', project => {
+    // This scene-authoring fixture revisits an unfinished composition definition.
+    const composition = arr(obj(project.plan).steps).map(obj).find(step => step.id === 'composition')!;
+    composition.status = 'pending';
+    delete composition.status_history;
+  });
   const reopenWords = join(root, 'reopen.txt');
   writeFileSync(reopenWords, 'Choose the synthetic two-plate scene.');
   plantLegacyReopen(root, 'post-interview', { by: 'user', wordsFile: reopenWords });
@@ -1401,6 +1422,8 @@ test('#633 post composition Other leads to a cited scene through two Review pick
   const ingested = obj(composition().raw);
   expect(composition().record.history).toContainEqual(otherAnswer);
   expect(ingested.value).toEqual(option.fragment);
+  expectExit0(await cli(root, ['plan', 'revise', 'composition', root, '--by', 'agent',
+    '--does', 'Write the approved scene with a background and a foreground plate.']));
   writeCitations(ingested.verbatim);
   expectExit0(await cli(root, sceneArgs));
   expect(obj((read(root).scenes as JsonObject[]).at(-1)).by).toBe('agent');
@@ -1644,7 +1667,7 @@ test('#502 all post-interview picks and plan signoff execute next host and expor
       step.status = 'pending'; delete step.status_history;
     }
   });
-  for (const question of ['camera_depth', 'post_timing', 'post_composition']) {
+  for (const [question, step] of [['camera_depth', 'camera'], ['post_timing', 'timing'], ['post_composition', null]] as const) {
     const project = read(root);
     const item = collectItems(project, { collection: null }).find(item => item.id === question)!;
     const binding = obj(obj(obj(item.raw).choice).set);
@@ -1658,6 +1681,8 @@ test('#502 all post-interview picks and plan signoff execute next host and expor
     const selections = arr(set.asks).map(obj).map(ask => ({ itemId: ask.id,
       optionId: arr(ask.options).map(obj).find(option => option.kind === 'value')!.id, otherText: null }));
     await nextReview(root, 'interview-picks', { questionId: question, selections, note: WORDS }, question);
+    if (step !== null) expectExit0(await cli(root, ['plan', 'revise', step, root, '--by', 'agent',
+      '--reason', `The ${step} definition still fits the recorded synthetic choice.`]));
   }
   const composition = nextProject(root, testClock.now()).moves.find(move => move.command?.startsWith('rig-create plan add composition'))!;
   expect(composition.command).toContain('--rests-on post_composition');

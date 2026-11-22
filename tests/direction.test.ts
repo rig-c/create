@@ -19,7 +19,7 @@ import type { JsonObject } from '../src/templates.ts';
 import { generateDirectionFixture } from '../scripts/generate-direction-fixture.ts';
 import { directionFixture } from './direction-fixture.ts';
 import { clockedCli, tempDir } from './helpers.ts';
-import { TEST_NOW, checkProject, correctionCommand, checkCorrections, assertDirectionApproval, checkDirections, advanceCommand, directionCommand, recordVerdict, handoff, sceneCommand, signoffCommand, testClock } from './clock.ts';
+import { TEST_NOW, checkProject, correctionCommand, checkCorrections, assertDirectionApproval, checkDirections, advanceCommand, directionCommand, planCommand, recordVerdict, handoff, sceneCommand, signoffCommand, testClock } from './clock.ts';
 
 afterEach(()=>testClock.reset());
 /** A reopen of the filled example to post or post-interview voids its direction-review sign-off and acceptance (#220). */
@@ -254,6 +254,16 @@ test('N/A fixed camera publishes through direction write and checkProject; two k
   camera.history=[...objects(camera.history),camera.guide as JsonObject];
   camera.guide={not_applicable:true,because:'No camera motion requested',verbatim:'Keep the view fixed.',by:'user',at:new Date(TEST_NOW + 60 * 60_000).toISOString()};
   writeFileSync(join(dir,'project.json'),JSON.stringify(changed));
+  const plan = changed.plan as JsonObject;
+  const step = objects(plan.steps).find(candidate => candidate.id === 'camera')!;
+  testClock.set(TEST_NOW + 60 * 60_000 + 1_000);
+  expect(planCommand(['remove', 'camera', dir, '--by', 'agent']).exit).toBe(0);
+  testClock.set(testClock.now() + 1_000);
+  expect(planCommand(['add', 'camera', dir, '--by', 'agent', '--phase', String(step.phase), '--order', String(step.order),
+    '--does', String(step.does), '--produces', String(step.produces), '--rests-on', (step.rests_on as string[]).join(','),
+    '--bar', String(step.bar), '--checkpoint-proposed', String(step.checkpoint_proposed)]).exit).toBe(0);
+  const replaced = (JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')) as JsonObject).plan as JsonObject;
+  expect(replaced.replaced).toEqual([...objects(plan.replaced), expect.objectContaining({ step, action: 'removed' })]);
   testClock.set(TEST_NOW + 24 * 60 * 60_000);
   signoffCommand(['post-interview',dir,'--by','user','--verbatim-file',join(dir,'words.txt')]);
   expect(checkProject(dir).refusals.map(f=>f.code)).toContain('STAGE_LAGGING');

@@ -599,6 +599,99 @@ function stageQuestionCommands(dir: string, project: JsonObject, stage: string, 
   ];
 }
 
+function interviewQuestionMoves(dir: string, stageItems: Item[], effectiveStage: string, jobId?: string): NextMove[] {
+  const moves: NextMove[] = [];
+  for (const item of stageItems) {
+    const answerField = item.path;
+    const questionPath = item.path.replace(/\.(answer|guide)$/, '');
+    const pendingOpts = pendingInterviewOptions(item);
+    if (pendingOpts !== undefined || item.state.state === 'silent' || hasPendingOther(item)) {
+      if (pendingOpts !== undefined) {
+        let optSetId = typeof pendingOpts.id === 'string' ? pendingOpts.id : '';
+        if (!optSetId && typeof pendingOpts.path === 'string') {
+          try {
+            const rawSet = JSON.parse(readFileSync(join(dir, pendingOpts.path), 'utf8')) as JsonObject;
+            if (typeof rawSet.id === 'string') optSetId = rawSet.id;
+          } catch {
+            optSetId = pendingOpts.path;
+          }
+        }
+        moves.push({
+          role: 'human',
+          field: pendingInterviewOptionsPath(item),
+          awaits: answerField,
+          command: null,
+          act: `review-tool act interview-picks for ${questionPath} (option set ${optSetId})`,
+          review_act: {
+            kind: 'interview-picks',
+            stage: effectiveStage,
+            question_id: item.id,
+            option_set_id: optSetId,
+            ...(jobId ? { job_id: jobId } : {}),
+          },
+        });
+      } else if (hasPendingOther(item)) {
+        const followUp = item.id === 'post_composition'
+          ? SCENE_OTHER_FOLLOW_UP
+          : `redraft the option-set file for ${item.id} with a tailored value option and register it for a Review pick, or re-answer with --other-fragment`;
+        moves.push({
+          role: 'agent',
+          field: answerField,
+          awaits: answerField,
+          command: optionCommand(item.id, dir),
+          act: `${answerField} has a pending Other (INTERVIEW_CHOICE_REQUIRED): ${followUp}`,
+          unanswered_by_record: answerField,
+        });
+      } else {
+        moves.push({
+          role: 'agent',
+          field: answerField,
+          awaits: answerField,
+          command: optionCommand(item.id, dir),
+          act: `draft an option-set file for ${item.id}, then register it for a Review pick`,
+          unanswered_by_record: pendingInterviewOptionsPath(item),
+        });
+      }
+    } else if (isUndecidedDelegation(item)) {
+      const decisionField = `${answerField}.agent_decision`;
+      // interview-decision refuses answers without an adopted choice (choice-writers.ts), so a
+      // preserved sentence-format delegation keeps the authored-record move it had before.
+      const adopted = isObject(item.raw) && isObject(item.raw.choice);
+      moves.push(adopted ? {
+        role: 'agent',
+        field: answerField,
+        awaits: decisionField,
+        command: decisionCommand(dir, item),
+        act: `record agent decision and rationale for ${decisionField}`,
+        unanswered_by_record: decisionField,
+      } : {
+        role: 'human',
+        field: answerField,
+        awaits: decisionField,
+        command: null,
+        act: `unanswered by record: ${decisionField} requires authored decision and rationale`,
+        unanswered_by_record: decisionField,
+      });
+    }
+  }
+  return moves;
+}
+
+function runnableNextMoves(dir: string, project: JsonObject, effectiveStage: string, moves: NextMove[]): NextMove[] {
+  const stageQuestions = moves.filter(move => move.role === 'human' && !move.unanswered_by_record
+    && move.review_act?.kind === 'interview-picks' && move.review_act.stage === effectiveStage);
+  const groupedQuestions = stageQuestions.length > 1 ? new Set(stageQuestions) : null;
+  return moves.flatMap(move => {
+    if (groupedQuestions?.has(move)) {
+      return move === stageQuestions[0] ? stageQuestionCommands(dir, project, effectiveStage, stageQuestions) : [];
+    }
+    if (move.review_act && move.review_act.stage !== effectiveStage) return [move];
+    if (move.review_act?.stage === 'direction-review' && move.review_act.kind === 'signoff'
+      && moves.some(other => other.review_act?.stage === 'direction-review' && other.review_act.kind === 'review-verdict')) return [move];
+    return reviewCommands(dir, project, move);
+  });
+}
+
 function sceneWriteCommand(dir: string, project: JsonObject, rigN: string): string {
   let flags = ` --background '<background.png>'`;
   const item = collectItems(project, { collection: loadCollection(dir) }).find(item => item.id === 'post_composition');
@@ -1261,6 +1354,8 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
   const warnings = report.warnings.filter(w => w.code === 'STRUCTURE_DELTA_REVIEW' || w.code === 'REVIEW_ANSWER_COMMENT_ROUTED');
   const collection = loadCollection(dir);
   const allItems = collectItems(project, { collection });
+  const splitOrder = hasStageOrder(project);
+  const stageItems = allItems.filter(item => interviewStageOfGuide(item.id, item.kind === 'post', splitOrder) === effectiveStage);
   const answers = allItems.flatMap(item => {
     const answer = item.state.state === 'user' || item.state.state === 'delegated' || item.state.state === 'not_applicable'
       ? item.state.answer : isObject(item.raw) ? item.raw : null;
@@ -1269,7 +1364,7 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
       picks: asArray(isObject(answer.choice) ? answer.choice.picks : undefined).filter(isObject).map(pick => ({
         ask: pick.ask ?? null, option_id: pick.option_id ?? null, label: isObject(pick.shown) ? pick.shown.label ?? null : null,
       })),
-      ...(interviewStageOfGuide(item.id, item.kind === 'post', hasStageOrder(project)) === effectiveStage
+      ...(interviewStageOfGuide(item.id, item.kind === 'post', splitOrder) === effectiveStage
         ? { command: optionCommand(item.id, dir) } : {}) }];
   });
   const versions = asArray(project.versions).filter(isObject);
@@ -1350,6 +1445,10 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
   const stepForFinding = (finding: Finding) => steps.find(step => finding.path === `plan.steps[${String(step.id)}]`);
   const phaseApproval = effectiveStage === 'rigging-interview' || effectiveStage === 'post-interview';
   const staleSteps = report.refusals.filter(finding => finding.code === 'PLAN_STEP_PREDATES_ANSWER');
+  const hasStaleApprovalStep = (stage: string, checkpoint: string | null = null): boolean => staleSteps.some(finding => {
+    const step = stepForFinding(finding);
+    return step !== undefined && (checkpoint === null ? stepCoveredByApproval(project, step, stage) : step.id === checkpoint);
+  });
   const scopedStale = staleSteps.filter(finding => {
     const step = stepForFinding(finding);
     return step && (!phaseApproval || stepCoveredByApproval(project, step, effectiveStage));
@@ -1368,12 +1467,10 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
       command: `rig-create plan revise ${shellWord(id)} ${shellWord(dir)} --by agent --reason '<why this step fits the recorded answer>'`,
       act: `Review ${finding.path} against the recorded answer and update any fields that need to change before requesting approval.` };
   });
-  const hasBlockingRefusal =
-    holes.length > 0 ||
-    report.refusals.some(r => r.code === 'PLAN_STEP_PREDATES_ANSWER' ? scopedStale.includes(r)
-      : !isOpenInterviewTodo(r, effectiveStage) && !isResolvableLagging(r));
+  const blockingRefusals = report.refusals.filter(r => r.code === 'PLAN_STEP_PREDATES_ANSWER' ? scopedStale.includes(r)
+    : !isOpenInterviewTodo(r, effectiveStage) && !isResolvableLagging(r));
   const registrations = plateInputMoves(dir, project, allItems, now);
-  if (hasBlockingRefusal) {
+  if (holes.length > 0 || blockingRefusals.length > 0) {
     const signoffs = asArray(project.signoffs);
     const readyToResign = new Map<string, boolean>();
     for (const finding of report.refusals) {
@@ -1390,16 +1487,18 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
     const moves = [...revisionMoves, ...depthMoves, ...registrations];
     for (const [stage, ready] of readyToResign) {
       if (!ready) continue;
-      if (staleSteps.some(finding => {
-        const step = stepForFinding(finding);
-        return step && stepCoveredByApproval(project, step, stage);
-      })) continue;
+      if (hasStaleApprovalStep(stage)) continue;
       const command = ownerChatSignoffCommand(dir, project, { kind: 'signoff', stage }, `signoff ${shellWord(stage)}`);
       if (command) moves.push({
         role: 'human', field: 'signoffs', awaits: `signoffs[stage=${stage}]`, command,
         act: `re-sign ${stage} after confirming the intended answers and relay the owner's exact words`,
       });
     }
+    // A stale definition blocks approval, while question publication and answer writers
+    // can carry the finding until the agent reviews the completed answers.
+    const questions = holes.length === 0 && blockingRefusals.every(r => r.code === 'PLAN_STEP_PREDATES_ANSWER')
+      && stage !== PAUSED_STAGE && isOpenInterviewStage(effectiveStage)
+      ? interviewQuestionMoves(dir, stageItems, effectiveStage, jobId) : [];
     return {
       schema: NEXT_SCHEMA,
       project_id: String(project.name ?? ''),
@@ -1408,8 +1507,8 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
       accepted: false,
       refusals,
       ...warningFields,
-      awaits: moves.map(move => move.awaits),
-      moves,
+      awaits: [...moves, ...questions].map(move => move.awaits),
+      moves: [...moves, ...runnableNextMoves(dir, project, effectiveStage, questions)],
     };
   }
 
@@ -1552,8 +1651,6 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
     if (moves.length > 0) return { schema: NEXT_SCHEMA, project_id: String(project.name ?? ''), stage, effective_stage: effectiveStage, accepted: false, refusals, ...warningFields, awaits: awaitsList, moves: moves.flatMap(move => reviewCommands(dir, project, move)) };
   }
   const recordedLapseTargets = new Set<string>();
-  const splitOrder = hasStageOrder(project);
-  const stageItems = allItems.filter(item => interviewStageOfGuide(item.id, item.kind === 'post', splitOrder) === effectiveStage);
   const stageHasPendingOptions = stageItems.some(pendingInterviewOptions);
   const withdrawnCheckpoint = (id: string): boolean => steps.some(step => step.id === id
     && checkpointEnabled(step) && !checkpointRequired(project, step, now));
@@ -1600,6 +1697,7 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
       const signoffEntry = signoffMatch ? rawSignoffs[Number(signoffMatch[1])] : undefined;
       const lapsedStage = typeof signoffEntry?.stage === 'string' ? signoffEntry.stage : effectiveStage;
       const checkpoint = typeof signoffEntry?.checkpoint === 'string' ? signoffEntry.checkpoint : null;
+      if (hasStaleApprovalStep(lapsedStage, checkpoint)) continue;
       if (checkpoint !== null && withdrawnCheckpoint(checkpoint)) continue;
       if (checkpoint === null && lapsedStage === effectiveStage && stageHasPendingOptions) continue;
       if (checkpoint === null && hasHistorySignoffTarget(lapsedStage, signoffEntry)) continue;
@@ -1680,6 +1778,7 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
     for (const lapsedApproval of amendment.lapsed) {
       const targetStage = lapsedApproval.stage;
       const checkpoint = lapsedApproval.checkpoint ?? null;
+      if (hasStaleApprovalStep(targetStage, checkpoint)) continue;
       if (checkpoint !== null && withdrawnCheckpoint(checkpoint)) continue;
       if (checkpoint !== null ? hasLiveCheckpointSignoff(targetStage, checkpoint) : hasLiveStageSignoff(targetStage)) continue;
       if (checkpoint === null && targetStage === effectiveStage && stageHasPendingOptions) continue;
@@ -1778,80 +1877,9 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
       },
     });
   } else if (isOpenInterviewStage(effectiveStage)) {
-    for (const item of stageItems) {
-      const answerField = item.path;
-      const questionPath = item.path.replace(/\.(answer|guide)$/, '');
-      const pendingOpts = pendingInterviewOptions(item);
-      if (pendingOpts !== undefined || item.state.state === 'silent' || hasPendingOther(item)) {
-        addAwait(answerField);
-        if (pendingOpts !== undefined) {
-          let optSetId = typeof pendingOpts.id === 'string' ? pendingOpts.id : '';
-          if (!optSetId && typeof pendingOpts.path === 'string') {
-            try {
-              const rawSet = JSON.parse(readFileSync(join(dir, pendingOpts.path), 'utf8')) as JsonObject;
-              if (typeof rawSet.id === 'string') optSetId = rawSet.id;
-            } catch {
-              optSetId = pendingOpts.path;
-            }
-          }
-          moves.push({
-            role: 'human',
-            field: pendingInterviewOptionsPath(item),
-            awaits: answerField,
-            command: null,
-            act: `review-tool act interview-picks for ${questionPath} (option set ${optSetId})`,
-            review_act: {
-              kind: 'interview-picks',
-              stage: effectiveStage,
-              question_id: item.id,
-              option_set_id: optSetId,
-              ...(jobId ? { job_id: jobId } : {}),
-            },
-          });
-        } else if (hasPendingOther(item)) {
-          const followUp = item.id === 'post_composition'
-            ? SCENE_OTHER_FOLLOW_UP
-            : `redraft the option-set file for ${item.id} with a tailored value option and register it for a Review pick, or re-answer with --other-fragment`;
-          moves.push({
-            role: 'agent',
-            field: answerField,
-            awaits: answerField,
-            command: optionCommand(item.id, dir),
-            act: `${answerField} has a pending Other (INTERVIEW_CHOICE_REQUIRED): ${followUp}`,
-            unanswered_by_record: answerField,
-          });
-        } else {
-          moves.push({
-            role: 'agent',
-            field: answerField,
-            awaits: answerField,
-            command: optionCommand(item.id, dir),
-            act: `draft an option-set file for ${item.id}, then register it for a Review pick`,
-            unanswered_by_record: pendingInterviewOptionsPath(item),
-          });
-        }
-      } else if (isUndecidedDelegation(item)) {
-        const decisionField = `${answerField}.agent_decision`;
-        addAwait(decisionField);
-        // interview-decision refuses answers without an adopted choice (choice-writers.ts), so a
-        // preserved sentence-format delegation keeps the authored-record move it had before.
-        const adopted = isObject(item.raw) && isObject(item.raw.choice);
-        moves.push(adopted ? {
-          role: 'agent',
-          field: answerField,
-          awaits: decisionField,
-          command: decisionCommand(dir, item),
-          act: `record agent decision and rationale for ${decisionField}`,
-          unanswered_by_record: decisionField,
-        } : {
-          role: 'human',
-          field: answerField,
-          awaits: decisionField,
-          command: null,
-          act: `unanswered by record: ${decisionField} requires authored decision and rationale`,
-          unanswered_by_record: decisionField,
-        });
-      }
+    for (const move of interviewQuestionMoves(dir, stageItems, effectiveStage, jobId)) {
+      addAwait(move.awaits);
+      moves.push(move);
     }
 
     const planIds = effectiveStage === 'post-interview' ? ['camera', 'timing', 'composition'] : requiredInterviewSteps(effectiveStage);
@@ -2466,19 +2494,6 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
     });
   }
 
-  const stageQuestions = moves.filter(move => move.role === 'human' && !move.unanswered_by_record
-    && move.review_act?.kind === 'interview-picks' && move.review_act.stage === effectiveStage);
-  const groupedQuestions = stageQuestions.length > 1 ? new Set(stageQuestions) : null;
-  const runnableMoves = moves.flatMap(move => {
-    if (groupedQuestions?.has(move)) {
-      return move === stageQuestions[0] ? stageQuestionCommands(dir, project, effectiveStage, stageQuestions) : [];
-    }
-    if (move.review_act && move.review_act.stage !== effectiveStage) return [move];
-    if (move.review_act?.stage === 'direction-review' && move.review_act.kind === 'signoff'
-      && moves.some(other => other.review_act?.stage === 'direction-review' && other.review_act.kind === 'review-verdict')) return [move];
-    return reviewCommands(dir, project, move);
-  });
-
   return {
     schema: NEXT_SCHEMA,
     project_id: String(project.name ?? ''),
@@ -2488,7 +2503,7 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
     refusals,
     ...warningFields,
     awaits: awaitsList,
-    moves: runnableMoves,
+    moves: runnableNextMoves(dir, project, effectiveStage, moves),
   };
 }
 

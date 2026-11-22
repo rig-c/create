@@ -421,7 +421,7 @@ test('direction@3 integrates into the filled project with zero check refusals', 
   const { cpSync, writeFileSync } = await import('node:fs');
   const { collectItems } = await import('../src/check.ts');
   const { optionContext } = await import('../src/choices.ts');
-  const { checkProject, signoffCommand, inputCommand, advanceCommand } = await import('./clock.ts');
+  const { checkProject, signoffCommand, inputCommand, advanceCommand, planCommand } = await import('./clock.ts');
   const f = fixture();
   const dir = filled(() => {}, 'example-project.json'); roots.push(dir);
   testClock.set(EXAMPLE_NOW);
@@ -453,7 +453,21 @@ test('direction@3 integrates into the filled project with zero check refusals', 
     answer.at = testClock.iso(); answer.value = value as unknown as JsonObject;
     answer.choice = { ...oldChoice, set: { path, sha256: directionHash(bytes) } };
   }
-  save(p); testClock.set(EXAMPLE_NOW + 60_000);
+  save(p);
+  const plan = p.plan as JsonObject;
+  const retained = [...objects(plan.replaced)];
+  for (const id of ['timing', 'composition']) {
+    const step = objects(plan.steps).find(candidate => candidate.id === id)!;
+    testClock.set(testClock.now() + 1_000);
+    expect(planCommand(['remove', id, dir, '--by', 'agent']).exit).toBe(0);
+    retained.push(expect.objectContaining({ step, action: 'removed' }));
+    testClock.set(testClock.now() + 1_000);
+    expect(planCommand(['add', id, dir, '--by', 'agent', '--phase', String(step.phase), '--order', String(step.order),
+      '--does', String(step.does), '--produces', String(step.produces), '--rests-on', (step.rests_on as string[]).join(','),
+      '--bar', String(step.bar), '--checkpoint-proposed', String(step.checkpoint_proposed)]).exit).toBe(0);
+  }
+  expect((load().plan as JsonObject).replaced).toEqual(retained);
+  testClock.set(EXAMPLE_NOW + 60_000);
   signoffCommand(['post-interview', dir, '--by', 'user', '--verbatim-file', join(dir, 'words.txt')]);
   advanceCommand(['post', dir]);
   cpSync(join(f.dir, 'compose-out'), join(dir, 'compose-out'), { recursive: true }); cpSync(join(f.dir, 'compose.scene.json'), join(dir, 'compose.scene.json'));

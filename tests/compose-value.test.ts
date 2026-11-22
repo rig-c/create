@@ -15,7 +15,7 @@ import {
 } from '../src/compose-value.ts';
 import { stageIndex } from '../src/stages.ts';
 import type { Json, JsonObject } from '../src/templates.ts';
-import { checkProject, interviewAnswerCommand, interviewOptionsCommand, testClock } from './clock.ts';
+import { checkProject, interviewAnswerCommand, interviewOptionsCommand, planCommand, testClock } from './clock.ts';
 import { arr, fixture, obj, retainSignoffs } from './fixtures.ts';
 
 afterEach(() => testClock.reset());
@@ -457,17 +457,35 @@ test('writers can record 8s timing and compose, then sequentially revise post_ti
     interviewAnswerCommand([question, dir, '--set', relPath, '--sha256', hash, '--by', 'user', '--pick', `${question}=keep`]);
   }
 
+  function reviseStaleSteps(...ids: string[]): void {
+    expect(checkProject(dir).refusals.map(({ code, path }) => ({ code, path }))).toEqual(
+      ids.map(id => ({ code: 'PLAN_STEP_PREDATES_ANSWER', path: `plan.steps[${id}]` })),
+    );
+    for (const id of ids) {
+      clock += 1_000;
+      testClock.set(clock);
+      expect(planCommand(['revise', id, dir, '--by', 'agent', '--reason', 'Review the recorded post-interview answer.']).exit).toBe(0);
+    }
+  }
+
   // 1. Record 8s post_composition and 8s post_timing through the real writers.
   writeQuestionAnswer('post_composition', 'compose-8s', { compose: validCompose(8) });
   writeQuestionAnswer('post_timing', 'timing-8s', { seconds: 8, loop: true, beats: [] });
+  reviseStaleSteps('timing', 'composition');
   expect(checkProject(dir).refusals).toEqual([]);
 
   // 2. Revise post_timing to 10s through the writer while post_composition still holds 8s.
   writeQuestionAnswer('post_timing', 'timing-10s', { seconds: 10, loop: true, beats: [] });
+  reviseStaleSteps('timing');
   expect(checkProject(dir).refusals).toEqual([]);
+  const interimProject = JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')) as JsonObject;
+  const interimItems = collectItems(interimProject, { collection: null });
+  expect(obj(obj(interimItems.find(i => i.id === 'post_timing')!.raw).value).seconds).toBe(10);
+  expect(readComposeValue(obj(obj(interimItems.find(i => i.id === 'post_composition')!.raw).value).compose, BASE_PATH).end).toBe(8);
 
   // 3. Revise post_composition to 10s through the writer.
   writeQuestionAnswer('post_composition', 'compose-10s', { compose: validCompose(10) });
+  reviseStaleSteps('composition');
   const finalReport = checkProject(dir);
   expect(finalReport.refusals).toEqual([]);
 

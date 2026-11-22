@@ -162,6 +162,86 @@ test.each(['rig', 'post'] as const)('#561 %s answer is recordable, then check an
   expect(checkProject(root).refusals).toEqual([expect.objectContaining({ code: 'STAGE_LAGGING' })]);
 }, 30_000);
 
+test('#561 stale steps block approval while the post interview continues', () => {
+  const fixture = prepare('post');
+  const { root, words, run } = fixture;
+  const project = read(root);
+  const composition = postItem(project, 'post_composition');
+  const compositionSet = obj(obj(obj(composition.guide).choice).set);
+  const timing = postItem(project, 'post_timing');
+  const timingSet = obj(obj(obj(timing.guide).choice).set);
+  composition.guide = null;
+  composition.pending_options = compositionSet;
+  timing.guide = null;
+  write(root, project);
+
+  const readNext = (): NextReport => {
+    const result = run('next', '--json');
+    expect(result.code).toBe(0);
+    return JSON.parse(result.stdout) as NextReport;
+  };
+  const choose = (question: string, binding: JsonObject, pick: string, ...extra: string[]) =>
+    run('interview-answer', question, '--set', String(binding.path), '--sha256', String(binding.sha256),
+      '--by', 'user', ...ownerChatArgs(words), '--pick', `${question}=${pick}`, ...extra);
+  const nextHas = (next: NextReport, field: string, command: string) =>
+    expect(next.moves).toContainEqual(expect.objectContaining({ field, command: expect.stringContaining(command) }));
+  const assertNoApproval = (next: NextReport) => {
+    expect(next.accepted).toBe(false);
+    expect(next.moves.filter(move => move.field === 'signoffs' || move.review_act?.kind.startsWith('signoff')
+      || move.command?.includes('job open') && move.command.includes('--plan'))).toEqual([]);
+  };
+
+  testClock.set(T0);
+  const other = join(root, 'other.txt');
+  writeFileSync(other, 'Show the synthetic scene with a different framing.');
+  expect(choose('post_composition', compositionSet, 'other', '--other', `post_composition=${other}`))
+    .toMatchObject({ code: 0, stderr: '' });
+  expect(checkProject(root).refusals.filter(finding => finding.code === STALE)).toEqual([]);
+
+  draftAndAnswer(fixture, 'post');
+  const next = readNext();
+  expect(next.refusals).toContainEqual(expect.objectContaining({ code: STALE, field: 'plan.steps[camera]' }));
+  expect(next.refusals).toContainEqual(expect.objectContaining({
+    code: 'INTERVIEW_CHOICE_REQUIRED', field: 'interview.post.items[post_composition].guide',
+  }));
+  nextHas(next, 'plan.steps[camera]', 'plan revise camera');
+  nextHas(next, 'interview.post.items[post_timing].guide', 'interview-options post_timing');
+  nextHas(next, 'interview.post.items[post_composition].guide', 'interview-options post_composition');
+  assertNoApproval(next);
+
+  expect(run('interview-options', 'post_timing', '--file', String(timingSet.path))).toMatchObject({ code: 0, stderr: '' });
+  const pending = readNext();
+  expect(pending.moves).toContainEqual(expect.objectContaining({ review_act: expect.objectContaining({
+    kind: 'interview-picks', question_id: 'post_timing',
+  }) }));
+  expect(pending.moves.some(move => move.command?.includes('--question post_timing'))).toBe(true);
+  assertNoApproval(pending);
+
+  expect(choose('post_timing', timingSet, 'auto')).toMatchObject({ code: 0, stderr: '' });
+  const delegated = readNext();
+  nextHas(delegated, 'interview.post.items[post_timing].guide', 'interview-decision post_timing');
+  assertNoApproval(delegated);
+  const timingFragment = join(root, 'timing.json');
+  writeFileSync(timingFragment, JSON.stringify({ duration: 4, loop: false }));
+  expect(run('interview-decision', 'post_timing', '--by', 'agent', '--reasoning-file', words,
+    '--fragment', `post_timing=${timingFragment}`)).toMatchObject({ code: 0, stderr: '' });
+
+  const followUp = JSON.parse(readFileSync(join(root, String(compositionSet.path)), 'utf8')) as JsonObject;
+  followUp.id = 'composition-follow-up';
+  followUp.drafted_at = testClock.iso();
+  const path = 'evidence/interview/composition-follow-up.json';
+  const bytes = JSON.stringify(followUp);
+  writeFileSync(join(root, path), bytes);
+  expect(run('interview-options', 'post_composition', '--file', path)).toMatchObject({ code: 0, stderr: '' });
+  expect(choose('post_composition', { path, sha256: createHash('sha256').update(bytes).digest('hex') }, 'keep'))
+    .toMatchObject({ code: 0, stderr: '' });
+  const answered = readNext();
+  expect(answered.refusals.filter(finding => finding.code === STALE).map(finding => finding.field).sort())
+    .toEqual(['plan.steps[camera]', 'plan.steps[composition]']);
+  nextHas(answered, 'plan.steps[composition]', 'plan revise composition');
+  assertNoApproval(answered);
+});
+
 test('#561 a completed step stays immutable after an owner amendment and next replaces it with its full definition', async () => {
   const root = join(tempDir("create-561-completed-step's-"), 'project');
   cpSync(join(CHECKPOINTS, '../../example-remesh'), root, { recursive: true });

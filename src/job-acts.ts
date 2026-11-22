@@ -11,7 +11,7 @@ import { isRiggingDraftAct } from './parts-act.ts';
 import { refuse } from './refusal.ts';
 import { collectReopens, liveSignoff } from './reopen.ts';
 import { OWNER_CHAT_SOURCE } from './owner-chat.ts';
-import { matchesActProjectSource, SIGNOFF_TARGET_KINDS } from './review-act.ts';
+import { isRecordPicksAct, matchesActProjectSource, SIGNOFF_TARGET_KINDS } from './review-act.ts';
 import { readVersions } from './review.ts';
 import { collectAmendments } from './amend.ts';
 import { stageOfStep, stepCoveredByApproval } from './stages.ts';
@@ -219,7 +219,7 @@ export function pendingJobActs(project: JsonObject, acts: readonly ActV3[], root
       command: args ? ['rig-create', ...args].map(shellWord).join(' ') : null,
       ...(args ? {} : { unavailable: { code: 'JOB_ACTS_WRITER_UNAVAILABLE' as const,
         message: `project.json: act ${act.actId} (${subject}) has no current writer target; restore its plan step or use a supported Review subject before ingestion` } }) };
-    if (act.kind === 'interview-picks' && act.schema === 'rig-review/act@4' && isMultiOptionSource(act.source)) {
+    if (isRecordPicksAct(act) && isMultiOptionSource(act.source)) {
       const key = JSON.stringify([act.jobId, act.publicationId]);
       const batch = batches.get(key);
       if (batch) batch.push(row);
@@ -232,7 +232,7 @@ export function pendingJobActs(project: JsonObject, acts: readonly ActV3[], root
     const covered = new Set<string>();
     let total = 0;
     for (const act of acts) {
-      if (act.kind !== 'interview-picks' || act.schema !== 'rig-review/act@4' || !isMultiOptionSource(act.source)
+      if (!isRecordPicksAct(act) || !isMultiOptionSource(act.source)
         || JSON.stringify([act.jobId, act.publicationId]) !== key) continue;
       total = Math.max(total, (act.source as { optionSets: readonly unknown[] }).optionSets.length);
       covered.add(JSON.stringify([act.value.questionId, act.source.optionSet.id]));
@@ -520,8 +520,8 @@ export function pendingJobAsksForTarget(
   const ingestedActs = actionableActs.filter(act => !unIngestedIds.has(act.actId));
   const unIngestedActs = actionableActs.filter(act => unIngestedIds.has(act.actId));
   const multiTarget = target.kind === 'option-set' && recordOptionSets(target).length > 1;
-  const staleInterviewAct = (act: ActV3 | undefined): string | undefined => act?.kind === 'interview-picks'
-    && act.schema === 'rig-review/act@4' && isMultiOptionSource(act.source)
+  const staleInterviewAct = (act: ActV3 | undefined): string | undefined => act !== undefined
+    && isRecordPicksAct(act) && isMultiOptionSource(act.source)
     && record !== undefined && !matchesActProjectSource(act, record) ? act.actId : undefined;
   const pending: PendingTargetAsk[] = [];
   for (const ask of actionableAsks) {

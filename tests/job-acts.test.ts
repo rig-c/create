@@ -18,7 +18,8 @@ import { jobRuntimeExecArgv, prepareVersionIntent } from '../src/job-writer.ts';
 import { listCreateJobActs } from '../src/job-host.ts';
 import { assertNoPendingJobAsk } from '../src/job-close.ts';
 import { currentJobIdentity } from '../src/job-publication.ts';
-import { startJobHost, type ActV3, type JobOwnerHost, type JobHostOptions } from '@rig-c/review/job-host';
+import { JOB_COMMENTS_ACT_SCHEMA, parseCommentsAct, startJobHost, type ActV3, type JobOwnerHost, type JobHostOptions } from '@rig-c/review/job-host';
+import { interviewAnswerCommand } from '../src/choice-writers.ts';
 import type { Json, JsonObject } from '../src/templates.ts';
 import { testClock } from './clock.ts';
 import { EXAMPLE_NOW, EXAMPLE_REOPEN_AT } from '../scripts/example-time.ts';
@@ -576,6 +577,51 @@ async function openMotionQuestion(also: string[] = [], edit?: (project: JsonObje
   const opening = await open(root, ['--question', 'motion']); const view = await page(root, opening.url, 1);
   return { root, url: opening.url, view, value, others };
 }
+
+test('#838 an act@6 answer records the act@4 survey bytes and keeps its owner comments in the receipt, named unrouted', async () => {
+  const { root, view, value } = await openMotionQuestion();
+  // The Review host still writes record picks at act@4; act@6 carries the same envelope plus ordered comments (Review #646).
+  const act4 = await view.act('interview-picks', 'interview-picks', value);
+  expect(act4.schema).toBe('rig-review/act@4');
+  const sha256 = 'b'.repeat(64);
+  const crop = { path: `comment-crops/${sha256}.png`, sha256, width: 4, height: 5 };
+  const comments = [
+    { text: '  General owner comment.\r\n' },
+    { text: 'On the picture.', anchor: { name: 'reference.png' } },
+    { text: 'Pinned here.', anchor: { name: 'reference.png', imageRegion: { x: 1, y: 2, width: 4, height: 5 }, crop, nativeCrop: crop } },
+  ];
+  const { words: _, ...survey } = act4.value as JsonObject;
+  const act6 = { ...act4, schema: JOB_COMMENTS_ACT_SCHEMA, value: { ...survey, comments } };
+  expect(parseCommentsAct(act6) as unknown).toEqual(act6);
+  const file = join(root, 'project.json');
+  const before = readFileSync(file);
+  const ingest = (act: JsonObject) => interviewAnswerCommand(['motion', root, '--from-review', String(act.actId)], testClock.now(),
+    { fetch: () => ({ bytes: JSON.stringify(act) }) });
+  ingest(act6 as JsonObject);
+  const at6 = readFileSync(file);
+  writeFileSync(file, before);
+  ingest(act4);
+  const at4 = readFileSync(file);
+  // Golden: only the retained act bytes and their hash differ; the answer record, its note and verbatim are the act@4 bytes.
+  const strip = (bytes: Buffer) => JSON.stringify(arr((JSON.parse(bytes.toString('utf8')) as JsonObject).review_acts), (key, entry) => key === 'bytes' || key === 'sha256' ? undefined : entry)
+    + JSON.stringify({ ...(JSON.parse(bytes.toString('utf8')) as JsonObject), review_acts: null });
+  expect(strip(at6)).toBe(strip(at4));
+  const project6 = JSON.parse(at6.toString('utf8')) as JsonObject;
+  const index = arr(project6.review_acts).length - 1;
+  const receipt = obj(arr(project6.review_acts)[index]);
+  expect(receipt).toMatchObject({ kind: 'interview-picks', actId: act4.actId, bytes: JSON.stringify(act6), sha256: jobHash(JSON.stringify(act6)) });
+  expect(JSON.parse(String(receipt.bytes)).value.comments).toEqual(comments);
+  const guide = obj(collectItems(project6, { collection: null }).find(item => item.id === 'motion')!.raw);
+  expect(obj(guide.choice).note).toBe(String(survey.note));
+  expect('comments' in obj(guide.choice)).toBe(false);
+  expect(String(guide.verbatim)).not.toContain('General owner comment.');
+  const warnings = (bytes: Buffer) => checkProject(root, JSON.parse(bytes.toString('utf8')) as JsonObject, { now: testClock.now(), readOnly: true }).warnings
+    .filter(finding => finding.code === 'REVIEW_ANSWER_COMMENTS_UNROUTED');
+  expect(warnings(at4)).toEqual([]);
+  expect(warnings(at6)).toEqual([{ code: 'REVIEW_ANSWER_COMMENTS_UNROUTED', path: `review_acts[${index}]`, message: expect.stringContaining(`review_acts[${index}]: 3 owner comments on interview answer motion retained, not routed`) }]);
+  expect(checkProject(root, project6, { now: testClock.now(), readOnly: true }).refusals).toEqual(
+    checkProject(root, JSON.parse(at4.toString('utf8')) as JsonObject, { now: testClock.now(), readOnly: true }).refusals);
+}, 30_000);
 
 test('merged record-mode host lists finalized picks and its printed writer command ingests them', async () => {
   const { root, view, value } = await openMotionQuestion();

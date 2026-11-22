@@ -4,7 +4,7 @@ import { intakeItem, intakeWarnings, INTAKE_QUESTION } from './intake.ts';
 /** Public record writers; validation precedes every project write. */
 import { readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { acquireBoundJobWrite, beginJobProgress } from './job-writer.ts';
-import { assertActSubjectDeclared, decodeReviewAct, fetchReviewActBytes, matchesActProjectSource, reviewActBy, reviewActFindings, reviewActTransport, type ReviewActTransport, type InterviewPicksAct } from './review-act.ts';
+import { assertActSubjectDeclared, decodeReviewAct, fetchReviewActBytes, isRecordPicksAct, matchesActProjectSource, reviewActBy, reviewActFindings, reviewActTransport, type ReviewActTransport, type InterviewPicksAct } from './review-act.ts';
 import { dirname, join, resolve } from 'node:path';
 import { isDeepStrictEqual as equal } from 'node:util';
 import { answered, asArray, checkProject, collectItems, collectSignoffs, isObject, loadCollection, collectionAnswer, type Item } from './check.ts';
@@ -183,16 +183,17 @@ function retainedInterviewAnswer(project: JsonObject, item: Item, { act, bytes }
 }
 
 function reviewPicksPayload(dir: string, item: Item, act: InterviewPicksAct, original: Buffer): JsonObject {
-  if (act.schema === 'rig-review/act@4') {
-    assertActSubjectDeclared(dir, act, item.path);
-    if (!matchesActProjectSource(act, original)) refuse('REVIEW_ACT_SOURCE_STALE', `${item.path}: displayed record differs; publish the current question again`);
-    if (act.source.selection.questionId !== item.id || act.source.selection.setId !== act.source.optionSet.id) {
+  const record = isRecordPicksAct(act) ? act : undefined;
+  if (record) {
+    assertActSubjectDeclared(dir, record, item.path);
+    if (!matchesActProjectSource(record, original)) refuse('REVIEW_ACT_SOURCE_STALE', `${item.path}: displayed record differs; publish the current question again`);
+    if (record.source.selection.questionId !== item.id || record.source.selection.setId !== record.source.optionSet.id) {
       refuse('REVIEW_ACT_INVALID', `${item.path}: act question or set differs from its sealed source; fetch the correct interview act`);
     }
   }
   const registered = item.record.pending_options;
   if (!isObject(registered) || registered.sha256 !== act.source.optionSet.sha256
-    || (act.schema === 'rig-review/act@4' && (registered.path !== act.source.optionSetFile.path || registered.sha256 !== act.source.optionSetFile.sha256))) {
+    || (record && (registered.path !== record.source.optionSetFile.path || registered.sha256 !== record.source.optionSetFile.sha256))) {
     refuse('INTERVIEW_OPTIONS_STALE', `${item.path}: displayed option set differs; refresh the questionnaire`);
   }
   const {set} = optionFile(dir,registered);
@@ -336,7 +337,7 @@ export function interviewAnswerCommand(args: string[], now: number, hooks: Inter
         const { act } = fetched;
         if (batch) {
           const key = JSON.stringify([act.jobId, act.publicationId]);
-          if (act.schema !== 'rig-review/act@4' || (publication !== undefined && publication !== key)) {
+          if (!isRecordPicksAct(act) || (publication !== undefined && publication !== key)) {
             refuse('REVIEW_ACT_INVALID', 'project.json.interview: batch requires record acts from one job publication; list the acts with job acts');
           }
           publication = key;

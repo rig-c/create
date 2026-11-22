@@ -347,7 +347,7 @@ export function draftVersionFindings(dir: string, project: JsonObject): Finding[
 }
 
 export const DRAFT_RIG_HELP = `draft-rig:
-  <id> [<dir>] --config <path> --from <output dir> [--parts <dir>] [--reuse <draft id> [--reuse-record <sha256>]] [--ledger-report <file>] [--known-regression <row id>=<reason file>]... [--json]
+  <id> [<dir>] --config <path> --from <output dir> [--parts <dir>] [--reuse <draft id> [--reuse-record <sha256>]] [--ledger-report <file>] [--known-regression <row id>=<reason file>]... [--accepted-fail <row id>=<reason file>]... [--json]
   Record existing labelled draft artifacts under derived/drafts/<id>/; run no producer.
   A bound draft updates the open Review page when its owner ask is ready.
   Prepare any missing evidence, then show the draft with job open --draft <id>.
@@ -358,22 +358,26 @@ export const DRAFT_RIG_HELP = `draft-rig:
   --reuse binds a reviewed draft's exact parts inventory and inherits its recorded producer.
   --reuse-record selects the prior project.json named by a restart sha256 and retains a snapshot under evidence/draft-reuse/.
   --ledger-report binds the project's own fix-ledger check report (rig-create/fix-ledger-report@1) by sha256;
-  a row the previous draft passed that does not pass here is refused unless named by --known-regression.`;
+  a row the previous draft passed that does not pass here is refused unless named by --known-regression.
+  --accepted-fail records the reason and the current report's failing result and measurement, if present.
+  It can name report-only rows and leaves the machine result and Review verdict as recorded.`;
 
 export function draftRigCommand(args: string[], now: number): { stdout: string; exit: number } {
   const opts: Record<string, string> = {};
   const positional: string[] = [];
   const known: [string, string][] = [];
+  const accepted: [string, string][] = [];
   let json = false;
   for (let i = 0; i < args.length; i++) {
     const arg = args[i] as string;
     if (arg === '--json') json = true;
-    else if (arg === '--known-regression') {
+    else if (arg === '--known-regression' || arg === '--accepted-fail') {
+      const entries = arg === '--known-regression' ? known : accepted;
       const value = args[++i];
       const split = value === undefined ? -1 : value.indexOf('=');
       const row = split > 0 ? value!.slice(0, split) : '';
-      if (!idPattern.test(row) || split === value!.length - 1 || known.some(([id]) => id === row)) refuse('DRAFT_RIG_USAGE', 'drafts: --known-regression needs <row id>=<reason file>, once per row; see draft-rig help', USAGE_EXIT);
-      known.push([row, value!.slice(split + 1)]);
+      if (!idPattern.test(row) || split === value!.length - 1 || entries.some(([id]) => id === row)) refuse('DRAFT_RIG_USAGE', `drafts: ${arg} needs <row id>=<reason file>, once per row; see draft-rig help`, USAGE_EXIT);
+      entries.push([row, value!.slice(split + 1)]);
     } else if (['--config', '--from', '--parts', '--reuse', '--reuse-record', '--ledger-report'].includes(arg)) {
       const value = args[++i];
       if (!value || value.startsWith('--') || opts[arg] !== undefined) refuse('DRAFT_RIG_USAGE', `drafts: ${arg} requires one value; see draft-rig help`, USAGE_EXIT);
@@ -389,11 +393,13 @@ export function draftRigCommand(args: string[], now: number): { stdout: string; 
     refuse('DRAFT_RIG_USAGE', 'drafts: use --reuse <draft id> with optional --reuse-record <sha256>; see draft-rig help', USAGE_EXIT);
   }
   if (known.length && !opts['--ledger-report']) refuse('DRAFT_RIG_USAGE', 'drafts: --known-regression names rows of a --ledger-report; supply the report', USAGE_EXIT);
-  const reasons: [string, string][] = known.map(([row, file]) => {
+  if (accepted.length && !opts['--ledger-report']) refuse('DRAFT_RIG_USAGE', 'drafts: --accepted-fail names rows of a --ledger-report; supply the report', USAGE_EXIT);
+  const reasons = (entries: [string, string][], flag: string): [string, string][] => entries.map(([row, file]) => {
     const reason = readVerbatim(file).trim();
-    if (!reason) refuse('DRAFT_RIG_USAGE', `drafts: the --known-regression reason file for ${row} is empty; say why the regression is accepted`, USAGE_EXIT);
+    if (!reason) refuse('DRAFT_RIG_USAGE', `drafts: the ${flag} reason file for ${row} is empty; say why this row is accepted`, USAGE_EXIT);
     return [row, reason];
   });
+  const notes = { known: reasons(known, '--known-regression'), accepted: reasons(accepted, '--accepted-fail') };
   const dir = resolve(positional[1] ?? process.cwd());
   const release = acquireBoundJobWrite(dir, { kind: 'record-only' });
   let intent: PendingPublication | null = null;
@@ -482,7 +488,7 @@ export function draftRigCommand(args: string[], now: number): { stdout: string; 
     }
     if (project.drafts !== undefined && !Array.isArray(project.drafts)) refuse('DRAFT_RIG_MALFORMED', 'drafts: expected a list; restore the original record');
     project.drafts = [...asArray(project.drafts), record];
-    if (opts['--ledger-report']) Object.assign(record, draftLedgerFields(dir, project, asArray(project.drafts).length - 1, opts['--ledger-report'], reasons, now));
+    if (opts['--ledger-report']) Object.assign(record, draftLedgerFields(dir, project, asArray(project.drafts).length - 1, opts['--ledger-report'], notes, now));
     if (sourceSnapshot !== undefined) retainDraftReuseRecord(dir, sourceSnapshot);
     progress?.('Validating the retained draft', { i: 1, n: 2 });
     const errors: Finding[] = [];

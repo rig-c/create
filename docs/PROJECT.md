@@ -2627,6 +2627,16 @@ are allowed. The draft records `ledger_report { path, sha256, spec }`,
   saw did not. That draft is the latest earlier one with a parts-review
   receipt, else the previous draft.
 
+To record a reviewer accepting a machine failure on this draft, repeat
+`--accepted-fail <row id>=<reason file>` once per failing row alongside
+`--ledger-report`. The writer reads the reason file relative to the command's
+working directory and stores `accepted_failures [{ id, result: "fail", measured, reason }]`.
+It copies the producer's `measured` JSON value, including `null`, or omits
+`measured` when the report omits it. This also works for report-only rows and
+when the predecessor has no report. `check` shows the FAIL and its reason.
+Live regressions still require `--known-regression`. The owner records their
+verdict through Review.
+
 The filled example records the v1 bounce's lantern fix as row `T1` and a later
 draft, `lantern`, with a synthetic passing report
 (`templates/example-draft/evidence/fix-ledger/lantern.json`, written by

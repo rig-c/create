@@ -1032,7 +1032,7 @@ identity as for a full draft. Existing standalone and build drafts have no
 | `STRUCTURE_DELTA_MISMATCH` | recorded structure_delta differs from the snapshot/config comparison | register a new rig version with its exact computed delta |
 | `STRUCTURE_DELTA_REVIEW` | WARN: counted structure entries changed under the signed rigging meshes guide | cover changed structure in the rig-review verdict and sign-off |
 | `PARTS_VERDICT_DRAFT_MISMATCH` | a parts-review sign-off's verdict `source.files[]` lists a file whose sha256 is in neither its `draft_id` draft's `parts.files[]` nor its `files[]` (the outputs a parts view that shows meshes also lists: `rig.json`, `mesh_report.json`, mesh rasters), or leaves out one of the draft's `parts.files[]`, matched as sha256 multisets and leaving out only the raster the draft's `parts.json` declares under `painting_in_rig`; an output the verdict does not list is not missing; the message lists up to three unmatched files on each side. `signoff parts-review --draft` and `structure-snapshot` refuse it; the check refuses a sign-off dated from `PARTS_VERDICT_DRAFT_SINCE = 2026-11-08T00:00:00Z` or without a readable date and WARNs an earlier one | review the named draft's parts in rig-review's parts view and sign with that verdict, or name the draft the verdict reviewed; preserve an earlier record |
-| `DRAFT_RIG_USAGE` | missing, repeated or unsupported recorder arguments (exit 2) | use draft-rig <id> [dir] --config <path> --from <dir> [--parts <dir>] |
+| `DRAFT_RIG_USAGE` | missing, repeated or unsupported recorder arguments, including `--accepted-fail` without `--ledger-report`, duplicate accepted row ids or an empty reason (exit 2) | use `draft-rig <id> [dir] --config <path> --from <dir> [--parts <dir>]` and supply a report and one non-empty reason file for each accepted failure |
 | `STRUCTURE_SNAPSHOT_USAGE` | `structure-snapshot` misses `--draft`, repeats a flag, takes an unsupported flag or more than one folder (exit 2) | use structure-snapshot [dir] --draft <id> [--out <path>] |
 | `STRUCTURE_SNAPSHOT_DRAFT_UNKNOWN` | `drafts[<id>]`: no recorded draft has the `--draft` id | record the reviewed draft with `draft-rig`, then name its id |
 | `STRUCTURE_SNAPSHOT_CONFIG_CHANGED` | `drafts[i].config` is absent, unreadable, escapes the project or no longer hashes to its recorded sha256 | restore the recorded config bytes, or record the changed config as a new draft and review it |
@@ -1673,8 +1673,18 @@ is the previous draft with a rig output. A restart clears `drafts[]`.
 `fixes` counts the live rows the report passes that the `fixes_against` draft did not pass.
 That draft is the latest earlier one with a rig output and a parts-review receipt
 (any verdict), else the predecessor. `FIX_LEDGER_SINCE = 2026-11-09T00:00:00Z` dates the
-report requirement by `drafts[].at`. `check` lists each bound draft's `fixes`
-and known regressions under `ledger`.
+report requirement by `drafts[].at`. `check` lists each bound draft's `fixes`,
+known regressions and accepted failures under `ledger` in JSON output. The
+human output shows each accepted row as FAIL with its measurement, if present,
+and the reason.
+
+`draft-rig --ledger-report <file> --accepted-fail <row id>=<reason file>`
+adds `accepted_failures[]` entries to the draft. The current bound report must
+show `result: "fail"` for each row. Create copies the report's `measured` JSON
+value when present, including an explicit `null`, and stores the reason text.
+The row can be report-only and the predecessor can lack a report.
+Accepted failures are draft annotations. Review records owner verdicts, and
+regressions still require their own `--known-regression` entries.
 
 | Code | When | Remedy |
 | --- | --- | --- |
@@ -1692,6 +1702,9 @@ and known regressions under `ledger`.
 | `DRAFT_LEDGER_INCOMPLETE` | the report has no row for a live ledger row | run the check script over every non-retired row |
 | `DRAFT_LEDGER_REGRESSION` | a live row the predecessor's report passed, or one the predecessor recorded as a known regression (it stays owed), is `fail`, `unmeasurable` or absent here, and `--known-regression` does not name it | fix the build, or record the draft with `--known-regression <row id>=<reason file>` for each row |
 | `DRAFT_LEDGER_MALFORMED` | `fixes`, `fixes_against` or `known_regressions` without a report; `known_regressions` is not a list of `{ id, reason }` with unique ids, or names a row the predecessor neither passed nor owed; `fixes_against` is not an earlier draft with a parts-review receipt or the previous draft (`null` only for the first); `fixes` differs from the rows the report passes and that draft did not | record the draft again with `draft-rig` under a new id; the old record is kept |
+| `DRAFT_ACCEPTED_FAIL_MALFORMED` | `accepted_failures` has no bound report, is empty or is not a list, or an entry has an invalid or duplicate row id, a result other than `"fail"`, a blank or invalid reason, or unexpected keys | record a new draft with `--ledger-report` and one `--accepted-fail <row id>=<reason file>` per failing row |
+| `DRAFT_ACCEPTED_FAIL_ROW` | an accepted failure names a row that is absent, passing or unmeasurable in this draft's bound report | use `--accepted-fail` only for rows that the current report marks `fail` |
+| `DRAFT_ACCEPTED_FAIL_MISMATCH` | an accepted failure's `measured` differs from the report's JSON value or its presence, or the report's measurement contains a number outside the representable range | retain a report with a representable JSON measurement and record a new draft with `--accepted-fail` so the writer copies the measurement |
 | `INIT_ARTWORK_EXISTS` | `init --painting`, `input add --painting` or `input painting` declares a file whose sha256 is an input of a project directly under `--projects-root` (default: the new project's parent), without `--same-artwork-reason` | continue in the existing project as a new version; restart inherits its correction ledger. A new project is only for different artwork or a different rig kind (with --same-artwork-reason); copying the artwork is not a bypass |
 | `INIT_ARTWORK_USAGE` | an init artwork option without `--painting <file> --origin <words>`, an unreadable painting or root, or a reason that is empty or names no matching project (exit 2) | give `--painting` and `--origin`; drop a reason no project needs |
 | `RESTART_USAGE` | `restart` arguments are missing, repeated or unsupported, or the reason file is empty (exit 2) | use `restart [<dir>] --by <human> --reason-file <file>` |

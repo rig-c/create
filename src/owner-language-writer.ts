@@ -16,7 +16,7 @@ export function ownerLanguageCommand(args: string[]): string {
   const language = parseOwnerLanguage(tag);
   const dir = resolve(target ?? process.cwd());
   const { file } = readProject(dir);
-  const release = acquireBoundJobWrite(dir);
+  const release = acquireBoundJobWrite(dir, { kind: 'record-only' });
   try {
     const original = readFileSync(file);
     const project = JSON.parse(original.toString('utf8')) as JsonObject;

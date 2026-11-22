@@ -231,10 +231,7 @@ export function prepareDraftIntent(
   const result = draftPublicationResult(id, rigging);
   try { assertBoundJobAskReady(root, binding, result.selector); }
   catch (error) {
-    if (!(error instanceof Refusal)) throw error;
-    if (error.code === 'JOB_ASK_PENDING') {
-      return defer(`an owner ask for another result is still open. Run rig-create job acts ${dir} and ingest the owner's answer.`);
-    }
+    if (!(error instanceof Refusal) || error.code === 'JOB_ASK_PENDING') throw error;
     return defer(`${error.code}: ${error.message}.`);
   }
   return { intent: enqueuePublication(root, binding, result, bytes) };

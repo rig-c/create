@@ -414,6 +414,8 @@ for (const source of ['parts', 'config'] as const) test(`changed ${source} refus
 
 test('a new-id rebuild with failed publication retries through job reconcile', async () => {
   const { root, host } = await bound();
+  const originalVerdict = await submit(root, host);
+  expectCliOk(await cli(root, ['parts-review', '--from-review', originalVerdict.actId]));
   cpSync(join(root, 'derived/drafts/chain'), join(root, 'derived/drafts/rebuilt'), { recursive: true });
   const snapshot = JSON.parse(readFileSync(join(root, 'evidence/structure-chain.json'), 'utf8')) as JsonObject;
   snapshot.draft_id = 'rebuilt';
@@ -430,6 +432,7 @@ test('a new-id rebuild with failed publication retries through job reconcile', a
   rmSync(join(root, 'review-draft-rebuilt.json'));
   expect(await reconcileCreateJob(root)).toBe(1);
   expect(host.session.status().publication!.source.selector).toEqual({ kind: 'draft', id: 'rebuilt' });
+  expectCliOk(await cli(root, ['job', 'close']));
   const before = readFileSync(join(root, 'project.json'));
   const duplicate = expectCliRefused(await cli(root, draftArgs('rebuilt')), 'DRAFT_RIG_MALFORMED');
   expect(duplicate.exit).toBe(1); expect(duplicate.stderr).toContain('DRAFT_RIG_MALFORMED:');

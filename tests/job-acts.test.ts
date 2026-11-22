@@ -540,7 +540,7 @@ test.each([false, true])('agent next pagination is shared and read failures rema
 });
 
 
-function riggingInterviewRoot(): string {
+function riggingInterviewRoot(edit?: (project: JsonObject) => void): string {
   testClock.set(Date.now());
   const root = realpathSync(fixture(project => {
     project.stage = 'rigging-interview'; project.versions = []; project.scenes = []; delete project.direction_contract;
@@ -548,6 +548,7 @@ function riggingInterviewRoot(): string {
     project.advances = arr(project.advances).filter(value => stageIndex(String(obj(value).stage)) <= stageIndex('rigging-interview'));
     for (const item of arr(obj(obj(project.interview).post).items).map(obj)) item.guide = null;
     for (const step of arr(obj(project.plan).steps).map(obj)) if (!['seethrough', 'assemble'].includes(String(step.id))) step.status = 'pending';
+    edit?.(project);
   }, 'example-project.json'));
   roots.push(root);
   return root;
@@ -567,8 +568,8 @@ async function registerQuestion(root: string, question: string) {
   return { questionId: question, selections, note: WORDS };
 }
 
-async function openMotionQuestion(also: string[] = []) {
-  const root = riggingInterviewRoot();
+async function openMotionQuestion(also: string[] = [], edit?: (project: JsonObject) => void) {
+  const root = riggingInterviewRoot(edit);
   const value = await registerQuestion(root, 'motion');
   const others = [];
   for (const question of also) others.push(await registerQuestion(root, question));
@@ -688,6 +689,45 @@ test('#826 record-only writers preserve an open interview ask and its finalized 
   expect(arr(read(root).review_acts).at(-1)).toMatchObject({ kind: 'interview-picks', actId: act.actId });
   expectExit0(await cli(root, add));
   expect(arr(read(root).inputs)).toContainEqual(expect.objectContaining({ path }));
+}, 60_000);
+
+test('#833 draft and owner-language writers refuse until the finalized Review answer is ingested', async () => {
+  const { root, view, value } = await openMotionQuestion([], project => {
+    // This draft tests the owner-ask gate without an unrelated ledger report.
+    project.fix_ledger = [];
+  });
+  const base = 'derived/drafts/pending-ask';
+  cpSync(join(import.meta.dir, '../templates/example-chain/checkpoints/1-parts-verdict/derived/drafts/chain'), join(root, base), { recursive: true });
+  const draft = ['draft-rig', 'pending-ask', root, '--config', `${base}/config.json`,
+    '--from', `${base}/out`, '--parts', `${base}/input`];
+  const language = ['owner-language', 'set', 'ko', root];
+  const projectFile = join(root, 'project.json');
+  const before = readFileSync(projectFile);
+  const beforeJob = snapshot(jobPrivateRoot(root));
+  const refuses = async () => {
+    const beforeHost = snapshot(jobHostStateRoot(root));
+    for (const args of [draft, language]) {
+      const result = await cli(root, args);
+      expect(result.exit, result.stderr).toBe(1);
+      expect(result.stdout).toBe('');
+      expect(result.stderr).toStartWith('rig-create: JOB_ASK_PENDING: ');
+      expect(result.stderr).toContain('interview-picks motion/pending-acts-motion on option-set motion/pending-acts-motion');
+      expect(result.stderr).toContain(`rig-create job acts ${shellWord(root)} --wait`);
+      expect(readFileSync(projectFile)).toEqual(before);
+      expect(snapshot(jobPrivateRoot(root))).toEqual(beforeJob);
+      expect(snapshot(jobHostStateRoot(root))).toEqual(beforeHost);
+    }
+  };
+  await refuses();
+  const act = await view.act('interview-picks', 'interview-picks', value);
+  await refuses();
+  expectExit0(await cli(root, ['interview-answer', 'motion', root, '--from-review', String(act.actId)]));
+  expectExit0(await cli(root, language));
+  expectExit0(await cli(root, draft));
+  const project = read(root);
+  expect(obj(project.owner).language).toBe('ko');
+  expect(arr(project.drafts)).toContainEqual(expect.objectContaining({ id: 'pending-ask' }));
+  expect(arr(project.review_acts).at(-1)).toMatchObject({ kind: 'interview-picks', actId: act.actId });
 }, 60_000);
 
 test.each(['matching', 'different'])('#737 a %s owner-chat answer is compared against the retained ask binding', async binding => {

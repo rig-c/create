@@ -395,12 +395,12 @@ export function draftRigCommand(args: string[], now: number): { stdout: string; 
     return [row, reason];
   });
   const dir = resolve(positional[1] ?? process.cwd());
-  const release = acquireBoundJobWrite(dir);
-  // The first milestone waits for the job gate: a refused write leaves the project untouched.
-  const progress = beginJobProgress(dir, 'build', 'Starting draft registration');
+  const release = acquireBoundJobWrite(dir, { kind: 'record-only' });
   let intent: PendingPublication | null = null;
   const temporary = join(dir, `.draft-rig-record-${randomUUID()}.tmp`);
   try {
+    // Start progress only after the bound job gate lets registration proceed.
+    const progress = beginJobProgress(dir, 'build', 'Starting draft registration');
     const { file } = readProject(dir);
     const original = readFileSync(file);
     const project = JSON.parse(original.toString('utf8')) as JsonObject;

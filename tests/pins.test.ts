@@ -830,14 +830,30 @@ for (const [label, execFlags] of [
   const ws = label === 'linked source condition' ? linkSourcePackages(root) : null;
   const activeCli = ws ? ws.cliPath : CLI;
   const projectRoot = join(root, 'project');
+  const run = (args: string[]) => Bun.spawnSync([process.execPath, ...execFlags, activeCli, ...args], {
+    cwd: projectRoot, stdout: 'pipe', stderr: 'pipe',
+  });
   let proc: Bun.Subprocess | null = null;
   try {
     cpSync(join(REPO, 'templates/example-chain/checkpoints/1-parts-verdict'), projectRoot, { recursive: true });
     cpSync(join(projectRoot, 'derived/drafts/chain'), join(projectRoot, 'derived/drafts/chain-2'), { recursive: true });
-    const recordPath = join(projectRoot, 'project.json');
-    const project = JSON.parse(readFileSync(recordPath, 'utf8')) as { signoffs: { checkpoint?: string }[] };
-    project.signoffs = project.signoffs.filter(signoff => signoff.checkpoint !== 'assemble');
-    writeFileSync(recordPath, `${JSON.stringify(project, null, 2)}\n`);
+    cpSync(join(REPO, 'templates/example-chain/evidence/diff-components.json'), join(projectRoot, 'evidence/diff-components.json'));
+    for (const args of [
+      ['structure-snapshot', projectRoot, '--draft', 'chain', '--out', 'evidence/structure-chain.json'],
+      ['diff-classes', projectRoot, '--diff-report', 'evidence/diff-components.json', '--by', 'agent'],
+      ['advance', 'parts-review', projectRoot, '--parts-check', 'evidence/parts-check.json', '--parts', 'derived/drafts/chain/input'],
+    ]) {
+      const result = run(args);
+      expect({ exit: result.exitCode, stderr: result.stderr.toString('utf8') }).toEqual({ exit: 0, stderr: '' });
+    }
+    const snapshotPath = join(projectRoot, 'evidence/structure-chain.json');
+    const originalSnapshot = readFileSync(snapshotPath);
+    const snapshot = JSON.parse(originalSnapshot.toString('utf8')) as { draft_id: string; config: { path: string } };
+    snapshot.draft_id = 'chain-2';
+    snapshot.config.path = 'derived/drafts/chain-2/config.json';
+    writeFileSync(join(projectRoot, 'evidence/structure-chain-2.json'), JSON.stringify(snapshot));
+    // With its snapshot temporarily absent, the initial draft opens for inspection without an ask.
+    rmSync(snapshotPath);
     const spawned = Bun.spawn([process.execPath, ...execFlags, activeCli, 'job', 'open', projectRoot, '--reviewer', 'synthetic-owner', '--role', 'owner'], {
       cwd: projectRoot,
       stdout: 'pipe',
@@ -855,7 +871,8 @@ for (const [label, execFlags] of [
     reader.releaseLock();
     const lines = text.trim().split('\n');
     expect(lines[0]).toStartWith('http://127.0.0.1:');
-    expect(lines.slice(1)).toEqual(['job: draft chain published', 'job: asked checkpoint assemble']);
+    expect(lines.at(-1)).toBe('job: draft chain published');
+    writeFileSync(snapshotPath, originalSnapshot);
 
     const drafted = Bun.spawnSync(
       [
@@ -877,7 +894,7 @@ for (const [label, execFlags] of [
     expect({ exit: drafted.exitCode, stderr: drafted.stderr.toString('utf8') }).toEqual({ exit: 0, stderr: '' });
     const draftLines = drafted.stdout.toString('utf8').trim().split('\n');
     expect(draftLines[0]).toBe('draft-rig: recorded chain-2; no production version created');
-    expect(draftLines.at(-1)).toMatch(/^job: updated the open page: publication [^,]+, ask checkpoint assemble$/);
+    expect(draftLines.at(-1)).toMatch(/^job: updated the open page: publication [^,]+, ask parts-verdict chain-2$/);
 
     const reconciled = Bun.spawnSync([process.execPath, ...execFlags, activeCli, 'job', 'reconcile', projectRoot], {
       cwd: projectRoot,

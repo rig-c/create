@@ -3,17 +3,15 @@
  * registers it (create#750), read in one run: `rig-version --preflight` and
  * `next` show every missing one at once instead of one refusal per rebuild.
  *
- * The rules are the record check's own functions (provenance, CG gates,
- * setup painting), run over one candidate version. The only difference is
- * that no finding is held back: the record check keeps one owner per path
- * (src/setup-painting.ts), the preflight shows each code. Nothing here
- * measures; a value parts measures is named with where it is measured.
+ * The declaration rules cover provenance, CG gates, setup painting and the
+ * figure-mask declaration for one candidate version. Preflight shows every
+ * code for each path and names the producer for any measured value.
  */
 import { resolve } from 'node:path';
 
 import { checkCgGates, CG_DECLARATIONS, isCgBuild } from './cg-gates.ts';
 import { collectItems, loadCollection, type Ctx, type Finding } from './check.ts';
-import { FIGURE_MASK_DECLARATION } from './figure-mask.ts';
+import { checkSourceFigureMaskDeclaration } from './figure-mask.ts';
 import { PartsUnreadable, readPartsSections, type PartsSections } from './parts-sections.ts';
 import { checkProvenance, needsCitation } from './provenance.ts';
 import { checkSetupPainting, SETUP_PAINTING_DECLARATION } from './setup-painting.ts';
@@ -27,20 +25,12 @@ export interface VersionDeclaration {
   readonly codes: string[];
 }
 
-/** A declaration only the registration itself checks, so the preflight names it instead of judging it. */
-export interface RegistrationOnlyDeclaration {
-  readonly path: string;
-  readonly code: string;
-  readonly applies: string;
-  readonly reason: string;
-  readonly tracked: string;
-}
-
 export interface DeclarationReport {
   readonly version: string;
   readonly cg: boolean;
   readonly declarations: VersionDeclaration[];
-  readonly registration_only: RegistrationOnlyDeclaration[];
+  /** Kept for existing JSON consumers. */
+  readonly registration_only: readonly [];
   readonly refusals: Finding[];
   readonly warnings: Finding[];
 }
@@ -69,12 +59,14 @@ export function checkVersionDeclarations(projectDir: string, project: JsonObject
   const summary = checkProvenance(ctx, parts).find(s => s.version === label);
   checkCgGates(ctx);
   checkSetupPainting(ctx, false);
+  const figureMask = checkSourceFigureMaskDeclaration(ctx, version, label);
   const cg = isCgBuild(ctx);
   const config = `${label}.provenance.config`;
   const paths = [
     ...(summary?.sections ?? []).filter(section => needsCitation('rig', section)).map(section => `${label}.provenance.sections[${section}]`),
     ...(cg ? CG_DECLARATIONS.map(field => `${config} ${field}`) : []),
     `${config} ${SETUP_PAINTING_DECLARATION}`,
+    ...(figureMask === undefined ? [] : [figureMask]),
   ];
   const findings = [...refusals, ...warnings];
   const declarations = paths.map((path): VersionDeclaration => {
@@ -84,18 +76,13 @@ export function checkVersionDeclarations(projectDir: string, project: JsonObject
     if (holder.length) return { path, status: 'unread', codes: [...new Set(holder.map(f => f.code))] };
     return { path, status: 'carried', codes: [] };
   });
-  const registrationOnly: RegistrationOnlyDeclaration[] = [{
-    path: `${config} ${FIGURE_MASK_DECLARATION}`, code: 'FIGURE_MASK_MISSING', applies: 'busy grounds (assemble.ground busy)',
-    reason: 'it reads the review package registration builds', tracked: 'rig-c/create#752',
-  }];
-  return { version: label, cg, declarations, registration_only: registrationOnly, refusals, warnings };
+  return { version: label, cg, declarations, registration_only: [], refusals, warnings };
 }
 
 /** One line per declaration and finding, for the preflight's human report. */
 export function formatDeclarations(report: DeclarationReport, config: string): string[] {
   const lines = [`rig-version ${report.version.replace(/^versions\[(.*)\]$/, '$1')} preflight: ${config}${report.cg ? ' (CG build)' : ''}; nothing is written`];
   for (const d of report.declarations) lines.push(`  ${d.status.padEnd(7)} ${d.path}${d.codes.length ? ` (${d.codes.join(', ')})` : ''}`);
-  for (const d of report.registration_only) lines.push(`  not checked here: ${d.path} (${d.code}) on ${d.applies}; only registration checks it, because ${d.reason} (${d.tracked})`);
   for (const r of report.refusals) lines.push(`  REFUSED ${r.code}: ${r.message}`);
   for (const w of report.warnings) lines.push(`  warning ${w.code}: ${w.message}`);
   const n = (count: number, word: string): string => `${count} ${word}${count === 1 ? '' : 's'}`;

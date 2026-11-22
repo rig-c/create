@@ -201,7 +201,7 @@ test('bound writers print concise asked/already subject lines in text mode and p
   snapshot.draft_id = 'chain-2';
   (snapshot.config as JsonObject).path = 'derived/drafts/chain-2/config.json';
   writeFileSync(join(draftRoot, 'evidence/structure-chain-2.json'), JSON.stringify(snapshot));
-  await open(draftRoot);
+  await openPartsWithoutAsk(draftRoot);
   const draftedJson = await cli(draftRoot, [...args, '--json']);
   expect({ exit: draftedJson.exit, stderr: draftedJson.stderr }).toEqual({ exit: 0, stderr: '' });
   const printed = JSON.parse(draftedJson.stdout) as JsonObject;
@@ -234,24 +234,62 @@ async function preparedParts(): Promise<string> {
   return root;
 }
 
-test('#690 unready draft records without replacing an asked page and can be shown once prepared', async () => {
+async function openPartsWithoutAsk(root: string): Promise<string> {
+  const path = join(root, 'evidence/structure-chain.json');
+  const snapshot = readFileSync(path);
+  // The default open can publish an inspection page while the active draft lacks its snapshot.
+  rmSync(path);
+  try {
+    expect((await open(root)).lines.at(-1)).toBe('job: draft chain published');
+    const head = publicationId(root);
+    const binding = readWriterBinding(root)!;
+    expect(readAcknowledgedPublication(root, binding.jobId, head)?.subjects).toEqual([]);
+    return head;
+  } finally {
+    writeFileSync(path, snapshot);
+  }
+}
+
+test.each([
+  { mode: 'plain', flags: [] },
+  { mode: '--json', flags: ['--json'] },
+])('#833 draft-rig ($mode) refuses JOB_ASK_PENDING before writing project.json', async ({ flags }) => {
   const root = await preparedParts();
   const args = copyDraft(root, 'chain-2');
   expect((await open(root)).lines).toEqual(['job: draft chain published', 'job: asked parts-verdict chain']);
-  const before = publicationId(root);
-  expect(before).toBeTruthy();
-  const recorded = await cli(root, args);
-  expect({ exit: recorded.exit, stderr: recorded.stderr }).toEqual({ exit: 0, stderr: '' });
-  expect(read(root).drafts).toContainEqual(expect.objectContaining({ id: 'chain-2' }));
   const head = publicationId(root);
-  const binding = readWriterBinding(root)!;
-  console.log('#690 draft publication ID', before, '->', head, 'subjects', readAcknowledgedPublication(root, binding.jobId, head)?.subjects);
-  expect(head).toBe(before);
+  const projectFile = join(root, 'project.json');
+  const before = readFileSync(projectFile);
+  const refused = await cli(root, [...args, ...flags]);
+  expect(refused).toMatchObject({
+    exit: 1,
+    stdout: '',
+    stderr: expect.stringMatching(/^rig-create: JOB_ASK_PENDING: /),
+  });
+  expect(readFileSync(projectFile)).toEqual(before);
+  expect(publicationId(root)).toBe(head);
   expect(pendingPublications(root)).toEqual([]);
-  expect(recorded.stdout).toContain('open page not updated: structure snapshot missing or invalid at evidence/structure-chain-2.json');
-  expect(recorded.stdout).toContain(`rig-create structure-snapshot ${root} --draft chain-2 --out evidence/structure-chain-2.json`);
-  expect(recorded.stdout).toContain('Then run rig-create job open');
-  expect(recorded.stdout).toContain('--draft chain-2');
+}, 30_000);
+
+test('#690 draft-rig --json defers an unready draft with no owner ask and preparation makes it publishable', async () => {
+  const root = await preparedParts();
+  const args = copyDraft(root, 'chain-2');
+  const before = await openPartsWithoutAsk(root);
+  const recorded = await cli(root, [...args, '--json']);
+  expect({ exit: recorded.exit, stderr: recorded.stderr }).toEqual({ exit: 0, stderr: '' });
+  const printed = JSON.parse(recorded.stdout) as JsonObject;
+  expect(printed.id).toBe('chain-2');
+  const notice = printed.publication as { status: string; lines: string[] };
+  expect(notice.status).toBe('deferred');
+  const guidance = notice.lines.join('\n');
+  expect(guidance).toContain('open page not updated: structure snapshot missing or invalid at evidence/structure-chain-2.json');
+  expect(guidance).toContain(`rig-create structure-snapshot ${root} --draft chain-2 --out evidence/structure-chain-2.json`);
+  expect(guidance).toContain(`Then run rig-create job open ${root} --draft chain-2`);
+  const draft = (read(root).drafts as JsonObject[]).find(record => record.id === 'chain-2');
+  expect(draft).toEqual(expect.objectContaining({ id: 'chain-2' }));
+  expect(draft).not.toHaveProperty('publication');
+  expect(publicationId(root)).toBe(before);
+  expect(pendingPublications(root)).toEqual([]);
 
   const next = await cli(root, ['next', root, '--json']);
   const moves = JSON.parse(next.stdout).moves as { command: string | null }[];
@@ -269,40 +307,27 @@ test('#690 unready draft records without replacing an asked page and can be show
   expect(publicationId(root)).not.toBe(before);
 }, 30_000);
 
-test('#690 prepared draft updates an open page with its parts-verdict ask', async () => {
+test('#690 explicit job open --draft replaces a publication with an unanswered earlier-draft ask', async () => {
   const root = await preparedParts();
   const args = copyDraft(root, 'chain-2');
-  // An independent prepared snapshot binds the prospective synthetic draft's exact config.
-  const snapshot = JSON.parse(readFileSync(join(root, 'evidence/structure-chain.json'), 'utf8')) as JsonObject;
-  snapshot.draft_id = 'chain-2';
-  (snapshot.config as JsonObject).path = 'derived/drafts/chain-2/config.json';
-  writeFileSync(join(root, 'evidence/structure-chain-2.json'), JSON.stringify(snapshot));
-  await open(root);
-  const before = publicationId(root);
-  const recorded = await cli(root, args);
-  const after = publicationId(root);
-  expect({ exit: recorded.exit, stderr: recorded.stderr }).toEqual({ exit: 0, stderr: '' });
-  expect(after).not.toBe(before);
-  expect(recorded.stdout).toContain(`updated the open page: publication ${after}, ask parts-verdict chain-2`);
+  expect(await cli(root, args)).toMatchObject({ exit: 0, stderr: '' });
+  expect(await cli(root, ['structure-snapshot', root, '--draft', 'chain-2'])).toMatchObject({ exit: 0, stderr: '' });
+  const opening = await open(root, ['--draft', 'chain']);
+  expect(opening.lines).toEqual(['job: draft chain published', 'job: asked parts-verdict chain']);
   const binding = readWriterBinding(root)!;
+  const before = publicationId(root);
+  const shown = await cli(root, ['job', 'open', root, '--draft', 'chain-2', '--reviewer', 'synthetic-owner', '--role', 'owner']);
+  expect(shown).toMatchObject({ exit: 0, stderr: '' });
+  const [url, ...lines] = shown.stdout.trim().split('\n');
+  expect(url).toBe(opening.url.href);
+  expect(lines).toEqual(expect.arrayContaining([
+    'job: draft chain-2 published',
+    'job: asked parts-verdict chain-2',
+  ]));
+  const after = publicationId(root);
+  expect(after).not.toBe(before);
   expect(readAcknowledgedPublication(root, binding.jobId, after)?.subjects).toEqual([{ kind: 'parts-verdict', draftId: 'chain-2' }]);
   expect(pendingPublications(root)).toEqual([]);
-}, 30_000);
-
-test('#690 draft-rig --json reports a deferred update of the open page', async () => {
-  const root = await preparedParts();
-  const args = copyDraft(root, 'chain-2');
-  await open(root);
-  const before = publicationId(root);
-  const recorded = await cli(root, [...args, '--json']);
-  expect({ exit: recorded.exit, stderr: recorded.stderr }).toEqual({ exit: 0, stderr: '' });
-  const printed = JSON.parse(recorded.stdout) as JsonObject;
-  expect(printed.id).toBe('chain-2');
-  const notice = printed.publication as { status: string; lines: string[] };
-  expect(notice.status).toBe('deferred');
-  expect(notice.lines.join('\n')).toContain('open page not updated: structure snapshot missing or invalid at evidence/structure-chain-2.json');
-  expect(publicationId(root)).toBe(before);
-  expect(read(root).drafts).toContainEqual(expect.not.objectContaining({ publication: expect.anything() }));
 }, 30_000);
 
 test('#690 advance updates the same rig with its review verdict ask', async () => {

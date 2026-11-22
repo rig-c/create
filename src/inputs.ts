@@ -5,6 +5,7 @@ import { readFileSync, realpathSync, statSync } from './check-reads.ts';
 import { isAbsolute, relative, resolve, sep } from 'node:path';
 import { asArray, isObject, readJsonObject, type Ctx } from './check.ts';
 import { sameArtworkFor } from './init.ts';
+import { acquireBoundJobWrite } from './job-writer.ts';
 import { Refusal, refuse, USAGE_EXIT } from './refusal.ts';
 import type { Json, JsonObject } from './templates.ts';
 
@@ -168,7 +169,9 @@ export function inputCommand(args: string[], now: number): { stdout: string; exi
   let fd: number;
   try { fd = openSync(lock, 'wx'); } catch { refuse('INPUT_SOURCE_CHANGED', 'inputs: another input writer holds the project lock; wait for it to finish and retry against frozen source bytes'); }
   let published = false;
+  let releaseJob = () => {};
   try {
+    if (mode === 'add') releaseJob = acquireBoundJobWrite(dir, { kind: 'record-only' });
     let before: Buffer;
     try { before = readFileSync(file); } catch { refuse('PROJECT_JSON_INVALID', `project.json: restore a readable project record before input ${mode}`); }
     const read = readJsonObject(file);
@@ -197,5 +200,8 @@ export function inputCommand(args: string[], now: number): { stdout: string; exi
     const stdout = json ? JSON.stringify(entry, null, 2)
       : mode === 'add' ? `input: recorded '${path}' (${bytes.length} bytes)` : `input: declared '${path}' as the painting`;
     return { stdout, exit: 0 };
-  } finally { closeSync(fd); if (!published) unlinkSync(lock); }
+  } finally {
+    try { closeSync(fd); if (!published) unlinkSync(lock); }
+    finally { releaseJob(); }
+  }
 }

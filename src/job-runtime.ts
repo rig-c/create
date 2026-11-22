@@ -1,13 +1,12 @@
 /** Private stdin transport for synchronous writers. Capabilities never enter argv. */
 import { readFileSync, realpathSync } from 'node:fs';
 import { resolve } from 'node:path';
-import type { JobSelector } from '@rig-c/review/job-host';
 import { startJobHost } from '@rig-c/review/job-host';
 import { assertNoPendingJobAsk, attachCreateJobForClose, withdrawCreateJobAct } from './job-close.ts';
 import { askOutcomeLines, subjectLabel, assertRequestedDraft, assertRequestedRig, closeCreateJob, listCreateJobActs, openCreateJob, openDraftPublication, openRecordPublication, requestedRecordResult, publishPending, reconcileCreateJob, refuseAskOutcomes, type AskOutcome } from './job-host.ts';
 import { failPublication, pendingPublications, readWriterBinding, reconcilePublication } from './job-outbox.ts';
 import { postJobProgress, type JobProgressUpdate } from './job-progress.ts';
-import { jobActsText } from './job-acts.ts';
+import { jobActsText, type JobWriteAskTarget } from './job-acts.ts';
 import { Refusal, refuse } from './refusal.ts';
 import { replacedRootRefusal } from './job-host-state.ts';
 import { requireOwnerLanguage } from './owner-language.ts';
@@ -23,7 +22,7 @@ export function publicationFailure(error: unknown, root: string): Refusal | unde
 }
 
 async function run(): Promise<void> {
-  const input = JSON.parse(readFileSync(0, 'utf8')) as { root: string; id?: string; actId?: string; selector?: JobSelector; reviewer?: string; role?: 'owner' | 'delegate'; draft?: string; rig?: string; question?: Parameters<typeof requestedRecordResult>[1]; plan?: boolean; now: number; retireRefused?: boolean; discardActs?: Record<string, string>; json?: boolean; timeoutMs?: number; jobId?: string; listenerIncarnation?: string; update?: JobProgressUpdate };
+  const input = JSON.parse(readFileSync(0, 'utf8')) as { root: string; id?: string; actId?: string; askTarget?: JobWriteAskTarget; reviewer?: string; role?: 'owner' | 'delegate'; draft?: string; rig?: string; question?: Parameters<typeof requestedRecordResult>[1]; plan?: boolean; now: number; retireRefused?: boolean; discardActs?: Record<string, string>; json?: boolean; timeoutMs?: number; jobId?: string; listenerIncarnation?: string; update?: JobProgressUpdate };
   const root = resolve(input.root);
   switch (process.argv[2]) {
     case 'progress': {
@@ -40,8 +39,8 @@ async function run(): Promise<void> {
       break;
     }
     case 'check-ask': {
-      if (!input.selector) refuse('JOB_PUBLICATION_INVALID', 'project.json: publication requires a result selector; restore the writer result');
-      const head = await assertNoPendingJobAsk(root, input.selector);
+      if (!input.askTarget) refuse('JOB_PUBLICATION_INVALID', 'project.json: checking pending asks requires a writer target; restore the writer result');
+      const head = await assertNoPendingJobAsk(root, input.askTarget);
       if (head !== null) console.log(head);
       break;
     }

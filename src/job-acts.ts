@@ -366,10 +366,12 @@ function actMatchesAsk(act: ActV3, ask: PendingAskV3): boolean {
   }
 }
 
-/** A publication target: a package selector, or a record result (`--question` option set or `--plan`). */
-export type JobAskTarget = JobSelector | RecordPublicationResult;
+/** A record-only write has no publication target and cannot carry an ask forward. */
+export type JobWriteAskTarget = JobSelector | { kind: 'record-only' };
+export type JobAskTarget = JobWriteAskTarget | RecordPublicationResult;
 
 function sameTarget(source: SourceV3, target: JobAskTarget): boolean {
+  if (target.kind === 'record-only') return false;
   if ('selector' in source && source.selector) return isDeepStrictEqual(source.selector, target);
   if ('selection' in source && source.selection) return isDeepStrictEqual(source.selection, target);
   return false;

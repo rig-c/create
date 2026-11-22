@@ -2,19 +2,18 @@ import { existsSync, readFileSync, realpathSync } from './check-reads.ts';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { isDeepStrictEqual } from 'node:util';
-import type { JobSelector } from '@rig-c/review/job-host';
 import { acquireJobLock, enqueuePublication, failPublication, jobPrivateRoot, pendingPublications, readWriterBinding, type PendingPublication, type WriterBinding } from './job-outbox.ts';
 import { liveManifestPath, livePublicationSubjects, draftPackageIdentity, inspectDraftPublication, prepareDraftManifest, prepareLiveManifest, publicationSelector } from './job-publication.ts';
 import { asArray, checkProject, isObject, type Finding } from './check.ts';
 import { rigVerdictDeferred } from './rig-signoff.ts';
 import { Refusal, refuse } from './refusal.ts';
-import { shellWord } from './job-acts.ts';
+import { shellWord, type JobWriteAskTarget } from './job-acts.ts';
 import { acceptedReviewVerdict } from './review.ts';
 import { validCarriedRigDraftVerdict } from './rig-draft-verdict.ts';
 import type { JsonObject } from './templates.ts';
 import type { JobProgressUpdate } from './job-progress.ts';
 
-let checkedBoundTarget: { target: { root: string; jobId: string; selector: JobSelector }; head: string | null } | null = null;
+let checkedBoundTarget: { target: { root: string; jobId: string; askTarget: JobWriteAskTarget }; head: string | null } | null = null;
 
 function isSameProcessHost(binding: WriterBinding): boolean {
   try {
@@ -25,15 +24,15 @@ function isSameProcessHost(binding: WriterBinding): boolean {
   }
 }
 
-function assertBoundJobAskReady(root: string, binding: WriterBinding, selector: JobSelector): string | null {
+function assertBoundJobAskReady(root: string, binding: WriterBinding, askTarget: JobWriteAskTarget): string | null {
   const canonicalRoot = realpathSync(root);
-  const target = { root: canonicalRoot, jobId: binding.jobId, selector };
+  const target = { root: canonicalRoot, jobId: binding.jobId, askTarget };
   if (checkedBoundTarget && isDeepStrictEqual(checkedBoundTarget.target, target)) return checkedBoundTarget.head;
   if (isSameProcessHost(binding) || !existsSync(join(jobPrivateRoot(canonicalRoot), 'acknowledged-publications'))) return null;
   let child: ReturnType<typeof Bun.spawnSync<'pipe', 'pipe'>>;
   try {
     child = Bun.spawnSync(jobRuntimeCommand('check-ask'), {
-      stdin: Buffer.from(JSON.stringify({ root: canonicalRoot, selector })), stdout: 'pipe', stderr: 'pipe',
+      stdin: Buffer.from(JSON.stringify({ root: canonicalRoot, askTarget })), stdout: 'pipe', stderr: 'pipe',
     });
   } catch {
     return null;
@@ -48,7 +47,9 @@ function assertBoundJobAskReady(root: string, binding: WriterBinding, selector: 
   return head;
 }
 
-export function acquireBoundJobWrite(root: string, target?: JobSelector): () => void {
+export function acquireBoundJobWrite(root: string, target?: JobWriteAskTarget): () => void {
+  // Record-only callers still report their own missing-project refusal.
+  if (target?.kind === 'record-only' && !existsSync(root)) return () => {};
   const binding = readWriterBinding(root);
   if (!binding) return () => {};
   const release = acquireJobLock(root)!;

@@ -640,40 +640,78 @@ test('#737 a second --question refuses JOB_ASK_PENDING while the first ask is op
   expect(after.map(row => row.actId)).toEqual([String(bonesAct.actId)]);
 }, 60_000);
 
-/** Record the owner's chat answer for the question's registered pending set, as AGENTS.md goal 3 allows. */
-async function ownerChatAnswer(root: string, value: { questionId: string; selections: { itemId: Json; optionId: Json }[] }) {
+function ownerChatAnswerArgs(root: string, value: { questionId: string; selections: { itemId: Json; optionId: Json }[] }) {
   const binding = obj(collectItems(read(root), { collection: null }).find(item => item.id === value.questionId)!.record.pending_options);
   const words = join(root, `owner-words-${value.questionId}.txt`);
   writeFileSync(words, 'Synthetic owner chat words.\n');
-  expectExit0(await cli(root, ['interview-answer', value.questionId, root, '--set', String(binding.path), '--sha256', String(binding.sha256),
+  return ['interview-answer', value.questionId, root, '--set', String(binding.path), '--sha256', String(binding.sha256),
     '--by', 'user', '--owner-chat', words, '--said-at', new Date(testClock.now() - 500).toISOString(), '--relayed-by', 'synthetic-operator',
-    ...value.selections.flatMap(row => ['--pick', `${String(row.itemId)}=${String(row.optionId)}`])]));
+    ...value.selections.flatMap(row => ['--pick', `${String(row.itemId)}=${String(row.optionId)}`])];
 }
 
-test('#737 an owner-chat answer for the published set settles its ask, so the next --question publishes', async () => {
-  const { root, value } = await openMotionQuestion(['bones']);
-  await ownerChatAnswer(root, value);
-  const next = await cli(root, ['job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner', '--question', 'bones']);
-  expectExit0(next);
-  expect(next.stdout).toContain('job: option-set bones/pending-acts-bones published');
+test('#826 record-only writers preserve an open interview ask and its finalized answer until Review ingest', async () => {
+  const { root, view, value } = await openMotionQuestion();
+  const path = 'inputs/synthetic-source.txt';
+  writeFileSync(join(root, path), 'Synthetic source bytes.\n');
+  const add = ['input', 'add', path, root, '--origin', 'synthetic source'];
+  const answer = ownerChatAnswerArgs(root, value);
+  const setPath = 'evidence/interview/pending-acts-motion.json';
+  const writers = [
+    add,
+    ['interview-options', 'motion', root, '--file', setPath],
+    ['interview-options', '--adopt', root],
+    answer,
+    ['interview-answer', 'motion', root, '--set', setPath, '--sha256', jobHash(readFileSync(join(root, setPath))),
+      '--by', 'user', '--from-review', '', ...value.selections.flatMap(row => ['--pick', `${row.itemId}=${row.optionId}`])],
+    ['interview-decision', 'motion', root, '--by', 'agent', '--reasoning-file', join(root, 'owner-words-motion.txt')],
+  ];
+  const projectFile = join(root, 'project.json');
+  const before = readFileSync(projectFile);
+  const beforeJob = snapshot(jobPrivateRoot(root));
+  const refuses = async () => {
+    const beforeHost = snapshot(jobHostStateRoot(root));
+    for (const args of writers) {
+      const result = await cli(root, args);
+      expect(result.exit, `${args[0]} ${args[1]}: ${result.stderr}`).toBe(1);
+      expect(result.stdout).toBe('');
+      expect(result.stderr).toStartWith('rig-create: JOB_ASK_PENDING: ');
+      expect(result.stderr).toContain('interview-picks motion/pending-acts-motion on option-set motion/pending-acts-motion');
+      expect(result.stderr).toEndWith('; re-run this command\n');
+      expect(readFileSync(projectFile)).toEqual(before);
+      expect(snapshot(jobPrivateRoot(root))).toEqual(beforeJob);
+      expect(snapshot(jobHostStateRoot(root))).toEqual(beforeHost);
+    }
+  };
+  await refuses();
+  const act = await view.act('interview-picks', 'interview-picks', value);
+  await refuses();
+  expectExit0(await cli(root, ['interview-answer', 'motion', root, '--from-review', String(act.actId)]));
+  expect(arr(read(root).review_acts).at(-1)).toMatchObject({ kind: 'interview-picks', actId: act.actId });
+  expectExit0(await cli(root, add));
+  expect(arr(read(root).inputs)).toContainEqual(expect.objectContaining({ path }));
 }, 60_000);
 
-test('#737 an owner-chat answer bound to a different set leaves the published ask open', async () => {
-  const { root } = await openMotionQuestion(['bones']);
-  // Register a second motion set after the first was published, then answer that one in chat.
-  const project = read(root); const item = collectItems(project, { collection: null }).find(item => item.id === 'motion')!;
-  const shown = JSON.parse(readFileSync(join(root, String(obj(item.record.pending_options).path)), 'utf8')) as JsonObject;
-  shown.id = 'pending-acts-motion-chat'; shown.drafted_at = new Date(testClock.now() - 900).toISOString();
-  const path = 'evidence/interview/pending-acts-motion-chat.json';
-  writeFileSync(join(root, path), JSON.stringify(shown, null, 2) + '\n');
-  expectExit0(await cli(root, ['interview-options', 'motion', root, '--file', path]));
-  const selections = (shown.asks as JsonObject[]).map(ask => ({ itemId: ask.id, optionId: obj((ask.options as JsonObject[])[0]).id }));
-  await ownerChatAnswer(root, { questionId: 'motion', selections });
-  const before = snapshot(root);
-  const refused = await cli(root, ['job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner', '--question', 'bones']);
-  expect(refused.exit).toBe(1);
-  expect(refused.stderr).toMatch(/^JOB_ASK_PENDING: .*interview-picks motion\/pending-acts-motion on /);
-  expect(snapshot(root)).toEqual(before);
+test.each(['matching', 'different'])('#737 a %s owner-chat answer is compared against the retained ask binding', async binding => {
+  const { root, value, view } = await openMotionQuestion();
+  const [ask] = view.asks as unknown as PendingAskV3[];
+  // Retain the ask for the classifier control and exercise the writers on the unbound record.
+  expectExit0(await cli(root, ['job', 'close', root]));
+  expect(readWriterBinding(root)).toBeNull();
+  const source = 'inputs/unbound-source.txt';
+  writeFileSync(join(root, source), 'Synthetic unbound source.\n');
+  expectExit0(await cli(root, ['input', 'add', source, root, '--origin', 'synthetic source']));
+  expect(arr(read(root).inputs)).toContainEqual(expect.objectContaining({ path: source }));
+  if (binding === 'different') {
+    const shown = JSON.parse(readFileSync(join(root, 'evidence/interview/pending-acts-motion.json'), 'utf8')) as JsonObject;
+    shown.id = 'pending-acts-motion-chat'; shown.drafted_at = new Date(testClock.now() - 900).toISOString();
+    const path = 'evidence/interview/pending-acts-motion-chat.json';
+    writeFileSync(join(root, path), JSON.stringify(shown, null, 2) + '\n');
+    expectExit0(await cli(root, ['interview-options', 'motion', root, '--file', path]));
+  }
+  expectExit0(await cli(root, ownerChatAnswerArgs(root, value)));
+  const pending = pendingJobAsksForTarget(read(root), [ask!], [], root, { kind: 'record-only' });
+  expect(pending.map(row => row.label)).toEqual(binding === 'matching' ? []
+    : ['interview-picks motion/pending-acts-motion on option-set motion/pending-acts-motion']);
 }, 60_000);
 
 test('#558 next at the rigging interview groups the question loop and prints one batch ingest', async () => {

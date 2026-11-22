@@ -120,7 +120,7 @@ export function interviewOptionsCommand(args: string[], now: number): string { r
     if (opts.positional.length > 1 || Object.keys(opts.one).length) usage('--adopt takes only a project folder');
   } else if (opts.positional.length > 2 || !opts.one['--file']) usage('question and --file required');
   const dir = resolve(opts.positional[opts.adopt ? 0 : 1] ?? process.cwd());
-  const release = acquireBoundJobWrite(dir, { kind: 'record-only' });
+  const release = acquireBoundJobWrite(dir, { kind: 'record-only', writer: 'interview' });
   try {
     const {file,project} = readProject(dir); const next = structuredClone(project);
     if (opts.adopt) {
@@ -306,7 +306,7 @@ export function interviewAnswerCommand(args: string[], now: number, hooks: Inter
   const chat = readOwnerChat(opts.one, opts.one['--by'] ?? '', now, 'project.json.interview');
   const dir = resolve(opts.positional[batch ? 0 : 1] ?? process.cwd());
   const actIds = batch ? opts.actIds : opts.one['--from-review'] ? [opts.one['--from-review']] : [];
-  const release = acquireBoundJobWrite(dir, actIds.length ? undefined : { kind: 'record-only' });
+  const release = acquireBoundJobWrite(dir, actIds.length ? undefined : { kind: 'record-only', writer: 'interview' });
   try {
     // The first milestone waits for the job gate: a refused write leaves the project untouched.
     const progress = actIds.length ? beginJobProgress(dir, 'ingest', 'Reading the Review interview answer') : undefined;
@@ -369,7 +369,7 @@ export function interviewDecisionCommand(args: string[], now: number): string { 
   const opts = parse(args,['--by','--reasoning-file'],['--fragment']);
   if (opts.positional.length > 2 || !opts.one['--by'] || !opts.one['--reasoning-file']) usage('question, --by and --reasoning-file required');
   const dir = resolve(opts.positional[1] ?? process.cwd());
-  const release = acquireBoundJobWrite(dir, { kind: 'record-only' });
+  const release = acquireBoundJobWrite(dir, { kind: 'record-only', writer: 'interview' });
   try {
     const {file,project} = readProject(dir); const next = structuredClone(project);
     const item = itemAt(next,dir,opts.positional[0]); checkNewAnswer(dir,next,item);

@@ -241,6 +241,10 @@ export async function refusePendingJobAsks(root: string, jobId: string, host: Jo
         : 'use job close --discard-acts <reason> --by agent to record the stale acts';
       remedy = `run rig-create job acts ${shellWord(root)} to inspect the finalized acts. After ingesting any current acts, ${discard}, then open the remaining sets on the current record`;
       if (target.kind === 'record-only') remedy += '; re-run this command once the remaining asks are settled';
+    } else if (target.kind === 'record-only' && target.writer === 'interview' && pending.some(item => item.interview)) {
+      remedy += '. For an interview ask, to keep the page, have the owner submit in Review if they have not already,'
+        + ' then run job acts --wait and interview-answer <question> --from-review <actId>,'
+        + " or, to record chat words, ingest finalized acts, run job close with the owner's authorization, then retry with --owner-chat.";
     }
     refuse('JOB_ASK_PENDING', `project.json: bound job ${jobId} holds pending owner ask(s) ${listed} with no ingested act; ${remedy}`);
   }

@@ -342,6 +342,7 @@ export function jobActsText(result: { acts: readonly PendingJobAct[]; ingested?:
 export interface PendingTargetAsk {
   label: string;
   version: number | null;
+  interview: boolean;
   staleInterviewActId?: string;
 }
 
@@ -367,7 +368,7 @@ function actMatchesAsk(act: ActV3, ask: PendingAskV3): boolean {
 }
 
 /** A record-only write has no publication target and cannot carry an ask forward. */
-export type JobWriteAskTarget = JobSelector | { kind: 'record-only' };
+export type JobWriteAskTarget = JobSelector | { kind: 'record-only'; writer?: 'interview' };
 export type JobAskTarget = JobWriteAskTarget | RecordPublicationResult;
 
 function sameTarget(source: SourceV3, target: JobAskTarget): boolean {
@@ -526,7 +527,8 @@ export function pendingJobAsksForTarget(
   for (const ask of actionableAsks) {
     if (ingestedActs.some(act => actMatchesAsk(act, ask))) continue;
     const info = sourceTargetInfo(ask.source);
-    const multiInterview = ask.subject.kind === 'interview-picks' && isMultiOptionSource(ask.source);
+    const interview = ask.subject.kind === 'interview-picks';
+    const multiInterview = interview && isMultiOptionSource(ask.source);
     if (!multiInterview && sameTarget(ask.source, target)) continue;
     if (supersededVerdictSource(project, ask.subject, ask.source)) continue;
     const unIngestedAct = unIngestedActs.find(act => actMatchesAsk(act, ask));
@@ -535,7 +537,7 @@ export function pendingJobAsksForTarget(
     if (!unIngestedAct && info.selector?.kind === 'draft' && target.kind === 'draft') continue;
     const label = askSubjectText(ask.subject);
     const staleInterviewActId = staleInterviewAct(unIngestedAct);
-    pending.push({ label: multiInterview ? label : `${label} on ${info.label}`, version: info.version,
+    pending.push({ label: multiInterview ? label : `${label} on ${info.label}`, version: info.version, interview,
       ...(staleInterviewActId === undefined ? {} : { staleInterviewActId }) });
   }
   for (const act of unIngestedActs) {
@@ -544,7 +546,7 @@ export function pendingJobAsksForTarget(
     if (!isMultiOptionSource(act.source) && sameTarget(act.source, target)) continue;
     if (supersededVerdictSource(project, { kind: act.kind, stage: 'stage' in act.value ? String(act.value.stage) : undefined }, act.source)) continue;
     const staleInterviewActId = staleInterviewAct(act);
-    pending.push({ label: `${act.kind} (${act.actId}) on ${info.label}`, version: info.version,
+    pending.push({ label: `${act.kind} (${act.actId}) on ${info.label}`, version: info.version, interview: act.kind === 'interview-picks',
       ...(staleInterviewActId === undefined ? {} : { staleInterviewActId }) });
   }
   return pending;

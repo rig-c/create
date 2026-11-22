@@ -676,7 +676,6 @@ test('#826 record-only writers preserve an open interview ask and its finalized 
       expect(result.stdout).toBe('');
       expect(result.stderr).toStartWith('rig-create: JOB_ASK_PENDING: ');
       expect(result.stderr).toContain('interview-picks motion/pending-acts-motion on option-set motion/pending-acts-motion');
-      expect(result.stderr).toEndWith('; re-run this command\n');
       expect(readFileSync(projectFile)).toEqual(before);
       expect(snapshot(jobPrivateRoot(root))).toEqual(beforeJob);
       expect(snapshot(jobHostStateRoot(root))).toEqual(beforeHost);

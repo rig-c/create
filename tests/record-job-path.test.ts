@@ -429,6 +429,72 @@ test.each(['rigging-interview', 'post-interview'])('first unanswered %s question
   await checked(root);
 }, 30_000);
 
+test('post-interview --questions opens two pending sets on the same rig', async () => {
+  const root = synthetic('post-interview');
+  const project = read(root);
+  project.scenes = [];
+  const rigVersion = 2;
+  const questions = ['camera_depth', 'post_timing'];
+  const items = collectItems(project, { collection: null });
+  const sets = questions.map(question => {
+    const item = items.find(item => item.id === question)!;
+    const binding = obj(obj(item.raw).choice).set as JsonObject;
+    const set = JSON.parse(readFileSync(join(root, String(binding.path)), 'utf8')) as JsonObject;
+    item.record.guide = null;
+    return set;
+  });
+  writeFileSync(join(root, 'project.json'), JSON.stringify(project, null, 2) + '\n');
+  for (const set of sets) {
+    set.id = `grouped-${set.question}`;
+    set.drafted_at = new Date(Date.now() - 1000).toISOString();
+    set.context = optionContext(read(root), 'post-interview', Date.now() - 1000, root);
+    expect(set.context).toMatchObject({ kind: 'rig', rig_version: rigVersion });
+    const path = `evidence/interview/${set.id}.json`;
+    writeFileSync(join(root, path), JSON.stringify(set, null, 2) + '\n');
+    const registered = await cli(root, ['interview-options', String(set.question), root, '--file', path]);
+    expect(registered.exit, registered.stderr).toBe(0);
+  }
+
+  const { url } = await open(root, ['--questions']);
+  const { head, asks, base, headers } = await publication(root, url);
+  expect(asks.map(ask => ask.subject)).toEqual(sets.map(set => ({
+    kind: 'interview-picks', questionId: set.question, setId: set.id,
+  })));
+  const response = await fetch(`${base}publications/${head.publicationId}`, { headers });
+  expect(response.status).toBe(200);
+  const display = await response.json() as { ok: boolean; value: unknown };
+  expect(display.ok).toBe(true);
+
+  // Exercise Review's shipped client preparation against the live HTTP routes.
+  const { prepareJobInspection } = await import(new URL('../web/job-session.ts', import.meta.resolve('@rig-c/review/job-host')).href) as {
+    prepareJobInspection(display: unknown, signal: AbortSignal): Promise<{
+      interview: { questions: { set: JsonObject }[] } | null;
+      dispose(): void;
+    }>;
+  };
+  const browserGlobals = ['location', 'document'] as const;
+  const originals = browserGlobals.map(name => [name, Object.getOwnPropertyDescriptor(globalThis, name)] as const);
+  Object.defineProperties(globalThis, {
+    location: { configurable: true, value: { origin: url.origin } },
+    document: { configurable: true, value: { createElement: () => ({}) } },
+  });
+  try {
+    const prepared = await prepareJobInspection(display.value, AbortSignal.timeout(5_000));
+    try {
+      expect(prepared.interview?.questions.map(({ set }) => ({
+        question: set.question, id: set.id, rig: obj(set.context).rig_version,
+      }))).toEqual(sets.map(set => ({ question: set.question, id: set.id, rig: rigVersion })));
+    } finally {
+      prepared.dispose();
+    }
+  } finally {
+    for (const [name, descriptor] of originals) {
+      if (descriptor) Object.defineProperty(globalThis, name, descriptor);
+      else Reflect.deleteProperty(globalThis, name);
+    }
+  }
+}, 30_000);
+
 test('record selectors refuse a legacy package-only host byte-identically with the close/reopen remedy', async () => {
   const root = synthetic('rigging-interview');
   let recordOptions!: JobHostOptions;

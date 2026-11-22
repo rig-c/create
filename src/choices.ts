@@ -206,8 +206,8 @@ function verifyBinding(dir: string, binding: Json, fresh: boolean): void {
 function contextDifference(expected: Json | undefined, actual: Json | undefined, path: string): string {
   const arrays = Array.isArray(expected) && Array.isArray(actual);
   if (arrays || (isObject(expected) && isObject(actual))) {
-    const fields: JsonObject = { ...expected };
-    const supplied: JsonObject = { ...actual };
+    const fields = { ...expected } as JsonObject;
+    const supplied = { ...actual } as JsonObject;
     for (const key of new Set([...Object.keys(fields), ...Object.keys(supplied)])) {
       const segment = arrays ? `[${key}]` : /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(key) ? `.${key}` : `[${JSON.stringify(key)}]`;
       const field = path + segment;

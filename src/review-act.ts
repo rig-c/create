@@ -960,7 +960,7 @@ export function reviewActFindings(project: JsonObject, warnings?: Finding[], rou
         const route = interviewFeedbackRoute(act);
         const hasRoute = Object.hasOwn(entry, 'feedback_route');
         if (hasRoute && (route === undefined || !isDeepStrictEqual(entry.feedback_route, route))) {
-          failure('REVIEW_FEEDBACK_ROUTE_INVALID', 'feedback_route must match the question and all ordered comments, including image anchors, from the retained interview act and be absent for an answer without comments');
+          failure('REVIEW_FEEDBACK_ROUTE_INVALID', 'feedback_route must match the question and all ordered comments, including their anchors, from the retained interview act and be absent for an answer without comments');
         }
         const item = act.value.questionId === INTAKE_QUESTION ? intakeItem(project)
           : collectItems(project, { collection: null }).find(item => item.id === act.value.questionId);
@@ -981,7 +981,7 @@ export function reviewActFindings(project: JsonObject, warnings?: Finding[], rou
         } else if (route && routedAnswerWarnings) {
           for (const [commentIndex, { order, text, anchor }] of route.comments.entries()) {
             const commentPath = `${path}.feedback_route.comments[${commentIndex}]`;
-            const anchorText = anchor === undefined ? '' : `\nImage anchor: ${JSON.stringify(anchor)}`;
+            const anchorText = anchor === undefined ? '' : `\nAnchor: ${JSON.stringify(anchor)}`;
             routedAnswerWarnings.push({ code: 'REVIEW_ANSWER_COMMENT_ROUTED', path: commentPath,
               message: `project.json.${commentPath}: interview answer ${route.question}, owner comment ${order}\n${text}${anchorText}` });
           }

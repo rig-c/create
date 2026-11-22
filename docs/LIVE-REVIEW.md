@@ -487,8 +487,8 @@ later act version refuse `REVIEW_ACT_INVALID`. The answer records the picks and
 note. When the act carries comments, Create retains the original act bytes and
 records `review_acts[i].feedback_route` on the `interview-picks` receipt as
 `{question, comments: [{order, text, anchor?}]}`. The comments keep the act's
-order, with numbering from 1, and preserve the owner's exact text and any image
-anchor. `check` validates the route against the retained act and refuses a
+order, with numbering from 1, and preserve the owner's exact text and any anchor, copied whole whatever its
+kind. `check` validates the route against the retained act and refuses a
 mismatch with `REVIEW_FEEDBACK_ROUTE_INVALID`. A retained receipt with comments
 and no route gives `REVIEW_ANSWER_COMMENTS_UNROUTED` in `check` at any date.
 Preserve that receipt and read its comments in `bytes` under `value.comments`.

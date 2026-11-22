@@ -644,7 +644,7 @@ test('#846 single ingest routes exact comments and preserves survey, receipt and
   expect(routed).toEqual(comments.map(({ text, anchor }, i) => {
     const path = `review_acts[${index}].feedback_route.comments[${i}]`;
     return { code: 'REVIEW_ANSWER_COMMENT_ROUTED', path,
-      message: `project.json.${path}: interview answer motion, owner comment ${i + 1}\n${text}${anchor === undefined ? '' : `\nImage anchor: ${JSON.stringify(anchor)}`}` };
+      message: `project.json.${path}: interview answer motion, owner comment ${i + 1}\n${text}${anchor === undefined ? '' : `\nAnchor: ${JSON.stringify(anchor)}`}` };
   }));
 }, 30_000);
 

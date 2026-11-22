@@ -22,12 +22,13 @@ const roots: string[] = [];
 const receipt = (value: object) => { if (process.env.RECORD_JOB_RECEIPT) appendFileSync(process.env.RECORD_JOB_RECEIPT, JSON.stringify(value) + '\n'); };
 const bytes = (root: string) => readFileSync(join(root, 'project.json'));
 const clean = (value: string, root: string) => value.replaceAll(root, '<synthetic>').replace(/http:\/\/127\.0\.0\.1:\d+[^\s]*/g, '<owner-url>');
-const opened: { proc: Bun.Subprocess; root: string }[] = [];
+const opened: { proc: Bun.Subprocess; root: string; finished: Promise<[number, string, string]>; serving: boolean }[] = [];
 afterEach(async () => {
-  for (const { proc, root } of opened.splice(0)) {
-    if (existsSync(root) && readWriterBinding(root)) await cli(root, ['job', 'close', root]);
-    if (proc.exitCode === null) proc.kill();
-    receipt({ command: ['foreground host', 'exit'], exit: await proc.exited });
+  for (const { proc, root, finished, serving } of opened.splice(0)) {
+    if (serving && existsSync(root) && readWriterBinding(root)) await cli(root, ['job', 'close', root]);
+    if (proc.exitCode === null && proc.signalCode === null) proc.kill('SIGTERM');
+    const [exit] = await finished;
+    receipt({ command: ['foreground host', 'exit'], exit });
   }
   for (const root of roots.splice(0)) {
     if (existsSync(root)) {
@@ -49,28 +50,76 @@ async function cli(root: string, args: string[]): Promise<{ stdout: string; stde
   return { stdout, stderr, exit };
 }
 
-/** Start `job open` in the background and read its URL line and the summary it prints after publishing. */
+async function drainOutput(stream: ReadableStream<Uint8Array>, observe: (text: string) => void): Promise<string> {
+  const reader = stream.getReader();
+  const decoder = new TextDecoder();
+  let output = '';
+  try {
+    for (;;) {
+      const chunk = await reader.read();
+      if (chunk.done) break;
+      output += decoder.decode(chunk.value, { stream: true });
+      observe(output);
+    }
+    return output + decoder.decode();
+  } finally {
+    reader.releaseLock();
+  }
+}
+
+/** Start `job open` and wait for its URL and publication summary or a startup failure. */
 async function open(root: string, options: string[] = []): Promise<{ url: URL; lines: string[] }> {
   const before = jobHash(bytes(root));
-  const proc = Bun.spawn([process.execPath, ...jobRuntimeExecArgv(), CLI, 'job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner', ...options],
+  const previousListener = readWriterBinding(root)?.listenerIncarnation;
+  const args = ['job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner', ...options];
+  const command = ['bun', 'src/cli.ts', ...args.map(arg => clean(arg, root))];
+  const proc = Bun.spawn([process.execPath, ...jobRuntimeExecArgv(), CLI, ...args],
     { cwd: root, stdout: 'pipe', stderr: 'pipe' });
-  opened.push({ proc, root });
-  const reader = proc.stdout.getReader();
-  const decoder = new TextDecoder();
-  let text = '';
-  while (!/\njob: .*\n$/.test(text)) {
-    const chunk = await reader.read();
-    if (chunk.done) break;
-    text += decoder.decode(chunk.value);
+  const urlLine = /^http:\/\/[^\n]+\n/;
+  const hasSummary = (text: string) => urlLine.test(text) && /\njob: .*\n$/.test(text);
+  const namedRefusal = /^(?:rig-create: )?[A-Z][A-Z0-9_]*: .*\n/m;
+  const urlWritten = Promise.withResolvers<boolean>();
+  const startup = Promise.withResolvers<'published' | 'refused'>();
+  let summary = '';
+  const stdout = drainOutput(proc.stdout, text => {
+    if (urlLine.test(text)) urlWritten.resolve(true);
+    if (hasSummary(text)) {
+      summary = text;
+      startup.resolve('published');
+    }
+  }).finally(() => urlWritten.resolve(false));
+  const stderr = drainOutput(proc.stderr, text => {
+    if (namedRefusal.test(text)) startup.resolve('refused');
+  });
+  const finished = Promise.all([proc.exited, stdout, stderr]);
+  const child = { proc, root, finished, serving: false };
+  opened.push(child);
+
+  const ownsListener = () => {
+    const listener = readWriterBinding(root)?.listenerIncarnation;
+    return listener !== undefined && listener !== previousListener;
+  };
+  const event = await Promise.race([startup.promise, finished.then(() => 'exited' as const)]);
+  // The runtime installs its SIGTERM handler before writing the URL. A reused listener's
+  // CLI exits by itself, preserving the exit code it already set.
+  if (event === 'refused' && await urlWritten.promise && ownsListener()
+    && proc.exitCode === null && proc.signalCode === null) {
+    proc.kill('SIGTERM');
   }
-  reader.releaseLock();
-  const lines = text.trim().split('\n');
-  if (!lines[0]?.startsWith('http://')) {
-    const stderr = await new Response(proc.stderr).text();
-    expect({ exit: await proc.exited, stderr }).toEqual({ exit: 0, stderr: '' });
+  if (event === 'published' && ownsListener() && proc.exitCode === null && proc.signalCode === null) {
+    child.serving = true;
+  } else {
+    const [exit, output, errors] = await finished;
+    if (exit !== 0 || namedRefusal.test(errors) || !hasSummary(output)) {
+      const stderr = clean(errors, root);
+      receipt({ command, exit, before, after: jobHash(bytes(root)), stderr });
+      throw new Error(`job open exited ${exit} before successful startup\n${stderr.trimEnd()}`);
+    }
+    summary = output;
   }
-  receipt({ command: ['bun', 'src/cli.ts', 'job', 'open', '<synthetic>', '--reviewer', 'synthetic-owner', '--role', 'owner', ...options], serving: true, before, after: jobHash(bytes(root)), lines: lines.slice(1) });
-  return { url: new URL(lines[0]!), lines: lines.slice(1) };
+  const [url, ...lines] = summary.trim().split('\n');
+  receipt({ command, serving: true, before, after: jobHash(bytes(root)), lines });
+  return { url: new URL(url!), lines };
 }
 
 /** Read the publication and its declared asks without acknowledging a display or submitting an act. */
@@ -86,10 +135,6 @@ async function publication(root: string, url: URL, expectedAsks = 2) {
   const base = `${url.origin}/jobs/${jobId}/`;
   const headers = { origin: url.origin, 'X-Review-Capability': capability, 'content-type': 'application/json' };
   const abort = new AbortController();
-  const response = await fetch(base + 'events', { headers, signal: abort.signal });
-  const reader = response.body!.getReader();
-  const decoder = new TextDecoder();
-  let buffered = '';
   const events: JsonObject[] = [];
   const pending = () => {
     const head = events.filter(event => event.type === 'published').at(-1)?.publication as JsonObject | undefined;
@@ -98,22 +143,42 @@ async function publication(root: string, url: URL, expectedAsks = 2) {
   // Reconnect replays history. Ask counts on an older head do not establish the current page.
   const ready = () => pending().head?.publicationId === expectedPublication.publicationId
     && pending().asks.length >= expectedAsks;
-  const deadline = Date.now() + 10_000;
-  while (Date.now() < deadline && !ready()) {
-    const next = await reader.read();
-    if (next.done) break;
-    buffered += decoder.decode(next.value, { stream: true });
-    let newline: number;
-    while ((newline = buffered.indexOf('\n')) >= 0) {
-      events.push(JSON.parse(buffered.slice(0, newline)));
-      buffered = buffered.slice(newline + 1);
-      // Inspect each event so this regression also covers one-event transport chunks.
-      if (ready()) break;
+  let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
+  abort.signal.addEventListener('abort', () => {
+    // Cancel a pending read as well as the request, even after headers arrived.
+    void reader?.cancel().catch(() => { /* The fetch abort may already have errored the body. */ });
+  }, { once: true });
+  const timer = setTimeout(() => abort.abort(new Error('Timed out after 10s waiting for the job publication and its asks')), 10_000);
+  try {
+    const response = await fetch(base + 'events', { headers, signal: abort.signal });
+    if (!response.ok || !response.body) throw new Error(`job events did not return a stream (HTTP ${response.status})`);
+    reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffered = '';
+    while (!ready()) {
+      const next = await reader.read();
+      if (next.done) break;
+      buffered += decoder.decode(next.value, { stream: true });
+      let newline: number;
+      while ((newline = buffered.indexOf('\n')) >= 0) {
+        events.push(JSON.parse(buffered.slice(0, newline)));
+        buffered = buffered.slice(newline + 1);
+        // Inspect each event so this regression also covers one-event transport chunks.
+        if (ready()) break;
+      }
     }
+    abort.signal.throwIfAborted();
+  } catch (error) {
+    abort.signal.throwIfAborted();
+    throw error;
+  } finally {
+    clearTimeout(timer);
+    abort.abort();
+    reader?.releaseLock();
   }
-  abort.abort();
   const { head, asks } = pending();
   expect(head?.publicationId).toBe(expectedPublication.publicationId);
+  expect(asks.length).toBeGreaterThanOrEqual(expectedAsks);
   receipt({ publication: head, asks });
   return { head: head!, asks, events, base, headers };
 }

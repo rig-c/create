@@ -5,7 +5,7 @@ import { randomUUID } from 'node:crypto';
 import { acquireBoundJobWrite, beginJobProgress, hasPendingNotice, prepareDraftIntent, publishCommittedVersion, takePublishedLines } from './job-writer.ts';
 import { cancelUncommittedIntent, readWriterBinding, type PendingPublication } from './job-outbox.ts';
 /** Draft identity is create-owned inventory, never producer provenance or a measurement. */
-import { ConfigInputsUnavailable, configInputBindings, configInputReferences, DIRECTORY_INPUT_RECEIPT, DRAFT_CONFIG_INPUTS_SINCE, draftUnboundInputs, inputsUndeclaredByInstall, receiptSpec, releaseAfter } from './config-inputs.ts';
+import { ConfigInputsUnavailable, configInputBindings, configInputReferences, DIRECTORY_INPUT_RECEIPT, DRAFT_CONFIG_INPUTS_SINCE, draftUnboundInputs, inputsUndeclaredByInstall, receiptSpec, releaseAfter, resolveConfigInput } from './config-inputs.ts';
 import { createHash } from 'node:crypto';
 import { closeSync, fsyncSync, openSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { existsSync, lstatSync, readFileSync, readdirSync, realpathSync } from './check-reads.ts';
@@ -272,19 +272,28 @@ export function checkDrafts(dir: string, project: JsonObject, refusals: Finding[
     } catch (error) { add('DRAFT_RIG_FILE', path, error instanceof Error ? error.message : String(error)); }
     const unbound = draftUnboundInputs(raw);
     const unrecorded = (why: string): void => { warnings.push({ code: 'DRAFT_CONFIG_INPUTS_UNRECORDED', path: `${path}.config_inputs`, message: `${path}.config_inputs: ${why}; the draft was recorded before ${DRAFT_CONFIG_INPUTS_SINCE} with no config_inputs key, so the parts install that recorded it could not declare its config-named inputs; the record is kept; record a new draft with draft-rig under a new id to bind them` }); };
+    const configPath = String(raw.config.path);
     try {
-      if (!draftFileUnavailable(dir, String(raw.config.path), root)) {
-        const config = JSON.parse(readFileSync(fileAt(dir, String(raw.config.path), root), 'utf8'));
+      if (!draftFileUnavailable(dir, configPath, root)) {
+        const config = JSON.parse(readFileSync(fileAt(dir, configPath, root), 'utf8'));
         for (const ref of configInputReferences(dir, config)) {
-          const named = relative(resolve(dir), resolve(dir, String(raw.config.path), '..', ref.value)).split(sep).join('/');
+          const named = relative(resolve(dir), resolve(dir, configPath, '..', ref.value)).split(sep).join('/');
           // Receipt-file omissions use their own dated contract, including when a newer loader declares them.
           if (editedInputs.has(named) || (ref.at.startsWith('assemble.edited_parts.') && [...editedInputs].some(file => named === file || named.endsWith(`/${file}`)))) continue;
           // A directory input (an occluder plate) is bound by its receipt and names the directory it stands for.
-          if (!asArray(raw.config_inputs).some(f => binding(f) && (f.directory === undefined ? f.path === named : f.directory === named))) {
-            if (unbound === 'unrecorded') { unrecorded(`config.${ref.at} names ${named}`); continue; }
-            const finding = { code: 'DRAFT_RIG_FILE', path, message: `${path}.config_inputs: missing config.${ref.at} input ${named}; preserve the old draft and record a new draft with draft-rig` };
-            (unbound === 'legacy' ? warnings : refusals).push(finding);
+          const binds = (input: string): boolean => asArray(raw.config_inputs).some(f => binding(f) && (f.directory === undefined ? f.path === input : f.directory === input));
+          if (binds(named)) continue;
+          if (unbound === 'refused') {
+            try {
+              if (binds(resolveConfigInput(dir, configPath, ref).path)) continue;
+            } catch (error) {
+              add('DRAFT_RIG_FILE', path, error instanceof Error ? error.message : String(error));
+              continue;
+            }
           }
+          if (unbound === 'unrecorded') { unrecorded(`config.${ref.at} names ${named}`); continue; }
+          const finding = { code: 'DRAFT_RIG_FILE', path, message: `${path}.config_inputs: missing config.${ref.at} input ${named}; preserve the old draft and record a new draft with draft-rig` };
+          (unbound === 'legacy' ? warnings : refusals).push(finding);
         }
       }
     } catch (error) {

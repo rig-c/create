@@ -1,0 +1,67 @@
+{
+  "compose": {
+    "canvas": {
+      "width": 96,
+      "height": 128
+    },
+    "plates": [
+      {
+        "name": "backdrop",
+        "image": "inputs/background.png",
+        "at": [
+          0,
+          0
+        ],
+        "opaque_backdrop": true
+      },
+      {
+        "name": "foreground",
+        "image": "inputs/foreground.png",
+        "at": [
+          14,
+          88
+        ]
+      }
+    ],
+    "order": [
+      "backdrop",
+      "actor",
+      "foreground"
+    ],
+    "character": {
+      "offset": [
+        -16,
+        0
+      ]
+    },
+    "idle_tracks": [
+      {
+        "bone": "foreground",
+        "property": "translate",
+        "keys": [
+          {
+            "t": 0,
+            "v": [
+              0,
+              0
+            ]
+          },
+          {
+            "t": 2,
+            "v": [
+              3,
+              0
+            ]
+          },
+          {
+            "t": 4,
+            "v": [
+              0,
+              0
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

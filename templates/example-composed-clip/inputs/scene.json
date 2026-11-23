@@ -1,0 +1,78 @@
+{
+  "spec": "spine-parts-scene/1",
+  "canvas": {
+    "width": 96,
+    "height": 128
+  },
+  "plates": [
+    {
+      "name": "backdrop",
+      "image": "inputs/background.png",
+      "at": [
+        0,
+        0
+      ],
+      "opaque_backdrop": true,
+      "provenance": "generated"
+    },
+    {
+      "name": "foreground",
+      "image": "inputs/foreground.png",
+      "at": [
+        14,
+        88
+      ],
+      "provenance": "generated"
+    }
+  ],
+  "order": [
+    "backdrop",
+    "actor",
+    "foreground"
+  ],
+  "characters": [
+    {
+      "id": "actor",
+      "build": "evidence/compose-character",
+      "offset": [
+        -16,
+        0
+      ],
+      "canvas_clip": true
+    }
+  ],
+  "animations": {
+    "idle": {
+      "duration": 4,
+      "tracks": [
+        {
+          "bone": "foreground",
+          "property": "translate",
+          "keys": [
+            {
+              "t": 0,
+              "v": [
+                0,
+                0
+              ]
+            },
+            {
+              "t": 2,
+              "v": [
+                3,
+                0
+              ]
+            },
+            {
+              "t": 4,
+              "v": [
+                0,
+                0
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

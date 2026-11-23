@@ -260,8 +260,8 @@ async function generate(root: string, scratch: string, inputs: Map<string, Buffe
       const set: JsonObject = { schema: OPTIONS_SPEC, id: `composed-${item.id}`, question: item.id, stage,
         drafted_by: 'agent', drafted_at: new Date(now).toISOString(), context: optionContext(before, stage, now),
         assembly: { rule: item.kind === 'waypoint' ? 'merge' : 'single' },
-        asks: asks.map(ask => {
-          const fragment = item.kind !== 'waypoint' ? values[item.id] ?? {} :
+        asks: asks.map((ask): JsonObject => {
+          const fragment: Json = item.kind !== 'waypoint' ? values[item.id] ?? {} :
             ask === 'projection' ? { project: 'core' } : ask === 'ground' ? { ground: 'plain' } : { [ask]: `synthetic ${ask}` };
           return { id: ask, prompt: `Choose ${ask} for the synthetic figure.`, options: [
             { id: 'keep', kind: 'value', label: `Use the synthetic ${ask}`, effect: 'Use the declared values.', fragment,
@@ -470,8 +470,12 @@ async function runProject(destination: string): Promise<void> {
 
 if (import.meta.main) {
   const [mode, ...extra] = process.argv.slice(2);
-  if (!mode || extra.length || mode.startsWith('-') && !['--check', '--write-inputs'].includes(mode)) {
-    throw Error('usage: generate-composed-direction-fixture.ts --check | --write-inputs | <fresh directory outside the repository>');
+  const bad = !mode ? '(missing destination)' : mode.startsWith('-') && !['--check', '--write-inputs'].includes(mode) ? mode : extra[0];
+  if (bad !== undefined) {
+    const error = new Error(`${basename(import.meta.path)}: invalid argument ${JSON.stringify(bad)}.\n`
+      + 'usage: generate-composed-direction-fixture.ts --check | --write-inputs | <fresh directory outside the repository>');
+    error.name = 'GENERATOR_ARGS_INVALID';
+    throw error;
   }
   if (mode === '--check') console.log(`Composed direction inputs: ${checkFixture().size} files match byte for byte`);
   else if (mode === '--write-inputs') {
@@ -480,5 +484,5 @@ if (import.meta.main) {
     if (existsSync(root)) files(root);
     for (const [path, bytes] of inputBytes()) put(join(root, path), bytes);
     console.log(`Composed direction inputs: wrote ${checkFixture().size} files`);
-  } else await runProject(mode);
+  } else await runProject(mode!);
 }

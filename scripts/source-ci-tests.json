@@ -254,5 +254,10 @@
     "file": "tests/job-acts.test.ts",
     "name": "#698 wait wakes on a finalized pick and reuses the strict attach without timer re-listing",
     "reason": "Exercises the host-bound waiter against the pinned Review source"
+  },
+  {
+    "file": "tests/direction-review-publication.test.ts",
+    "name": "#881 Review retains the direction summary without changing record source identity",
+    "reason": "Requires the display-only direction projection from Review #1111"
   }
 ]

@@ -11,7 +11,7 @@ import * as reviewJobHost from '@rig-c/review/job-host';
 import { JOB_ACT_SCHEMA, JOB_API_SCHEMA, type JobPublicationReader, type JobPublishedContext, type JobSelector, type JobRecordSignoffStage, type PublishResultV3, type RecordPicksSubject, type RecordPlanSubject } from '@rig-c/review/job-host';
 import { stepHash } from './step-hash.ts';
 import { DIRECTION_COMPOSE_SPEC, composeInventory } from './direction-compose.ts';
-import { readDirection } from './direction.ts';
+import { directionJson, directionPath, readDirection, validateDirectionShape } from './direction.ts';
 import { checkpointEvidenceContext, type CheckpointEvidence } from './checkpoint-evidence.ts';
 import { locateParts, PARTS_PACKAGE } from './parts-sections.ts';
 import { asArray, checkProject, collectItems, isObject, loadCollection, postNotPassed, type Finding } from './check.ts';
@@ -144,10 +144,53 @@ export type RecordPlanContext = RecordContextBase & {
   readonly checkpointEvidence?: readonly CheckpointEvidence[];
   /** Post stages only: the record's latest post picture, one raster entry of `files` (Review #983). */
   readonly planPicture?: { readonly path: string; readonly sha256: string };
+  /** Display only. The direction-review sign-off binds the record independently of this summary. */
+  readonly directionReview?: {
+    readonly postVersion: number;
+    readonly verdictActId: string | null;
+    readonly take: { readonly duration: number; readonly loop: boolean };
+    readonly camera: 'composed' | 'fixed' | 'moving';
+  };
   readonly plan: NonNullable<JobPublishedContext['plan']>;
   readonly subjects: readonly RecordPlanSubject[];
 };
 export type RecordPublishedContext = RecordOptionContext | RecordPlanContext;
+
+function directionReviewContext(root: string, project: JsonObject, post: JsonObject, postVersion: number, verdictIndex: number,
+  seals: ReadonlyMap<string, string>): RecordPlanContext['directionReview'] {
+  if (verdictIndex < 0) return undefined;
+  const receipts = asArray(project.review_acts).filter(isObject).filter(receipt =>
+    receipt.schema === 'rig-create/review-act@1' && receipt.kind === undefined
+    && receipt.version === postVersion && receipt.verdict === verdictIndex);
+  const actId = receipts[0]?.actId;
+  if (receipts.length > 1 || (receipts.length === 1 && (typeof actId !== 'string' || !actId))) return undefined;
+
+  const binding = isObject(post.provenance) ? post.provenance.direction : undefined;
+  const path = directionPath(postVersion);
+  // Sign-off preflight already seals its direction evidence. Display metadata cannot enlarge that closure.
+  if (!isObject(binding) || binding.path !== path || typeof binding.sha256 !== 'string'
+    || seals.get(path) !== binding.sha256) return undefined;
+  let doc: JsonObject;
+  try {
+    const bytes = publicationFile(root, path);
+    if (jobHash(bytes) !== binding.sha256) return undefined;
+    doc = directionJson(bytes, path);
+    validateDirectionShape(doc, path);
+  } catch {
+    return undefined;
+  }
+
+  const { duration, loop } = doc.take as NonNullable<RecordPlanContext['directionReview']>['take'];
+  let camera: 'composed' | 'fixed' | 'moving' = 'composed';
+  if (doc.schema !== DIRECTION_COMPOSE_SPEC) {
+    const keys = (doc.camera as { keys: { box: JsonObject }[] }).keys;
+    const first = keys[0]!.box;
+    const fixed = keys.every(({ box }) => box.x === first.x && box.y === first.y
+      && box.width === first.width && box.height === first.height);
+    camera = fixed ? 'fixed' : 'moving';
+  }
+  return { postVersion, verdictActId: typeof actId === 'string' ? actId : null, take: { duration, loop }, camera };
+}
 
 export class RecordClosureIncomplete extends Refusal {
   constructor(readonly details: readonly { code: string; path: string }[]) {
@@ -449,6 +492,7 @@ export function readRecordPublished({ root, record, result, phase, parts: sealed
     const stage = resignStage ?? report.effective_stage;
     let subjects: RecordPlanSubject[] = [];
     let label: string;
+    let directionTarget: { post: JsonObject; version: number; verdictIndex: number } | undefined;
     if (result.kind === 'option-set') {
       withCandidateProject(root, project, () => {
         for (const [index, { questionId, setId }] of sets.entries()) {
@@ -476,7 +520,9 @@ export function readRecordPublished({ root, record, result, phase, parts: sealed
           const n = post?.n !== undefined ? String(post.n) : null;
           refuse('JOB_DIRECTION_VERDICT_REQUIRED', `${n === null ? 'project.json.versions' : `project.json.versions[v${n}]`}: the current live post${n === null ? '' : ` v${n}`} has no accepted direction-review verdict; open it with job open --rig ${n ?? '<n>'} and ingest review ${n ?? '<n>'} --from-review <actId> before requesting the direction sign-off`);
         }
-        requireRecordDirectionTarget(project, now);
+        const version = requireRecordDirectionTarget(project, now);
+        const target = post?.n === version ? post : asArray(project.versions).filter(isObject).find(row => row.n === version);
+        if (target) directionTarget = { post: target, version, verdictIndex: target === post ? verdictIndex : acceptedReviewVerdict(target, stage) };
       }
       const covered = steps.filter(step => stepCoveredByApproval(project, step, stage));
       const signable = !directionNeedsAmendment && stage !== null && ['interview', 'plan-approved', 'rigging-interview', 'post-interview', 'direction-review'].includes(stage)
@@ -508,7 +554,11 @@ export function readRecordPublished({ root, record, result, phase, parts: sealed
         subjects: sets.map(({ questionId, setId }) => ({ kind: 'interview-picks', questionId, setId })) };
     }
     const evidence = checkpointEvidenceContext(root, project, subjects, files);
+    const directionReview = directionTarget
+      && subjects.some(subject => subject.kind === 'signoff' && subject.stage === 'direction-review')
+      ? directionReviewContext(root, project, directionTarget.post, directionTarget.version, directionTarget.verdictIndex, seals) : undefined;
     return { label, parts, inputs, files, ...evidence, ...(planPicture ? { planPicture } : {}),
+      ...(directionReview ? { directionReview } : {}),
       plan: { steps: steps.map(step => ({ id: String(step.id), hash: stepHash(step) })) }, subjects };
   } catch (error) {
     const failure = error instanceof Refusal && (phase === 'retained' || ['JOB_RECORD_SUBJECT_INVALID', 'JOB_OPTION_SET_DUPLICATE', 'JOB_RECORD_COLLECTION_EXTERNAL', 'JOB_RECORD_PARTS_LOCK_MISSING', 'JOB_DIRECTION_VERDICT_REQUIRED', 'REVIEW_ACT_RECORD_TARGET_INVALID', 'REVIEW_ACT_TARGET_MISMATCH', 'INTERVIEW_SIGNOFF_NOT_CLEAN', 'INTERVIEW_SIGNOFF_PLAN_REQUIRED', 'PLAN_STEP_PREDATES_ANSWER'].includes(error.code))

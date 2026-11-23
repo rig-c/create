@@ -1,0 +1,21 @@
+{
+  "spec": "spine-parts-requirements/1",
+  "fps": 12,
+  "requirements": [],
+  "setup_painting": {
+    "required": true,
+    "rgb_tolerance": 40,
+    "regions": [
+      {
+        "name": "whole-painting",
+        "box": [
+          0,
+          0,
+          128,
+          128
+        ],
+        "max_pixels": 0
+      }
+    ]
+  }
+}

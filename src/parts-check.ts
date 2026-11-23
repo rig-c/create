@@ -29,6 +29,38 @@ const ROW_KEYS: Record<string, readonly string[]> = {
   reported: ['code', 'set', 'part', 'source', 'count', 'spans'],
   holes: ['code', 'object', 'reason', 'line'],
 };
+const UNDECIDED_KEYS = ['partial-top', 'depth-tie', 'mixed-source-states'];
+/**
+ * Report-only `reported` rows other than the source-cover row, each with its closed key order as the
+ * producer writes it (@rig-c/parts 2.53.0 docs/STABILITY.md, src/partscheck.ts). create carries them
+ * verbatim and neither gates nor warns on them; any other `reported` row keeps the source-cover keys.
+ */
+const REPORTED_KEYS: Record<string, { keys: readonly string[]; optional?: string; nested: Record<string, readonly string[]> }> = {
+  PARTS_INVENTED_MATERIAL: { keys: ['code', 'set', 'part', 'occluded_px', 'undecided_px'], nested: { undecided_px: UNDECIDED_KEYS } },
+  PARTS_DRAW_ORDER_INVERTED: {
+    keys: ['code', 'set', 'part', 'front', 'source_layers', 'overlap_px', 'inverted_px', 'agreeing_px', 'unordered_px', 'undecided_px', 'unrecorded_px'],
+    optional: 'native_samples',
+    nested: { undecided_px: UNDECIDED_KEYS, native_samples: ['overlap_px', 'inverted_px'] },
+  },
+};
+/** Why a `reported` row does not have its code's closed key order, or null when it does. */
+function reportedRowShape(row: JsonObject): string | null {
+  const shape = typeof row.code === 'string' && Object.hasOwn(REPORTED_KEYS, row.code) ? REPORTED_KEYS[row.code]! : null;
+  if (shape === null) {
+    return Object.keys(row).join(',') === ROW_KEYS.reported!.join(',') ? null : `must have ${ROW_KEYS.reported!.join(', ')}`;
+  }
+  const keys = Object.keys(row);
+  const expected = shape.optional !== undefined && keys.length === shape.keys.length + 1 ? [...shape.keys, shape.optional] : shape.keys;
+  if (keys.join(',') !== expected.join(',')) {
+    return `with code ${String(row.code)} must have ${shape.keys.join(', ')}${shape.optional === undefined ? '' : ` and optional ${shape.optional}`}`;
+  }
+  for (const [key, nested] of Object.entries(shape.nested)) {
+    if (!(key in row)) continue;
+    const value = row[key];
+    if (!isObject(value) || Object.keys(value).join(',') !== nested.join(',')) return `.${key} must have ${nested.join(', ')}`;
+  }
+  return null;
+}
 const STATUSES = ['read', 'missing', 'unreadable', 'absent'];
 /** The roots a clone does not carry, as the path is written; a link inside the project is followed as for the parts verdict. */
 const isIgnoredRoot = (root: string): boolean => [...IGNORED_DIRS, 'node_modules', '.git'].includes(root);
@@ -83,7 +115,10 @@ function reportShape(report: JsonObject): string | null {
     const rows = report[key];
     if (!Array.isArray(rows)) return `${key} must be a list`;
     for (const [index, row] of rows.entries()) {
-      if (!isObject(row) || Object.keys(row).join(',') !== keys.join(',')) return `${key}[${index}] must have ${keys.join(', ')}`;
+      if (key === 'reported' && isObject(row)) {
+        const why = reportedRowShape(row);
+        if (why !== null) return `${key}[${index}]${why.startsWith('.') ? '' : ' '}${why}`;
+      } else if (!isObject(row) || Object.keys(row).join(',') !== keys.join(',')) return `${key}[${index}] must have ${keys.join(', ')}`;
       if (key !== 'inputs' && !code(row.code)) return `${key}[${index}].code must be a SCREAMING_SNAKE_CASE code`;
     }
   }
@@ -230,6 +265,17 @@ export function checkPartsChecks(ctx: Ctx, forwardWrite = false): void {
   }
 }
 
+/** The producer's own fields of one reported row, as written; nothing is derived from them. */
+function reportedSummary(row: JsonObject): string {
+  const set = row.set === null || row.set === undefined ? '' : `set ${String(row.set)}, `;
+  if (row.code === 'PARTS_INVENTED_MATERIAL') return `${set}part ${String(row.part)}, occluded_px ${String(row.occluded_px)}`;
+  if (row.code === 'PARTS_DRAW_ORDER_INVERTED') {
+    const native = isObject(row.native_samples) ? `, native_samples inverted_px ${String(row.native_samples.inverted_px)} of overlap_px ${String(row.native_samples.overlap_px)}` : '';
+    return `${set}part ${String(row.part)} behind ${String(row.front)}, inverted_px ${String(row.inverted_px)} of overlap_px ${String(row.overlap_px)}${native}`;
+  }
+  return `part ${String(row.part)}, source ${String(row.source)}, count ${String(row.count)}`;
+}
+
 /** One named line per HOLE and per reported row, for the advance output. */
 export function partsCheckLines(record: JsonObject, path: string): string[] {
   const holes = asArray(record.holes).filter(isObject);
@@ -237,6 +283,6 @@ export function partsCheckLines(record: JsonObject, path: string): string[] {
   return [
     `  parts check ${String(record.path)}: exit_code ${String(record.exit_code)}, ${holes.length} HOLE, ${reported.length} reported; a HOLE is not a pass`,
     ...holes.map((row, index) => `  ${String(row.line)} (${path}.holes[${index}])`),
-    ...reported.map((row, index) => `  REPORTED ${String(row.code)}: part ${String(row.part)}, source ${String(row.source)}, count ${String(row.count)} (${path}.reported[${index}])`),
+    ...reported.map((row, index) => `  REPORTED ${String(row.code)}: ${reportedSummary(row)} (${path}.reported[${index}])`),
   ];
 }

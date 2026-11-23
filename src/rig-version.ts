@@ -24,7 +24,7 @@ import { Refusal, refuse, USAGE_EXIT } from './refusal.ts';
 import { baselineOf, newFindings } from './refusal-baseline.ts';
 import { collectReopens, reopenTime } from './reopen.ts';
 import { prepareRigReviewPackage } from './review-package.ts';
-import { checkRigReport, parseRigCheckReport, RIG_CHECK_REPORT_FILE, type RigCheckTarget } from './rig-check-report.ts';
+import { checkRigReport, parseRigCheckReport, RIG_CHECK_REPORT_FILE, SOURCE_EXPOSURE_ID, type RigCheckTarget } from './rig-check-report.ts';
 import { lockedPackage, type ToolchainKind } from './toolchain-lock.ts';
 import { rigVersionDateFinding } from './rig-version-date.ts';
 import { checkRegisteredRuns, RUN_RECORD_SINCE, RUN_SPECS, RunRecordError, validateRunRecord, type RunSpec } from './run-record.ts';
@@ -1198,7 +1198,8 @@ export const RIG_VERSION_HELP = `rig-version <n> [<dir>] --parts <dir> --rig <di
   [--check-report <check.json>] [${NO_DRAFT_VERDICT}]
   Copy and hash frozen producer outputs. Retain an explicitly declared toolchain lock, producer run records and UTC not-after date.
   For --build check/build from rig-parts check, --compile-report is check/build-report.json beside it (Parts 2.47.0 and later).
-  Accept specific failed bars or unmet requirement lines from --check-report with repeatable --accept-check-bar <id> or --accept-check-line <name>.
+  Accept specific failed bars or unmet requirement lines from --check-report with repeatable --accept-check-bar <id> or --accept-check-line <name>,
+  and a failed SOURCE_EXPOSURE line with --accept-check-exposure.
   Acceptance requires --check-accepted-by <owner> --owner-chat <words file> --said-at <ISO date> --relayed-by <operator>.
   Idle requires rigc render's frames.json. No build, acceptance or stage advance runs.
   Use ${NO_DRAFT_VERDICT} to register without carrying an accepted draft verdict.
@@ -1413,6 +1414,8 @@ export function rigVersionCommand(args: string[], now: number): { stdout: string
       const value = args[++i];
       if (!value || value.startsWith('--')) fail('RIG_REGISTRATION_USAGE', 'versions', '--run-record needs one value');
       runRecords.push(value);
+    } else if (arg === '--accept-check-exposure') {
+      checkTargets.push({ kind: 'exposure', id: SOURCE_EXPOSURE_ID });
     } else if (arg === '--accept-check-bar' || arg === '--accept-check-line') {
       const value = args[++i];
       if (!value?.trim() || value.startsWith('--')) fail('RIG_REGISTRATION_USAGE', 'versions', `${arg} needs one exact report key`);
@@ -1440,7 +1443,7 @@ export function rigVersionCommand(args: string[], now: number): { stdout: string
     checkAcceptance = readOwnerChat(chatOptions, options['--check-accepted-by'] ?? '', now, checkPath);
     if (!checkAcceptance) refuse('OWNER_CHAT_REQUIRED', `${checkPath}: relay the owner's exact words with --check-accepted-by --owner-chat --said-at --relayed-by`);
   } else if (checkAuthorityFlags.some(flag => options[flag] !== undefined)) {
-    fail('RIG_CHECK_ACCEPTANCE_INVALID', checkPath, 'owner chat requires --accept-check-bar or --accept-check-line with an exact report key');
+    fail('RIG_CHECK_ACCEPTANCE_INVALID', checkPath, 'owner chat requires --accept-check-bar or --accept-check-line with an exact report key, or --accept-check-exposure');
   }
   let { file, project } = readProject(dir);
   let original = readFileSync(file);

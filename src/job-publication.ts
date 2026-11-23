@@ -27,7 +27,7 @@ import {
   withCandidateProject,
 } from './collection-binding-reader.ts';
 import { optionContextFiles, optionFile, validateContext } from './choices.ts';
-import { hasStageOrder, interviewStageOfGuide, PAUSED_STAGE, stageOfStep, stepCoveredByApproval } from './stages.ts';
+import { isOpenInterviewStage, PAUSED_STAGE, silentInterviewItems, stageOfStep, stepCoveredByApproval } from './stages.ts';
 import { assertPlanSignoffCandidate } from './signoff.ts';
 import { guideSignoffMatcher, staleSignoffAnswer } from './signoff-answers.ts';
 import { assertInterviewRecordSignable, checkpointSignable, packageSignSubjects, reviewVerdictSignable, rigVerdictIngestible, stageSignable } from './signable.ts';
@@ -406,9 +406,8 @@ export function readRecordPublished({ root, record, result, phase, parts: sealed
     // Picks and read-only paused plans can show unfinished work. Only silent
     // questions of the current interview may remain open.
     const openQuestions = (result.kind === 'option-set' || pausedPlan)
-      && ['interview', 'rigging-interview', 'post-interview'].includes(String(report.effective_stage))
-      ? new Set(items.filter(item => item.state.state === 'silent'
-        && interviewStageOfGuide(item.id, item.kind === 'post', hasStageOrder(project)) === report.effective_stage).map(item => item.path))
+      && isOpenInterviewStage(report.effective_stage)
+      ? new Set(silentInterviewItems(project, items, report.effective_stage).map(item => item.path))
       : new Set<string>();
     const coversPlanDate = (finding: Finding, stage: string | null): boolean => finding.code !== 'PLAN_STEP_PREDATES_ANSWER'
       || (result.kind === 'plan' && steps.some(step => finding.path === `plan.steps[${String(step.id)}]`

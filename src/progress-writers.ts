@@ -10,7 +10,7 @@ import { collectReopens, liveSignoff } from './reopen.ts';
 import { refuse, USAGE_EXIT } from './refusal.ts';
 import { findingKey, newFindings, carriedRefusals } from './refusal-baseline.ts';
 import { collectAmendments } from './amend.ts';
-import { LEGACY_STAGE_VALUES, PARTS_REVIEW_SINCE, PAUSED_STAGE, STAGE_VALUES, hasStageOrder, interviewStageOfGuide, stageIndex, stageOfStep } from './stages.ts';
+import { LEGACY_STAGE_VALUES, PARTS_REVIEW_SINCE, PAUSED_STAGE, STAGE_VALUES, hasStageOrder, isOpenInterviewArrivalStage, silentInterviewItems, stageIndex, stageOfStep } from './stages.ts';
 import { advanceOrder, furthestStageSignoff, isSignoffIdentity, moveOwner, nextStepStatus, signoffIdentity, statusTransitionFinding, stepStatusFollows, STEP_STATUSES } from './stage-progress.ts';
 import { isPartsCheckMove, partsCheckLines, partsCheckRecord } from './parts-check.ts';
 import type { JsonObject } from './templates.ts';
@@ -59,9 +59,9 @@ function options(args: string[], command: string): { positional: string[]; opts:
 function save(dir: string, file: string, project: JsonObject, now: number, forwardWrite = false, before?: JsonObject): void {
   project.stage_values = [...(hasStageOrder(project) ? STAGE_VALUES : LEGACY_STAGE_VALUES)];
   const allowed = before === undefined ? new Map<string, number>() : carriedRefusals(dir, before, { now, forwardWrite });
-  if (forwardWrite && ['rigging-interview', 'post-interview'].includes(String(project.stage))) {
-    for (const item of collectItems(project, { collection: loadCollection(dir) })) {
-      if (item.state.state !== 'silent' || interviewStageOfGuide(item.id, item.kind === 'post', hasStageOrder(project)) !== project.stage) continue;
+  if (forwardWrite && typeof project.stage === 'string' && isOpenInterviewArrivalStage(project.stage)) {
+    const items = collectItems(project, { collection: loadCollection(dir) });
+    for (const item of silentInterviewItems(project, items, project.stage)) {
       const key = findingKey({ code: 'INTERVIEW_INCOMPLETE', path: item.path });
       allowed.set(key, (allowed.get(key) ?? 0) + 1);
     }

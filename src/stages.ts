@@ -1,3 +1,4 @@
+import type { Item } from './check.ts';
 import type { JsonObject } from './templates.ts';
 
 /**
@@ -140,8 +141,19 @@ export function interviewStageOfGuide(id: string, post = false, newOrder = false
   return newOrder ? GUIDE_INTERVIEW[id] ?? 'rigging-interview' : 'interview';
 }
 
-export function isOpenInterviewStage(stage: string): boolean {
+export function isOpenInterviewStage(stage: string | null): stage is 'interview' | 'rigging-interview' | 'post-interview' {
   return stage === 'interview' || stage === 'rigging-interview' || stage === 'post-interview';
+}
+
+// The initial interview has its own sign-off path.
+export function isOpenInterviewArrivalStage(stage: string): boolean {
+  return stage === 'rigging-interview' || stage === 'post-interview';
+}
+
+export function silentInterviewItems(project: JsonObject, items: readonly Item[], stage: string): Item[] {
+  const splitOrder = hasStageOrder(project);
+  return items.filter(item => item.state.state === 'silent'
+    && interviewStageOfGuide(item.id, item.kind === 'post', splitOrder) === stage);
 }
 
 /** Answers use interview membership, including framing ids that are not executable steps. */

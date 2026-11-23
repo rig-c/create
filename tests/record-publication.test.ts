@@ -98,6 +98,20 @@ test('pending option-set publishes exact inputs and merges identical references 
   expect(snapshot(root)).toEqual(before);
 });
 
+test('option-set publication leaves silent questions open in the initial interview', () => {
+  const { root } = pending();
+  const project = JSON.parse(readFileSync(join(root, 'project.json'), 'utf8')) as JsonObject;
+  const item = collectItems(project, { collection: null }).find(item => item.id === 'assemble')!;
+  item.record.guide = null;
+  save(root, project);
+  const report = checkProject(root, undefined, { now: TEST_NOW, readOnly: true, recordPublication: true });
+  expect(report.effective_stage).toBe('interview');
+  expect(report.refusals.map(({ code, path }) => ({ code, path })))
+    .toContainEqual({ code: 'INTERVIEW_INCOMPLETE', path: item.path });
+  expect(readRecordPublished(request(root), TEST_NOW).subjects)
+    .toEqual([{ kind: 'interview-picks', questionId: 'reference', setId: 'pending-reference' }]);
+});
+
 test.each(['record', 'input', 'options'])('changed %s bytes refuse without writing the record', source => {
   const { root, path } = pending();
   const input = request(root);

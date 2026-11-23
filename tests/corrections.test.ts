@@ -1,8 +1,8 @@
-import { syntheticReviewRunner } from './review-read-fixture.ts';
+import { reviewStdout, syntheticReviewRunner } from './review-read-fixture.ts';
 import { afterEach, expect, test } from 'bun:test';
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import { join } from 'node:path';
+import { join, posix } from 'node:path';
 import { tmpdir } from 'node:os';
 import { CorrectionError, checkUnrecordedPartRepaints, correctionApprovalFindings, correctionHash, validateCorrectionPatch } from '../src/corrections.ts';
 import { plantLegacyReopen, fixture as projectFixture } from './fixtures.ts';
@@ -15,8 +15,10 @@ import { stepHash } from '../src/step-hash.ts';
 import { locateParts } from '../src/parts-sections.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { correctionFixture, correctionCommentsFixture, commentsReviewRunner, COMMENTS_APPLY_ID } from './correction-fixture.ts';
-import { advanceCommand, checkCorrections, checkProject, assertCorrectionApproval, correctionCommand, diffClassesCommand, draftRigCommand, signoffCommand, testClock } from './clock.ts';
+import { advanceCommand, checkCorrections, checkProject, assertCorrectionApproval, correctionCommand, derivedCommand, diffClassesCommand, draftRigCommand, signoffCommand, testClock } from './clock.ts';
 import { clockedCli } from './helpers.ts';
+import { nextProject } from '../src/next.ts';
+import { partsReviewCommand } from '../src/parts-review.ts';
 
 const requireCore = createRequire(import.meta.url);
 const { encodePng } = requireCore('@rig-c/core/plate') as { encodePng: (width: number, height: number, data: Uint8Array) => Buffer };
@@ -346,6 +348,62 @@ test('part-image positive control and round trip: masked repaint records, resolv
   testClock.set(new Date('2026-11-06T03:10:00Z'));
   expect(correctionCommand(['resolve', 'repaint-torso', dir, '--draft', 'repainted', '--by', 'agent', '--reasoning-file', join(dir, 'reasoning.txt')]).exit).toBe(0);
   expect(checkProject(dir)).toMatchObject({ refusals: [], warnings: [] });
+});
+
+test('a post-checkpoint part edit stays uncovered until a later verdict binds the same part bytes', () => {
+  const { dir, pngs, writeDraft } = partImageFixture();
+  const projectFile = join(dir, 'project.json');
+  const recordVerdict = (id: string, updatedAt: string, status = 'approved') => {
+    const draft = (load(dir).drafts as JsonObject[]).find(d => d.id === id)!;
+    const parts = draft.parts as JsonObject;
+    const files = (parts.files as JsonObject[]).map(file => ({ ...file, path: posix.relative('evidence', String(file.path)) }));
+    const response = { schema: 'rig-review-parts-verdict/4', mode: 'parts', updatedAt, status,
+      tool: { name: '@rig-c/review', version: '0.0.0-synthetic' }, source: { sha256: 'a'.repeat(64), files },
+      issues: status === 'approved' ? [] : [{ id: 'edge', summary: 'Review the edge.', parts: [{ name: 'torso', imageHash: correctionHash(pngs.before) }] }] };
+    return partsReviewCommand([dir, '--draft', id, '--by', 'user', '--from-review-cli', '--json', '--', String(parts.path), '--verdict', 'evidence/review.json'],
+      testClock.now(), { runCli: reviewStdout(JSON.stringify(response)) });
+  };
+  testClock.set('2026-11-06T02:15:00Z');
+  expect(recordVerdict('parent', testClock.iso(), 'changes-requested').exit).toBe(0);
+
+  testClock.set('2026-11-06T02:30:00Z');
+  const source = 'derived/drafts/parent/input/parts/torso.png';
+  const output = 'evidence/repaint/after.png';
+  expect(correctionCommand(['record', dir, '--id', 'repaint-coverage', '--path', 'made', '--stage', 'parts-review',
+    '--draft', 'parent', '--part', 'torso', '--part-image-file', output, '--mask-file', 'evidence/repaint/mask.png', '--tool', 'synthetic repaint']).exit).toBe(0);
+  expect(derivedCommand(['add', dir, '--source', source, '--file', output, '--operation', 'synthetic repaint']).exit).toBe(0);
+  const uncovered = () => (checkProject(dir).holes ?? []).filter(finding => finding.code === 'PART_EDIT_UNCOVERED');
+  const holes = uncovered();
+  expect(holes).toEqual([expect.objectContaining({ path: 'derived[0]', message: expect.stringContaining('part torso') })]);
+  expect(holes[0]?.message).toContain('Review parts tool');
+  const next = nextProject(dir, testClock.now());
+  expect(next.refusals.map(finding => finding.code)).toContain('PART_EDIT_UNCOVERED');
+  expect(next.moves.some(move => move.command?.includes('draft-rig'))).toBe(true);
+
+  const legacy = load(dir);
+  delete (legacy.derived as JsonObject[])[0]!.at;
+  const { refusals, warnings } = checkProject(dir);
+  expect(checkProject(dir, legacy)).toMatchObject({ refusals, warnings, ok: true });
+  expect(checkProject(dir, legacy).holes).toBeUndefined();
+
+  writeDraft('repainted', '03', pngs.after);
+  expect(uncovered()).toEqual(holes);
+  const prepared = nextProject(dir, testClock.now());
+  expect(prepared.moves.some(move => move.command?.includes('structure-snapshot'))).toBe(true);
+
+  testClock.set('2026-11-06T03:20:00Z');
+  expect(recordVerdict('repainted', '2026-11-06T02:30:00Z').exit).toBe(0);
+  expect(uncovered()).toEqual(holes); // A later CLI read of an equal-time verdict does not move its clock.
+  const latest = recordVerdict('repainted', '2026-11-06T03:19:00Z');
+  expect(latest.exit).toBe(0);
+  expect(uncovered()).toEqual([]);
+  expect(checkProject(dir)).toMatchObject({ ok: true, refusals: [], warnings: [] });
+
+  const evidence = (JSON.parse(latest.stdout) as { evidence: { path: string } }).evidence;
+  writeFileSync(join(dir, evidence.path), '{}');
+  expect(uncovered()).toEqual(holes);
+  expect(checkProject(dir).refusals.map(finding => finding.code)).toContain('PARTS_VERDICT_RECEIPT_INVALID');
+  expect(readFileSync(projectFile, 'utf8')).toContain(testClock.iso());
 });
 
 const cli = (dir: string, args: string[]) => {

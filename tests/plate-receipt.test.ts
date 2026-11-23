@@ -3,14 +3,14 @@ import { createHash } from 'node:crypto';
 import { cpSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { createRequire } from 'node:module';
-import { checkPreparedInputs, derivedCommand } from '../src/prepared-inputs.ts';
+import { checkPreparedInputs } from '../src/prepared-inputs.ts';
 import { checkPlateRegistrations, PLATE_RECEIPT_SINCE } from '../src/plate-receipt.ts';
 import type { Finding } from '../src/check.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { externalMaskEvidence } from './external-receipt-fixture.ts';
 import { cli, gitEnv, tempDir } from './helpers.ts';
 import { sceneFixture } from './scene-fixture.ts';
-import { checkProject, inputCommand, sceneCommand, testClock } from './clock.ts';
+import { checkProject, derivedCommand, inputCommand, sceneCommand, testClock } from './clock.ts';
 
 const load = createRequire(import.meta.url);
 const { publishPlate } = load('@rig-c/parts/src/plate.ts') as typeof import('../node_modules/@rig-c/parts/src/plate.ts');
@@ -80,6 +80,7 @@ test('derived add binds the published matte receipt and its painting without ope
     source: { path: 'painting.png', sha256: f.receipt.painting.sha256 },
     path: 'matte/mask.png', sha256: f.receipt.output.sha256,
     receipt: { path: 'matte/receipt.json', sha256: sha256(readFileSync(f.receiptPath)), spec: MATTE_SPEC },
+    at: testClock.iso(),
   });
   expect(f.findings().refusals).toEqual([]);
   expect(f.findings().warnings).toEqual([]);
@@ -238,6 +239,7 @@ test.each(['checkpoint_sha256', 'graph_sha256', 'script_sha256'])('external mask
     kind: 'prepared-input', source: { path: 'painting.png', sha256: f.receipt.painting.sha256 },
     path: 'external/mask.png', sha256: f.receipt.file.sha256,
     receipt: { path: 'external/receipt.json', sha256: sha256(readFileSync(f.receiptPath)), spec: f.receipt.spec },
+    at: testClock.iso(),
   };
   expect(JSON.parse(result.stdout)).toEqual(binding);
   expect(f.project().derived).toEqual([binding]);

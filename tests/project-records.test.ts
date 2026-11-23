@@ -6,7 +6,8 @@ import { AGENT_BOUNCE_SINCE } from '../src/stages.ts';
 import type { Json } from '../src/templates.ts';
 import { arr, fixture, obj, waypoint, withCode } from './fixtures.ts';
 import { cli, gitEnv, tempDir } from './helpers.ts';
-import { checkProject } from './clock.ts';
+import { checkProject, testClock } from './clock.ts';
+import { derivedCommand } from '../src/prepared-inputs.ts';
 
 const sha = (s: string): string => createHash('sha256').update(s).digest('hex');
 const read = (dir: string) => JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8'));
@@ -27,7 +28,7 @@ describe('prepared inputs recorded after external work', () => {
     const command = cli(['derived', 'add', dir, '--source', 'inputs/preparation-source.svg', '--file', 'derived/prepared.svg', '--operation', 'external scaling and white composite', '--json'], dir, gitEnv());
     expect(command.code).toBe(0);
     expect(command.stderr).toBe('');
-    expect(JSON.parse(command.stdout)).toEqual({ kind: 'prepared-input', source: { path: 'inputs/preparation-source.svg', sha256: sha(source) }, path: 'derived/prepared.svg', sha256: sha(output), operation: 'external scaling and white composite' });
+    expect(JSON.parse(command.stdout)).toEqual({ kind: 'prepared-input', source: { path: 'inputs/preparation-source.svg', sha256: sha(source) }, path: 'derived/prepared.svg', sha256: sha(output), operation: 'external scaling and white composite', at: testClock.iso() });
     const after = read(dir);
     expect(after.derived.slice(0, -1)).toEqual(before.derived);
     expect(after.stage).toBe(before.stage);
@@ -105,6 +106,21 @@ describe('prepared inputs recorded after external work', () => {
     expect(readFileSync(join(dir, 'project.json'), 'utf8')).toBe(original);
   });
 
+  test('a malformed present timestamp is refused and an invalid writer clock leaves the record byte-identical', () => {
+    const dir = fixture();
+    const file = join(dir, 'project.json');
+    const original = readFileSync(file);
+    const args = ['add', dir, '--source', 'inputs/preparation-source.svg', '--file', 'derived/prepared.svg', '--operation', 'synthetic edit'];
+    expect(() => derivedCommand(args, NaN)).toThrow(expect.objectContaining({ code: 'DERIVED_AT_INVALID' }));
+    expect(readFileSync(file)).toEqual(original);
+
+    for (const at of [null, 123, '', '2026-11-23', '2026-02-31T00:00:00Z']) {
+      const project = read(dir);
+      project.derived[0].at = at;
+      expect(withCode(checkProject(dir, project), 'DERIVED_AT_INVALID').map(f => f.path)).toEqual(['derived[0].at']);
+    }
+  });
+
   test('derived add records a run folder entry with sorted members and reproducible digest, leaving single-file entries unchanged', () => {
     const dir = fixture();
     const before = read(dir);
@@ -131,6 +147,7 @@ describe('prepared inputs recorded after external work', () => {
       members: expectedMembers,
       sha256: expectedDigest,
       operation: 'synthetic seethrough pass',
+      at: testClock.iso(),
     });
 
     const after = read(dir);

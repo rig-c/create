@@ -780,6 +780,7 @@ are unchanged. No prepared files are silently registered or repaired.
 | `EXTERNAL_RECEIPT_INVALID` | a declared `rig-parts-external-receipt/1` receipt is malformed, its kind differs from `mask`, or the receipt, painting or mask fails its path or sha256 binding | restore the producer receipt and its files, then record the painting as the sole `--source` and the mask as `--file` with `derived add --receipt`. Operation text is optional |
 | `PLATE_RECEIPT_MISSING` | a derived plate first registered by a retained scene on or after `PLATE_RECEIPT_SINCE` lacks a receipt | record the producer receipt with `derived add --receipt` |
 | `DERIVED_MALFORMED` | a prepared-input or run entry lacks required source, member or result path/hash fields, has unsorted/duplicate members, or a path escapes the project | use the prepared-input or run shape in PROJECT.md |
+| `DERIVED_AT_INVALID` | a present `derived[].at` is not a valid ISO date-time with a zone | restore the timestamp recorded by `derived add` |
 | `DERIVED_RUN_MISSING_LAYERS` | a `--file` run folder or `kind: "run"` derived entry has no `layers.json` member | pass a See-through run folder containing `layers.json`, or restore `layers.json` before recording |
 | `DERIVED_FILE_UNREADABLE` | the source is absent or unreadable, or a present prepared result or run member cannot be read | restore the named source or make the named result or member readable |
 | `DERIVED_FILE_CHANGED` | a source, result or run member's bytes (or the run digest) differ from its recorded sha256 | restore the recorded bytes, or record the new preparation |
@@ -799,11 +800,15 @@ independent of the parts-review stage boundary. Read the history entry's own
 | `DERIVED_RESULT_MISSING` | a regenerable prepared result is absent, including on a fresh clone | the message names the file and its recorded operation for regeneration |
 | `AGENT_BOUNCE_LEGACY` | a free-form bounce has an entry date before the boundary, or no readable date | preserve its history; the warning names the new shape for future entries |
 
+| HOLE | Fires when | Clear it by |
+| --- | --- | --- |
+| `PART_EDIT_UNCOVERED` | a dated `derived[]` result binds a named part image by path and sha256, was recorded after an execution checkpoint sign-off, and no later finalized parts-review verdict binds that part and sha256. Entries without `at` remain unclassified | review a draft with those exact part bytes in the Review parts tool and record the verdict with `rig-create parts-review` |
+
 `derived add` refuses before writing on `DERIVED_USAGE` (exit 2: missing or
 invalid arguments), `DERIVED_PATH_INVALID` (source and result not distinct
 project-relative files, or either is `project.json`), `DERIVED_RUN_MISSING_LAYERS` (a
 `--file` folder lacks `layers.json`), `DERIVED_FILE_UNREADABLE`, `DERIVED_MALFORMED` (a
-non-array `derived`), `PROJECT_JSON_INVALID`, or `SCHEMA_UNKNOWN` (exit 1).
+non-array `derived`), `DERIVED_AT_INVALID`, `PROJECT_JSON_INVALID`, or `SCHEMA_UNKNOWN` (exit 1).
 
 `PLATE_RECEIPT_SINCE = 2026-11-08T00:00:00Z` uses the earliest retained scene registration with matching derived index, path and sha256. Input plates are excluded. Every declared receipt is verified regardless of date or scene registration. `scene write` runs the same project checker before committing.
 

@@ -22,6 +22,7 @@ import * as inputs from '../src/inputs.ts';
 import * as amend from '../src/amend.ts';
 import * as pins from '../src/pins-check.ts';
 import * as plan from '../src/plan-writers.ts';
+import * as preparedInputs from '../src/prepared-inputs.ts';
 import * as progress from '../src/progress-writers.ts';
 import * as pauses from '../src/pause.ts';
 import * as review from '../src/review.ts';
@@ -65,6 +66,7 @@ export const sceneCommand = (args: string[], hooks?: sceneWriters.SceneWriteHook
 
 const at = <R>(command: (args: string[], now: number) => R) => (args: string[]): R => command(args, current);
 export const advanceCommand = at(progress.advanceCommand);
+export const derivedCommand = at(preparedInputs.derivedCommand);
 export const amendCommand = at(amend.amendCommand);
 export const collectionCommand = at(pins.collectionCommand);
 export const collectionInitCommand = at(collectionWriters.collectionInitCommand);

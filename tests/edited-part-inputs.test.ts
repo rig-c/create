@@ -2,14 +2,16 @@
 import { afterEach, expect, test } from 'bun:test';
 import { createHash } from 'node:crypto';
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { dirname, join, posix } from 'node:path';
 import { checkDrafts } from '../src/drafts.ts';
 import { EDITED_PART_INPUTS_SINCE } from '../src/edited-part-inputs.ts';
 import { locateParts } from '../src/parts-sections.ts';
+import { partsReviewCommand } from '../src/parts-review.ts';
 import type { Finding } from '../src/check.ts';
 import type { JsonObject } from '../src/templates.ts';
-import { checkProject, draftRigCommand, testClock } from './clock.ts';
+import { checkProject, derivedCommand, draftRigCommand, testClock } from './clock.ts';
 import { arr, fixture, obj } from './fixtures.ts';
+import { reviewStdout } from './review-read-fixture.ts';
 
 const CODE = 'DRAFT_EDITED_PART_UNBOUND';
 const ROOT = 'derived/drafts/retouch';
@@ -65,6 +67,45 @@ test('a declared edited receipt file is bound by the existing writer and check h
   expect((JSON.parse(result.stdout) as JsonObject).config_inputs).toEqual([{ path: INPUT, sha256: sha(PNG) }]);
   expect(report(dir).refusals).toEqual([]);
   expect(checkProject(dir).refusals).toEqual([]);
+});
+
+test('PART_EDIT_UNCOVERED follows the exact edited receipt input to a later parts verdict', () => {
+  const { dir, args } = editedDraft();
+  // Use the installed Parts loader's declaration for this path.
+  rmSync(join(dir, 'node_modules/@rig-c/parts'), { recursive: true });
+  const editedPath = 'evidence/retouch/arm.png';
+  const configPath = `${ROOT}/config.json`;
+  const config = JSON.parse(readFileSync(join(dir, configPath), 'utf8')) as JsonObject;
+  const edited = obj(obj(config.assemble).edited_parts);
+  edited.dir = posix.relative(posix.dirname(configPath), posix.dirname(editedPath));
+  put(dir, configPath, JSON.stringify(config));
+  const manifest = JSON.parse(readFileSync(join(dir, MANIFEST), 'utf8')) as JsonObject;
+  obj(obj(obj(arr(manifest.parts)[0]).provenance).edited_part).dir = edited.dir;
+  put(dir, MANIFEST, JSON.stringify(manifest));
+  put(dir, editedPath, PNG);
+
+  const index = arr(read(dir).derived).length;
+  expect(derivedCommand(['add', dir, '--source', 'inputs/preparation-source.svg', '--file', editedPath, '--operation', 'synthetic retouch']).exit).toBe(0);
+  const holes = (candidate?: JsonObject) => (checkProject(dir, candidate).holes ?? []).filter(finding => finding.code === 'PART_EDIT_UNCOVERED');
+  expect(holes()).toEqual([]);
+  const draft = JSON.parse(draftRigCommand(args).stdout) as JsonObject;
+  expect(draft.config_inputs).toEqual([{ path: editedPath, sha256: sha(PNG) }]);
+  expect(holes()).toEqual([expect.objectContaining({ path: `derived[${index}]`, message: expect.stringContaining('part arm') })]);
+
+  const copy = 'evidence/retouch/copy.png';
+  put(dir, copy, PNG);
+  const candidate = read(dir);
+  obj(arr(candidate.drafts).find(entry => obj(entry).id === 'retouch')).config_inputs = [{ path: copy, sha256: sha(PNG) }];
+  expect(holes(candidate)).toEqual([]);
+
+  const parts = obj(draft.parts);
+  const files = arr(parts.files).map(obj).map(file => ({ ...file, path: posix.relative('evidence', String(file.path)) }));
+  testClock.set(testClock.now() + 1000);
+  const response = { schema: 'rig-review-parts-verdict/4', mode: 'parts', updatedAt: testClock.iso(), status: 'approved', issues: [],
+    tool: { name: '@rig-c/review', version: '0.0.0-synthetic' }, source: { sha256: 'a'.repeat(64), files } };
+  expect(partsReviewCommand([dir, '--draft', 'retouch', '--by', 'user', '--from-review-cli', '--', String(parts.path)],
+    testClock.now(), { runCli: reviewStdout(JSON.stringify(response)) }).exit).toBe(0);
+  expect(holes()).toEqual([]);
 });
 
 test('an edited receipt with a producer object and no editor binds like an editor receipt', () => {

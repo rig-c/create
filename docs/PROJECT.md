@@ -1439,7 +1439,8 @@ The command measures both sha256s before writing anything:
   "source": { "path": "inputs/source.svg", "sha256": "<64 hex digits>" },
   "path": "derived/prepared.svg",
   "sha256": "<64 hex digits>",
-  "operation": "external scale and white composite"
+  "operation": "external scale and white composite",
+  "at": "2026-11-23T00:00:00.000Z"
 }
 ```
 
@@ -1450,6 +1451,24 @@ regenerable intermediates are absent. Only entries tagged `kind: "prepared-input
 untagged intermediates and projects with no `derived[]` entries keep passing.
 Restore derived files with the recorded operation when needed. The recorded
 hashes describe the bytes that must return.
+
+`derived add` stamps each file or run entry with the same writer clock used
+by sign-offs. Historical entries without `at` stay unclassified for edit
+coverage and retain their original fields when new entries are appended.
+When a dated result matches a named part image's path and sha256 and follows
+an execution checkpoint sign-off, `check` expects a finalized parts-review
+verdict dated strictly after the entry. It compares the part name and sha256
+in the retained Review response. `check` identifies part images from the
+draft's bound parts manifest and inventory or from a recorded part-image
+correction's `after` binding, which works before a replacement draft is
+registered or published. An `assemble.edited_parts` input also identifies a
+part when the bound manifest's producer receipt names the part and resolves
+to exactly one matching file and sha256 in the draft's `config_inputs`.
+Copies at other paths and relocated references without this exact binding
+leave that input unclassified. `PART_EDIT_UNCOVERED` names the missing verdict.
+Use the Review parts tool on a draft containing the edited bytes, then record
+its verdict with `rig-create parts-review`.
+
 For a producer plate, supply `--source` for both its painting and uploaded mask,
 `--file` for its output, and `--receipt` for its `rig-parts-plate-receipt/1` JSON.
 The optional `receipt` records `{ path, sha256, spec }` from raw bytes. Its file

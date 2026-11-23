@@ -18,6 +18,8 @@ import { intakeWarnings } from './intake.ts';
 import { checkDirections } from './direction.ts';
 import { checkScenes } from './scene.ts';
 import { checkCorrections } from './corrections.ts';
+import { partEditHoles } from './part-edit-coverage.ts';
+import type { PartImageIdentity } from './edited-part-inputs.ts';
 import { amendmentSummaries, collectAmendments, stepLapseEvents, type AmendmentSummary } from './amend.ts';
 /**
  * `interview --check`: reads a project's `project.json` and reports, by name,
@@ -1104,7 +1106,19 @@ function checkProjectOnce(projectDirArg: string, candidate: JsonObject | undefin
     }
   };
   checkChat(project, 'project.json');
-  if (!options.recordPublication) checkCorrections(ctx, options.now);
+  if (!options.recordPublication) {
+    const correctionImages: PartImageIdentity[] = [];
+    checkCorrections(ctx, options.now, correctionImages);
+    let firstBarAt = Infinity;
+    for (const signoff of historySignoffs) {
+      if (signoff.checkpoint !== null && Number.isFinite(signoff.at) && [...steps, ...previousSteps].some(step =>
+        step.id === signoff.checkpoint && (signoff.stage === stageOfStep(step.phase, step.id)
+          || planApprovedAt !== null && signoff.stage === stageOfStep(step.phase, '')))) {
+        firstBarAt = Math.min(firstBarAt, signoff.at);
+      }
+    }
+    holes.push(...partEditHoles(ctx, firstBarAt, correctionImages));
+  }
   if (!options.recordPublication) checkScenes(ctx);
   if (!options.recordPublication) checkDirections(ctx, options.now);
   if (!options.recordPublication) warnings.push(...intakeWarnings(dir, project));

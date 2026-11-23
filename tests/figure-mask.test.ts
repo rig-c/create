@@ -8,12 +8,11 @@ import { join } from 'node:path';
 import { repackageFixtureVersion } from './review-fixture.ts';
 import { type CheckReport } from '../src/check.ts';
 import { FIGURE_MASK_MATTE_RECEIPT_SINCE, FIGURE_MASK_SINCE } from '../src/figure-mask.ts';
-import { derivedCommand } from '../src/prepared-inputs.ts';
 import { Refusal } from '../src/refusal.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { externalMaskEvidence } from './external-receipt-fixture.ts';
 import { arr, fixture, obj, version, waypoint, type Mutate } from './fixtures.ts';
-import { checkProject, reviewCommand, handoff, signoffCommand } from './clock.ts';
+import { checkProject, derivedCommand, reviewCommand, handoff, signoffCommand } from './clock.ts';
 import { tempDir } from './helpers.ts';
 
 const load = createRequire(import.meta.url);

@@ -23,8 +23,9 @@ export function validateComposeDirectionShape(doc: JsonObject, path = 'direction
   if (!closed(a, ['signoff', 'verdict', 'review_package']) || !closed(a.signoff, ['stage', 'checkpoint', 'at'])
     || a.signoff.stage !== 'rig-review' || a.signoff.checkpoint !== null || typeof a.signoff.at !== 'string' || !Number.isFinite(Date.parse(a.signoff.at))
     || typeof a.verdict !== 'string' || !/^versions\[\d+\]\.verdicts\[\d+\]$/.test(a.verdict) || !sceneBinding(a.review_package)) bad('retain the exact scene@1 acceptance seal');
-  if (!closed(doc.compose, ['scene', 'out', 'report', 'check', 'run']) || typeof doc.compose.out !== 'string'
-    || !['scene', 'report', 'check', 'run'].every(key => sceneBinding((doc.compose as JsonObject)[key])) || !sceneBinding(doc.model)) bad('compose/model require literal paths and sha256 bindings');
+  if (!closed(doc.compose, ['scene', 'out', 'report', 'check', 'run'], ['clipped_bounds']) || typeof doc.compose.out !== 'string'
+    || !['scene', 'report', 'check', 'run'].every(key => sceneBinding((doc.compose as JsonObject)[key]))
+    || ('clipped_bounds' in doc.compose && !composeBounds(doc.compose.clipped_bounds)) || !sceneBinding(doc.model)) bad('compose/model require literal paths, sha256 bindings and optional four-number clipped_bounds');
   if (!closed(doc.take, ['duration', 'loop']) || typeof doc.take.duration !== 'number' || !Number.isFinite(doc.take.duration) || doc.take.duration <= 0 || typeof doc.take.loop !== 'boolean') bad('take requires positive finite duration and boolean loop');
   if (!closed(doc.citations, ['camera', 'timing', 'composition'])) bad('citations require camera, timing and composition');
   for (const [key, guide] of [['camera', 'camera_depth'], ['timing', 'post_timing'], ['composition', 'post_composition']]) {
@@ -34,20 +35,30 @@ export function validateComposeDirectionShape(doc: JsonObject, path = 'direction
   }
 }
 
+export type ComposeBounds = [number, number, number, number];
+export interface ComposeRunPlacement {
+  canvas_clip: true;
+  bounds: ComposeBounds;
+  clipped_bounds: ComposeBounds;
+}
 interface RunFile { path: string; sha256: string }
 interface ComposeRun {
   spec: 'rig-compose-run/1';
   scene: RunFile;
-  characters: { id: string; build: string; files: RunFile[] }[];
+  characters: { id: string; build: string; files: RunFile[]; placement?: ComposeRunPlacement }[];
   plate: RunFile | null;
   plates: { name: string; path: string; sha256: string }[];
 }
 const text = (v: unknown): v is string => typeof v === 'string' && v.trim().length > 0;
 const relativePath = (v: unknown): v is string => text(v) && !v.startsWith('/') && !v.includes('\\') && !/^[A-Za-z]:/.test(v) && v.split('/').every(p => p !== '' && p !== '.' && p !== '..');
 const runFile = (v: unknown): boolean => closed(v, ['path', 'sha256']) && text(v.path) && hex(v.sha256);
+export const composeBounds = (v: unknown): v is ComposeBounds => Array.isArray(v) && v.length === 4 && v.every(n => typeof n === 'number' && Number.isFinite(n));
+const runPlacement = (v: unknown): v is ComposeRunPlacement => isObject(v as JsonObject)
+  && equal(Object.keys(v as JsonObject), ['canvas_clip', 'bounds', 'clipped_bounds'])
+  && (v as JsonObject).canvas_clip === true && composeBounds((v as JsonObject).bounds) && composeBounds((v as JsonObject).clipped_bounds);
 const mandatoryRigFiles = ['parts.json', 'rig/rig.json', 'rig/motion.json'];
 const rigFile = (path: string): boolean => mandatoryRigFiles.includes(path) || path.startsWith('rig/images/');
-export function readComposeRun(bytes: Buffer, path: string): ComposeRun {
+export function readComposeRun(bytes: Buffer, path: string, scene?: JsonObject): ComposeRun {
   const bad = (): never => directionFail('DIRECTION_COMPOSE_RUN', path, 'retain the closed Parts rig-compose-run/1 record with scene, characters, plate and plates; compose again');
   let run: JsonObject;
   try { run = directionJson(bytes, path); } catch { return bad(); }
@@ -56,8 +67,14 @@ export function readComposeRun(bytes: Buffer, path: string): ComposeRun {
   const characters = objects(run.characters); const plates = objects(run.plates);
   if (characters.length !== run.characters.length || characters.length === 0 || new Set(characters.map(c => c.id)).size !== characters.length
     || plates.length !== run.plates.length || new Set(plates.map(p => p.name)).size !== plates.length) return bad();
+  const sceneCharacters = scene && Array.isArray(scene.characters) ? objects(scene.characters) : null;
   for (const c of characters) {
-    if (!closed(c, ['id', 'build', 'files']) || !text(c.id) || !text(c.build) || !Array.isArray(c.files)) return bad();
+    if (!closed(c, ['id', 'build', 'files'], ['placement']) || !text(c.id) || !text(c.build) || !Array.isArray(c.files)
+      || ('placement' in c && (!equal(Object.keys(c), ['id', 'build', 'files', 'placement']) || !runPlacement(c.placement)))) return bad();
+    if (sceneCharacters) {
+      const sc = sceneCharacters.find(row => row.id === c.id) ?? (characters.length === 1 && sceneCharacters.length === 1 ? sceneCharacters[0] : undefined);
+      if (sc && (!('canvas_clip' in sc) || sc.canvas_clip === true) && (sc.canvas_clip === true) !== ('placement' in c)) return bad();
+    }
     const files = objects(c.files);
     if (files.length !== c.files.length || new Set(files.map(f => f.path)).size !== files.length
       || files.some(f => !runFile(f) || !relativePath(f.path) || !(f.path === 'check/check.json' || rigFile(f.path)))
@@ -174,16 +191,24 @@ export function validateComposeDirection(dir: string, project: JsonObject, doc: 
     const scene = directionJson(bound(dir, compose.scene as JsonObject, snapshots), String(paths.scene));
     const report = directionJson(bound(dir, compose.report as JsonObject, snapshots), paths.report);
     const check = directionJson(bound(dir, compose.check as JsonObject, snapshots), paths.check);
-    const run = readComposeRun(bound(dir, compose.run as JsonObject, snapshots), paths.run);
     const model = directionJson(bound(dir, doc.model as JsonObject, snapshots), String((doc.model as JsonObject).path));
     if (scene.spec !== 'spine-parts-scene/1' || report.spec !== 'spine-parts-scene-report/1') directionFail('DIRECTION_COMPOSE_SCHEMA', 'direction.compose', 'retain Parts scene input and scene-report/1 output');
     if (check.PASS !== true || check.gate_spine_html_green !== true) directionFail('DIRECTION_COMPOSE_GREEN', paths.check, 'compose must report PASS and gate_spine_html_green; rebuild with Parts');
     if (!Array.isArray(scene.characters) || scene.characters.length !== 1 || !isObject(scene.characters[0]) || !Array.isArray(scene.plates)) directionFail('DIRECTION_COMPOSE_SCHEMA', paths.scene, 'declare one accepted character and the cited named plates');
     if (scene.plate !== undefined) directionFail('DIRECTION_COMPOSE_SCHEMA', paths.scene, 'use only named plates declared by the cited compose value');
     const character = scene.characters[0] as JsonObject;
+    if ('canvas_clip' in character && character.canvas_clip !== true) {
+      directionFail('DIRECTION_COMPOSE_SCHEMA', `${paths.scene}.characters[0].canvas_clip`, 'canvas_clip must be true when present');
+    }
+    const run = readComposeRun(bound(dir, compose.run as JsonObject, snapshots), paths.run, scene);
     const rc = objects(report.characters);
+    const expectedClipped = run.characters[0]!.placement?.clipped_bounds;
     if (rc.length !== 1 || rc[0]!.id !== character.id || rc[0]!.build !== character.build || !equal(rc[0]!.offset, character.offset) || (rc[0]!.scale ?? 1) !== (character.scale ?? 1)
-      || !equal(report.canvas, scene.canvas) || !equal(rc[0]!.shift, [0, 0])) directionFail('DIRECTION_COMPOSE_PLACEMENT', paths.report, 'retain matching character placement and reported shift [0,0]; do not compare canvas to the rig stage');
+      || !equal(report.canvas, scene.canvas) || !equal(rc[0]!.shift, [0, 0])
+      || ((rc[0]!.canvas_clip !== undefined || rc[0]!.clipped_bounds !== undefined)
+        && (character.canvas_clip !== true || rc[0]!.canvas_clip !== true || !equal(rc[0]!.clipped_bounds, expectedClipped)
+          || (rc[0]!.bounds !== undefined && !equal(rc[0]!.bounds, run.characters[0]!.placement?.bounds))))
+      || !equal(compose.clipped_bounds, expectedClipped)) directionFail('DIRECTION_COMPOSE_PLACEMENT', paths.report, 'retain matching character placement and reported shift [0,0]; do not compare canvas to the rig stage');
     const plates = objects(scene.plates); const reported = objects(report.plates);
     if (plates.length !== scene.plates.length || reported.length !== plates.length) directionFail('DIRECTION_COMPOSE_PLACEMENT', paths.report, 'retain one producer report row per named plate');
     const registered: JsonObject[] = [];

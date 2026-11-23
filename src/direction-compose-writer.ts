@@ -3,7 +3,7 @@ import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, rmdirSync,
 import { dirname, join, relative, resolve } from 'node:path';
 import { isDeepStrictEqual as equal } from 'node:util';
 import { isObject } from './check.ts';
-import { composeRoot, composeScenePath, DIRECTION_COMPOSE_SPEC, validateComposeDirectionShape } from './direction-compose.ts';
+import { composeBounds, composeRoot, composeScenePath, DIRECTION_COMPOSE_SPEC, validateComposeDirectionShape, type ComposeBounds } from './direction-compose.ts';
 import { closed, directionFail, directionHash, directionJson } from './direction.ts';
 import { sceneRigAcceptance, SceneError } from './scene.ts';
 import type { JsonObject } from './templates.ts';
@@ -77,9 +77,18 @@ export function freezeCompose(dir: string, project: JsonObject, doc: JsonObject,
     if (!bytes) directionFail('DIRECTION_COMPOSE_FILE', `${root}/${name}`, 'retain all required compose producer outputs');
     return { path: `${root}/${name}`, sha256: directionHash(bytes) };
   };
+  const runBinding = bind('compose-run.json');
+  let clippedBounds: ComposeBounds | undefined;
+  try {
+    const parsed: unknown = JSON.parse(files.get('compose-run.json')!.toString('utf8'));
+    const runChars = isObject(parsed as JsonObject) && Array.isArray((parsed as JsonObject).characters) ? (parsed as JsonObject).characters as unknown[] : [];
+    const placement = isObject(runChars[0] as JsonObject) && isObject((runChars[0] as JsonObject).placement as JsonObject) ? (runChars[0] as JsonObject).placement as JsonObject : undefined;
+    if (placement && composeBounds(placement.clipped_bounds)) clippedBounds = [...placement.clipped_bounds];
+  } catch { /* readComposeRun validates the run record shape. */ }
   const result: JsonObject = { ...doc, rig: { version: rigN, acceptance: seal }, compose: {
     scene: { path: scenePath, sha256: directionHash(sceneBytes) }, out: root,
-    report: bind('scene.json'), check: bind('check/check.json'), run: bind('compose-run.json'),
+    report: bind('scene.json'), check: bind('check/check.json'), run: runBinding,
+    ...(clippedBounds === undefined ? {} : { clipped_bounds: clippedBounds }),
   }, model: bind('check/build/skeleton.model.json') };
   const verify = (): void => {
     try {

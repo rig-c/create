@@ -2497,7 +2497,7 @@ and hyphens, starting with a letter or digit. The reader identity is
 `rig-create/publication-reader/2`. Create opens new hosts in
 `record-and-package` mode. Package and record publications share the host
 identity and owner link. Record publications use the V3 symbols and types
-exported by the release-pinned Review 4.18.2.
+exported by the release-pinned Review 4.18.3.
 
 Eligibility comes from the one `checkProject` call with `readOnly: true`.
 Its effective stage must match the requested option set's stage. Plan
@@ -2900,7 +2900,7 @@ The closed `rig-create/direction@3` document contains exactly these fields:
 | --- | --- |
 | `schema` | `rig-create/direction@3` |
 | `rig` | `{version,acceptance}`; the writer fills the same rig-review signoff, verdict reference and review-package seal used by scene@1. Authored input may omit `acceptance`; supplied acceptance is replaced from the record. |
-| `compose` | `{scene:{path,sha256},out,report:{path,sha256},check:{path,sha256},run:{path,sha256}}` |
+| `compose` | `{scene:{path,sha256},out,report:{path,sha256},check:{path,sha256},run:{path,sha256},clipped_bounds?:[x0,y0,x1,y1]}`; `clipped_bounds` is carried by the writer from `compose-run.json` `characters[0].placement.clipped_bounds` when the scene character opts into `canvas_clip: true` |
 | `model` | `{path,sha256}` of `outputs/v<N>/compose/check/build/skeleton.model.json` |
 | `take` | `{duration,loop}`; duration equals compiled idle duration, cited timing seconds and compose track end; loop and cited timing loop must both be true |
 | `citations` | `{camera,timing,composition}`; exact guide/ask citations for camera_depth, post_timing and post_composition, each with quote or delegated:true |
@@ -2971,5 +2971,5 @@ The rest of the frozen compose inventory (`scene.json`, `check/check.json`,
 published. Each published build file must match its recorded hash, and a
 declared build path that Review's `jobPath` rule refuses is
 `JOB_PUBLICATION_INVALID` before anything is written. It does not substitute
-the accepted character package. The release-pinned Review 4.18.2 reads
+the accepted character package. The release-pinned Review 4.18.3 reads
 direction@3.

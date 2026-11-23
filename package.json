@@ -32,8 +32,8 @@
   },
   "dependencies": {
     "@rig-c/core": "3.8.1",
-    "@rig-c/parts": "2.53.0",
-    "@rig-c/review": "4.18.2"
+    "@rig-c/parts": "2.54.0",
+    "@rig-c/review": "4.18.3"
   },
   "devDependencies": {
     "@types/bun": "^1.3.0",

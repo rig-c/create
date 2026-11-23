@@ -3,14 +3,15 @@ import { randomUUID } from 'node:crypto';
 import { cpSync, existsSync, linkSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { JOB_CHEST_LANDMARKS_ACT_SCHEMA, JOB_COMMENTS_ACT_SCHEMA, startJobHost, type JobOwnerHost, type JobVerdict } from '@rig-c/review/job-host';
+import { JOB_CHEST_LANDMARKS_ACT_SCHEMA, JOB_COMMENTS_ACT_SCHEMA, projectComments, startJobHost, type JobComment, type JobOwnerHost, type JobVerdict } from '@rig-c/review/job-host';
 import { collectItems, type Finding } from '../src/check.ts';
 import { main } from '../src/cli.ts';
 import { optionContext } from '../src/choices.ts';
 import { directionHash, objects } from '../src/direction.ts';
 import { acknowledgePublication, enqueuePublication, jobHash, JOB_BINDING_FILE, jobHostStateRoot, readAcknowledgedPublication, readWriterBinding, writePrivateJson, type WriterBinding } from '../src/job-outbox.ts';
 import { currentJobIdentity, partsEnumerator, prepareLiveManifest, readPublished, readRecordPublished } from '../src/job-publication.ts';
-import { assertReviewActSource, decodeReviewAct, decodeReviewResponse, fetchReviewAct, REVIEW_ACT_ACTOR_SINCE, reviewActFindings, reviewActTransport } from '../src/review-act.ts';
+import { assertReviewActSource, decodeReviewAct, decodeReviewResponse, fetchReviewAct, REVIEW_ACT_ACTOR_SINCE, reviewActFindings, reviewActTransport, reviewActVerbatim } from '../src/review-act.ts';
+import { directionPin, existingShapes, framedRigPin, HISTORICAL_DIRECTION_VALUE, TIME_ONLY_BASIS } from './comment-anchor-shapes.ts';
 import { pendingMeshDeltaRevision } from '../src/corrections.ts';
 import { republishCommand } from '../src/republish.ts';
 import { readVersions } from '../src/review.ts';
@@ -1325,7 +1326,7 @@ test('a retained g1 identity selects its exact manifest after republishing', asy
   expect(() => assertReviewActSource(root, projectAt(root), decodeReviewAct(JSON.stringify(previous)))).not.toThrow();
 });
 
-async function publishedComposed() {
+async function publishedComposed(extraValue?: Parameters<typeof published>[8]) {
   const f = composeFixture();
   directories.push(f.dir);
   const root = fixture(() => {}, 'example-project.json');
@@ -1399,7 +1400,7 @@ async function publishedComposed() {
   writeFileSync(join(root, 'evidence/composed-direction.json'), JSON.stringify(doc));
   directionCommand(['write', '5', root, '--file', 'evidence/composed-direction.json', '--rig', '2', '--compose-out', 'compose-out', '--compose-scene', 'compose.scene.json']);
   advanceCommand(['direction-review', root]);
-  return published('4-direction-post', 5, 'owner', '  Synthetic composed approval.\r\n', 'approved', 1, false, { root, rigVersion: 2 });
+  return published('4-direction-post', 5, 'owner', '  Synthetic composed approval.\r\n', 'approved', 1, false, { root, rigVersion: 2 }, extraValue);
 }
 
 test('#618 composed post act@6 with parts: null decodes, ingests, signs direction-review and advances to accepted', async () => {
@@ -1534,4 +1535,68 @@ test('#840 the ledger keeps an earlier agent verdict recorded as user with a WAR
   const warnings: Finding[] = [];
   expect(reviewActFindings(earlier, warnings)).toEqual([]);
   expect(warnings.map(f => f.code)).toEqual(['REVIEW_ACT_ACTOR_LEGACY']);
+});
+
+// rig-c/review#1136: a direction verdict carries its pins as Feedback anchors. Create carries them as Review wrote
+// them and computes nothing from them (AGENTS.md invariant 1); the recorded words stay Review's scalar projection.
+test('#1136 a composed direction pin keeps its anchor through the fetched act and the receipt', async () => {
+  let comments: JsonObject[] = [];
+  const { root, host, act, n } = await publishedComposed((_root, source) => {
+    const target = String(((source.package ?? {}) as JsonObject).id ?? 'synthetic-composed');
+    comments = [directionPin(String(source.sourceHash), String((source.model as JsonObject).sha256), 1.25, 'Hold the lantern here.', target), { text: 'Overall direction note.' }];
+    return { words: undefined, comments } as unknown as JsonObject;
+  });
+  expect(act.schema).toBe(JOB_COMMENTS_ACT_SCHEMA);
+  const exported = host.session.readActExport(act.actId, false).toString('utf8');
+  const reviewValue = (JSON.parse(exported) as JsonObject).value as JsonObject;
+  expect(reviewValue.comments).toEqual(comments);
+  const anchor = (reviewValue.comments as JsonObject[])[0]!.anchor as JsonObject;
+  const pin = (anchor.context as JsonObject).comment as JsonObject;
+  expect([anchor.frameStart, anchor.frameEnd, pin.frame, pin.time, pin.timeBasis]).toEqual([null, null, null, 1.25, TIME_ONLY_BASIS]);
+
+
+  const first = await command(root, act.actId, n);
+  expect(first.stderr).toBe(''); expect(first.exit).toBe(0);
+  const words = projectComments(comments as unknown as JobComment[]);
+  const target = String(anchor.target && (anchor.target as JsonObject).name);
+  expect(words).toBe(`[["rig-review-comment/1","animate","rig","rig",${JSON.stringify(target)},null,null]]\nHold the lantern here.\n\n[general]\nOverall direction note.`);
+  expect(JSON.parse(first.stdout).verdict.verbatim).toBe(words);
+  const project = projectAt(root);
+  const receipt = reviewVerdictReceipts(project).at(-1)!;
+  expect(receipt.bytes).toBe(exported);
+  const recorded = decodeReviewAct(String(receipt.bytes));
+  if (!('comments' in recorded.value)) throw Error(recorded.schema);
+  expect(recorded.value.comments[0]!.anchor as unknown).toEqual(anchor);
+  expect(reviewActVerbatim(recorded)).toBe(words);
+  const bytes = readFileSync(join(root, 'project.json'));
+  expect((await command(root, act.actId, n)).exit).toBe(0);
+  expect(readFileSync(join(root, 'project.json'))).toEqual(bytes);
+}, 30_000);
+
+test('#1136 historical direction verdict and picks acts replay to their recorded words through the pinned projector', () => {
+  // Words recorded under Review 4.18.2, before #1136.
+  const direction = { schema: JOB_COMMENTS_ACT_SCHEMA, kind: 'review-verdict', value: HISTORICAL_DIRECTION_VALUE };
+  expect(reviewActVerbatim(direction as never)).toBe('[general]\n[["rig-review-comment/1","animate","rig","rig","legacy",null,null]]\nHold this pose');
+  const picks = { schema: JOB_COMMENTS_ACT_SCHEMA, kind: 'interview-picks',
+    value: { questionId: 'motion', selections: [], note: '', comments: [framedRigPin('Pin on the rig point.'), { text: 'Picks note.' }] } };
+  expect(reviewActVerbatim(picks as never)).toBe('[["rig-review-comment/1","animate","rig","rig","synthetic-rig",3,3]]\nPin on the rig point.\n\n[general]\nPicks note.');
+});
+
+test('#1136 the scalar label for every existing comment shape is unchanged', () => {
+  // Labels Review 4.18.2 projected for the same shapes; a seconds-only pin never gains a derived frame.
+  const recorded: Record<string, string> = {
+    general: '[general]\n  First\r\nline  ',
+    checkpoint: '[["checkpoint","assemble"]]\nApprove assemble.',
+    'parts-issue': '[["rig-review-parts-comment/2",["torso","face"],"parts"]]\nEdge needs work.',
+    'image-name': '[["candidate"]]\nSecond',
+    'feedback-slot': '[["slot","sleeve",3,5,null]]\nFix this',
+    'feedback-rig-framed': '[["rig-review-comment/1","animate","rig","rig","synthetic-rig",3,3]]\nReview this point on the rig.',
+    'direction-time-only': '[["rig-review-comment/1","animate","rig","rig","synthetic-composed",null,null]]\nHold the lantern here.\n\n[general]\nOverall direction note.',
+  };
+  const shapes = existingShapes();
+  expect(shapes.map(([id]) => id)).toEqual(Object.keys(recorded));
+  for (const [id, comments] of shapes) {
+    expect(projectComments(comments as unknown as JobComment[])).toBe(recorded[id]!);
+    expect(projectComments(structuredClone(comments) as unknown as JobComment[])).toBe(recorded[id]!);
+  }
 });

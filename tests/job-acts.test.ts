@@ -26,6 +26,7 @@ import type { Json, JsonObject } from '../src/templates.ts';
 import { testClock } from './clock.ts';
 import { EXAMPLE_NOW, EXAMPLE_REOPEN_AT } from '../scripts/example-time.ts';
 import { clockedCli } from './helpers.ts';
+import { directionPin, TIME_ONLY_BASIS } from './comment-anchor-shapes.ts';
 const receipt = (row: object) => { if (process.env.JOB_ACTS_RECEIPT) appendFileSync(process.env.JOB_ACTS_RECEIPT, JSON.stringify(row) + '\n'); };
 const scrub = (text: string, root: string) => text.replaceAll(root, '<synthetic>').replaceAll(join(import.meta.dir, '..'), '<create-checkout>').replace(/http:\/\/127\.0\.0\.1:\d+[^\s]*/g, '<owner-url>');
 const WORDS = '  Synthetic owner review words.\r\n';
@@ -1980,4 +1981,41 @@ test('#604 writer auto-publish refuses JOB_ASK_PENDING when the bound job holds 
   const thirdView = await page(root, opening.url, 1, 'review-verdict');
   expect(obj(thirdView.head.source).selector).toEqual({ kind: 'rig', version: 3 });
   expect(registered.stdout).toContain(`updated the open page: publication ${String(thirdView.head.publicationId)}, ask review-verdict rig-review`);
+}, 30_000);
+
+test('#1136 job acts --json and the fetched act keep a direction pin anchor as Review wrote it', async () => {
+  testClock.set(Date.parse('2026-11-08T00:00:00Z'));
+  const root = copy('example-chain', project => {
+    project.stage = 'direction-review';
+    retainSignoffs(project, row => row.stage !== 'direction-review');
+    project.advances = arr(project.advances).filter(row => obj(row).stage !== 'accepted');
+    arr(project.versions).map(obj).find(version => version.n === 2)!.verdicts = [];
+  });
+  const opening = await open(root, ['--rig', '2']);
+  const view = await page(root, opening.url, 1, 'review-verdict');
+  const source = obj(view.head.source);
+  const target = String(obj(source.package ?? {}).id ?? 'synthetic-post');
+  const comments = [directionPin(String(source.sourceHash), String(obj(source.model).sha256), 1.25, 'Hold the lantern here.', target),
+    { text: 'Overall direction note.' }];
+  const act = await view.act('review-verdict', 'review-verdict', { stage: 'direction-review', verdict: 'approved', comments });
+  expect(act.schema).toBe(JOB_COMMENTS_ACT_SCHEMA);
+  expect(obj(act.value).comments).toEqual(comments);
+  const anchor = obj(arr(obj(act.value).comments)[0]).anchor as JsonObject;
+  const pin = obj(obj(anchor.context).comment);
+  expect([anchor.frameStart, anchor.frameEnd, pin.frame, pin.time, pin.timeBasis, pin.screen, pin.world]).toEqual(
+    [null, null, null, 1.25, TIME_ONLY_BASIS, { x: 40, y: 30, width: 0, height: 0 }, { x: 4, y: 19, width: 0, height: 0 }]);
+
+  const before = readFileSync(join(root, 'project.json'));
+  const listed = await cli(root, ['job', 'acts', root, '--json']);
+  expectExit0(listed);
+  expect(readFileSync(join(root, 'project.json'))).toEqual(before);
+  const row = (JSON.parse(listed.stdout) as { acts: PendingJobAct[] }).acts.find(item => item.actId === act.actId)!;
+  expect(JSON.stringify(row.value)).toBe(JSON.stringify(act.value));
+
+  expectExit0(await cli(root, ['review', '2', root, '--from-review', String(act.actId)]));
+  const receipt = obj(arr(read(root).review_acts).at(-1));
+  const fetched = JSON.parse(String(receipt.bytes)) as JsonObject;
+  expect(fetched.actId).toBe(act.actId);
+  expect(JSON.stringify(fetched.value)).toBe(JSON.stringify(act.value));
+  expect(obj(arr(obj(fetched.value).comments)[0]).anchor).toEqual(anchor);
 }, 30_000);

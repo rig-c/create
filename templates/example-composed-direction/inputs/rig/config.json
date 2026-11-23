@@ -50,6 +50,14 @@
         64,
         64
       ]
+    },
+    {
+      "name": "body_yaw_dial",
+      "parent": "root",
+      "at": [
+        0,
+        0
+      ]
     }
   ],
   "meshes": {
@@ -78,6 +86,21 @@
     "eye_r": "body",
     "eye_l": "body"
   },
+  "constraints": [
+    {
+      "name": "body_turn",
+      "type": "slider",
+      "bone": "body_yaw_dial",
+      "animation": "body_turn",
+      "property": "rotate",
+      "local": true,
+      "loop": false,
+      "from": -12,
+      "max": 12,
+      "to": 0,
+      "scale": 0.125
+    }
+  ],
   "motion": {
     "duration": 4,
     "tracks": [
@@ -89,6 +112,7 @@
         "phase": 0,
         "base": 0
       }
-    ]
+    ],
+    "animations_from": "animations.json"
   }
 }

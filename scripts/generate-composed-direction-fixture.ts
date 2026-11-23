@@ -44,10 +44,15 @@ function inputBytes(): Map<string, Buffer> {
   const assemble = { rig_scale: 1, plan: blocks.map(({ name, tag }) => [name, 'full', tag]) };
   json('source/config.json', { key: 'synthetic-interview-parts', seethrough, assemble });
   json('rig/config.json', { key: 'synthetic', seethrough, assemble, requirements: 'interview-requirements.json',
-    bones: [{ name: 'body', parent: 'root', at: [64, 64] }],
+    bones: [{ name: 'body', parent: 'root', at: [64, 64] }, { name: 'body_yaw_dial', parent: 'root', at: [0, 0] }],
     meshes: { torso: { grid: 16, r: 16, segments: [['body', [64, 8], [64, 72]]] } },
     regions: Object.fromEntries(blocks.filter(block => block.name !== 'torso').map(block => [block.name, 'body'])),
-    motion: { duration: 4, tracks: [{ bone: 'body', prop: 'translatey', amp: 0.9, period: 4, phase: 0, base: 0 }] } });
+    constraints: [{ name: 'body_turn', type: 'slider', bone: 'body_yaw_dial', animation: 'body_turn', property: 'rotate',
+      local: true, loop: false, from: -12, max: 12, to: 0, scale: 0.125 }],
+    motion: { duration: 4, tracks: [{ bone: 'body', prop: 'translatey', amp: 0.9, period: 4, phase: 0, base: 0 }],
+      animations_from: 'animations.json' } });
+  json('rig/animations.json', { spec: 'rigc-motion/1', animations: { body_turn: { duration: 3,
+    tracks: [{ bone: 'body', property: 'rotate', keys: [{ t: 0, v: [-3] }, { t: 1.5, v: [0] }, { t: 3, v: [3] }] }] } } });
   const requirements = { spec: 'spine-parts-requirements/1', fps: 12, requirements: [] };
   json('rig/interview-requirements.json', { ...requirements, setup_painting: { required: true } });
   json('rig/rig-check-requirements.json', { ...requirements, setup_painting: { required: true, rgb_tolerance: 40,
@@ -322,7 +327,7 @@ async function generate(root: string, scratch: string, inputs: Map<string, Buffe
     await done(partsSteps);
     const draft = `derived/drafts/${id}`;
     mkdirSync(join(root, draft), { recursive: true });
-    for (const path of ['config.json', 'interview-requirements.json', 'input', 'out']) {
+    for (const path of ['config.json', 'animations.json', 'interview-requirements.json', 'input', 'out']) {
       cpSync(join(candidate, path), join(root, draft, path), { recursive: true });
     }
     cpSync(join(source, 'assembled/render/recomposite_rig.png'), join(root, draft, 'input/recomposite_rig.png'));
@@ -359,7 +364,7 @@ async function generate(root: string, scratch: string, inputs: Map<string, Buffe
     await produce(candidate, 'rig-parts', 'check', '--rig', 'check/out', '--parts', 'input', '--source', 'painting.png',
       '--requirements', 'rig-check-requirements.json', '--out', 'check', '--no-extremes', '--keep-stills');
     await produce(candidate, 'rigc', 'render', '--candidate', 'check/build', '--out', 'idle', '--animation', 'idle', '--fps', '1', '--max', '32', '--poser', 'core');
-    json(join(candidate, 'citations.json'), Object.fromEntries(['seethrough', 'assemble', 'bones', 'meshes', 'regions', 'motion']
+    json(join(candidate, 'citations.json'), Object.fromEntries(['seethrough', 'assemble', 'bones', 'meshes', 'regions', 'constraints', 'motion']
       .map(section => [section, [{ entry: section, ...cite(section === 'regions' ? 'meshes' : section) }]])));
     const rigPath = (path: string) => `${rigWorkspace}/${path}`;
     cpSync(join(repo, 'bun.lock'), join(candidate, 'bun.lock'));

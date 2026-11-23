@@ -8,12 +8,13 @@ const scripts = readdirSync(resolve(import.meta.dir, '../scripts'))
   .filter(name => name.startsWith('generate-') && name.endsWith('.ts'));
 
 describe.each(scripts)('%s argument refusals', script => {
+  const composed = script === 'generate-composed-direction-fixture.ts';
   test.each([
-    { args: ['--check'], bad: '--check' },
+    { args: composed ? ['output', '--check'] : ['--check'], bad: '--check' },
     { args: ['--x'], bad: '--x' },
     { args: ['-check'], bad: '-check' },
     { args: ['output', '--unknown'], bad: '--unknown' },
-    { args: ['output', '--check', 'extra'], bad: 'extra' },
+    { args: composed ? ['--check', 'extra'] : ['output', '--check', 'extra'], bad: 'extra' },
     { args: [], bad: '(missing destination)' },
   ])('$args refuses before writing', ({ args, bad }) => {
     const cwd = mkdtempSync(join(tmpdir(), 'generator-args-'));
@@ -32,8 +33,8 @@ describe.each(scripts)('%s argument refusals', script => {
   });
 });
 
-test('all thirteen generators are covered', () => {
-  expect(scripts).toHaveLength(13);
+test('all fourteen generators are covered', () => {
+  expect(scripts).toHaveLength(14);
 });
 
 test('valid write and check arguments retain their meaning', () => {

@@ -1,0 +1,14 @@
+{
+  "rig": {
+    "version": 1
+  },
+  "take": {
+    "duration": 4,
+    "loop": true
+  },
+  "guides": {
+    "camera": "camera_depth",
+    "timing": "post_timing",
+    "composition": "post_composition"
+  }
+}

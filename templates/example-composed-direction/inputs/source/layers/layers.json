@@ -1,0 +1,60 @@
+{
+  "width": 128,
+  "height": 128,
+  "layers": [
+    {
+      "name": "author:background",
+      "filename": "background.png",
+      "left": 0,
+      "top": 0,
+      "right": 128,
+      "bottom": 128,
+      "depth_median": null
+    },
+    {
+      "name": "topwear",
+      "filename": "torso.png",
+      "left": 40,
+      "top": 56,
+      "right": 88,
+      "bottom": 120,
+      "depth_median": null
+    },
+    {
+      "name": "author:lantern",
+      "filename": "lantern.png",
+      "left": 96,
+      "top": 72,
+      "right": 112,
+      "bottom": 96,
+      "depth_median": null
+    },
+    {
+      "name": "face",
+      "filename": "face.png",
+      "left": 44,
+      "top": 16,
+      "right": 84,
+      "bottom": 48,
+      "depth_median": null
+    },
+    {
+      "name": "eyewhite-r",
+      "filename": "eye_r.png",
+      "left": 50,
+      "top": 28,
+      "right": 58,
+      "bottom": 36,
+      "depth_median": null
+    },
+    {
+      "name": "eyewhite-l",
+      "filename": "eye_l.png",
+      "left": 70,
+      "top": 28,
+      "right": 78,
+      "bottom": 36,
+      "depth_median": null
+    }
+  ]
+}

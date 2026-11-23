@@ -1,5 +1,10 @@
 [
   {
+    "file": "tests/composed-direction-inputs.test.ts",
+    "name": "composed direction input check seals the complete file inventory without a Review job",
+    "reason": "Checks the same input inventory and raw bytes with sibling source resolution"
+  },
+  {
     "file": "tests/checkpoint-evidence-publication.test.ts",
     "name": "#395 SVG-backed package metadata retains sealed painting and checkpoint evidence",
     "reason": "Exercises published Review behavior under sibling source resolution"

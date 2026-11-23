@@ -1,0 +1,34 @@
+{
+  "spec": "rigc-motion/1",
+  "animations": {
+    "body_turn": {
+      "duration": 3,
+      "tracks": [
+        {
+          "bone": "body",
+          "property": "rotate",
+          "keys": [
+            {
+              "t": 0,
+              "v": [
+                -3
+              ]
+            },
+            {
+              "t": 1.5,
+              "v": [
+                0
+              ]
+            },
+            {
+              "t": 3,
+              "v": [
+                3
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

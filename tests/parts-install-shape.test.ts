@@ -13,7 +13,7 @@ test('host parts discovery supports a hoisted dependency beside installed Create
   const parts = join(root, 'node_modules/@rig-c/parts');
   mkdirSync(src, { recursive: true });
   mkdirSync(join(parts, 'src'), { recursive: true });
-  for (const name of ['parts-sections.ts', 'check-reads.ts', 'config-inputs.ts']) copyFileSync(join(import.meta.dir, '../src', name), join(src, name));
+  for (const name of ['parts-sections.ts', 'check-reads.ts', 'config-inputs.ts', 'refusal.ts']) copyFileSync(join(import.meta.dir, '../src', name), join(src, name));
   writeFileSync(join(parts, 'package.json'), JSON.stringify({ name: '@rig-c/parts', version: '1.0.0' }));
   writeFileSync(join(parts, 'src/config.ts'), 'export const CONFIG_SECTIONS = ["synthetic"]; export function configFileReferences() { return [{ at: "source", value: "source.png" }]; }');
   const run = (project: string) => Bun.spawnSync([process.execPath, '-e', `import { locateParts } from ${JSON.stringify(join(src, 'parts-sections.ts'))}; console.log(JSON.stringify(locateParts(${JSON.stringify(project)})));`], { stdout: 'pipe', stderr: 'pipe' });
@@ -50,7 +50,7 @@ test('host parts discovery keeps the checkout path for a linked source dependenc
   mkdirSync(src, { recursive: true });
   mkdirSync(join(target, 'src'), { recursive: true });
   mkdirSync(join(ownModules, '@rig-c'), { recursive: true });
-  for (const name of ['parts-sections.ts', 'check-reads.ts', 'config-inputs.ts']) copyFileSync(join(import.meta.dir, '../src', name), join(src, name));
+  for (const name of ['parts-sections.ts', 'check-reads.ts', 'config-inputs.ts', 'refusal.ts']) copyFileSync(join(import.meta.dir, '../src', name), join(src, name));
   writeFileSync(join(target, 'package.json'), JSON.stringify({ name: '@rig-c/parts', version: '1.0.0' }));
   writeFileSync(join(target, 'src/config.ts'), 'export const CONFIG_SECTIONS = ["synthetic"]; export function configFileReferences() { return []; }');
   symlinkSync(target, linked);

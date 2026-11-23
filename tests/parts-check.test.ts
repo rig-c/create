@@ -201,6 +201,54 @@ test.each([
   refused(dir, code, () => advance(dir, flags));
 });
 
+/** Report-only rows in the producer's key order (@rig-c/parts 2.53.0 src/partscheck.ts, src/parts.ts orderedSourceOverlap). */
+const materialRow = (): JsonObject => ({
+  code: 'PARTS_INVENTED_MATERIAL', set: null, part: 'torso', occluded_px: 12,
+  undecided_px: { 'partial-top': 1, 'depth-tie': 0, 'mixed-source-states': 2 },
+});
+const overlapRow = (native: boolean): JsonObject => ({
+  code: 'PARTS_DRAW_ORDER_INVERTED', set: native ? 'alt' : null, part: 'torso', front: 'lantern', source_layers: ['a', 'b'],
+  overlap_px: 40, inverted_px: 3, agreeing_px: 30, unordered_px: 2,
+  undecided_px: { 'partial-top': 1, 'depth-tie': 2, 'mixed-source-states': 2 }, unrecorded_px: 0,
+  ...(native ? { native_samples: { overlap_px: 9, inverted_px: 1 } } : {}),
+});
+const coverRow = (): JsonObject => ({ code: 'PARTS_UNPLANNED_SOURCE_COVER', set: null, part: 'torso', source: 'layer-a', count: 4, spans: [] });
+
+test('Parts 2.53.0 report-only rows are carried verbatim and print as named lines; the move is not gated', () => {
+  const dir = partsDone();
+  const rows = [coverRow(), materialRow(), overlapRow(false), overlapRow(true)];
+  const flags = withPartsCheck(dir, PARTS_CHECK_ROOT, 'evidence/visibility-check.json', Buffer.from(planted(r => { r.reported = rows; })));
+  const stdout = advance(dir, flags);
+  const project = read(dir);
+  const index = arr(project.advances).length - 1;
+  expect(obj(obj(arr(project.advances)[index]).parts_check).reported).toEqual(rows as Json);
+  expect(project.stage).toBe('parts-review');
+  expect(codes(dir)).toEqual([]);
+  expect(checkProject(dir).warnings.filter(f => f.code.startsWith('PARTS_CHECK'))).toEqual([]);
+  const at = `advances[${index}].parts_check.reported`;
+  expect(stdout).toContain(`REPORTED PARTS_UNPLANNED_SOURCE_COVER: part torso, source layer-a, count 4 (${at}[0])`);
+  expect(stdout).toContain(`REPORTED PARTS_INVENTED_MATERIAL: part torso, occluded_px 12 (${at}[1])`);
+  expect(stdout).toContain(`REPORTED PARTS_DRAW_ORDER_INVERTED: part torso behind lantern, inverted_px 3 of overlap_px 40 (${at}[2])`);
+  expect(stdout).toContain(`REPORTED PARTS_DRAW_ORDER_INVERTED: set alt, part torso behind lantern, inverted_px 3 of overlap_px 40, native_samples inverted_px 1 of overlap_px 9 (${at}[3])`);
+});
+
+test.each([
+  ['a material row with an extra key', () => ({ ...materialRow(), visible_px: 3 })],
+  ['a material row missing a key', () => { const row = materialRow(); delete row.occluded_px; return row; }],
+  ['a material row with keys out of order', () => { const { code, set, part, occluded_px, undecided_px } = materialRow(); return { code, set, occluded_px, part, undecided_px }; }],
+  ['a material row whose undecided_px adds a reason', () => ({ ...materialRow(), undecided_px: { 'partial-top': 1, 'depth-tie': 0, 'mixed-source-states': 2, other: 1 } })],
+  ['an overlap row with an extra key', () => ({ ...overlapRow(false), visible_px: 3 })],
+  ['an overlap row missing a key', () => { const row = overlapRow(true); delete row.unrecorded_px; return row; }],
+  ['an overlap row with native_samples not last', () => { const { native_samples, ...rest } = overlapRow(true); const { code, ...tail } = rest; return { code, native_samples, ...tail }; }],
+  ['an overlap row whose native_samples adds a key', () => ({ ...overlapRow(false), native_samples: { overlap_px: 9, inverted_px: 1, agreeing_px: 0 } })],
+  ['a source-cover row with a material key', () => ({ ...coverRow(), occluded_px: 1 })],
+  ['an unknown code with material keys', () => ({ ...materialRow(), code: 'PARTS_SOMETHING_NEW' })],
+] as const)('the writer refuses %s as PARTS_CHECK_INVALID', (_name, row) => {
+  const dir = partsDone();
+  const flags = withPartsCheck(dir, PARTS_CHECK_ROOT, 'evidence/bad-row.json', Buffer.from(planted(r => { r.reported = [row() as Json]; })));
+  refused(dir, 'PARTS_CHECK_INVALID', () => advance(dir, flags));
+});
+
 test('a later check refuses changed retained bytes and a hand-edited copy', () => {
   const dir = partsDone();
   advance(dir, withPartsCheck(dir));

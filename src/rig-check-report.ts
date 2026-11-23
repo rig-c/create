@@ -9,9 +9,13 @@ const PRODUCE = 'run rig-parts check --rig <rig dir> --parts <parts dir> --sourc
 const REGISTER = `pass <check dir>/${RIG_CHECK_REPORT_FILE} with --check-report and its build directory with --build`;
 
 export interface RigCheckTarget {
-  kind: 'bar' | 'line';
+  kind: 'bar' | 'line' | 'exposure';
   id: string;
 }
+
+/** Parts' top-level source-exposure line (Parts 2.53.0, #1473): not a `bar_outcomes` bar nor a requirements line. */
+export const SOURCE_EXPOSURE_ID = 'SOURCE_EXPOSURE';
+const EXPOSURE_STATUSES = ['REPORTED', 'PASS', 'FAIL'];
 
 interface UnmetCheck extends RigCheckTarget {
   status: 'FAIL' | 'NOT MEASURABLE';
@@ -40,6 +44,12 @@ function unmetChecks(report: JsonObject): UnmetCheck[] {
       }
       if (row.status !== 'PASS') unmet.push({ kind: 'line', id, status: row.status });
     }
+  }
+  // The producer's own status: FAIL when a declared max_px is exceeded or cannot be read; REPORTED (no limit) and absent are met.
+  const exposure = report[SOURCE_EXPOSURE_ID];
+  if (exposure !== undefined) {
+    if (!isObject(exposure) || !EXPOSURE_STATUSES.includes(String(exposure.status))) throw Error(`invalid ${SOURCE_EXPOSURE_ID} status`);
+    if (exposure.status === 'FAIL') unmet.push({ kind: 'exposure', id: SOURCE_EXPOSURE_ID, status: 'FAIL' });
   }
   return unmet;
 }
@@ -89,7 +99,7 @@ export function checkRigReport(record: JsonObject, path: string, retainedPath: s
         const target = isObject(row) && unmet.find(item => item.kind === row.kind && item.id === row.id);
         if (!isObject(row) || !target || accepted.has(target) || row.at !== record.at) {
           findings.push({ code: 'RIG_CHECK_ACCEPTANCE_INVALID', path: acceptancePath,
-            message: `${acceptancePath}: select a distinct failed bar or unmet line from this report with --accept-check-bar or --accept-check-line and relay the owner’s words at registration` });
+            message: `${acceptancePath}: select a distinct failed bar, unmet line or failed ${SOURCE_EXPOSURE_ID} from this report with --accept-check-bar, --accept-check-line or --accept-check-exposure and relay the owner’s words at registration` });
           continue;
         }
         const authority = ownerChatAuthorityFinding(row, acceptancePath, row.owner_words ?? null);
@@ -99,11 +109,12 @@ export function checkRigReport(record: JsonObject, path: string, retainedPath: s
     }
     for (const item of unmet) {
       if (accepted.has(item)) continue;
-      const field = item.kind === 'bar' ? 'bar_outcomes' : 'requirements.lines';
-      const flag = item.kind === 'bar' ? '--accept-check-bar' : '--accept-check-line';
-      const itemPath = `${path}.${field}[${JSON.stringify(item.id)}]`;
+      const itemPath = item.kind === 'exposure' ? `${path}.${SOURCE_EXPOSURE_ID}`
+        : `${path}.${item.kind === 'bar' ? 'bar_outcomes' : 'requirements.lines'}[${JSON.stringify(item.id)}]`;
+      const flag = item.kind === 'bar' ? '--accept-check-bar' : item.kind === 'line' ? '--accept-check-line' : '--accept-check-exposure';
+      const what = item.kind === 'exposure' ? 'shown source material within the declared source_exposure.max_px, or the unmeasured reading,' : `the ${item.kind}`;
       (legacy ? warnings : findings).push({ code: item.kind === 'bar' ? 'RIG_CHECK_BAR_FAILED' : 'RIG_CHECK_LINE_UNMET', path: itemPath,
-        message: `${itemPath}: Parts reports ${item.status}; fix the ${item.kind} and ${PRODUCE}, or record explicit owner acceptance using ${flag} with --check-accepted-by --owner-chat --said-at --relayed-by` });
+        message: `${itemPath}: Parts reports ${item.status}; fix ${what} and ${PRODUCE}, or record explicit owner acceptance using ${flag} with --check-accepted-by --owner-chat --said-at --relayed-by` });
     }
   } catch (error) {
     findings.push({ code: 'RIG_CHECK_REPORT_INVALID', path, message: `${path}: ${String(error)}; restore the bound Parts check report or ${PRODUCE} and ${REGISTER}` });

@@ -28,7 +28,14 @@ function draft(build = false): { dir: string; args: string[] } {
   return { dir, args };
 }
 function read(dir: string): JsonObject { return JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')) as JsonObject; }
-function rejected(fn: () => unknown, code: string): void { try { fn(); throw Error('expected refusal'); } catch (e) { expect(e).toBeInstanceOf(Refusal); expect((e as Refusal).code).toBe(code); } }
+function rejected(fn: () => unknown, code: string): Refusal {
+  try { fn(); } catch (error) {
+    if (!(error instanceof Refusal)) throw error;
+    expect(error.code).toBe(code);
+    return error;
+  }
+  throw new Error(`expected ${code} refusal`);
+}
 
 test.each([false, true])('draft recorder binds standalone/build=%s without creating a version', build => {
   const { dir, args } = draft(build); const before = read(dir);
@@ -354,6 +361,33 @@ test('a config-named project input outside the draft root records and checks cle
   // The fixture binds no run.json stamp; nothing about the named input warns.
   expect(errors).toEqual([]); expect(warnings.map(f => f.code)).toEqual(['DRAFT_PRODUCER_ASSUMED']);
   expect(draftInputUnavailable(dir, 'inputs/foreground.png', 'derived/drafts/sample')).toBe(false);
+});
+
+test('a config-named link binds its target and a missing target refuses DRAFT_RIG_FILE', () => {
+  const link = 'inputs/linked.png';
+  const open = occluderDraft(`../../../${link}`);
+  const projectFile = join(open.dir, 'project.json');
+  symlinkSync('foreground.png', join(open.dir, link));
+  const result = draftRigCommand(open.args);
+  expect(result.exit).toBe(0);
+  expect((JSON.parse(result.stdout) as JsonObject).config_inputs).toEqual([{
+    path: 'inputs/foreground.png',
+    sha256: createHash('sha256').update(readFileSync(join(open.dir, link))).digest('hex'),
+  }]);
+  expect(checkProject(open.dir).refusals).toEqual([]);
+  const recorded = readFileSync(projectFile);
+  rmSync(join(open.dir, 'inputs/foreground.png'));
+  const findings = checkProject(open.dir).refusals;
+  expect(findings.some(f => f.code === 'DRAFT_RIG_FILE' && f.message.includes(link))).toBe(true);
+  expect(readFileSync(projectFile)).toEqual(recorded);
+
+  const writer = occluderDraft(`../../../${link}`);
+  symlinkSync('absent.png', join(writer.dir, link));
+  const writerFile = join(writer.dir, 'project.json');
+  const before = readFileSync(writerFile);
+  const refusal = rejected(() => draftRigCommand(writer.args), 'DRAFT_RIG_FILE');
+  expect(refusal.message).toBe(`derived/drafts/sample/config.json: config.assemble.occluders[0].image: named input link ${link} has a missing target; restore the link target or point the config at the file`);
+  expect(readFileSync(writerFile)).toEqual(before);
 });
 
 test('a changed or missing project input refuses DRAFT_RIG_FILE', () => {

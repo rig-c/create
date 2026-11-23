@@ -4,6 +4,7 @@ import { existsSync, lstatSync, readFileSync, realpathSync } from './check-reads
 import { createRequire } from 'node:module';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { locateParts, OWN_NODE_MODULES } from './parts-sections.ts';
+import { refuse } from './refusal.ts';
 import type { JsonObject } from './templates.ts';
 
 export const CONFIG_INPUTS_SINCE = '2026-11-06T00:00:00Z';
@@ -84,6 +85,42 @@ export function receiptSpec(bytes: Uint8Array): string | null {
   try { parsed = JSON.parse(Buffer.from(bytes).toString('utf8')); } catch { return null; }
   return parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed) && typeof (parsed as { spec?: unknown }).spec === 'string' ? (parsed as { spec: string }).spec : null;
 }
+
+/** Resolve a loader-declared input to its project-relative binding path. */
+export function resolveConfigInput(dir: string, configPath: string, ref: { at: string; value: string }, root = realpathSync(dir)): { file: string; path: string; missing?: NodeJS.ErrnoException } {
+  const target = resolve(dir, dirname(configPath), ref.value);
+  let file: string;
+  try {
+    file = realpathSync(target);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    let ancestor = target;
+    while (!existsSync(ancestor)) {
+      let link: boolean;
+      try { link = lstatSync(ancestor).isSymbolicLink(); }
+      catch (probeError) {
+        if ((probeError as NodeJS.ErrnoException).code !== 'ENOENT') throw probeError;
+        link = false;
+      }
+      const parent = dirname(ancestor);
+      if (link) {
+        const linkPath = containedInputPath(root, resolve(realpathSync(parent), relative(parent, ancestor)), ref.at);
+        refuse('DRAFT_RIG_FILE', `${configPath}: config.${ref.at}: named input link ${linkPath} has a missing target; restore the link target or point the config at the file`);
+      }
+      if (parent === ancestor) throw error;
+      ancestor = parent;
+    }
+    file = resolve(realpathSync(ancestor), relative(ancestor, target));
+    return { file, path: containedInputPath(root, file, ref.at), missing: error as NodeJS.ErrnoException };
+  }
+  return { file, path: containedInputPath(root, file, ref.at) };
+}
+
+function containedInputPath(root: string, file: string, at: string): string {
+  const path = relative(root, file);
+  if (!path || isAbsolute(path) || path === '..' || path.startsWith(`..${sep}`)) throw new Error(`${at}: named input leaves the project`);
+  return path.split(sep).join('/');
+}
 /**
  * One binding per config-named input. A file binds `{path, sha256}`; a
  * directory binds `{path: <dir>/receipt.json, sha256, directory: <dir>, spec}`,
@@ -94,31 +131,14 @@ export function receiptSpec(bytes: Uint8Array): string | null {
 export function configInputBindings(dir: string, configPath: string, allowMissing = false, unavailable?: ConfigInputsWarning): JsonObject[] {
   const config = JSON.parse(readFileSync(resolve(dir, configPath), 'utf8'));
   const root = realpathSync(dir);
-  const contained = (at: string, path: string): string => {
-    if (!path || isAbsolute(path) || path === '..' || path.startsWith(`..${sep}`)) throw new Error(`${at}: named input leaves the project`);
-    return path.split(sep).join('/');
-  };
-  const canonical = (target: string): string => {
-    let cur = target;
-    while (!existsSync(cur)) {
-      try { if (lstatSync(cur).isSymbolicLink()) break; } catch { /* Missing segment; try parent. */ }
-      const parent = dirname(cur);
-      if (parent === cur) return target;
-      cur = parent;
-    }
-    return resolve(realpathSync(cur), relative(cur, target));
-  };
   return configInputReferences(dir, config, unavailable).map((ref): JsonObject => {
-    const file = resolve(dir, dirname(configPath), ref.value);
-    const present = existsSync(file);
-    const real = present ? realpathSync(file) : canonical(file);
-    const path = contained(ref.at, relative(root, real));
-    if (!present) {
+    const { file, path, missing } = resolveConfigInput(dir, configPath, ref, root);
+    if (missing !== undefined) {
       if (allowMissing) return { path, sha256: null };
-      realpathSync(file);
+      throw missing;
     }
-    if (lstatSync(real).isDirectory()) {
-      const receipt = join(real, DIRECTORY_INPUT_RECEIPT);
+    if (lstatSync(file).isDirectory()) {
+      const receipt = join(file, DIRECTORY_INPUT_RECEIPT);
       const bound = `${path}/${DIRECTORY_INPUT_RECEIPT}`;
       if (allowMissing && !existsSync(receipt)) return { path: bound, sha256: null, directory: path };
       if (!existsSync(receipt) || !lstatSync(receipt).isFile()) throw new Error(`${ref.at}: named input directory ${path} holds no regular-file ${DIRECTORY_INPUT_RECEIPT}; a directory input binds its producer's receipt, such as a comfy plate --mode occluder output`);
@@ -128,7 +148,7 @@ export function configInputBindings(dir: string, configPath: string, allowMissin
       if (declared !== spec) throw new Error(`${ref.at}: ${bound} declares spec ${JSON.stringify(declared)}; a directory input binds a ${spec} receipt, such as a comfy plate --mode occluder output`);
       return { path: bound, sha256: createHash('sha256').update(bytes).digest('hex'), directory: path, spec };
     }
-    if (!lstatSync(real).isFile()) throw new Error(`${ref.at}: named input ${path} is not a regular file`);
+    if (!lstatSync(file).isFile()) throw new Error(`${ref.at}: named input ${path} is not a regular file`);
     return { path, sha256: createHash('sha256').update(readFileSync(file)).digest('hex') };
   });
 }

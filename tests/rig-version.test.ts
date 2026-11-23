@@ -454,6 +454,67 @@ describe('#573 frozen Parts check report', () => {
     expect(checkFindings.filter(w => [barFailure.code, lineFailure.code].includes(w.code)).map(({ code, path }) => ({ code, path })))
       .toEqual([barFailure, lineFailure, unmeasurable]);
   });
+
+  /** The producer's top-level block as Parts 2.53.0 writes it (src/sourceexposure.ts measureSourceExposure); only status is read. */
+  const exposureBlock = (status: string, unmeasured = false): JsonObject => ({
+    status, instrument: 'synthetic renderer', reading: 'synthetic reading', max_px: status === 'REPORTED' ? null : 4, alternates: 'not measured',
+    parts: unmeasured ? [] : ['torso'], texels: unmeasured ? {} : { torso: { hidden: 3, undecided: 1 } }, frames: unmeasured ? 0 : 2, animations: [],
+    rows: unmeasured ? [] : [{ part: 'torso', state: 'hidden', px: status === 'FAIL' ? 9 : 2, frame: 'setup', animation: null, index: 0, time: 0 }],
+    unmeasured: [],
+    ...(unmeasured ? { reason: 'no part in parts.json carries a source_state_map' } : {}),
+  });
+  const exposureFailure = { code: 'RIG_CHECK_LINE_UNMET', path: `${path}.SOURCE_EXPOSURE` };
+
+  test.each([
+    ['REPORTED (no declared limit)', exposureBlock('REPORTED')],
+    ['PASS', exposureBlock('PASS')],
+    ['absent', undefined],
+  ] as const)('a %s SOURCE_EXPOSURE line is met', (_name, block) => {
+    const f = withCheck(RIG_CHECK_REPORT_SINCE);
+    if (block !== undefined) f.report.SOURCE_EXPOSURE = block;
+    f.store();
+    expect(rigVersionCommand([...f.args, ...reportFlag]).exit).toBe(0);
+    expect(rigRegistrationFindings(f.dir, f.load())).toEqual([]);
+  });
+
+  test.each([
+    ['FAIL over the declared max_px', exposureBlock('FAIL')],
+    ['FAIL unmeasured with a declared max_px', exposureBlock('FAIL', true)],
+  ] as const)('a %s SOURCE_EXPOSURE line is unmet until the owner accepts it', (_name, block) => {
+    const f = withCheck(RIG_CHECK_REPORT_SINCE);
+    f.report.SOURCE_EXPOSURE = block;
+    f.store();
+    const args = [...f.args, ...reportFlag];
+    const failure = refused(args, exposureFailure.code);
+    expect(failure.message).toContain(`${exposureFailure.path}: Parts reports FAIL`);
+    expect(failure.message).toContain('--accept-check-exposure');
+    const words = 'I accept the source exposure.\n';
+    put(f.dir, 'source/words.txt', words);
+    const chat = ['--check-accepted-by', 'user', '--owner-chat', 'source/words.txt', '--said-at', beforeGate, '--relayed-by', 'operator'];
+    refused([...args, '--accept-check-line', 'SOURCE_EXPOSURE', ...chat], 'RIG_CHECK_ACCEPTANCE_INVALID');
+    expect(rigVersionCommand([...args, '--accept-check-exposure', ...chat]).exit).toBe(0);
+    const { project, registration } = f.projectWithRegistration();
+    const binding = obj(registration.check_report);
+    expect(arr(binding.acceptances).map(row => [obj(row).kind, obj(row).id])).toEqual([['exposure', 'SOURCE_EXPOSURE']]);
+    expect(rigRegistrationFindings(f.dir, project)).toEqual([]);
+    delete binding.acceptances;
+    expect(checkProject(f.dir, project).refusals.filter(r => r.code === exposureFailure.code).map(({ code, path }) => ({ code, path })))
+      .toEqual([exposureFailure]);
+  });
+
+  test('a pre-contract FAIL SOURCE_EXPOSURE warns; a malformed status is invalid', () => {
+    const f = withCheck(beforeGate);
+    f.report.SOURCE_EXPOSURE = exposureBlock('FAIL');
+    f.store();
+    expect(rigVersionCommand([...f.args, ...reportFlag]).exit).toBe(0);
+    const warnings: Parameters<typeof rigRegistrationFindings>[2] = [];
+    expect(rigRegistrationFindings(f.dir, f.load(), warnings)).toEqual([]);
+    expect(warnings.map(({ code, path }) => ({ code, path }))).toEqual([exposureFailure]);
+    const g = withCheck(RIG_CHECK_REPORT_SINCE);
+    g.report.SOURCE_EXPOSURE = { ...exposureBlock('PASS'), status: 'SKIP' };
+    g.store();
+    expect(refused([...g.args, ...reportFlag], 'RIG_CHECK_REPORT_INVALID').message).toContain('invalid SOURCE_EXPOSURE status');
+  });
 });
 
 test('frozen registration refuses parts bytes that differ from the newer bound approval', () => {

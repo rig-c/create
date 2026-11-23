@@ -60,7 +60,7 @@ test('#841 refused owner submissions write one safe stderr line each and preserv
       const lines = startup.split('\n');
       expect(lines).toHaveLength(4);
       const [url, published, asked, tail] = lines;
-      expect(published).toMatch(/^job: option-set rig_type\/.+ published$/);
+      expect(published).toMatch(/^job: option-set rig_type\/.+ published \(publication [A-Za-z0-9][A-Za-z0-9._-]{0,127}\)$/);
       expect(asked).toMatch(/^job: asked interview-picks rig_type\/.+$/);
       expect(tail).toBe('');
       const ownerUrl = new URL(url!);

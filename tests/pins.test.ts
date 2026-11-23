@@ -871,7 +871,7 @@ for (const [label, execFlags] of [
     reader.releaseLock();
     const lines = text.trim().split('\n');
     expect(lines[0]).toStartWith('http://127.0.0.1:');
-    expect(lines.at(-1)).toBe('job: draft chain published');
+    expect(lines.at(-1)).toMatch(/^job: draft chain published \(publication [A-Za-z0-9][A-Za-z0-9._-]{0,127}\)$/);
     writeFileSync(snapshotPath, originalSnapshot);
 
     const drafted = Bun.spawnSync(

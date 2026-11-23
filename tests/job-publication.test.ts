@@ -455,11 +455,10 @@ test('#676 job open --draft publishes a writer-recorded assemble-only draft and 
     new Response(opening.stdout).text(), new Response(opening.stderr).text(), opening.exited,
   ]);
   expect({ exit, stderr }).toEqual({ exit: 0, stderr: '' });
-  expect(stdout).toContain('job: draft chain published');
-  expect(stdout).toContain('job: asked parts-verdict chain');
-
   const status = host.session.status();
   const publication = status.publication!;
+  expect(stdout.trimEnd().split('\n')).toContain(`job: draft chain published (publication ${publication.publicationId})`);
+  expect(stdout).toContain('job: asked parts-verdict chain');
   const selector = { kind: 'draft', id: 'chain' } as const;
   const subject = { kind: 'parts-verdict', draftId: 'chain' } as const;
   expect(publication.source.selector).toEqual(selector);
@@ -1495,7 +1494,8 @@ test('republish appends a painting generation, freezes the legacy and rig, and p
   expect(context.files).toContainEqual({ path: generation.manifest.path, sha256: generation.manifest.sha256 });
   const host = await openCreateJob(root, { id: 'reviewer', role: 'owner' }, now);
   hosts.push(host);
-  expect(await openDraftPublication(root, host, now, undefined, '1')).toContain('job: rig v1 published');
+  const lines = await openDraftPublication(root, host, now, undefined, '1');
+  expect(lines).toContain(`job: rig v1 published (publication ${host.session.status().publication!.publicationId})`);
   expect(host.session.status().publication?.source).toMatchObject({ selector: { kind: 'rig', version: 1 } });
   const before = readFileSync(join(root, 'project.json'));
   expect(() => republishCommand(['1', root, '--reason', 'Duplicate.'], now)).toThrow(expect.objectContaining({ code: 'PUBLICATION_GENERATION_DUPLICATE' }));

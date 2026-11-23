@@ -312,8 +312,8 @@ async function partsIssue(root: string, url: URL, head: JsonObject): Promise<Jso
 test.each(['approved', 'changes-requested'] as const)('#557 one parts %s act ingests with no second approval subject', async verdictValue => {
   const root = await preparedParts();
   const opening = await open(root);
-  expect(opening.lines).toEqual(['job: draft chain published', 'job: asked parts-verdict chain']);
   const firstView = await page(root, opening.url, 1);
+  expect(opening.lines).toEqual([`job: draft chain published (publication ${firstView.head.publicationId})`, 'job: asked parts-verdict chain']);
   expect(firstView.asks.map(ask => ask.subject)).toEqual([{ kind: 'parts-verdict', draftId: 'chain' }]);
   expect((firstView.head.source as JsonObject).projectHash).toBe(jobHash(readFileSync(join(root, 'project.json'))));
   const issues = verdictValue === 'changes-requested' ? [await partsIssue(root, opening.url, firstView.head)] : [];
@@ -365,8 +365,8 @@ async function riggingPreview(model = false) {
 test('#712B model-backed rigging draft publishes exactly one rig-review verdict ask', async () => {
   const { root, opening } = await riggingPreview(true);
   const subject = { kind: 'review-verdict', stage: 'rig-review' } as const;
-  expect(opening.lines).toEqual([`job: draft ${MESH_DRAFT} published`, 'job: asked review-verdict rig-review']);
   const view = await page(root, opening.url, 1);
+  expect(opening.lines).toEqual([`job: draft ${MESH_DRAFT} published (publication ${view.head.publicationId})`, 'job: asked review-verdict rig-review']);
   expect(view.asks.map(ask => ask.subject)).toEqual([subject]);
   expect(view.head.source).toMatchObject({ selector: { kind: 'draft', id: MESH_DRAFT }, model: {
     path: `derived/drafts/${MESH_DRAFT}/out/check/build/skeleton.model.json`,
@@ -377,8 +377,8 @@ test('#712B model-backed rigging draft publishes exactly one rig-review verdict 
 async function reviewedMeshPreview(verdict: 'approved' | 'changes-requested') {
   const { root, opening } = await riggingPreview();
   const subject = { kind: 'parts-verdict', draftId: MESH_DRAFT } as const;
-  expect(opening.lines).toEqual([`job: draft ${MESH_DRAFT} published`, `job: asked parts-verdict ${MESH_DRAFT}`]);
   const view = await page(root, opening.url, 1);
+  expect(opening.lines).toEqual([`job: draft ${MESH_DRAFT} published (publication ${view.head.publicationId})`, `job: asked parts-verdict ${MESH_DRAFT}`]);
   expect(view.asks.map(ask => ask.subject)).toEqual([subject]);
   const source = view.head.source as JsonObject;
   const { sourceHash } = source;
@@ -760,15 +760,15 @@ test('legacy approved unsigned parts refresh preserves JOB_RECORD_MOVED and the 
   const root = await preparedParts();
   recordPartsReceipt(root, 'chain', testClock.now());
   const opening = await open(root);
-  expect(opening.lines).toEqual(['job: draft chain published', 'job: asked signoff parts-review']);
   const firstView = await page(root, opening.url, 1);
+  expect(opening.lines).toEqual([`job: draft chain published (publication ${firstView.head.publicationId})`, 'job: asked signoff parts-review']);
   const project = read(root); project.title = 'Synthetic midflight title edit'; write(root, project);
   const staleSignoff = await firstView.tryAct('signoff', 'signoff', { stage: 'parts-review', decision: 'approved', words: WORDS });
   expect((staleSignoff.error as JsonObject | undefined)?.code).toBe('JOB_RECORD_MOVED');
   const refreshed = await cli(root, ['job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner']);
   expectExit0(refreshed);
-  expect(refreshed.stdout.trim().split('\n')).toEqual([opening.url.href, 'job: draft chain published', 'job: asked signoff parts-review']);
   const refreshedView = await page(root, opening.url, 1);
+  expect(refreshed.stdout.trim().split('\n')).toEqual([opening.url.href, `job: draft chain published (publication ${refreshedView.head.publicationId})`, 'job: asked signoff parts-review']);
   expect(refreshedView.head.publicationId).not.toBe(firstView.head.publicationId);
   expect((refreshedView.head.source as JsonObject).selector).toEqual({ kind: 'draft', id: 'chain' });
   expect((refreshedView.head.source as JsonObject).projectHash).toBe(jobHash(readFileSync(join(root, 'project.json'))));
@@ -817,22 +817,21 @@ test('rig-review verdict -> ingest -> job open refresh -> UI signoff -> ingest p
   // Refresh via job open republishes rig v1 with the current project.json hash and asks the remaining signoff subject.
   const refreshed = await cli(root, ['job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner']);
   expectExit0(refreshed);
-  expect(refreshed.stdout.trim().split('\n')).toEqual([
-    opening.url.href,
-    'job: rig v1 published',
-    'job: asked signoff rig-review',
-  ]);
-
   // Re-opening again when project.json has not moved reuses the refreshed head without republishing.
   const reused = await cli(root, ['job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner']);
   expectExit0(reused);
-  expect(reused.stdout.trim().split('\n')).toEqual([
-    opening.url.href,
-    'job: rig v1 already published',
-    'job: already asked signoff rig-review',
-  ]);
 
   const refreshedView = await page(root, opening.url, 1);
+  expect(refreshed.stdout.trim().split('\n')).toEqual([
+    opening.url.href,
+    `job: rig v1 published (publication ${refreshedView.head.publicationId})`,
+    'job: asked signoff rig-review',
+  ]);
+  expect(reused.stdout.trim().split('\n')).toEqual([
+    opening.url.href,
+    `job: rig v1 already published (publication ${refreshedView.head.publicationId})`,
+    'job: already asked signoff rig-review',
+  ]);
   expect(refreshedView.head.publicationId).not.toBe(firstView.head.publicationId);
   expect((refreshedView.head.source as JsonObject).selector).toEqual({ kind: 'rig', version: 1 });
   expect((refreshedView.head.source as JsonObject).projectHash).toBe(jobHash(readFileSync(join(root, 'project.json'))));
@@ -927,12 +926,11 @@ test('#467 source-linked direction verdict then record sign-off ingests and adva
   // Refresh the post page after ingest; its verdict is already recorded, so no subject is declared.
   const refreshed = await cli(root, ['job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner', '--rig', 'v2']);
   expectExit0(refreshed);
+  const refreshedView = await page(root, opening.url, 0);
   expect(refreshed.stdout.trim().split('\n')).toEqual([
     opening.url.href,
-    'job: post v2 published',
+    `job: post v2 published (publication ${refreshedView.head.publicationId})`,
   ]);
-
-  const refreshedView = await page(root, opening.url, 0);
   expect(refreshedView.asks.map(ask => ask.subject)).toEqual([]);
   expect(refreshedView.head.publicationId).not.toBe(firstView.head.publicationId);
   expect((refreshedView.head.source as JsonObject).selector).toEqual({ kind: 'post', version: 2, rigVersion: 1 });
@@ -940,15 +938,15 @@ test('#467 source-linked direction verdict then record sign-off ingests and adva
 
   const reused = await cli(root, ['job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner', '--rig', '2']);
   expectExit0(reused);
-  expect(reused.stdout).toContain('job: post v2 already published');
+  expect(reused.stdout.trimEnd().split('\n')).toContain(`job: post v2 already published (publication ${refreshedView.head.publicationId})`);
   expect((await page(root, opening.url, 0)).head.publicationId).toBe(refreshedView.head.publicationId);
 
   const record = await cli(root, ['job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner', '--plan']);
   expectExit0(record);
   const recordSubjects = [{ kind: 'signoff', stage: 'direction-review' }];
-  expect(record.stdout.trim().split('\n')).toEqual([opening.url.href, 'job: plan published',
-    `job: asked ${recordSubjects.map(({ kind, stage }) => `${kind} ${stage}`).join(', ')}`]);
   const recordView = await page(root, opening.url, recordSubjects.length);
+  expect(record.stdout.trim().split('\n')).toEqual([opening.url.href, `job: plan published (publication ${recordView.head.publicationId})`,
+    `job: asked ${recordSubjects.map(({ kind, stage }) => `${kind} ${stage}`).join(', ')}`]);
   expect((recordView.head.source as JsonObject).subject).toBe('plan');
   expect((recordView.head.source as JsonObject).selector).toBeUndefined();
   expect((recordView.head.source as JsonObject).subjects).toEqual(recordSubjects);

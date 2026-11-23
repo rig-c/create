@@ -527,6 +527,19 @@ async function reconcileLocked(
   return { count: entries.length, outcomes, published };
 }
 
+/** Keep the requested publication's ID even if reconciliation advances the page head. */
+async function reconcileOpenPublication(root: string, target: string, now: number, last?: string) {
+  let publicationId: string | undefined;
+  const { outcomes, published } = await reconcileLocked(root, entry =>
+    publishPending(entry, undefined, undefined, undefined, publication => {
+      if (entry.id === target) publicationId = publication.publicationId;
+    }, now), now, last);
+  if (publicationId === undefined) {
+    refuse('JOB_OUTBOX_INVALID', 'project.json: reconciliation did not acknowledge the requested publication; inspect the Review job and retry rig-create job open');
+  }
+  return { outcomes, publicationId, others: pendingPublishedLines(published, target) };
+}
+
 /** The stages whose record consumes a draft: `job open` publishes the latest one there. */
 const DRAFT_OPEN_STAGES = ['parts', 'parts-review'];
 
@@ -662,6 +675,7 @@ function requestedRecordPublication(root: string, question: QuestionSelection | 
 export async function openRecordPublication(root: string, host: JobOwnerHost, question: QuestionSelection | undefined, plan: boolean, now: number): Promise<string[]> {
   const release = acquireJobLock(root)!;
   let outcomes: AskOutcome[];
+  let publicationId: string;
   let reused = false;
   let others: string[] = [];
   let result: RecordPublicationResult;
@@ -674,7 +688,8 @@ export async function openRecordPublication(root: string, host: JobOwnerHost, qu
     if (head && ack && isDeepStrictEqual(ack.result, result) && ack.versionHash === publication.recordHash
       && isDeepStrictEqual(ack.subjects, publication.subjects)) {
       reused = true;
-      outcomes = await askDeclaredSubjects(host, head.publicationId, publication.subjects, true);
+      publicationId = head.publicationId;
+      outcomes = await askDeclaredSubjects(host, publicationId, publication.subjects, true);
     } else {
       const binding = readWriterBinding(root);
       if (!binding || binding.jobId !== host.session.jobId) refuse('JOB_BINDING_INVALID', 'project.json: open the writer-owned job before publishing');
@@ -686,13 +701,11 @@ export async function openRecordPublication(root: string, host: JobOwnerHost, qu
         pending.generation = generation;
         failPublication(root, pending, pending.failure);
       }
-      let published: PendingPublication[];
-      ({ outcomes, published } = await reconcileLocked(root, undefined, now));
-      others = pendingPublishedLines(published, pending.id);
+      ({ outcomes, publicationId, others } = await reconcileOpenPublication(root, pending.id, now));
     }
   } finally { release(); }
   refuseAskOutcomes(outcomes);
-  return [`job: ${resultLabel(result)} ${reused ? 'already published' : 'published'}`, ...others, ...askOutcomeLines(outcomes)];
+  return [`job: ${resultLabel(result)} ${reused ? 'already published' : 'published'} (publication ${publicationId})`, ...others, ...askOutcomeLines(outcomes)];
 }
 
 /**
@@ -736,13 +749,15 @@ export async function openDraftPublication(root: string, host: JobOwnerHost, now
   ) && (currentSubjects === undefined || isDeepStrictEqual(acknowledged?.subjects, currentSubjects)));
   let selector: JobSelector;
   let outcomes: AskOutcome[];
+  let publicationId: string;
   let published: boolean;
   let others: string[] = [];
   if (reuseHead && head && headSelector) {
     const result = acknowledged?.result ?? selectorResult(root, headSelector, draft?.rigging);
     const subjects = acknowledged?.subjects
       ?? (await readPublished({ root, record: { path: 'project.json', sha256: jobHash(bytes) }, result: result as Parameters<typeof readPublished>[0]['result'] })).subjects;
-    outcomes = await askDeclaredSubjects(host, head.publicationId, subjects, false);
+    publicationId = head.publicationId;
+    outcomes = await askDeclaredSubjects(host, publicationId, subjects, false);
     selector = headSelector;
     published = false;
   } else {
@@ -766,15 +781,13 @@ export async function openDraftPublication(root: string, host: JobOwnerHost, now
       const pending = enqueuePublication(root, binding, result);
       // A named --rig or --draft ends as the head; a republished head yields to newer pending versions (#849).
       const named = rigSelector !== undefined || requested !== undefined;
-      let published: PendingPublication[];
-      ({ outcomes, published } = await reconcileLocked(root, undefined, now, named ? pending.id : undefined));
-      others = pendingPublishedLines(published, pending.id);
+      ({ outcomes, publicationId, others } = await reconcileOpenPublication(root, pending.id, now, named ? pending.id : undefined));
     } finally { release(); }
     selector = targetSelector;
     published = true;
   }
   const lines = [...warnings.map(finding => `WARN ${finding.code}: ${finding.message}`),
-    `job: ${selectorLabel(selector)} ${published ? 'published' : 'already published'}`, ...others, ...askOutcomeLines(outcomes)];
+    `job: ${selectorLabel(selector)} ${published ? 'published' : 'already published'} (publication ${publicationId})`, ...others, ...askOutcomeLines(outcomes)];
   refuseAskOutcomes(outcomes);
   return lines;
 }

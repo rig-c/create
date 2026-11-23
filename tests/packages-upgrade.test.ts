@@ -151,12 +151,13 @@ test('job open --question publishes after upgrading an actual older synthetic in
     opening = Bun.spawn([process.execPath, ...jobRuntimeExecArgv(), ...clockedCli(), 'job', 'open', dir, '--reviewer', 'synthetic-owner', '--role', 'owner', '--question', 'motion'], { cwd: dir, stdout: 'pipe', stderr: 'pipe' });
     const reader = (opening.stdout as ReadableStream<Uint8Array>).getReader();
     let output = '';
-    while (!output.includes('job: option-set motion/upgrade-motion published')) {
+    const published = /\njob: option-set motion\/upgrade-motion published \(publication [A-Za-z0-9][A-Za-z0-9._-]{0,127}\)\n/;
+    while (!published.test(output)) {
       const chunk = await reader.read(); if (chunk.done) break;
       output += new TextDecoder().decode(chunk.value);
     }
     reader.releaseLock();
-    expect(output).toContain('job: option-set motion/upgrade-motion published');
+    expect(output).toMatch(published);
     await closeCreateJob(dir);
     expect(await opening.exited).toBe(0);
   } finally {

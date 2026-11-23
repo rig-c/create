@@ -335,12 +335,15 @@ test('#543 source-linked real build alpha receipt rebuild draft binds edited byt
     let cleanupFailure: { error: unknown } | undefined;
     let closed: { exitCode: number; stdout: Buffer; stderr: Buffer } | undefined;
     try {
-      for (let i = 0; i < 600 && !stdout.includes(`job: draft ${depthId} published\n`) &&
+      const prefix = `job: draft ${depthId} published `;
+      const published = (line: string) => line.startsWith(prefix)
+        && /^\(publication [A-Za-z0-9][A-Za-z0-9._-]{0,127}\)$/.test(line.slice(prefix.length));
+      for (let i = 0; i < 600 && !stdout.split('\n').slice(0, -1).some(published) &&
         !stderr && opened.exitCode === null; i++) await Bun.sleep(25);
       console.log('EDITED_DEPTH_REVIEW_OPEN', JSON.stringify({ stdout: diagnostic(stdout), stderr: diagnostic(stderr), exit: opened.exitCode }));
       const lines = stdout.trim().split('\n');
       expect(lines[0], stderr).toStartWith('http://127.0.0.1:');
-      expect(lines[1], `${diagnostic(stdout)}\n${diagnostic(stderr)}`).toBe(`job: draft ${depthId} published`);
+      expect(lines[1] ?? '', `${diagnostic(stdout)}\n${diagnostic(stderr)}`).toSatisfy(published);
       expect(opened.exitCode).toBeNull();
       console.log('EDITED_DEPTH_REVIEW_PUBLICATION', lines[1]);
     } catch (error) { openingFailure = { error }; }

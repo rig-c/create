@@ -543,3 +543,114 @@ for (const target of ['scene-source', 'frozen-extra', 'registered-plate']) test(
     if (target === 'registered-plate') rmSync(join(f.dir, 'background.png'));
   } }));
 });
+
+function enableCanvasClip(f: ReturnType<typeof fixture>, bounds: [number, number, number, number] = [-8, -6, 68, 48], clippedBounds: [number, number, number, number] = [0, 0, 64, 48]) {
+  objects(f.scene.characters)[0]!.canvas_clip = true;
+  f.put('compose.scene.json', f.scene);
+  Object.assign(objects(f.report.characters)[0]!, { canvas_clip: true, bounds, clipped_bounds: clippedBounds });
+  f.put('compose-out/scene.json', f.report);
+  f.run = composeRunFixture(f.dir, f.load(), 1, f.scene);
+  objects(f.run.characters)[0]!.placement = { canvas_clip: true, bounds, clipped_bounds: clippedBounds };
+  saveRun(f);
+}
+
+test('direction@3 accepts scene canvas_clip: true with compose-run placement and carries clipped_bounds into the direction record', () => {
+  const f = fixture();
+  enableCanvasClip(f, [-12, -8, 70, 52], [0, 0, 64, 48]);
+  expect(f.publish().exit).toBe(0);
+  const p = f.load();
+  const doc = readDirection(f.dir, p, 2, true);
+  expect((doc.compose as JsonObject).clipped_bounds).toEqual([0, 0, 64, 48]);
+  expect(directionCommand(['check', '2', f.dir, '--json']).exit).toBe(0);
+  const ctx = { dir: f.dir, project: p, refusals: [], warnings: [] };
+  checkDirections(ctx);
+  expect(ctx.refusals).toEqual([]);
+  expect(ctx.warnings).toEqual([]);
+});
+
+test('direction@3 scene without canvas_clip omits compose.clipped_bounds', () => {
+  const f = fixture();
+  expect(f.publish().exit).toBe(0);
+  const doc = readDirection(f.dir, f.load(), 2, true);
+  expect('clipped_bounds' in (doc.compose as JsonObject)).toBe(false);
+});
+
+test('DIRECTION_COMPOSE_RUN refuses compose-run placement without scene canvas_clip opt-in', () => {
+  const f = fixture();
+  objects(f.run.characters)[0]!.placement = { canvas_clip: true, bounds: [-8, -6, 64, 48], clipped_bounds: [0, 0, 64, 48] };
+  saveRun(f);
+  rejected(f, 'DIRECTION_COMPOSE_RUN');
+});
+
+test('DIRECTION_COMPOSE_RUN refuses scene canvas_clip opt-in without compose-run placement', () => {
+  const f = fixture();
+  objects(f.scene.characters)[0]!.canvas_clip = true;
+  f.put('compose.scene.json', f.scene);
+  f.run = composeRunFixture(f.dir, f.load(), 1, f.scene);
+  saveRun(f);
+  rejected(f, 'DIRECTION_COMPOSE_RUN');
+});
+
+for (const badClip of [false, null, 1, 'true']) test(`DIRECTION_COMPOSE_SCHEMA refuses canvas_clip: ${JSON.stringify(badClip)} and names canvas_clip`, () => {
+  const f = fixture();
+  objects(f.scene.characters)[0]!.canvas_clip = badClip;
+  f.put('compose.scene.json', f.scene);
+  f.run = composeRunFixture(f.dir, f.load(), 1, f.scene);
+  saveRun(f);
+  const before = readFileSync(join(f.dir, 'project.json'));
+  let thrown: unknown;
+  try { f.publish(); } catch (e) { thrown = e; }
+  expect(thrown).toMatchObject({ code: 'DIRECTION_COMPOSE_SCHEMA', message: expect.stringContaining('canvas_clip') });
+  expect(readFileSync(join(f.dir, 'project.json'))).toEqual(before);
+});
+
+test('DIRECTION_COMPOSE_SCHEMA refuses an unknown scene character key beyond offset, scale and canvas_clip', () => {
+  const f = fixture();
+  objects(f.scene.characters)[0]!.crop = true;
+  f.put('compose.scene.json', f.scene);
+  f.run = composeRunFixture(f.dir, f.load(), 1, f.scene);
+  saveRun(f);
+  const before = readFileSync(join(f.dir, 'project.json'));
+  let thrown: unknown;
+  try { f.publish(); } catch (e) { thrown = e; }
+  expect(thrown).toMatchObject({ code: 'DIRECTION_COMPOSE_SCHEMA', message: expect.stringContaining('crop') });
+  expect(readFileSync(join(f.dir, 'project.json'))).toEqual(before);
+});
+
+const malformedPlacements: [string, (c: JsonObject) => void][] = [
+  ['wrong placement key order (bounds first)', c => { c.placement = { bounds: [-8, -6, 68, 48], canvas_clip: true, clipped_bounds: [0, 0, 64, 48] }; }],
+  ['wrong placement key order (clipped_bounds before bounds)', c => { c.placement = { canvas_clip: true, clipped_bounds: [0, 0, 64, 48], bounds: [-8, -6, 68, 48] }; }],
+  ['placement before files on character', c => {
+    const { id, build, files, placement } = c;
+    for (const k of Object.keys(c)) delete c[k];
+    Object.assign(c, { id, build, placement, files });
+  }],
+  ['extra placement key', c => { (c.placement as JsonObject).extra = true; }],
+  ['false placement.canvas_clip', c => { (c.placement as JsonObject).canvas_clip = false; }],
+  ['short placement.bounds', c => { (c.placement as JsonObject).bounds = [0, 0, 64]; }],
+  ['short placement.clipped_bounds', c => { (c.placement as JsonObject).clipped_bounds = [0, 0, 64]; }],
+];
+for (const [name, mutate] of malformedPlacements) test(`DIRECTION_COMPOSE_RUN refuses ${name}`, () => {
+  const f = fixture();
+  enableCanvasClip(f);
+  mutate(objects(f.run.characters)[0]!);
+  saveRun(f);
+  rejected(f, 'DIRECTION_COMPOSE_RUN');
+});
+
+test('DIRECTION_COMPOSE_PLACEMENT refuses a direction record whose compose.clipped_bounds differs from compose-run placement', () => {
+  const f = fixture();
+  enableCanvasClip(f, [-12, -8, 70, 52], [0, 0, 64, 48]);
+  expect(f.publish().exit).toBe(0);
+  const dirPath = 'evidence/direction/v2.json';
+  const doc = JSON.parse(readFileSync(join(f.dir, dirPath), 'utf8')) as JsonObject;
+  (doc.compose as JsonObject).clipped_bounds = [0, 0, 60, 48];
+  const binding = f.put(dirPath, `${JSON.stringify(doc, null, 2)}\n`);
+  const p = f.load();
+  const post = objects(p.versions).find(v => v.n === 2)!;
+  (post.provenance as JsonObject).config = binding;
+  (post.provenance as JsonObject).direction = binding;
+  post.outputs = [binding, ...objects(post.outputs).slice(1)];
+  f.save(p);
+  expect(() => readDirection(f.dir, f.load(), 2)).toThrow(expect.objectContaining({ code: 'DIRECTION_COMPOSE_PLACEMENT' }));
+});

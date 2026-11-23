@@ -2900,7 +2900,7 @@ The closed `rig-create/direction@3` document contains exactly these fields:
 | --- | --- |
 | `schema` | `rig-create/direction@3` |
 | `rig` | `{version,acceptance}`; the writer fills the same rig-review signoff, verdict reference and review-package seal used by scene@1. Authored input may omit `acceptance`; supplied acceptance is replaced from the record. |
-| `compose` | `{scene:{path,sha256},out,report:{path,sha256},check:{path,sha256},run:{path,sha256}}` |
+| `compose` | `{scene:{path,sha256},out,report:{path,sha256},check:{path,sha256},run:{path,sha256},clipped_bounds?:[x0,y0,x1,y1]}`; `clipped_bounds` is carried by the writer from `compose-run.json` `characters[0].placement.clipped_bounds` when the scene character opts into `canvas_clip: true` |
 | `model` | `{path,sha256}` of `outputs/v<N>/compose/check/build/skeleton.model.json` |
 | `take` | `{duration,loop}`; duration equals compiled idle duration, cited timing seconds and compose track end; loop and cited timing loop must both be true |
 | `citations` | `{camera,timing,composition}`; exact guide/ask citations for camera_depth, post_timing and post_composition, each with quote or delegated:true |

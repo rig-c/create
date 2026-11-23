@@ -171,13 +171,13 @@ test('#639 open replaces an unchanged old plan head and reuses the new head on r
 
   const host = await openCreateJob(root, reviewer, Date.now(), undefined, true);
   try {
-    expect(await openRecordPublication(root, host, undefined, true, Date.now())).toEqual(
-      ['job: plan published', 'job: asked signoff plan-approved']);
+    const lines = await openRecordPublication(root, host, undefined, true, Date.now());
     const { publication, generation } = host.session.status();
+    expect(lines).toEqual([`job: plan published (publication ${publication!.publicationId})`, 'job: asked signoff plan-approved']);
     expect(publication!.publicationId).not.toBe(oldId);
     expect(publication!.source).toMatchObject({ subjects: [signoff] });
     expect(await openRecordPublication(root, host, undefined, true, Date.now())).toEqual(
-      ['job: plan already published', 'job: already asked signoff plan-approved']);
+      [`job: plan already published (publication ${publication!.publicationId})`, 'job: already asked signoff plan-approved']);
     expect(host.session.status()).toMatchObject({ generation, publication: { publicationId: publication!.publicationId } });
     expect(recordBytes(root)).toEqual(original);
   } finally { host.stop(); }

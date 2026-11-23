@@ -82,9 +82,11 @@ async function open(root: string, id: string, kind: 'draft' | 'rig' = 'draft', r
     ? `job open exited ${await proc.exited}` : new TextDecoder().decode(item.value) })).finally(() => errors.releaseLock());
   const decoder = new TextDecoder();
   let output = '';
-  const published = kind === 'draft' ? `job: draft ${id} published` : `job: rig v${id} published`;
+  const prefix = kind === 'draft' ? `job: draft ${id} published ` : `job: rig v${id} published `;
+  const published = (line: string) => line.startsWith(prefix)
+    && /^\(publication [A-Za-z0-9][A-Za-z0-9._-]{0,127}\)$/.test(line.slice(prefix.length));
   try {
-    while (!output.split('\n').includes(published) || !output.endsWith('\n')) {
+    while (!output.endsWith('\n') || !output.split('\n').some(published)) {
       const item = await Promise.race([reader.read(), failure]);
       if ('error' in item) throw new Error(item.error);
       if (item.done) throw new Error((await failure).error);

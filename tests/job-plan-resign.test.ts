@@ -129,10 +129,11 @@ test('#820 a routed motion comment can be re-signed in Review and cited by the n
   const stderr = new Response(opening.stderr).text();
   try {
     let stdout = '';
+    const published = /\njob: plan published \(publication [A-Za-z0-9][A-Za-z0-9._-]{0,127}\)\n/;
     const decoder = new TextDecoder();
     const reader = opening.stdout.getReader();
     try {
-      while (!stdout.includes('\njob: plan published\n')) {
+      while (!published.test(stdout)) {
         const chunk = await reader.read();
         if (chunk.done) break;
         stdout += decoder.decode(chunk.value, { stream: true });
@@ -140,7 +141,7 @@ test('#820 a routed motion comment can be re-signed in Review and cited by the n
     } finally {
       reader.releaseLock();
     }
-    if (!stdout.includes('\njob: plan published\n')) {
+    if (!published.test(stdout)) {
       throw Error(`step 4 job open --plan exit ${await opening.exited}\n${await stderr}`);
     }
     const host = await openCreateJob(f.root, reviewer, f.now(), undefined, true);

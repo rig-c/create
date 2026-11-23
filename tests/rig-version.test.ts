@@ -963,7 +963,7 @@ describe('frozen rig registration', () => {
       }
       reader.releaseLock();
       // Its printed lines name only the republished head (rig v1); the reconciled v2 is not named (reported on create#844).
-      expect(printed).toMatch(/^http:\/\/.*\n[\s\S]*\njob: rig v1 published\n/);
+      expect(printed).toMatch(/^http:\/\/.*\n[\s\S]*\njob: rig v1 published \(publication [A-Za-z0-9][A-Za-z0-9._-]{0,127}\)\n/);
       expect(pendingPublications(dir)).toEqual([]);
       expect(acknowledged()).toContain(2);
       expect(await runCli('job', 'close', dir)).toEqual({ exit: 0, stdout: 'job: closed\n', stderr: '' });
@@ -1103,7 +1103,12 @@ describe('frozen rig registration', () => {
         // The page head is the newest committed version, whatever the hash order; a named --rig ends as the head.
         expect(byGeneration.map(receipt => obj(obj(receipt.result).selector).version)).toEqual(order === 'named --rig 1' ? [1, 2, 1] : [1, 1, 2]);
         // job open names the head it republished and, on its own line, every other pending publication it published.
-        expect(printed).toMatch(/\njob: rig v1 published\njob: pending rig v2 published\n(job: asked .*\n)?$/);
+        const republishedV1 = byGeneration[order === 'named --rig 1' ? 2 : 1]!;
+        const publicationLines = printed.match(/\n(job: rig v1 published .*)\n([^\n]+)\n(job: asked .*\n)?$/);
+        expect(publicationLines?.slice(1, 3)).toEqual([
+          `job: rig v1 published (publication ${republishedV1.publicationId})`,
+          'job: pending rig v2 published',
+        ]);
         expect(pendingPublications(dir)).toEqual([]);
         expect(readFileSync(join(dir, 'project.json'))).toEqual(bytes);
         expect(await runCli(dir, 'job', 'reconcile', dir)).toEqual({ exit: 0, stdout: 'job: reconciled 0 publication(s)\n', stderr: '' });

@@ -9,7 +9,7 @@ import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, symlinkSync, write
 import { dirname, join } from 'node:path';
 import { attachCreateJobForClose } from '../src/job-close.ts';
 import { readHostActsAndAsks } from '../src/job-acts.ts';
-import { jobHostStateRoot, pendingPublications, readWriterBinding } from '../src/job-outbox.ts';
+import { jobHostStateRoot, pendingPublications, readAcknowledgedPublication, readWriterBinding } from '../src/job-outbox.ts';
 import { jobRuntimeExecArgv } from '../src/job-writer.ts';
 import { isDeepStrictEqual as equal } from 'node:util';
 import { checkProject as checkProjectRaw, type Finding } from '../src/check.ts';
@@ -76,7 +76,6 @@ test('#690 direction publication updates an open page with its direction verdict
       opening += decoder.decode(chunk.value, { stream: true });
     }
     const [url, ...lines] = opening.trim().split('\n');
-    expect(lines).toEqual(['job: post v2 published', 'job: asked review-verdict direction-review']);
     expect((await fetch(url!)).ok).toBe(true);
     const binding = readWriterBinding(root)!;
     const jobState = async () => {
@@ -88,6 +87,9 @@ test('#690 direction publication updates an open page with its direction verdict
       }
     };
     const beforeJob = await jobState();
+    const receipt = readAcknowledgedPublication(root, binding.jobId, beforeJob.status.publication!.publicationId);
+    expect(receipt).not.toBeNull();
+    expect(lines).toEqual([`job: post v2 published (publication ${receipt!.publicationId})`, 'job: asked review-verdict direction-review']);
     expect(beforeJob.asks).toHaveLength(1);
     expect(beforeJob.acts).toEqual([]);
 

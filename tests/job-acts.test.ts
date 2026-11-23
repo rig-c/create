@@ -1048,7 +1048,7 @@ test('#737 a second --question refuses JOB_ASK_PENDING while the first ask is op
   // Re-opening the pending question itself is not a second ask.
   const same = await cli(root, ['job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner', '--question', 'motion']);
   expectExit0(same);
-  expect(same.stdout).toContain('job: option-set motion/pending-acts-motion already published');
+  expect(same.stdout.trimEnd().split('\n')).toContain(`job: option-set motion/pending-acts-motion already published (publication ${view.head.publicationId})`);
   const before = snapshot(root);
   const second = await cli(root, ['job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner', '--question', 'bones']);
   expect(second.exit).toBe(1);
@@ -1070,8 +1070,8 @@ test('#737 a second --question refuses JOB_ASK_PENDING while the first ask is op
 
   const next = await cli(root, ['job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner', '--question', 'bones']);
   expectExit0(next);
-  expect(next.stdout).toContain('job: option-set bones/pending-acts-bones published');
   const bonesView = await page(root, url, 1);
+  expect(next.stdout.trimEnd().split('\n')).toContain(`job: option-set bones/pending-acts-bones published (publication ${bonesView.head.publicationId})`);
   const bonesAct = await bonesView.act('interview-picks', 'interview-picks', bones!);
   const after = JSON.parse((await cli(root, ['job', 'acts', root, '--json'])).stdout).acts as PendingJobAct[];
   expect(after.map(row => row.actId)).toEqual([String(bonesAct.actId)]);
@@ -1207,8 +1207,8 @@ test('#558 next at the rigging interview groups the question loop and prints one
 }, 30_000);
 
 test.each([
-  { label: '--draft', selector: ['--draft', 'chain'], expected: 'job: draft chain published' },
-  { label: '--rig', selector: ['--rig', '1'], expected: 'job: rig v1 published' },
+  { label: '--draft', selector: ['--draft', 'chain'], expected: /\njob: draft chain published \(publication [A-Za-z0-9][A-Za-z0-9._-]{0,127}\)\n/ },
+  { label: '--rig', selector: ['--rig', '1'], expected: /\njob: rig v1 published \(publication [A-Za-z0-9][A-Za-z0-9._-]{0,127}\)\n/ },
 ])('#740 job open $label refuses JOB_ASK_PENDING while an interview ask is open, keeps its answer, and publishes after ingest', async ({ selector, expected }) => {
   testClock.set(Date.now());
   const root = copy('3-rig-review', project => {
@@ -1252,7 +1252,7 @@ test.each([
 
   const published = await cli(root, ['job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner', ...selector]);
   expectExit0(published);
-  expect(published.stdout).toContain(expected);
+  expect(published.stdout).toMatch(expected);
 }, 60_000);
 
 test('#740 a draft republished over an unanswered earlier-draft ask publishes while an un-ingested earlier-draft act refuses JOB_ASK_PENDING', async () => {
@@ -1269,17 +1269,17 @@ test('#740 a draft republished over an unanswered earlier-draft ask publishes wh
   expectExit0(await cli(root, ['structure-snapshot', root, '--draft', 'next']));
 
   const opening = await open(root, ['--draft', 'chain']);
-  expect(opening.lines).toEqual(['job: draft chain published', 'job: asked parts-verdict chain']);
-  await page(root, opening.url, 1, 'parts-verdict');
+  const firstView = await page(root, opening.url, 1, 'parts-verdict');
+  expect(opening.lines).toEqual([`job: draft chain published (publication ${firstView.head.publicationId})`, 'job: asked parts-verdict chain']);
 
   // Unanswered earlier-draft ask allows the replacement draft to publish over it.
   const republished = await cli(root, ['job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner', '--draft', 'next']);
   expectExit0(republished);
-  expect(republished.stdout).toContain('job: draft next published');
   expect(republished.stdout).toContain('job: asked parts-verdict next');
 
   // Once the owner answers a draft ask, an un-ingested act refuses another draft publication.
   const nextView = await page(root, opening.url, 1, 'parts-verdict');
+  expect(republished.stdout.trimEnd().split('\n')).toContain(`job: draft next published (publication ${nextView.head.publicationId})`);
   await nextView.act('parts-verdict', 'parts-verdict', { verdict: 'approved', issues: [], words: WORDS });
   const before = snapshot(root);
   const refused = await cli(root, ['job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner', '--draft', 'chain']);
@@ -1894,9 +1894,9 @@ test('#604 writer auto-publish refuses JOB_ASK_PENDING when the bound job holds 
   put('evidence/reopen.txt', 'Reopen rig-review for synthetic rebuild.\n');
 
   const opening = await open(root, ['--rig', '2']);
-  expect(opening.lines).toEqual(['job: post v2 published', 'job: asked review-verdict direction-review']);
   const binding = readWriterBinding(root)!;
   const firstView = await page(root, opening.url, 1, 'review-verdict');
+  expect(opening.lines).toEqual([`job: post v2 published (publication ${firstView.head.publicationId})`, 'job: asked review-verdict direction-review']);
   expect(obj(firstView.head.source).selector).toEqual({ kind: 'post', version: 2, rigVersion: 1 });
   const preReopenProject = readFileSync(join(root, 'project.json'));
 

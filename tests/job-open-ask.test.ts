@@ -131,7 +131,7 @@ test('#523 a killed host permits a pristine same-path redo and retains the old s
   const retainedDescriptor = readFileSync(descriptor);
   replaceProjectRoot(root, source, 'killed-host');
   const second = await open(root);
-  expect(second.lines).toEqual(['job: draft chain published']);
+  expect(second.lines).toEqual([publishedLine('draft chain published', root)]);
   expect(readWriterBinding(root)!.jobId).not.toBe(binding.jobId);
   const archives = readdirSync(dirname(state)).filter(name => name.startsWith(`${basename(state)}.replaced-`));
   expect(archives).toHaveLength(1);
@@ -168,7 +168,7 @@ test('#523 reconcile recovers a dead same-path host before job open, and live re
   expect({ exit: reconciled.exit, stderr: reconciled.stderr }).toEqual({ exit: 0, stderr: '' });
   expect(reconciled.stdout).toContain('reconciled 0 publication(s)');
   expect(existsSync(jobHostStateRoot(root))).toBe(false);
-  expect((await open(root)).lines[0]).toBe('job: draft chain published');
+  expect((await open(root)).lines[0]).toBe(publishedLine('draft chain published', root));
 }, 20_000);
 
 const WORDS = '  Synthetic page words.\n';
@@ -354,15 +354,23 @@ async function open(root: string, options: string[] = [], projectPath = root): P
   return { url: new URL(lines[0]!), lines: lines.slice(1) };
 }
 
-/** Read the publication and its declared asks without acknowledging a display or submitting an act. */
-async function publication(root: string, url: URL, expectedAsks = 2) {
-  const jobId = /\/jobs\/([^/]+)\//.exec(url.pathname)![1]!;
+function latestReceipt(root: string): AcknowledgedPublication {
+  const jobId = readWriterBinding(root)!.jobId;
   const receipts = join(jobPrivateRoot(root), 'acknowledged-publications');
-  const expectedPublication = readdirSync(receipts)
+  return readdirSync(receipts)
     .map(file => JSON.parse(readFileSync(join(receipts, file), 'utf8')) as AcknowledgedPublication)
     .filter(receipt => receipt.jobId === jobId)
     .sort((a, b) => b.generation - a.generation)[0]!;
+}
+
+const publishedLine = (label: string, root: string) => `job: ${label} (publication ${latestReceipt(root).publicationId})`;
+
+/** Read the publication and its declared asks without acknowledging a display or submitting an act. */
+async function publication(root: string, url: URL, expectedAsks = 2) {
+  const jobId = /\/jobs\/([^/]+)\//.exec(url.pathname)![1]!;
+  const expectedPublication = latestReceipt(root);
   expect(expectedPublication).toBeDefined();
+  expect(expectedPublication.jobId).toBe(jobId);
   const capability = url.hash.replace('#cap=', '');
   const base = `${url.origin}/jobs/${jobId}/`;
   const headers = { origin: url.origin, 'X-Review-Capability': capability, 'content-type': 'application/json' };
@@ -438,7 +446,7 @@ test('#412 public job open selects a registered rig on a new empty head and retr
 
   const selected = await open(root, ['--rig', '1']);
   // At rigging the page keeps its checkpoint ask and names the deferred rig verdict (#754).
-  expect(selected.lines.slice(1)).toEqual(['job: rig v1 published', 'job: asked checkpoint meshes']);
+  expect(selected.lines.slice(1)).toEqual([publishedLine('rig v1 published', root), 'job: asked checkpoint meshes']);
   expect(selected.lines[0]).toStartWith('WARN JOB_RIG_VERDICT_DEFERRED: versions[v1]: ');
   const first = await publication(root, selected.url, 1);
   expect((first.head.source as JsonObject).selector).toEqual({ kind: 'rig', version: 1 });
@@ -447,7 +455,7 @@ test('#412 public job open selects a registered rig on a new empty head and retr
   const again = await cli(root, ['job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner', '--rig', 'v1']);
   expect({ exit: again.exit, stderr: again.stderr }).toEqual({ exit: 0, stderr: '' });
   expect(again.stdout.trim().split('\n')).toEqual([
-    selected.url.href, selected.lines[0], 'job: rig v1 already published', 'job: already asked checkpoint meshes',
+    selected.url.href, selected.lines[0], publishedLine('rig v1 already published', root), 'job: already asked checkpoint meshes',
   ]);
   const repeated = await publication(root, selected.url, 1);
   expect(repeated.head.publicationId).toBe(first.head.publicationId);
@@ -466,7 +474,7 @@ test('#852 job open --rig publishes through a symlink to the project root', asyn
   symlinkSync(root, alias, 'dir');
   try {
     const opening = await open(root, ['--rig', '1'], alias);
-    expect(opening.lines).toEqual(['job: rig v1 published', 'job: asked review-verdict rig-review']);
+    expect(opening.lines).toEqual([publishedLine('rig v1 published', root), 'job: asked review-verdict rig-review']);
     const { head } = await publication(root, opening.url, 1);
     expect((head.source as JsonObject).selector).toEqual({ kind: 'rig', version: 1 });
   } finally {
@@ -512,7 +520,7 @@ test('#754 before rig-review the rig page declares its checkpoint ask, no review
   const opening = await open(root, ['--rig', '1']);
   expect(opening.lines).toEqual([
     `WARN JOB_RIG_VERDICT_DEFERRED: versions[v1]: stage rigging publishes rig v1 without its review-verdict rig-review ask, which review --from-review could not ingest here; the verdict becomes askable at rig-review: unmet bars before rig-review: plan.steps[motion] is in-progress, bar "The synthetic output matches its declared input."; meet them, then run rig-create advance rig-review ${root} and rig-create job open ${root} --rig 1 again`,
-    'job: rig v1 published', 'job: asked checkpoint meshes',
+    publishedLine('rig v1 published', root), 'job: asked checkpoint meshes',
   ]);
   const view = await publication(root, opening.url, 1);
   expect(view.asks.map(ask => ask.subject)).toEqual([{ kind: 'checkpoint', checkpointId: 'meshes' }]);
@@ -528,7 +536,7 @@ test('#754 at ready rig-review job open --rig declares the verdict ask and its a
   const root = registeredRig('rig-review');
   expect(livePublicationSubjects(root, read(root), { kind: 'rig', version: 1 })).toEqual([{ kind: 'review-verdict', stage: 'rig-review' }]);
   const opening = await open(root, ['--rig', '1']);
-  expect(opening.lines).toEqual(['job: rig v1 published', 'job: asked review-verdict rig-review']);
+  expect(opening.lines).toEqual([publishedLine('rig v1 published', root), 'job: asked review-verdict rig-review']);
   const person = await page(root, opening.url, 1);
   const verdict = await person.act('review-verdict', 'review-verdict', { stage: 'rig-review', verdict: 'approved', words: WORDS });
   const reviewed = await cli(root, ['review', '1', root, '--from-review', String(verdict.actId)]);
@@ -550,13 +558,13 @@ test('#754 case A: job open --rig at rigging with nothing to ask publishes an as
   expect(livePublicationSubjects(root, read(root), { kind: 'rig', version: 1 })).toEqual([]);
   const warn = `WARN JOB_RIG_VERDICT_DEFERRED: versions[v1]: stage rigging publishes rig v1 without its review-verdict rig-review ask, which review --from-review could not ingest here; ${deferredRoute(root)}`;
   const opening = await open(root, ['--rig', '1']);
-  expect(opening.lines).toEqual([warn, 'job: rig v1 published']);
+  expect(opening.lines).toEqual([warn, publishedLine('rig v1 published', root)]);
   expect((await publication(root, opening.url, 0)).asks).toEqual([]);
   // The open page is reopened as is, with the same named route and no generic ask refusal.
   const saved = readFileSync(join(root, 'project.json'));
   const again = await cli(root, ['job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner', '--rig', '1']);
   expect({ exit: again.exit, stderr: again.stderr }).toEqual({ exit: 0, stderr: '' });
-  expect(again.stdout.trim().split('\n')).toEqual([opening.url.href, warn, 'job: rig v1 already published']);
+  expect(again.stdout.trim().split('\n')).toEqual([opening.url.href, warn, publishedLine('rig v1 already published', root)]);
   expect(readFileSync(join(root, 'project.json'))).toEqual(saved);
 }, 30_000);
 
@@ -664,8 +672,8 @@ test('job open publishes the recorded draft, asks its subjects, and the page act
   const root = await partsReview(false);
   const opening = await open(root);
   expect(opening.lines[0]).toContain('WARN DIFF_MAP_MISSING:');
-  expect(opening.lines.slice(1)).toEqual(['job: draft chain published']);
-  expect(opening.lines.at(-1)).toBe('job: draft chain published');
+  expect(opening.lines.slice(1)).toEqual([publishedLine('draft chain published', root)]);
+  expect(opening.lines.at(-1)).toBe(publishedLine('draft chain published', root));
   const missing = await page(root, opening.url, 0);
   expect(missing.asks.map(ask => ask.subject)).toEqual([]);
   expect(pendingPublications(root)).toEqual([]);
@@ -674,12 +682,12 @@ test('job open publishes the recorded draft, asks its subjects, and the page act
   const initialReady = await cli(root, ['job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner']);
   expect(initialReady.exit).toBe(0);
   expect(initialReady.stdout.trim().split('\n').slice(1)).toEqual([
-    'job: draft chain published', 'job: asked parts-verdict chain',
+    publishedLine('draft chain published', root), 'job: asked parts-verdict chain',
   ]);
   // A re-open while the host runs shows the same publication and asks nothing twice.
   const again = await cli(root, ['job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner']);
   expect({ exit: again.exit, stderr: again.stderr }).toEqual({ exit: 0, stderr: '' });
-  expect(again.stdout.trim().split('\n')).toEqual([opening.url.href, 'job: draft chain already published', 'job: already asked parts-verdict chain']);
+  expect(again.stdout.trim().split('\n')).toEqual([opening.url.href, publishedLine('draft chain already published', root), 'job: already asked parts-verdict chain']);
   // Producer report drift invalidates approval even when project.json and its selector are unchanged.
   const oldReport = readFileSync(join(root, 'evidence/diff-components.json'));
   const beforeDrift = readFileSync(join(root, 'project.json'));
@@ -688,7 +696,7 @@ test('job open publishes the recorded draft, asks its subjects, and the page act
   expect(invalid.exit).toBe(0);
   expect(invalid.stdout).toContain('WARN DIFF_MAP_REPORT:');
   expect(invalid.stdout).not.toContain('signoff parts-review');
-  expect(invalid.stdout.trim().split('\n').at(-1)).toBe('job: draft chain published');
+  expect(invalid.stdout.trim().split('\n').at(-1)).toBe(publishedLine('draft chain published', root));
   const inspection = await page(root, opening.url, 0);
   expect(inspection.asks.map(ask => ask.subject)).toEqual([]);
   expect(readFileSync(join(root, 'project.json'))).toEqual(beforeDrift);
@@ -726,7 +734,7 @@ test('job open publishes the recorded draft, asks its subjects, and the page act
   expect(unreadyOpen.stdout).toContain('WARN DIFF_MAP_STACK_MISMATCH:');
   expect(unreadyOpen.stdout).not.toContain('asked parts-verdict next');
   expect(unreadyOpen.stdout).not.toContain('signoff parts-review');
-  expect(unreadyOpen.stdout.trim().split('\n').at(-1)).toBe('job: draft next published');
+  expect(unreadyOpen.stdout.trim().split('\n').at(-1)).toBe(publishedLine('draft next published', root));
   expect((await cli(root, ['structure-snapshot', root, '--draft', 'next', '--out', 'evidence/structure-next.json'])).exit).toBe(0);
   const mapped = await cli(root, ['diff-classes', root, '--diff-report', 'evidence/next-diff-components.json', '--by', 'agent']);
   expect({ exit: mapped.exit, stderr: mapped.stderr }).toEqual({ exit: 0, stderr: '' });
@@ -734,7 +742,7 @@ test('job open publishes the recorded draft, asks its subjects, and the page act
   const ready = await cli(root, ['job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner']);
   expect({ exit: ready.exit, stderr: ready.stderr }).toEqual({ exit: 0, stderr: '' });
   expect(ready.stdout.trim().split('\n').slice(1)).toEqual([
-    'job: draft next published', 'job: asked parts-verdict next',
+    publishedLine('draft next published', root), 'job: asked parts-verdict next',
   ]);
   const readyAgain = await cli(root, ['job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner']);
   expect(readyAgain.exit).toBe(0);
@@ -757,7 +765,7 @@ test('job open publishes the recorded draft, asks its subjects, and the page act
   // The writes changed the record, so a re-open publishes the draft again. Both the verdict and the stage are recorded, so nothing is asked.
   const after = await cli(root, ['job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner']);
   expect({ exit: after.exit, stderr: after.stderr }).toEqual({ exit: 0, stderr: '' });
-  expect(after.stdout.trim().split('\n').slice(1)).toEqual(['job: draft next published']);
+  expect(after.stdout.trim().split('\n').slice(1)).toEqual([publishedLine('draft next published', root)]);
 }, 20_000);
 
 test('a --draft that the record does not hold refuses before writing project.json or starting a host', async () => {
@@ -795,7 +803,7 @@ test('a parts-review job open --draft refuses JOB_PARTS_VERDICT_UNASKABLE when t
   expect({ exit: snap.exit, stderr: snap.stderr }).toEqual({ exit: 0, stderr: '' });
   expect(existsSync(join(root, 'evidence/structure-chain.json'))).toBe(true);
   const opening = await open(root, ['--draft', 'chain']);
-  expect(opening.lines).toEqual(['job: draft chain published', 'job: asked parts-verdict chain']);
+  expect(opening.lines).toEqual([publishedLine('draft chain published', root), 'job: asked parts-verdict chain']);
   const view = await publication(root, opening.url, 1);
   expect(view.asks.map(ask => ask.subject)).toEqual([{ kind: 'parts-verdict', draftId: 'chain' }]);
 });
@@ -833,13 +841,13 @@ test('job open retries a refused ask on an acknowledged rig head without overwri
 
   const retried = await cli(root, ['job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner']);
   expect({ exit: retried.exit, stderr: retried.stderr }).toEqual({ exit: 0, stderr: '' });
-  expect(retried.stdout.trim().split('\n')).toEqual([opening.url.href, `job: ${kind} v${version} already published`, `job: asked review-verdict ${stage}`]);
+  expect(retried.stdout.trim().split('\n')).toEqual([opening.url.href, publishedLine(`${kind} v${version} already published`, root), `job: asked review-verdict ${stage}`]);
   const person = await page(root, opening.url, 1);
   expect((person.head.source as { selector: unknown }).selector).toEqual(selector);
   expect(person.asks.map(ask => ask.subject)).toEqual([{ kind: 'review-verdict', stage }]);
   const pendingAgain = await cli(root, ['job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner']);
   expect({ exit: pendingAgain.exit, stderr: pendingAgain.stderr }).toEqual({ exit: 0, stderr: '' });
-  expect(pendingAgain.stdout.trim().split('\n')).toEqual([opening.url.href, `job: ${kind} v${version} already published`, `job: already asked review-verdict ${stage}`]);
+  expect(pendingAgain.stdout.trim().split('\n')).toEqual([opening.url.href, publishedLine(`${kind} v${version} already published`, root), `job: already asked review-verdict ${stage}`]);
   const pendingView = await publication(root, opening.url, 1);
   expect(pendingView.head.publicationId).toBe(person.head.publicationId);
   expect(pendingView.asks.map(ask => ask.askId)).toEqual(person.asks.map(ask => ask.askId));
@@ -848,7 +856,7 @@ test('job open retries a refused ask on an acknowledged rig head without overwri
 
   const again = await cli(root, ['job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner']);
   expect({ exit: again.exit, stderr: again.stderr }).toEqual({ exit: 0, stderr: '' });
-  expect(again.stdout.trim().split('\n')).toEqual([opening.url.href, `job: ${kind} v${version} already published`, `job: already asked review-verdict ${stage}`]);
+  expect(again.stdout.trim().split('\n')).toEqual([opening.url.href, publishedLine(`${kind} v${version} already published`, root), `job: already asked review-verdict ${stage}`]);
   const answeredView = await publication(root, opening.url, 1);
   expect(answeredView.head.publicationId).toBe(person.head.publicationId);
   expect(answeredView.asks.map(ask => ask.askId)).toEqual(person.asks.map(ask => ask.askId));
@@ -877,7 +885,7 @@ test('#754 a post page opened before direction-review asks a direction verdict t
   const root = registeredPost(false);
   expect(read(root).stage).toBe('post');
   const opening = await open(root, ['--rig', '2']);
-  expect(opening.lines).toEqual(['job: post v2 published', 'job: asked review-verdict direction-review']);
+  expect(opening.lines).toEqual([publishedLine('post v2 published', root), 'job: asked review-verdict direction-review']);
   const person = await page(root, opening.url, 1);
   const verdict = await person.act('review-verdict', 'review-verdict', { stage: 'direction-review', verdict: 'approved', words: WORDS });
   const reviewed = await cli(root, ['review', '2', root, '--from-review', String(verdict.actId)]);
@@ -924,7 +932,7 @@ test.each(['signoff', 'checkpoint', 'both'] as const)('#467 replaces an unchange
   } finally { legacy.stop(); }
 
   const reopened = await open(root, ['--rig', '2']);
-  expect(reopened.lines).toEqual(['job: post v2 published', 'job: asked review-verdict direction-review']);
+  expect(reopened.lines).toEqual([publishedLine('post v2 published', root), 'job: asked review-verdict direction-review']);
   const current = await publication(root, reopened.url, 1);
   expect(current.head.publicationId).not.toBe(previousId!);
   expect(current.asks.map(ask => ask.subject)).toEqual([{ kind: 'review-verdict', stage: 'direction-review' }]);
@@ -947,7 +955,7 @@ test('#467 a post page asks only the direction verdict before and after ingest, 
   expect(existsSync(jobHostStateRoot(root))).toBe(false);
 
   const opening = await open(root, ['--rig', '2']);
-  expect(opening.lines).toEqual(['job: post v2 published', 'job: asked review-verdict direction-review']);
+  expect(opening.lines).toEqual([publishedLine('post v2 published', root), 'job: asked review-verdict direction-review']);
   const first = await page(root, opening.url, 1);
   expect((first.head.source as JsonObject).selector).toEqual({ kind: 'post', version: 2, rigVersion: 1 });
   expect(first.asks.map(ask => ask.subject)).toEqual([{ kind: 'review-verdict', stage: 'direction-review' }]);
@@ -957,14 +965,15 @@ test('#467 a post page asks only the direction verdict before and after ingest, 
 
   const refreshed = await cli(root, ['job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner', '--rig', 'v2']);
   expect({ exit: refreshed.exit, stderr: refreshed.stderr }).toEqual({ exit: 0, stderr: '' });
-  expect(refreshed.stdout.trim().split('\n').slice(1)).toEqual(['job: post v2 published']);
+  expect(refreshed.stdout.trim().split('\n').slice(1)).toEqual([publishedLine('post v2 published', root)]);
   const current = await publication(root, opening.url, 0);
-  expect(current.head.publicationId).not.toBe(first.head.publicationId);
+  const refreshedId = latestReceipt(root).publicationId;
+  expect(refreshedId).not.toBe(first.head.publicationId);
   expect(current.asks.map(ask => ask.subject)).toEqual([]);
   const saved = readFileSync(join(root, 'project.json'));
   const again = await cli(root, ['job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner', '--rig', '2']);
   expect({ exit: again.exit, stderr: again.stderr }).toEqual({ exit: 0, stderr: '' });
-  expect(again.stdout.trim().split('\n').slice(1)).toEqual(['job: post v2 already published']);
+  expect(again.stdout.trim().split('\n').slice(1)).toEqual([`job: post v2 already published (publication ${refreshedId})`]);
   expect((await publication(root, opening.url, 0)).head.publicationId).toBe(current.head.publicationId);
   expect(readFileSync(join(root, 'project.json'))).toEqual(saved);
   expect(pendingPublications(root)).toEqual([]);
@@ -979,7 +988,7 @@ test('a binding copied from another root is replaced: the copy opens its own job
   cpSync(original, copy, { recursive: true });
   expect(readWriterBinding(copy)!.identity.root).toBe(original);
   const copied = await open(copy);
-  expect(copied.lines).toEqual(['job: draft chain published', 'job: asked parts-verdict chain']);
+  expect(copied.lines).toEqual([publishedLine('draft chain published', copy), 'job: asked parts-verdict chain']);
   const binding = readWriterBinding(copy)!;
   expect(binding.identity.root).toBe(copy);
   expect(binding.identity.stateDir).toBe(join(jobHostStateRoot(copy), 'host'));

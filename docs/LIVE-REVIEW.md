@@ -80,10 +80,11 @@ checks; a changed act or compact receipt refuses without writing.
 
 The default in `parts` and `parts-review` publishes the latest recorded draft.
 `--draft` names a recorded draft in any stage. Opening asks every subject that publication declares (see
-[Asks](#asks)). It prints `job: draft <id> published`, or `already published`
-when the job's head publication is already that draft (or an acknowledged `rig`
-or `post` version) over the current record,
-then `job: asked …` and `job: already asked …` with each subject. A `--draft` id
+[Asks](#asks)). It prints `job: draft <id> published (publication <publication-id>)`,
+or `job: draft <id> already published (publication <publication-id>)` when it
+reuses the draft publication over the current record. Rig, post, plan and
+option-set successes use the same suffix with their own labels.
+Then `job: asked …` and `job: already asked …` name each subject. A `--draft` id
 the record does not hold refuses `JOB_DRAFT_UNKNOWN` before writing `review_job`. A refused publish or ask
 is printed while the background host keeps serving. The
 versioned `review_job` stores only `jobId` and `origin`. The host installs its

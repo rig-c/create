@@ -281,8 +281,8 @@ test('draft, question, then draft publish through the same live owner URL', asyn
   const draftId = 'example';
   const draftArgs = ['--draft', draftId];
   const draft = await open(root, draftArgs);
-  expect(draft.lines).toContain(`job: draft ${draftId} published`);
   const initial = await publication(root, draft.url, 0);
+  expect(draft.lines).toContain(`job: draft ${draftId} published (publication ${initial.head.publicationId})`);
   expect(obj(initial.head.source).selector).toEqual({ kind: 'draft', id: draftId });
   const bindingFile = join(root, JOB_BINDING_FILE);
   const binding = readFileSync(bindingFile);
@@ -295,8 +295,8 @@ test('draft, question, then draft publish through the same live owner URL', asyn
   const question = await reopen(['--question', 'motion']);
   expect(question.exit, question.stderr).toBe(0);
   expect(question.stdout.trim().split('\n')[0]).toBe(draft.url.href);
-  expect(question.stdout).toContain('job: option-set motion/switch-motion published');
   const owner = await page(root, draft.url, 1);
+  expect(question.stdout.trimEnd().split('\n')).toContain(`job: option-set motion/switch-motion published (publication ${owner.head.publicationId})`);
   expect(owner.asks.map(ask => ask.subject)).toEqual([{ kind: 'interview-picks', questionId: 'motion', setId: 'switch-motion' }]);
 
   const before = bytes(root);
@@ -325,8 +325,8 @@ test('draft, question, then draft publish through the same live owner URL', asyn
   const back = await reopen(draftArgs);
   expect(back.exit, back.stderr).toBe(0);
   expect(back.stdout.trim().split('\n')[0]).toBe(draft.url.href);
-  expect(back.stdout).toContain(`job: draft ${draftId} published`);
   const restored = await publication(root, draft.url, 1);
+  expect(back.stdout.trimEnd().split('\n')).toContain(`job: draft ${draftId} published (publication ${restored.head.publicationId})`);
   expect(restored.head.publicationId).not.toBe(owner.head.publicationId);
   expect(obj(restored.head.source).selector).toEqual(obj(initial.head.source).selector);
   expect(restored.asks.map(ask => ask.subject)).toEqual([{ kind: 'signoff', stage: 'rigging-interview' }]);
@@ -343,12 +343,13 @@ test('record question public path, API@2 fetch, retry, stale source and wrong su
     option.effect = '24';
   });
   const opened = await open(root, ['--question', 'motion']);
-  expect(opened.lines).toEqual(['job: option-set motion/pending-motion published', 'job: asked interview-picks motion/pending-motion']);
+  const first = await publication(root, opened.url, 1);
+  expect(opened.lines).toEqual([`job: option-set motion/pending-motion published (publication ${first.head.publicationId})`, 'job: asked interview-picks motion/pending-motion']);
   const before = readFileSync(join(root, 'project.json'));
   const again = await cli(root, ['job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner', '--question', 'motion']);
   expect(again.exit, again.stderr).toBe(0);
   expect(again.stdout.startsWith(opened.url.href + '\n')).toBe(true);
-  expect(again.stdout).toContain('already published');
+  expect(again.stdout.trimEnd().split('\n')).toContain(`job: option-set motion/pending-motion already published (publication ${first.head.publicationId})`);
   expect(readFileSync(join(root, 'project.json'))).toEqual(before);
   // Recover a lost consumer acknowledgement through the public reconcile command.
   const pending = enqueuePublication(root, readWriterBinding(root)!, { kind: 'option-set', questionId: 'motion', setId: 'pending-motion' });
@@ -419,8 +420,8 @@ test('record question public path, API@2 fetch, retry, stale source and wrong su
   const refreshed = await cli(root, ['interview-options', 'motion', root, '--file', resolved]);
   expect(refreshed.exit, refreshed.stderr).toBe(0);
   const current = await open(root, ['--question', 'motion']);
-  expect(current.lines).toContain('job: option-set motion/resolved-motion published');
   const resolvedOwner = await page(root, current.url, 1);
+  expect(current.lines).toContain(`job: option-set motion/resolved-motion published (publication ${resolvedOwner.head.publicationId})`);
   const resolvedAct = await resolvedOwner.act('interview-picks', 'interview-picks', { questionId: 'motion', selections, note: WORDS });
   const ingested = await cli(root, ['interview-answer', 'motion', root, '--from-review', String(resolvedAct.actId)]);
   expect(ingested.exit, ingested.stderr).toBe(0);

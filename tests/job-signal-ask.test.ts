@@ -101,7 +101,7 @@ for (const signal of ['SIGTERM', 'SIGINT'] as const) test(`job open CLI forwards
   const root = copyCheckpoint('1-parts-verdict');
   const { proc, url, lines } = await open(root);
   // Parts-stage inventory is publishable, but approval waits for parts-review readiness.
-  expect(lines).toEqual(['job: draft chain published']);
+  expect(lines).toEqual([`job: draft chain published (publication ${publicationId(root)})`]);
   expect(await isOriginListening(url.origin)).toBe(true);
 
   proc.kill(signal);
@@ -240,8 +240,9 @@ async function openPartsWithoutAsk(root: string): Promise<string> {
   // The default open can publish an inspection page while the active draft lacks its snapshot.
   rmSync(path);
   try {
-    expect((await open(root)).lines.at(-1)).toBe('job: draft chain published');
+    const opening = await open(root);
     const head = publicationId(root);
+    expect(opening.lines.at(-1)).toBe(`job: draft chain published (publication ${head})`);
     const binding = readWriterBinding(root)!;
     expect(readAcknowledgedPublication(root, binding.jobId, head)?.subjects).toEqual([]);
     return head;
@@ -256,8 +257,9 @@ test.each([
 ])('#833 draft-rig ($mode) refuses JOB_ASK_PENDING before writing project.json', async ({ flags }) => {
   const root = await preparedParts();
   const args = copyDraft(root, 'chain-2');
-  expect((await open(root)).lines).toEqual(['job: draft chain published', 'job: asked parts-verdict chain']);
+  const opening = await open(root);
   const head = publicationId(root);
+  expect(opening.lines).toEqual([`job: draft chain published (publication ${head})`, 'job: asked parts-verdict chain']);
   const projectFile = join(root, 'project.json');
   const before = readFileSync(projectFile);
   const refused = await cli(root, [...args, ...flags]);
@@ -313,18 +315,18 @@ test('#690 explicit job open --draft replaces a publication with an unanswered e
   expect(await cli(root, args)).toMatchObject({ exit: 0, stderr: '' });
   expect(await cli(root, ['structure-snapshot', root, '--draft', 'chain-2'])).toMatchObject({ exit: 0, stderr: '' });
   const opening = await open(root, ['--draft', 'chain']);
-  expect(opening.lines).toEqual(['job: draft chain published', 'job: asked parts-verdict chain']);
   const binding = readWriterBinding(root)!;
   const before = publicationId(root);
+  expect(opening.lines).toEqual([`job: draft chain published (publication ${before})`, 'job: asked parts-verdict chain']);
   const shown = await cli(root, ['job', 'open', root, '--draft', 'chain-2', '--reviewer', 'synthetic-owner', '--role', 'owner']);
   expect(shown).toMatchObject({ exit: 0, stderr: '' });
   const [url, ...lines] = shown.stdout.trim().split('\n');
   expect(url).toBe(opening.url.href);
+  const after = publicationId(root);
   expect(lines).toEqual(expect.arrayContaining([
-    'job: draft chain-2 published',
+    `job: draft chain-2 published (publication ${after})`,
     'job: asked parts-verdict chain-2',
   ]));
-  const after = publicationId(root);
   expect(after).not.toBe(before);
   expect(readAcknowledgedPublication(root, binding.jobId, after)?.subjects).toEqual([{ kind: 'parts-verdict', draftId: 'chain-2' }]);
   expect(pendingPublications(root)).toEqual([]);
@@ -337,9 +339,9 @@ test('#690 advance updates the same rig with its review verdict ask', async () =
   });
   const opening = await open(root, ['--rig', '1']);
   // At rigging the page carries no verdict ask yet; advance adds it on the same rig (#754).
-  expect(opening.lines.slice(1)).toEqual(['job: rig v1 published']);
-  expect(opening.lines[0]).toStartWith('WARN JOB_RIG_VERDICT_DEFERRED: versions[v1]: ');
   const before = publicationId(root);
+  expect(opening.lines.slice(1)).toEqual([`job: rig v1 published (publication ${before})`]);
+  expect(opening.lines[0]).toStartWith('WARN JOB_RIG_VERDICT_DEFERRED: versions[v1]: ');
   const advanced = await cli(root, ['advance', 'rig-review', root]);
   const after = publicationId(root);
   expect({ exit: advanced.exit, stderr: advanced.stderr }).toEqual({ exit: 0, stderr: '' });

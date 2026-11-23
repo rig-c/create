@@ -1442,6 +1442,9 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
     ...(bustCommands ? { bust_landmark_commands: bustCommands } : {}) };
   const jobId = readOptionalJobId(dir);
   const holes = report.holes ?? [];
+  const partsEditHoles = holes.filter(hole => hole.code === 'PART_EDIT_UNCOVERED');
+  const canRepairPartsEdit = stage !== PAUSED_STAGE && (effectiveStage === 'parts' || effectiveStage === 'parts-review');
+  const blockingHoles = canRepairPartsEdit ? holes.filter(hole => hole.code !== 'PART_EDIT_UNCOVERED') : holes;
 
   const pendingOtherFindings: Finding[] = allItems
     .filter(item => hasPendingOther(item) && !report.refusals.some(r => r.code === 'INTERVIEW_CHOICE_REQUIRED' && r.path === item.path))
@@ -1492,7 +1495,7 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
   const blockingRefusals = report.refusals.filter(r => r.code === 'PLAN_STEP_PREDATES_ANSWER' ? scopedStale.has(r)
     : !isOpenInterviewTodo(r, effectiveStage) && !isResolvableLagging(r));
   const registrations = plateInputMoves(dir, project, allItems, now);
-  if (holes.length > 0 || blockingRefusals.length > 0) {
+  if (blockingHoles.length > 0 || blockingRefusals.length > 0) {
     const signoffs = asArray(project.signoffs);
     const readyToResign = new Map<string, boolean>();
     for (const finding of report.refusals) {
@@ -1544,7 +1547,7 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
   moves.forEach(move => addAwait(move.awaits));
   if (effectiveStage === 'parts-review') {
     const draftState = partsDraftEvidenceMoves(dir, project, effectiveStage, jobId, now);
-    if (!draftState.hasApprovedPartsVerdict && draftState.moves.length > 0) {
+    if (partsEditHoles.length > 0 || (!draftState.hasApprovedPartsVerdict && draftState.moves.length > 0)) {
       if (draftState.retouching) {
         return {
           schema: NEXT_SCHEMA,
@@ -1559,6 +1562,12 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
         };
       }
       const runnableDraftMoves = draftState.moves.flatMap(move => reviewCommands(dir, project, move));
+      if (partsEditHoles.length > 0 && (draftState.hasApprovedPartsVerdict || runnableDraftMoves.length === 0)) {
+        for (const hole of partsEditHoles) runnableDraftMoves.push({
+          role: 'agent', field: hole.path, awaits: hole.path, command: null,
+          act: `${hole.message}. Register a new draft if the current one binds different bytes. If the stage is already signed, record the owner's amendment before opening a new verdict.`,
+        });
+      }
       for (const move of runnableDraftMoves) addAwait(move.awaits);
       return {
         schema: NEXT_SCHEMA,

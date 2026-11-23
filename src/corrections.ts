@@ -1,4 +1,4 @@
-import { declaredPartImages } from './edited-part-inputs.ts';
+import { declaredPartImages, type PartImageIdentity } from './edited-part-inputs.ts';
 import { retainedReviewRead, reviewReadLegacy, reviewSessionSource, selectedReviewFeedback, ReviewReadError } from './review-read.ts';
 import { configInputBindings, configInputsLegacy } from './config-inputs.ts';
 import { DIRECTION_CORRECTION_SPEC, DirectionError, directionPatchLegacyFinding, validateDirectionIdentity } from './direction.ts';
@@ -731,7 +731,7 @@ export function correctionApprovalFindings(project: JsonObject, stage: string, s
   }
   return out;
 }
-export function checkCorrections(ctx: { dir: string; project: JsonObject; refusals: Finding[]; warnings: Finding[] }, now: number): void {
+export function checkCorrections(ctx: { dir: string; project: JsonObject; refusals: Finding[]; warnings: Finding[] }, now: number, partImages?: PartImageIdentity[]): void {
   const { dir, project, refusals, warnings } = ctx;
   const contract = project.corrections_contract;
   if (contract === undefined) warnings.push(correctionFinding('CORRECTION_PATH_LEGACY', 'corrections_contract', 'correction paths are not adopted; adopt explicitly without rewriting history'));
@@ -814,6 +814,10 @@ export function checkCorrections(ctx: { dir: string; project: JsonObject; refusa
       } else if (partImage) {
         if (record.path !== 'made') fail('CORRECTION_MALFORMED', 'part-image requires made path');
         validatePartImageArtifact(dir, project, record, art, on);
+        if (correctionsAdopted(project)) {
+          const after = art.after as JsonObject;
+          partImages?.push({ name: String(art.part), path: String(after.path), sha256: String(after.sha256) });
+        }
       } else if (!legacyRead) {
         if (record.by !== 'user') fail('CORRECTION_MALFORMED', 'made requires by:user');
         if (art.kind === 'unsupported') {

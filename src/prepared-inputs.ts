@@ -16,6 +16,13 @@ const memberPath = (v: Json | undefined): v is string =>
   nonempty(v) && !isAbsolute(v) && !v.includes('\\') && v.split('/').every((part) => part !== '' && part !== '.' && part !== '..');
 const joinMember = (folder: string, member: string): string => `${folder.replace(/\/+$/, '')}/${member}`;
 
+export function derivedTime(value: Json | undefined): number {
+  if (typeof value !== 'string' || !/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?(?:Z|[+-]\d\d:\d\d)$/.test(value)) return NaN;
+  const at = Date.parse(value);
+  const day = Date.parse(value.slice(0, 10));
+  return Number.isFinite(day) && new Date(day).toISOString().slice(0, 10) === value.slice(0, 10) ? at : NaN;
+}
+
 class RunMemberUnreadable extends Error {
   readonly rel: string;
   readonly memberPath: string;
@@ -168,39 +175,44 @@ function checkRunEntry(ctx: Pick<Ctx, 'dir' | 'refusals' | 'warnings'>, entry: J
   }
 }
 
-/** Only the tagged prepared-input and run records carry this file/hash contract; legacy intermediates are unchanged. */
+function checkPreparedInput(ctx: Pick<Ctx, 'dir' | 'refusals' | 'warnings'>, entry: JsonObject, path: string): void {
+  if (entry.at !== undefined && !Number.isFinite(derivedTime(entry.at))) {
+    ctx.refusals.push({ code: 'DERIVED_AT_INVALID', path: `${path}.at`, message: `${path}.at: expected an ISO date-time with a zone; restore the timestamp recorded by derived add` });
+  }
+  checkDerivedReceipt(ctx, entry, path);
+  if (entry.kind !== 'prepared-input' && entry.kind !== 'run') return;
+  const maskSpec = entry.kind === 'prepared-input' ? maskReceiptSpec(entry.receipt) : undefined;
+  if (maskSpec) {
+    if (entry.operation !== undefined && !nonempty(entry.operation)) {
+      ctx.refusals.push({ code: 'DERIVED_MALFORMED', path, message: `${path}: omit operation for a ${maskSpec} receipt or record non-empty operation text` });
+    }
+    return;
+  }
+  const sources = entry.sources === undefined ? [entry.source] : asArray(entry.sources);
+  const sourceFiles = sources.map((source, index) => ({
+    record: isObject(source) ? source : {},
+    at: entry.sources === undefined ? `${path}.source` : `${path}.sources[${index}]`,
+    optional: false,
+  }));
+  if (entry.kind === 'run') {
+    checkRunEntry(ctx, entry, path, sourceFiles);
+    return;
+  }
+  const files = [
+    ...sourceFiles,
+    { record: entry, at: path, optional: true },
+  ];
+  if (sources.length === 0 || !nonempty(entry.operation) || files.some(({ record }) => !nonempty(record.path) || !inside(ctx.dir, record.path) || !hex(record.sha256)) || sources.some((source) => isObject(source) && typeof source.path === 'string' && typeof entry.path === 'string' && resolve(ctx.dir, source.path) === resolve(ctx.dir, entry.path))) {
+    ctx.refusals.push({ code: 'DERIVED_MALFORMED', path, message: `${path}: prepared-input needs operation, source or sources { path, sha256 }, and derived path and sha256; paths are distinct project-relative files other than project.json` });
+    return;
+  }
+  verifySourceFiles(ctx, files, entry);
+}
+
+/** Only tagged entries carry the prepared file/hash contract. Undated history remains readable. */
 export function checkPreparedInputs(ctx: Pick<Ctx, 'dir' | 'project' | 'refusals' | 'warnings'>): void {
   asArray(ctx.project.derived).forEach((entry, i) => {
-    if (!isObject(entry)) return;
-    const path = `derived[${i}]`;
-    checkDerivedReceipt(ctx, entry, path);
-    if (entry.kind !== 'prepared-input' && entry.kind !== 'run') return;
-    const maskSpec = entry.kind === 'prepared-input' ? maskReceiptSpec(entry.receipt) : undefined;
-    if (maskSpec) {
-      if (entry.operation !== undefined && !nonempty(entry.operation)) {
-        ctx.refusals.push({ code: 'DERIVED_MALFORMED', path, message: `${path}: omit operation for a ${maskSpec} receipt or record non-empty operation text` });
-      }
-      return;
-    }
-    const sources = entry.sources === undefined ? [entry.source] : asArray(entry.sources);
-    const sourceFiles = sources.map((source, index) => ({
-      record: isObject(source) ? source : {},
-      at: entry.sources === undefined ? `${path}.source` : `${path}.sources[${index}]`,
-      optional: false,
-    }));
-    if (entry.kind === 'run') {
-      checkRunEntry(ctx, entry, path, sourceFiles);
-      return;
-    }
-    const files = [
-      ...sourceFiles,
-      { record: entry, at: path, optional: true },
-    ];
-    if (sources.length === 0 || !nonempty(entry.operation) || files.some(({ record }) => !nonempty(record.path) || !inside(ctx.dir, record.path) || !hex(record.sha256)) || sources.some((source) => isObject(source) && typeof source.path === 'string' && typeof entry.path === 'string' && resolve(ctx.dir, source.path) === resolve(ctx.dir, entry.path))) {
-      ctx.refusals.push({ code: 'DERIVED_MALFORMED', path, message: `${path}: prepared-input needs operation, source or sources { path, sha256 }, and derived path and sha256; paths are distinct project-relative files other than project.json` });
-      return;
-    }
-    verifySourceFiles(ctx, files, entry);
+    if (isObject(entry)) checkPreparedInput(ctx, entry, `derived[${i}]`);
   });
   checkPlateRegistrations(ctx);
 }
@@ -210,7 +222,7 @@ export const DERIVED_HELP = `derived add [<project dir>] --source <file> [--sour
   Records an operation already run by another tool, with the files' sha256s.
   Paths are relative to the project. No files are transformed; no stage moves.`;
 
-export function derivedCommand(args: string[]): { stdout: string; exit: number } {
+export function derivedCommand(args: string[], now: number): { stdout: string; exit: number } {
   if (args[0] !== 'add') refuse('DERIVED_USAGE', DERIVED_HELP, USAGE_EXIT);
   const opts: Record<string, string> = {};
   const positional: string[] = [];
@@ -281,11 +293,14 @@ export function derivedCommand(args: string[]): { stdout: string; exit: number }
       ...(receipt === undefined ? {} : { receipt }),
     };
   }
-  project.derived = [...asArray(project.derived), entry];
-  const ctx: Pick<Ctx, 'dir' | 'project' | 'refusals' | 'warnings'> = { dir, project: { ...project, derived: [entry], scenes: [] }, refusals: [], warnings: [] };
-  checkPreparedInputs(ctx);
+  const instant = new Date(now);
+  entry.at = Number.isFinite(instant.getTime()) ? instant.toISOString() : null;
+  const entries = asArray(project.derived);
+  const ctx: Pick<Ctx, 'dir' | 'refusals' | 'warnings'> = { dir, refusals: [], warnings: [] };
+  checkPreparedInput(ctx, entry, `derived[${entries.length}]`);
   const finding = ctx.refusals[0];
   if (finding) refuse(finding.code, finding.message);
+  project.derived = [...entries, entry];
   writeFileSync(file, `${JSON.stringify(project, null, 2)}\n`);
   return { stdout: json ? JSON.stringify(entry, null, 2) : `derived: recorded '${sources.join("', '")}' → '${output}' (${operation ?? receipt?.spec ?? 'run'}); stage unchanged`, exit: 0 };
 }

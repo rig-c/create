@@ -19,10 +19,12 @@ import { interviewOptionsCommand, interviewAnswerCommand } from '../src/choice-w
 import { interviewStageOfGuide } from '../src/stages.ts';
 import { stepHash } from '../src/step-hash.ts';
 import { planCommand } from '../src/plan-writers.ts';
-import { advanceCommand } from '../src/progress-writers.ts';
+import { advanceCommand, stepStatusCommand } from '../src/progress-writers.ts';
 import { amendCommand } from '../src/amend.ts';
 import { latestPartsApproval } from '../src/structure.ts';
 import { diffClassesCommand } from '../src/diff-classes.ts';
+import { derivedCommand } from '../src/prepared-inputs.ts';
+import { nextProject } from '../src/next.ts';
 import { signoffCommand } from '../src/signoff.ts';
 import { structureSnapshotCommand } from '../src/structure-snapshot.ts';
 import { assertPartsActSource, partsActDraftHash, partsActFindings } from '../src/parts-act.ts';
@@ -224,6 +226,32 @@ function sign(root: string, _evidence: string): void {
   signoffCommand(['parts-review', root, '--by', 'user', '--verbatim-file', join(root, 'evidence/approval.txt'), '--draft', 'chain',
     '--structure-file', 'evidence/structure-chain.json'], Date.now());
 }
+
+test('an uncovered part edit leaves step completion and the Review verdict route runnable', async () => {
+  const { root, host } = await bound(false);
+  const project = read(root);
+  const assemble = ((project.plan as JsonObject).steps as JsonObject[]).find(step => step.id === 'assemble')!;
+  assemble.status = 'at-checkpoint';
+  (assemble.status_history as JsonObject[]).pop();
+  write(root, project);
+  const editedAt = Date.now() - 1000;
+  expect(derivedCommand(['add', root, '--source', 'inputs/painting.png', '--file', 'derived/drafts/chain/input/parts/torso.png',
+    '--operation', 'synthetic part edit'], editedAt).exit).toBe(0);
+  const findings = () => checkProject(root, undefined, { now: Date.now() }).holes ?? [];
+  expect(findings()).toMatchObject([{ code: 'PART_EDIT_UNCOVERED', path: 'derived[0]' }]);
+  expect(checkProject(root, undefined, { now: Date.now(), recordPublication: true }).holes).toBeUndefined();
+  expect(nextProject(root, Date.now()).moves.some(move => move.command?.startsWith('rig-create step-status assemble done'))).toBe(true);
+  expect(stepStatusCommand(['assemble', 'done', root, '--by', 'agent'], Date.now()).exit).toBe(0);
+
+  await readyForVerdict(root, host);
+  const next = nextProject(root, Date.now());
+  expect(next.refusals.map(finding => finding.code)).toEqual(['PART_EDIT_UNCOVERED']);
+  expect(next.moves.some(move => move.review_act?.kind === 'parts-verdict' && move.review_act.draft_id === 'chain')).toBe(true);
+  expect(next.moves.some(move => move.command?.startsWith('rig-create job open') && move.command.includes('--draft chain'))).toBe(true);
+  const act = await submit(root, host);
+  expect(ingestSyntheticFetch(root, act).exit).toBe(0);
+  expect(findings()).toEqual([]);
+}, MULTI_SPAWN_TIMEOUT_MS);
 
 for (const verdict of ['approved', 'changes-requested'] as const) {
   test(`@6 ${verdict} normal parts ingest and replay retain actual bound evidence`, async () => {

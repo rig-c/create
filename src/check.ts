@@ -160,7 +160,7 @@ export interface CheckReport {
   readonly feedback: FeedbackSummary[];
   /** Present only on amended records, preserving the report shape of older projects. */
   readonly amendments?: AmendmentSummary[];
-  /** Per draft bound to a ledger report: the fix_ledger rows it fixes and its known regressions (docs/CHECKS.md § Fix ledger). Present only when one is. */
+  /** Per draft bound to a ledger report: fixes, known regressions and accepted failures (docs/CHECKS.md § Fix ledger). */
   readonly ledger?: LedgerSummary[];
   readonly refusals: Finding[];
   readonly warnings: Finding[];
@@ -1169,6 +1169,10 @@ export function formatReport(report: CheckReport): string {
   }
   for (const entry of report.ledger ?? []) {
     lines.push(`  drafts[${entry.draft}] fixes [${entry.fixes.join(', ')}]${entry.known_regressions.length ? `; known regressions [${entry.known_regressions.join(', ')}]` : ''}`);
+    for (const failure of entry.accepted_failures ?? []) {
+      const measured = failure.measured === undefined ? '' : ` (measured ${JSON.stringify(failure.measured)})`;
+      lines.push(`    ${failure.id} FAIL${measured} (accepted failure): ${failure.reason}`);
+    }
   }
   for (const r of report.refusals) lines.push(`  REFUSED ${r.code}: ${r.message}`);
   for (const w of report.warnings) lines.push(`  warning ${w.code}: ${w.message}`);

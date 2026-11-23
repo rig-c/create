@@ -7,6 +7,7 @@
 import { createHash } from 'node:crypto';
 import { readFileSync, realpathSync, statSync } from './check-reads.ts';
 import { isAbsolute, join, relative, resolve } from 'node:path';
+import { isDeepStrictEqual } from 'node:util';
 import { asArray, isObject, type Finding } from './check.ts';
 import { assertDraftHasRig, draftRigRequired, isAssembleOnlyDraft } from './draft-layout.ts';
 import { readProject } from './feedback.ts';
@@ -22,6 +23,8 @@ export const FIX_LEDGER_SINCE = '2026-11-09T00:00:00Z';
 export const FIX_LEDGER_REPORT_SPEC = 'rig-create/fix-ledger-report@1';
 
 const RESULTS = ['pass', 'fail', 'unmeasurable'] as const;
+type LedgerResult = typeof RESULTS[number];
+interface ReportRow { readonly result: LedgerResult; readonly measured?: Json }
 const ROW_KEYS = ['id', 'note', 'at', 'by', 'check', 'bar', 'retired'];
 const idPattern = /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/;
 /** A correction by id, or a verdict by version number and index, as the record paths name them. */
@@ -108,7 +111,7 @@ function reportBytes(dir: string, path: Json | undefined, at: string): Buffer | 
   } catch { return invalid(`${path} is not there or cannot be read`); }
 }
 
-interface LedgerReport { readonly manifest: string; readonly results: Map<string, string> }
+interface LedgerReport { readonly manifest: string; readonly rows: Map<string, ReportRow> }
 
 /** The report's own fields, read and never recomputed. */
 function decodeReport(bytes: Buffer, at: string): LedgerReport | Finding {
@@ -119,14 +122,14 @@ function decodeReport(bytes: Buffer, at: string): LedgerReport | Finding {
   if (!isObject(report.build) || !hex(report.build.manifest_sha256)) return invalid('build.manifest_sha256 must be the sha256 of the build\'s parts.json');
   if (!hex(report.script_sha256)) return invalid('script_sha256 must be the sha256 of the check script');
   if (!Array.isArray(report.rows)) return invalid('rows must be a list');
-  const results = new Map<string, string>();
+  const rows = new Map<string, ReportRow>();
   for (const [index, row] of report.rows.entries()) {
-    if (!isObject(row) || typeof row.id !== 'string' || !idPattern.test(row.id) || results.has(row.id) || !RESULTS.includes(row.result as typeof RESULTS[number])) {
+    if (!isObject(row) || typeof row.id !== 'string' || !idPattern.test(row.id) || rows.has(row.id) || !RESULTS.includes(row.result as LedgerResult)) {
       return invalid(`rows[${index}] needs a unique id and a result of ${RESULTS.join(', ')}`);
     }
-    results.set(row.id, String(row.result));
+    rows.set(row.id, { result: row.result as LedgerResult, measured: row.measured });
   }
-  return { manifest: report.build.manifest_sha256, results };
+  return { manifest: report.build.manifest_sha256, rows };
 }
 
 /** The report a draft binds, checked against its binding; null when the draft binds none. */
@@ -149,6 +152,62 @@ const manifestOf = (draft: JsonObject): string | undefined => {
   return typeof entry?.sha256 === 'string' ? entry.sha256 : undefined;
 };
 
+interface AcceptedFailure {
+  readonly id: string;
+  readonly result: 'fail';
+  readonly measured?: Json;
+  readonly reason: string;
+}
+
+// JSON.parse can yield an infinite number for a literal with an out-of-range exponent.
+function finiteMeasurement(value: Json | undefined): boolean {
+  if (typeof value === 'number') return Number.isFinite(value);
+  if (Array.isArray(value)) return value.every(finiteMeasurement);
+  if (isObject(value)) return Object.values(value).every(finiteMeasurement);
+  return true;
+}
+
+/** Use the same JSON representation as project.json, including its treatment of negative zero. */
+function reportMeasurement(value: Json | undefined): { measured?: Json } | null {
+  if (value === undefined) return {};
+  return finiteMeasurement(value) ? { measured: JSON.parse(JSON.stringify(value)) as Json } : null;
+}
+
+function checkAcceptedFailures(raw: Json | undefined, report: LedgerReport | null, path: string, refusals: Finding[]): AcceptedFailure[] {
+  if (raw === undefined) return [];
+  const remedy = 'record a new draft with --ledger-report and --accepted-fail for each failing row';
+  const malformed = (at: string, why: string): void => {
+    refusals.push(finding('DRAFT_ACCEPTED_FAIL_MALFORMED', at, `${why}; ${remedy}`));
+  };
+  if (report === null || !Array.isArray(raw) || raw.length === 0) {
+    malformed(path, 'accepted_failures needs a bound ledger_report and a non-empty list');
+    return [];
+  }
+  const accepted: AcceptedFailure[] = [];
+  const ids = new Set<string>();
+  for (const [index, entry] of raw.entries()) {
+    const at = `${path}[${index}]`;
+    if (!isObject(entry) || typeof entry.id !== 'string' || !idPattern.test(entry.id) || ids.has(entry.id)
+      || entry.result !== 'fail' || !text(entry.reason) || Object.keys(entry).some(key => !['id', 'result', 'measured', 'reason'].includes(key))) {
+      malformed(at, 'expected { id, result: "fail", reason } with a unique row id and optional measured');
+      continue;
+    }
+    ids.add(entry.id);
+    const row = report.rows.get(entry.id);
+    if (row?.result !== 'fail') {
+      refusals.push(finding('DRAFT_ACCEPTED_FAIL_ROW', at, `row ${entry.id} is ${row?.result ?? 'absent'} in this draft's report; ${remedy}`));
+      continue;
+    }
+    const measurement = reportMeasurement(row.measured);
+    if (measurement === null || !isDeepStrictEqual(entry.measured, measurement.measured)) {
+      refusals.push(finding('DRAFT_ACCEPTED_FAIL_MISMATCH', `${at}.measured`, `row ${entry.id} must carry the report's JSON measurement exactly, including its presence; retain a report with a representable JSON measurement and ${remedy}`));
+    } else {
+      accepted.push({ id: entry.id, result: 'fail', ...measurement, reason: entry.reason });
+    }
+  }
+  return accepted;
+}
+
 export const hasPartsReceipt = (project: JsonObject, id: string): boolean => asArray(project.review_acts)
   .some(entry => isObject(entry) && entry.kind === 'parts-verdict' && entry.draft_id === id);
 
@@ -164,8 +223,8 @@ export function fixesAgainst(project: JsonObject, index: number): string | null 
 }
 
 /** Live rows the report passes that the reference draft's report did not pass, in ledger order. */
-const fixedRows = (live: LedgerRow[], results: Map<string, string>, reference: LedgerReport | null): string[] =>
-  live.filter(r => results.get(r.id) === 'pass' && reference?.results.get(r.id) !== 'pass').map(r => r.id);
+const fixedRows = (live: LedgerRow[], report: LedgerReport, reference: LedgerReport | null): string[] =>
+  live.filter(r => report.rows.get(r.id)?.result === 'pass' && reference?.rows.get(r.id)?.result !== 'pass').map(r => r.id);
 
 /** The fixes the writer records for drafts[index] against the named reference; reports are read, never produced. */
 export function draftFixes(dir: string, project: JsonObject, index: number, against: string | null, now: number): string[] {
@@ -177,10 +236,15 @@ export function draftFixes(dir: string, project: JsonObject, index: number, agai
   if (report === null || 'code' in report) return [];
   const refIndex = drafts.findIndex(d => isObject(d) && d.id === against);
   const reference = refIndex < 0 ? null : draftReport(dir, drafts[refIndex] as JsonObject, `drafts[${refIndex}]`);
-  return fixedRows(liveRows(rows, time(draft.at)), report.results, reference === null || 'code' in reference ? null : reference);
+  return fixedRows(liveRows(rows, time(draft.at)), report, reference === null || 'code' in reference ? null : reference);
 }
 
-export interface LedgerSummary { readonly draft: string; readonly fixes: string[]; readonly known_regressions: string[] }
+export interface LedgerSummary {
+  readonly draft: string;
+  readonly fixes: string[];
+  readonly known_regressions: string[];
+  readonly accepted_failures?: AcceptedFailure[];
+}
 
 /**
  * check and the writers: ledger rows, restarts[], and every draft's ledger binding. Returns the
@@ -201,7 +265,7 @@ export function checkFixLedger(dir: string, project: JsonObject, refusals: Findi
     const path = `drafts[${index}]`;
     reports[index] = null;
     if (isObject(raw) && isAssembleOnlyDraft(raw)) {
-      if (['ledger_report', 'fixes', 'fixes_against', 'known_regressions'].some(key => raw[key] !== undefined)) {
+      if (['ledger_report', 'fixes', 'fixes_against', 'known_regressions', 'accepted_failures'].some(key => raw[key] !== undefined)) {
         refusals.push(draftRigRequired(`${path}.ledger_report`, raw.id));
       }
       return;
@@ -214,6 +278,7 @@ export function checkFixLedger(dir: string, project: JsonObject, refusals: Findi
     const malformed = (why: string): void => { refusals.push(finding('DRAFT_LEDGER_MALFORMED', path, `${why}; record the draft again with draft-rig under a new id; the old record is kept`)); };
     const report = draftReport(dir, raw, path);
     if (report === null) {
+      checkAcceptedFailures(raw.accepted_failures, null, `${path}.accepted_failures`, refusals);
       if (raw.fixes !== undefined || raw.fixes_against !== undefined || raw.known_regressions !== undefined) malformed('fixes, fixes_against and known_regressions need a ledger_report');
       if (live.length > 0) {
         const legacy = !Number.isFinite(at) || at < Date.parse(FIX_LEDGER_SINCE);
@@ -227,7 +292,10 @@ export function checkFixLedger(dir: string, project: JsonObject, refusals: Findi
     if (manifest !== report.manifest) {
       refusals.push(finding('DRAFT_LEDGER_BUILD_MISMATCH', `${path}.ledger_report`, `the report's build.manifest_sha256 ${report.manifest} is not the draft's parts.json (${manifest ?? 'unbound'}); run the check script on this draft's build and record the draft with that report`));
     }
-    const missing = live.filter(r => !report.results.has(r.id)).map(r => r.id);
+    const accepted = manifest === report.manifest
+      ? checkAcceptedFailures(raw.accepted_failures, report, `${path}.accepted_failures`, refusals)
+      : [];
+    const missing = live.filter(r => !report.rows.has(r.id)).map(r => r.id);
     if (missing.length) {
       refusals.push(finding('DRAFT_LEDGER_INCOMPLETE', `${path}.ledger_report`, `the report has no row for ${missing.join(', ')}; run the check script over every non-retired fix_ledger row and record the draft with that report`));
     }
@@ -243,10 +311,10 @@ export function checkFixLedger(dir: string, project: JsonObject, refusals: Findi
     // What it owes is every row it passed and every row it recorded as a known regression: a known regression stays owed.
     const predecessor = reports[previousIndex];
     const debt = new Set(owed[previousIndex] ?? []);
-    const regressed = predecessor ? live.filter(r => (predecessor.results.get(r.id) === 'pass' || debt.has(r.id)) && report.results.get(r.id) !== 'pass').map(r => r.id) : [];
+    const regressed = predecessor ? live.filter(r => (predecessor.rows.get(r.id)?.result === 'pass' || debt.has(r.id)) && report.rows.get(r.id)?.result !== 'pass').map(r => r.id) : [];
     const unnamed = regressed.filter(id => !knownIds.includes(id));
     if (unnamed.length) {
-      refusals.push(finding('DRAFT_LEDGER_REGRESSION', `${path}.ledger_report`, `${unnamed.map(id => `${id} (${report.results.get(id) ?? 'absent'})`).join(', ')} passed in ${String((drafts[previousIndex] as JsonObject).id)}, or are known regressions it still owes, and do not pass here; fix the build, or record it with --known-regression <row id>=<reason file> for each row`));
+      refusals.push(finding('DRAFT_LEDGER_REGRESSION', `${path}.ledger_report`, `${unnamed.map(id => `${id} (${report.rows.get(id)?.result ?? 'absent'})`).join(', ')} passed in ${String((drafts[previousIndex] as JsonObject).id)}, or are known regressions it still owes, and do not pass here; fix the build, or record it with --known-regression <row id>=<reason file> for each row`));
     }
     const stray = knownIds.filter(id => !regressed.includes(id));
     if (stray.length) malformed(`known_regressions names ${stray.join(', ')}, which the predecessor draft neither passed nor owed`);
@@ -261,9 +329,9 @@ export function checkFixLedger(dir: string, project: JsonObject, refusals: Findi
     }
     const refIndex = drafts.findIndex(d => isObject(d) && d.id === against);
     const reference = refIndex >= 0 && refIndex < index ? reports[refIndex] ?? null : null;
-    const fixes = fixedRows(live, report.results, reference);
+    const fixes = fixedRows(live, report, reference);
     if (!Array.isArray(raw.fixes) || JSON.stringify(raw.fixes) !== JSON.stringify(fixes)) malformed(`fixes must be [${fixes.join(', ')}], the live rows this report passes that ${against ?? 'no earlier draft'} did not`);
-    summaries.push({ draft: raw.id, fixes, known_regressions: knownIds });
+    summaries.push({ draft: raw.id, fixes, known_regressions: knownIds, ...(accepted.length ? { accepted_failures: accepted } : {}) });
   });
   return summaries;
 }
@@ -289,14 +357,24 @@ function checkRestarts(project: JsonObject, refusals: Finding[], warnings: Findi
 }
 
 /** The draft-rig fields for a ledger report, read from the report and the earlier drafts' reports. */
-export function draftLedgerFields(dir: string, project: JsonObject, index: number, reportPath: string, known: [string, string][], now: number): JsonObject {
+export function draftLedgerFields(dir: string, project: JsonObject, index: number, reportPath: string,
+  notes: { known: [string, string][]; accepted: [string, string][] }, now: number): JsonObject {
   const at = `drafts[${index}].ledger_report`;
   const draft = asArray(project.drafts)[index];
   assertDraftHasRig(isObject(draft) ? draft : undefined, at);
   const bytes = reportBytes(dir, reportPath, at);
   if (!Buffer.isBuffer(bytes)) refuse(bytes.code, bytes.message);
   const fields: JsonObject = { ledger_report: { path: reportPath, sha256: sha(bytes), spec: FIX_LEDGER_REPORT_SPEC } };
-  if (known.length) fields.known_regressions = known.map(([id, reason]) => ({ id, reason }));
+  if (notes.known.length) fields.known_regressions = notes.known.map(([id, reason]) => ({ id, reason }));
+  if (notes.accepted.length) {
+    const report = decodeReport(bytes, at);
+    if ('code' in report) refuse(report.code, report.message);
+    // checkFixLedger verifies the binding and every entry before the writer commits.
+    fields.accepted_failures = notes.accepted.map(([id, reason]) => {
+      const row = report.rows.get(id);
+      return { id, result: 'fail', ...reportMeasurement(row?.measured), reason };
+    });
+  }
   const candidate = structuredClone(project);
   const drafts = asArray(candidate.drafts);
   Object.assign(drafts[index] as JsonObject, fields);

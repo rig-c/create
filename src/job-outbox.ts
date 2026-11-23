@@ -67,6 +67,14 @@ export function acquireJobLock(root: string, required = true): (() => void) | nu
   return release;
 }
 
+function removeEmptyJobLock(lock: string): void {
+  // After token removal, a contender may replace the empty directory or already release it.
+  try { rmdirSync(lock); }
+  catch (error) {
+    if (!['ENOENT', 'ENOTEMPTY', 'EEXIST'].includes((error as NodeJS.ErrnoException).code ?? '')) throw error;
+  }
+}
+
 export function tryJobDirectoryLock(lock: string): (() => void) | null {
   const token = `${process.pid}-${randomUUID()}`;
   const candidate = `${lock}.${token}`;
@@ -81,7 +89,12 @@ export function tryJobDirectoryLock(lock: string): (() => void) | null {
   };
   try {
     if (!install()) {
-      const owners = lstatSync(lock).isDirectory() ? readdirSync(lock) : [];
+      let owners: string[] = [];
+      try { if (lstatSync(lock).isDirectory()) owners = readdirSync(lock); }
+      catch (error) {
+        // The owner can remove the directory after the busy rename. Retry installation below.
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+      }
       const owner = owners.length === 1 && /^\d+-[a-f0-9-]{36}$/.test(owners[0]) ? owners[0] : null;
       let dead = false;
       if (owner) {
@@ -90,13 +103,11 @@ export function tryJobDirectoryLock(lock: string): (() => void) | null {
       }
       if (owner && dead) {
         rmSync(join(lock, owner), { force: true });
-        try { rmdirSync(lock); } catch (error) {
-          if (!['ENOENT', 'ENOTEMPTY'].includes((error as NodeJS.ErrnoException).code ?? '')) throw error;
-        }
+        removeEmptyJobLock(lock);
       }
       if (!install()) return null;
     }
-    return () => { rmSync(join(lock, token)); rmdirSync(lock); };
+    return () => { rmSync(join(lock, token)); removeEmptyJobLock(lock); };
   } finally { rmSync(candidate, { recursive: true, force: true }); }
 }
 

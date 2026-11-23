@@ -2925,11 +2925,15 @@ registered project-relative paths from the cited owner value.
 The source scene, report and model must agree with the cited canvas and
 placement. Each plate's bytes must pass `plateRegistration`, including input
 writer metadata or a complete prepared-input/plate receipt chain. Composition
-must come from the recorded Review choice or decided delegation. The producer
-report must give the character shift as `[0,0]`; the composed model stage is
-`{x:-canvas.width/2,y:0,width:canvas.width,height:canvas.height}`. The character
-rig's stage is never used for that equality. The producer check must report
-`PASS: true` and `gate_spine_html_green: true`.
+must come from the recorded Review choice or decided delegation. For cited
+offset `[ox,oy]`, scale `s` (default `1`) and canvas `Cw×Ch`, Create uses Parts'
+reported `rig_size` (`W×H`) to check the reported shift in Spine axes against
+`[ox + (s·W − Cw)/2, Ch − oy − s·H]`. If the rest of the scene identifies a
+single cited composition, a scene offset that causes a different reported
+shift also gets `DIRECTION_COMPOSE_PLACEMENT`. Create reads Parts' bounds and
+clipping from the sealed report and compose-run placement. The composed model
+stage must match the cited canvas as `{x:-Cw/2,y:0,width:Cw,height:Ch}`. The
+producer check must report `PASS: true` and `gate_spine_html_green: true`.
 
 `compose-run.json` is bound by bytes and must have Parts' closed
 `rig-compose-run/1` shape: `{spec,scene:{path,sha256},characters:[{id,build,

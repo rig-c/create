@@ -13,7 +13,7 @@ import type { JsonObject } from '../src/templates.ts';
 
 const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); testClock.reset(); });
-function fixture() { const f = composeFixture(); roots.push(f.dir); return f; }
+function fixture(placement?: Parameters<typeof composeFixture>[0]) { const f = composeFixture(placement); roots.push(f.dir); return f; }
 function rejected(f: ReturnType<typeof fixture>, code: string, run = () => f.publish()) {
   const before = readFileSync(join(f.dir, 'project.json'));
   const paths = ['outputs', 'outputs/v2', 'outputs/v2/compose', 'evidence', 'evidence/compose-src', 'evidence/compose-src/v2', 'evidence/direction', 'evidence/direction/v2.json'];
@@ -181,8 +181,49 @@ test('COMPOSE_VALUE_INVALID refuses a plain-number scalar track key in the cited
   rejected(f, 'COMPOSE_VALUE_INVALID');
 });
 
-test('DIRECTION_COMPOSE_PLACEMENT refuses a nonzero producer shift', () => {
+test('DIRECTION_COMPOSE_PLACEMENT refuses a nonzero shift for the zero-shift scene', () => {
   const f = fixture(); objects(f.report.characters)[0]!.shift = [1, 0]; f.put('compose-out/scene.json', f.report); rejected(f, 'DIRECTION_COMPOSE_PLACEMENT');
+});
+
+test.each([
+  { label: 'default scale', scale: undefined, shift: [9, 13] },
+  { label: 'scale 1.5', scale: 1.5, shift: [24, -7] },
+] as const)('direction@3 accepts an off-centre shift at $label', ({ scale, shift }) => {
+  const f = fixture({ offset: [11, -5], scale, rigSize: [60, 40], shift: [...shift] });
+  expect(f.publish().exit).toBe(0);
+  expect(directionCommand(['check', '2', f.dir, '--json']).exit).toBe(0);
+});
+
+test.each([
+  { axis: 'x', label: 'default scale', scale: undefined, expected: [9, 13], reported: [10, 13] },
+  { axis: 'y', label: 'default scale', scale: undefined, expected: [9, 13], reported: [9, 14] },
+  { axis: 'x', label: 'scale 1.5', scale: 1.5, expected: [24, -7], reported: [25, -7] },
+] as const)('DIRECTION_COMPOSE_PLACEMENT refuses a one-pixel $axis shift mismatch at $label', ({ scale, expected, reported }) => {
+  const f = fixture({ offset: [11, -5], scale, rigSize: [60, 40], shift: [...reported] });
+  rejected(f, 'DIRECTION_COMPOSE_PLACEMENT', () => {
+    try { return f.publish(); } catch (error) {
+      expect((error as Error).message).toContain(`outputs/v2/compose/scene.json.characters[0].shift: expected shift ${JSON.stringify(expected)} from the cited placement, reported ${JSON.stringify(reported)}`);
+      throw error;
+    }
+  });
+});
+
+test('DIRECTION_COMPOSE_PLACEMENT refuses a report without rig_size', () => {
+  const f = fixture();
+  delete objects(f.report.characters)[0]!.rig_size;
+  f.put('compose-out/scene.json', f.report);
+  rejected(f, 'DIRECTION_COMPOSE_PLACEMENT');
+});
+
+test('DIRECTION_COMPOSE_PLACEMENT refuses a scene composed one pixel off the owner choice', () => {
+  const f = fixture({ offset: [40, 0], rigSize: [64, 48], shift: [41, 0] });
+  objects(f.scene.characters)[0]!.offset = [41, 0];
+  objects(f.report.characters)[0]!.offset = [41, 0];
+  f.put('compose.scene.json', f.scene);
+  f.put('compose-out/scene.json', f.report);
+  f.run = composeRunFixture(f.dir, f.load(), 1, f.scene);
+  saveRun(f);
+  rejected(f, 'DIRECTION_COMPOSE_PLACEMENT');
 });
 
 for (const path of ['outputs', 'outputs/v2', 'evidence/compose-src', 'outputs/v2/compose', 'evidence/compose-src/v2', 'evidence/direction']) test(`refused compose write preserves pre-existing ${path} and its contents`, () => {

@@ -23,7 +23,7 @@ export function composeRunFixture(dir: string, project: JsonObject, rigN: number
     plate: null, plates: objects(scene.plates).map(p => ({ name: p.name!, ...file(String(p.image)) })) };
 }
 
-export function composeFixture() {
+export function composeFixture(placement?: { offset: [number, number]; scale?: number; rigSize: [number, number]; shift: [number, number] }) {
   const f = sceneFixture();
   f.dir = realpathSync(f.dir);
   const put = (path: string, value: JsonObject | string | Buffer): JsonObject => {
@@ -35,7 +35,8 @@ export function composeFixture() {
     { name: 'back', image: 'background.png', at: [0, 0], opaque_backdrop: true },
     { name: 'front', image: 'foreground.png', at: [2, 3] },
   ];
-  const value = { canvas: { width: 64, height: 48 }, plates, order: ['back', 'actor', 'front'], character: { offset: [0, 0], scale: 1 },
+  const character = placement ? { offset: placement.offset, ...(placement.scale === undefined ? {} : { scale: placement.scale }) } : { offset: [0, 0], scale: 1 };
+  const value = { canvas: { width: 64, height: 48 }, plates, order: ['back', 'actor', 'front'], character,
   idle_tracks: [
     { bone: 'back', property: 'translate', keys: [{ t: 0, v: [0, 0] }, { t: 2, v: [3, 0] }, { t: 4, v: [0, 0] }] },
     { bone: 'actor:yaw_dial', property: 'rotate', keys: [{ t: 0, v: [-6] }, { t: 2, v: [6] }, { t: 4, v: [-6] }] },
@@ -70,7 +71,7 @@ export function composeFixture() {
     characters: [{ id: 'actor', build: 'producer-build', ...value.character }], order: value.order,
     animations: { idle: { duration: 4, tracks: value.idle_tracks } } };
   const report: JsonObject = { spec: 'spine-parts-scene-report/1', scene: 'compose.scene.json', canvas: value.canvas,
-    characters: [{ id: 'actor', build: 'producer-build', ...value.character, shift: [0, 0] }],
+    characters: [{ id: 'actor', build: 'producer-build', ...value.character, rig_size: placement?.rigSize ?? [64, 48], shift: placement?.shift ?? [0, 0] }],
     plates: value.plates.map((p, i) => ({ ...p, sha256: (i ? f.foreground : f.background).sha256! })) };
   const model: JsonObject = { spec: 'rigc-compiled/3', stage: { x: -32, y: 0, width: 64, height: 48 }, animations: [{ name: 'idle', duration: 4 }], pages: [] };
   put('compose.scene.json', scene); put('compose-out/scene.json', report);

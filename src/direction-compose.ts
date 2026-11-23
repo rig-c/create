@@ -11,7 +11,7 @@ import { matchesCitationSurface, resolveAnswerValue, validateAgentPlateRegistrat
 import type { JsonObject } from './templates.ts';
 
 export const DIRECTION_COMPOSE_SPEC = 'rig-create/direction@3';
-const positive = (v: unknown): boolean => Number.isSafeInteger(v) && Number(v) > 0;
+const positive = (v: unknown): v is number => typeof v === 'number' && Number.isSafeInteger(v) && v > 0;
 export const composeRoot = (n: number): string => `outputs/v${n}/compose`;
 export const composeScenePath = (n: number): string => `evidence/compose-src/v${n}/scene.json`;
 
@@ -202,13 +202,14 @@ export function validateComposeDirection(dir: string, project: JsonObject, doc: 
     }
     const run = readComposeRun(bound(dir, compose.run as JsonObject, snapshots), paths.run, scene);
     const rc = objects(report.characters);
+    const placed = rc[0];
     const expectedClipped = run.characters[0]!.placement?.clipped_bounds;
-    if (rc.length !== 1 || rc[0]!.id !== character.id || rc[0]!.build !== character.build || !equal(rc[0]!.offset, character.offset) || (rc[0]!.scale ?? 1) !== (character.scale ?? 1)
-      || !equal(report.canvas, scene.canvas) || !equal(rc[0]!.shift, [0, 0])
-      || ((rc[0]!.canvas_clip !== undefined || rc[0]!.clipped_bounds !== undefined)
-        && (character.canvas_clip !== true || rc[0]!.canvas_clip !== true || !equal(rc[0]!.clipped_bounds, expectedClipped)
-          || (rc[0]!.bounds !== undefined && !equal(rc[0]!.bounds, run.characters[0]!.placement?.bounds))))
-      || !equal(compose.clipped_bounds, expectedClipped)) directionFail('DIRECTION_COMPOSE_PLACEMENT', paths.report, 'retain matching character placement and reported shift [0,0]; do not compare canvas to the rig stage');
+    if (rc.length !== 1 || !placed || placed.id !== character.id || placed.build !== character.build
+      || !equal(report.canvas, scene.canvas)
+      || ((placed.canvas_clip !== undefined || placed.clipped_bounds !== undefined)
+        && (character.canvas_clip !== true || placed.canvas_clip !== true || !equal(placed.clipped_bounds, expectedClipped)
+          || (placed.bounds !== undefined && !equal(placed.bounds, run.characters[0]!.placement?.bounds))))
+      || !equal(compose.clipped_bounds, expectedClipped)) directionFail('DIRECTION_COMPOSE_PLACEMENT', paths.report, 'retain matching character placement and compose-run bounds');
     const plates = objects(scene.plates); const reported = objects(report.plates);
     if (plates.length !== scene.plates.length || reported.length !== plates.length) directionFail('DIRECTION_COMPOSE_PLACEMENT', paths.report, 'retain one producer report row per named plate');
     const registered: JsonObject[] = [];
@@ -225,9 +226,30 @@ export function validateComposeDirection(dir: string, project: JsonObject, doc: 
     validateAgentPlateRegistration(dir, project, registered, snapshots);
     const compositions = citedValues(dir, project, doc, 'post_composition', current, snapshots).map(v => readComposeValue(v.compose, 'direction.citations.composition.value.compose'));
     const idle = isObject(scene.animations) ? scene.animations.idle : undefined;
-    const value = compositions.find(v => equal(v.canvas, scene.canvas) && equal(v.plates, plates.map(p => ({ name: p.name!, image: p.image!, at: p.at!, ...(p.opaque_backdrop === undefined ? {} : { opaque_backdrop: p.opaque_backdrop }) })))
-      && equal(v.order, scene.order) && equal(v.character, { offset: character.offset!, ...(character.scale === undefined ? {} : { scale: character.scale }) }) && isObject(idle) && equal(v.idle_tracks, idle.tracks));
+    const matching = compositions.filter(v => equal(v.canvas, scene.canvas) && equal(v.plates, plates.map(p => ({ name: p.name!, image: p.image!, at: p.at!, ...(p.opaque_backdrop === undefined ? {} : { opaque_backdrop: p.opaque_backdrop }) })))
+      && equal(v.order, scene.order) && isObject(idle) && equal(v.idle_tracks, idle.tracks));
+    const value = matching.find(v => equal(v.character, { offset: character.offset!, ...(character.scale === undefined ? {} : { scale: character.scale }) }));
+    // A unique citation with the rest of the scene intact still identifies the intended shift.
+    const cited = value ?? (matching.length === 1 ? matching[0] : undefined);
+    const reportCharacterPath = `${paths.report}.characters[0]`;
+    if (cited) {
+      const size = placed.rig_size;
+      if (!Array.isArray(size) || size.length !== 2 || !positive(size[0]) || !positive(size[1])) {
+        directionFail('DIRECTION_COMPOSE_PLACEMENT', `${reportCharacterPath}.rig_size`, 'retain the Parts report with the positive integer rig width and height');
+      }
+      const [ox, oy] = cited.character.offset;
+      const scale = cited.character.scale ?? 1;
+      const { width, height } = cited.canvas;
+      // Use the producer's rootShift operation order so fractional scales compare exactly.
+      const expectedShift = [-width / 2 + ox + scale * (size[0] / 2), height - oy - scale * size[1]];
+      if (!equal(placed.shift, expectedShift)) {
+        directionFail('DIRECTION_COMPOSE_PLACEMENT', `${reportCharacterPath}.shift`, `expected shift ${JSON.stringify(expectedShift)} from the cited placement, reported ${JSON.stringify(placed.shift) ?? 'missing'}; compose again from the cited scene`);
+      }
+    }
     if (!value) directionFail('DIRECTION_COMPOSE_CHOICE_MISMATCH', paths.scene, 'copy canvas, plates, order, character offset/scale and idle tracks from the cited compose value');
+    if (!equal(placed.offset, value.character.offset) || (placed.scale ?? 1) !== (value.character.scale ?? 1)) {
+      directionFail('DIRECTION_COMPOSE_PLACEMENT', reportCharacterPath, 'retain the Parts report with the cited character offset and scale');
+    }
     const stage = { x: -value.canvas.width / 2, y: 0, width: value.canvas.width, height: value.canvas.height };
     if (!equal(model.stage, stage)) directionFail('DIRECTION_COMPOSE_PLACEMENT', 'direction.model', 'published model stage must equal the cited canvas (root at bottom centre)');
     const take = doc.take as JsonObject;

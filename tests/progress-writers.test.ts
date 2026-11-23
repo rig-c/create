@@ -5,7 +5,7 @@ import { collectItems } from '../src/check.ts';
 import { applicableAsks, optionContext, sha256 } from '../src/choices.ts';
 import { Refusal } from '../src/refusal.ts';
 import { renderAgentGuide } from '../src/agent-guide.ts';
-import { LEGACY_STAGE_VALUES, STAGE_ORDER_SPEC, STAGE_VALUES } from '../src/stages.ts';
+import { isOpenInterviewArrivalStage, LEGACY_STAGE_VALUES, STAGE_ORDER_SPEC, STAGE_VALUES } from '../src/stages.ts';
 import { PROGRESS_HISTORY_SINCE, signoffIdentity, STAGE_PROGRESS_SINCE } from '../src/stage-progress.ts';
 import { stepHash } from '../src/step-hash.ts';
 import type { JsonObject } from '../src/templates.ts';
@@ -67,6 +67,10 @@ function interviewArrival(stage: string): string {
 
 beforeEach(() => testClock.set(new Date('2026-11-20T00:00:00Z')));
 afterEach(() => testClock.reset());
+
+test('the forward-advance allowance excludes the initial interview', () => {
+  expect(isOpenInterviewArrivalStage('interview')).toBe(false);
+});
 
 test.each([
   [

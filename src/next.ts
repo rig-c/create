@@ -62,10 +62,12 @@ import {
 import {
   hasStageOrder,
   interviewStageOfGuide,
+  isOpenInterviewArrivalStage,
   isOpenInterviewStage,
   LEGACY_STAGE_VALUES,
   PARTS_REVIEW_SINCE,
   PAUSED_STAGE,
+  silentInterviewItems,
   STAGE_VALUES,
   stageIndex,
   stageOfStep,
@@ -798,14 +800,9 @@ function candidateAdvance(
   clone.stage = targetStage;
   clone.stage_values = [...(hasStageOrder(clone) ? STAGE_VALUES : LEGACY_STAGE_VALUES)];
   const allowed = new Map<string, number>();
-  if (['rigging-interview', 'post-interview'].includes(targetStage)) {
-    for (const item of collectItems(clone, { collection: loadCollection(dir) })) {
-      if (
-        item.state.state !== 'silent' ||
-        interviewStageOfGuide(item.id, item.kind === 'post', hasStageOrder(clone)) !== targetStage
-      ) {
-        continue;
-      }
+  if (isOpenInterviewArrivalStage(targetStage)) {
+    const items = collectItems(clone, { collection: loadCollection(dir) });
+    for (const item of silentInterviewItems(clone, items, targetStage)) {
       const key = findingKey({ code: 'INTERVIEW_INCOMPLETE', path: item.path });
       allowed.set(key, (allowed.get(key) ?? 0) + 1);
     }

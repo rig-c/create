@@ -1,10 +1,11 @@
-import { afterEach, expect, test } from 'bun:test';
+import { afterEach, expect, spyOn, test } from 'bun:test';
 import { randomUUID } from 'node:crypto';
 import { cpSync, existsSync, linkSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { JOB_CHEST_LANDMARKS_ACT_SCHEMA, JOB_COMMENTS_ACT_SCHEMA, startJobHost, type JobOwnerHost, type JobVerdict } from '@rig-c/review/job-host';
 import { collectItems, type Finding } from '../src/check.ts';
+import { main } from '../src/cli.ts';
 import { optionContext } from '../src/choices.ts';
 import { directionHash, objects } from '../src/direction.ts';
 import { acknowledgePublication, enqueuePublication, jobHash, JOB_BINDING_FILE, jobHostStateRoot, readAcknowledgedPublication, readWriterBinding, writePrivateJson, type WriterBinding } from '../src/job-outbox.ts';
@@ -12,6 +13,7 @@ import { currentJobIdentity, partsEnumerator, prepareLiveManifest, readPublished
 import { assertReviewActSource, decodeReviewAct, decodeReviewResponse, fetchReviewAct, REVIEW_ACT_ACTOR_SINCE, reviewActFindings, reviewActTransport } from '../src/review-act.ts';
 import { pendingMeshDeltaRevision } from '../src/corrections.ts';
 import { republishCommand } from '../src/republish.ts';
+import { readVersions } from '../src/review.ts';
 import { formatNext, nextProject } from '../src/next.ts';
 import { reviewPackageCommand } from '../src/review-package.ts';
 import { selectSignoffTarget } from '../src/signoff-target.ts';
@@ -23,7 +25,7 @@ import { plantLegacyReopen, fixture } from './fixtures.ts';
 import { clockedCli, staleRecordPlant, treeDigest } from './helpers.ts';
 import { legacyRigPublicationCli } from './legacy-rig-publication.ts';
 import { meshEdits } from './mesh-edit-fixture.ts';
-import { EXAMPLE_REOPEN_AT } from '../scripts/example-time.ts';
+import { EXAMPLE_NOW, EXAMPLE_REOPEN_AT } from '../scripts/example-time.ts';
 
 const directories: string[] = [];
 const hosts: JobOwnerHost[] = [];
@@ -172,6 +174,122 @@ Bun.spawnSync = (args, options) => original([args[0], '--preload', import.meta.p
   const [stdout, stderr, exit] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
   return { stdout, stderr, exit };
 }
+
+test('#888 signoff rig-review, advance and handoff require acceptance of the latest live rig', async () => {
+  const root = temporary('create-latest-rig-');
+  const checkpoint = join(import.meta.dir, '../templates/example-chain/checkpoints/3-rig-review');
+  cpSync(checkpoint, root, { recursive: true });
+  // Start from the retained earlier approvals and produce both rig entries with rig-version.
+  const prefix = projectAt(root);
+  const provenance = (prefix.versions as JsonObject[])[0]!.provenance as JsonObject;
+  prefix.stage = 'rigging';
+  prefix.advances = (prefix.advances as JsonObject[]).filter(move => move.stage !== 'rig-review');
+  prefix.versions = [];
+  putProject(root, prefix);
+  for (const path of ['outputs', 'evidence/v1', 'derived/review']) rmSync(join(root, path), { recursive: true, force: true });
+
+  const source = join(root, 'build-input');
+  mkdirSync(source);
+  cpSync(join(root, 'derived/drafts/chain/input'), join(source, 'parts'), { recursive: true });
+  const put = (path: string, value: object): void => writeFileSync(join(source, path), JSON.stringify(value));
+  cpSync(join(checkpoint, 'outputs/v1/out/rig'), join(source, 'rig'), { recursive: true });
+  cpSync(join(checkpoint, String((provenance.config as JsonObject).path)), join(source, 'config.json'));
+  cpSync(join(checkpoint, 'evidence/v1/interview-requirements.json'), join(source, 'interview-requirements.json'));
+  put('citations.json', provenance.sections as JsonObject);
+  put('adapter.json', []);
+  put('toolchain.json', { lockfileVersion: 3, packages: Object.fromEntries(['@rig-c/parts', '@rig-c/core'].map(name => [`node_modules/${name}`, {
+    version: JSON.parse(readFileSync(join(import.meta.dir, '../node_modules', name, 'package.json'), 'utf8')).version,
+  }])) });
+
+  testClock.set(EXAMPLE_NOW);
+  const cli = (dir: string, args: string[]) => {
+    const file = join(dir, 'project.json');
+    const before = readFileSync(file);
+    const output = spyOn(process.stdout, 'write').mockImplementation(() => true);
+    const errors = spyOn(process.stderr, 'write').mockImplementation(() => true);
+    try {
+      const exit = main(args, testClock.now());
+      return { exit, before, after: readFileSync(file), stdout: output.mock.calls.map(call => String(call[0])).join(''),
+        stderr: errors.mock.calls.map(call => String(call[0])).join('') };
+    } finally { output.mockRestore(); errors.mockRestore(); }
+  };
+  const success = (dir: string, args: string[]) => {
+    const result = cli(dir, args);
+    expect({ exit: result.exit, stderr: result.stderr }).toEqual({ exit: 0, stderr: '' });
+    return result;
+  };
+  const produce = (dir: string, n: number) => {
+    testClock.set(testClock.now() + 1000);
+    const core = join(import.meta.dir, '../node_modules/@rig-c/core/bin/rigc.cjs');
+    const runCore = (args: string[]) => {
+      const result = Bun.spawnSync([process.execPath, core, ...args], { cwd: join(dir, 'build-input'),
+        env: { ...process.env, SOURCE_DATE_EPOCH: String(Math.trunc(testClock.now() / 1000)) }, stdout: 'pipe', stderr: 'pipe', timeout: 30_000 });
+      expect({ exit: result.exitCode, stderr: result.stderr.toString() }).toEqual({ exit: 0, stderr: '' });
+    };
+    runCore(['build', '--rig', 'rig/rig.json', '--motion', 'rig/motion.json', '--out', `build-${n}`, '--profile', 'rig-play',
+      '--pack', '--page-edges', 'free', '--pack-shape', 'polygon', '--report', `compile-${n}.json`]);
+    runCore(['render', '--candidate', `build-${n}`, '--out', `idle-${n}`, '--animation', 'idle', '--fps', '1', '--max', '32', '--poser', 'core']);
+  };
+  const register = (dir: string, n: number) => {
+    const inputs = { parts: 'parts', rig: 'rig', build: `build-${n}`, idle: `idle-${n}`, config: 'config.json', 'path-adapter': 'adapter.json',
+      'compile-report': `compile-${n}.json`, 'toolchain-lock': 'toolchain.json', citations: 'citations.json', 'run-record': `build-${n}/run.json`, 'at-source': `build-${n}/run.json` };
+    success(dir, ['rig-version', String(n), dir, ...Object.entries(inputs).flatMap(([flag, file]) => [`--${flag}`, `build-input/${file}`]),
+      '--at-pointer', '/finished_at', '--by', 'registrant']);
+  };
+  const accept = async (dir: string, n: number) => {
+    // The retained two-subject publication records a verdict without folding a signature into it.
+    const view = await published('3-rig-review', 1, 'owner', 'Approve the synthetic rig.', 'approved', 1, true, { root: dir, rigVersion: n });
+    expect(await command(dir, view.act.actId, n)).toMatchObject({ exit: 0, stderr: '' });
+    view.host.stop();
+    rmSync(join(dir, JOB_BINDING_FILE));
+    testClock.set(testClock.now() + 1000);
+  };
+  const sign = (dir: string, n?: number) => ['signoff', 'rig-review', dir, '--by', 'user', '--verbatim-file', join(dir, 'evidence/approval.txt'),
+    ...(n === undefined ? [] : ['--version', String(n)])];
+  const checkRefused = (result: ReturnType<typeof cli>, code: string) => {
+    expect(result.exit).toBe(1);
+    expect(result.stderr).toStartWith(`rig-create: ${code}:`);
+    expect(result.after.equals(result.before)).toBe(true);
+  };
+  const checkBlocked = (result: ReturnType<typeof cli>) => {
+    checkRefused(result, 'RIG_VERSION_UNACCEPTED');
+    expect(result.stderr).toContain('rig v2');
+  };
+
+  produce(root, 1);
+  register(root, 1);
+  success(root, ['advance', 'rig-review', root]);
+  checkRefused(cli(root, sign(root)), 'SIGNOFF_TARGET_STALE');
+  await accept(root, 1);
+  expect((projectAt(root).signoffs as JsonObject[]).some(s => s.stage === 'rig-review')).toBe(false);
+  produce(root, 2);
+  const signed = temporary('create-latest-rig-signed-before-v2-');
+  cpSync(root, signed, { recursive: true });
+  success(signed, sign(signed, 1));
+  register(signed, 2);
+  register(root, 2);
+  expect(readVersions(projectAt(root)).rigs).toMatchObject([
+    { n: 1, live: true, accepted: { verdict: 0 } },
+    { n: 2, live: true, accepted: null },
+  ]);
+  const staleSignoff = cli(root, sign(root));
+  checkBlocked(staleSignoff);
+  expect(staleSignoff.stderr).toContain('review 2 --verdict accepted --review rig-review');
+  checkBlocked(cli(root, sign(root, 1)));
+  checkRefused(cli(root, ['handoff', root]), 'RIG_REVIEW_UNSIGNED');
+
+  // A pre-existing signature satisfies the prerequisite for the downstream guards.
+  checkBlocked(cli(signed, ['advance', 'post-interview', signed]));
+  checkBlocked(cli(signed, ['handoff', signed]));
+
+  await accept(root, 2);
+  success(root, sign(root, 2));
+  expect((projectAt(root).signoffs as JsonObject[]).find(s => s.stage === 'rig-review')).toMatchObject({ target: { version: 2 } });
+  success(root, ['advance', 'post-interview', root]);
+  const handoff = success(root, ['handoff', '--json', root]);
+  expect(JSON.parse(handoff.stdout).rig_version).toBe(2);
+  expect(handoff.after.equals(handoff.before)).toBe(true);
+}, 180_000);
 
 async function preparePublishedRigSignoff(view: Awaited<ReturnType<typeof published>>) {
   const { root, host, agent, uiRequest, publication } = view;

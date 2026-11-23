@@ -1960,7 +1960,7 @@ the retained scene and every consumed character and plate to registered bytes.
 
 | Code | Refuses when | Remedy |
 | --- | --- | --- |
-| `DIRECTION_COMPOSE_SCHEMA` | the @3 document is not closed, bindings name the wrong frozen paths, scene/report fields have the wrong shape, or a scene character carries an unknown key or `canvas_clip` other than `true` | author the documented @3 shape and run direction write with the selected compose output |
+| `DIRECTION_COMPOSE_SCHEMA` | the @3 document is not closed, bindings name the wrong frozen paths, scene/report fields have the wrong shape, or a scene character carries `canvas_clip` other than `true` | author the documented @3 shape and run direction write with the selected compose output |
 | `DIRECTION_COMPOSE_FILE` | a compose or plate source is missing, unreadable, symlinked, nonregular, or an immutable destination exists | retain regular producer files and select a new post number |
 | `DIRECTION_COMPOSE_HASH` | a bound compose/model/scene file differs from its recorded raw-byte SHA256 | restore the frozen bytes or write a new composed post |
 | `DIRECTION_COMPOSE_INVENTORY` | a post does not bind its own compose tree and retained scene, or files differ from its inventory | restore the exact outputs inventory and bytes; use direction write for new output |

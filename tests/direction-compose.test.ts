@@ -604,17 +604,14 @@ for (const badClip of [false, null, 1, 'true']) test(`DIRECTION_COMPOSE_SCHEMA r
   expect(readFileSync(join(f.dir, 'project.json'))).toEqual(before);
 });
 
-test('DIRECTION_COMPOSE_SCHEMA refuses an unknown scene character key beyond offset, scale and canvas_clip', () => {
+test('direction@3 permits Parts scene character annotations such as accept and note', () => {
   const f = fixture();
-  objects(f.scene.characters)[0]!.crop = true;
+  Object.assign(objects(f.scene.characters)[0]!, { accept: ['mesh'], note: 'synthetic scene character note' });
   f.put('compose.scene.json', f.scene);
   f.run = composeRunFixture(f.dir, f.load(), 1, f.scene);
   saveRun(f);
-  const before = readFileSync(join(f.dir, 'project.json'));
-  let thrown: unknown;
-  try { f.publish(); } catch (e) { thrown = e; }
-  expect(thrown).toMatchObject({ code: 'DIRECTION_COMPOSE_SCHEMA', message: expect.stringContaining('crop') });
-  expect(readFileSync(join(f.dir, 'project.json'))).toEqual(before);
+  expect(f.publish().exit).toBe(0);
+  expect(() => readDirection(f.dir, f.load(), 2, true)).not.toThrow();
 });
 
 const malformedPlacements: [string, (c: JsonObject) => void][] = [

@@ -197,16 +197,8 @@ export function validateComposeDirection(dir: string, project: JsonObject, doc: 
     if (!Array.isArray(scene.characters) || scene.characters.length !== 1 || !isObject(scene.characters[0]) || !Array.isArray(scene.plates)) directionFail('DIRECTION_COMPOSE_SCHEMA', paths.scene, 'declare one accepted character and the cited named plates');
     if (scene.plate !== undefined) directionFail('DIRECTION_COMPOSE_SCHEMA', paths.scene, 'use only named plates declared by the cited compose value');
     const character = scene.characters[0] as JsonObject;
-    for (const key of Object.keys(character)) {
-      if (!['id', 'build', 'offset', 'scale', 'canvas_clip'].includes(key)) {
-        directionFail('DIRECTION_COMPOSE_SCHEMA', `${paths.scene}.characters[0].${key}`, `scene character key ${key} is not allowed; only id, build, offset, optional scale and optional canvas_clip: true are accepted`);
-      }
-    }
     if ('canvas_clip' in character && character.canvas_clip !== true) {
       directionFail('DIRECTION_COMPOSE_SCHEMA', `${paths.scene}.characters[0].canvas_clip`, 'canvas_clip must be true when present');
-    }
-    if (!closed(character, ['id', 'build', 'offset'], ['scale', 'canvas_clip']) || !text(character.id) || !text(character.build)) {
-      directionFail('DIRECTION_COMPOSE_SCHEMA', `${paths.scene}.characters[0]`, 'scene character requires id, build and offset, with optional scale and optional canvas_clip: true');
     }
     const run = readComposeRun(bound(dir, compose.run as JsonObject, snapshots), paths.run, scene);
     const rc = objects(report.characters);

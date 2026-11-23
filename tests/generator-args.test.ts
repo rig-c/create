@@ -11,6 +11,11 @@ describe.each(scripts)('%s argument refusals', script => {
   const composed = script === 'generate-composed-direction-fixture.ts';
   test.each([
     { args: composed ? ['output', '--check'] : ['--check'], bad: '--check' },
+    ...(composed ? [
+      { args: ['--clip'], bad: '(missing destination)' },
+      { args: ['--clip', '--clip', '--check'], bad: '--clip' },
+      { args: ['--clip', '--check', 'extra'], bad: 'extra' },
+    ] : []),
     { args: ['--x'], bad: '--x' },
     { args: ['-check'], bad: '-check' },
     { args: ['output', '--unknown'], bad: '--unknown' },

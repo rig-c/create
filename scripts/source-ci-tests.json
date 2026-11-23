@@ -5,6 +5,11 @@
     "reason": "Checks the same input inventory and raw bytes with sibling source resolution"
   },
   {
+    "file": "tests/composed-direction-inputs.test.ts",
+    "name": "clipped composed direction scene without canvas_clip is refused by the pinned Parts CLI with SCENE_CHARACTER_INSIDE_CANVAS",
+    "reason": "Exercises the negative control scene against Parts compose with sibling source resolution"
+  },
+  {
     "file": "tests/checkpoint-evidence-publication.test.ts",
     "name": "#395 SVG-backed package metadata retains sealed painting and checkpoint evidence",
     "reason": "Exercises published Review behavior under sibling source resolution"

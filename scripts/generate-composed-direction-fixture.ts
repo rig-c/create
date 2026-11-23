@@ -6,7 +6,11 @@ import type { JobOwnerHost } from '@rig-c/review/job-host';
 import type { Json, JsonObject } from '../src/templates.ts';
 
 const repo = realpathSync(join(import.meta.dir, '..'));
-const fixture = join(repo, 'templates/example-composed-direction');
+const fixtures = {
+  default: join(repo, 'templates/example-composed-direction'),
+  clip: join(repo, 'templates/example-composed-clip'),
+} as const;
+export type ComposedVariant = keyof typeof fixtures;
 const id = 'composed';
 const owner = 'synthetic-owner';
 const build = 'evidence/compose-character';
@@ -14,7 +18,8 @@ const scene = 'compose.scene.json';
 const manifest = 'review-live-v2.json';
 const jsonBytes = (value: unknown): Buffer => Buffer.from(`${JSON.stringify(value, null, 2)}\n`);
 
-function inputBytes(): Map<string, Buffer> {
+export function inputBytes(variant: ComposedVariant = 'default'): Map<string, Buffer> {
+  const clip = variant === 'clip';
   const inputs = new Map<string, Buffer>();
   const json = (path: string, data: unknown): void => { inputs.set(path, jsonBytes(data)); };
   const size = 128;
@@ -66,17 +71,17 @@ function inputBytes(): Map<string, Buffer> {
   inputs.set('plates/foreground.png', Buffer.from(encodePng(20, 20, rgba)));
   const take = { duration: 4, loop: true };
   const compose = {
-    canvas: { width: size, height: size },
+    canvas: { width: clip ? 96 : size, height: size },
     plates: [{ name: 'backdrop', image: 'inputs/background.png', at: [0, 0], opaque_backdrop: true },
       { name: 'foreground', image: 'inputs/foreground.png', at: [14, 88] }],
     order: ['backdrop', 'actor', 'foreground'],
-    character: { offset: [0, 0] },
+    character: { offset: clip ? [-16, 0] : [0, 0] },
     idle_tracks: [{ bone: 'foreground', property: 'translate', keys: [{ t: 0, v: [0, 0] }, { t: 2, v: [3, 0] }, { t: 4, v: [0, 0] }] }],
   };
   json('post-composition.json', { compose });
   json('scene.json', { spec: 'spine-parts-scene/1', canvas: compose.canvas,
     plates: compose.plates.map(plate => ({ ...plate, provenance: 'generated' })), order: compose.order,
-    characters: [{ id: 'actor', build, ...compose.character }],
+    characters: [{ id: 'actor', build, ...compose.character, ...(clip ? { canvas_clip: true } : {}) }],
     animations: { idle: { duration: take.duration, tracks: compose.idle_tracks } } });
   json('direction-intent.json', { rig: { version: 1 }, take,
     guides: { camera: 'camera_depth', timing: 'post_timing', composition: 'post_composition' } });
@@ -101,8 +106,8 @@ function put(path: string, bytes: Uint8Array): void {
 }
 
 /** Check the inventory and return the same bytes the producer will consume. */
-export function checkInputFiles(root: string): Map<string, Buffer> {
-  const expected = inputBytes();
+export function checkInputFiles(root: string, variant: ComposedVariant = 'default'): Map<string, Buffer> {
+  const expected = inputBytes(variant);
   const retained = new Map(files(root).map(path => [path, readFileSync(join(root, path))]));
   const differences = [...new Set([...expected.keys(), ...retained.keys()])].sort().flatMap(path => {
     const actual = retained.get(path);
@@ -115,7 +120,8 @@ export function checkInputFiles(root: string): Map<string, Buffer> {
   return retained;
 }
 
-function checkFixture(): Map<string, Buffer> {
+function checkFixture(variant: ComposedVariant = 'default'): Map<string, Buffer> {
+  const fixture = fixtures[variant];
   const expected = new Set(['README.md', 'inputs']);
   for (const entry of readdirSync(fixture, { withFileTypes: true })) {
     if (!expected.delete(entry.name) || (entry.name === 'inputs' ? !entry.isDirectory() : !entry.isFile())) {
@@ -123,7 +129,7 @@ function checkFixture(): Map<string, Buffer> {
     }
   }
   if (expected.size) throw Error(`COMPOSED_INPUT_MISMATCH: missing fixture entries ${[...expected].join(', ')}`);
-  return checkInputFiles(join(fixture, 'inputs'));
+  return checkInputFiles(join(fixture, 'inputs'), variant);
 }
 
 function existingPath(path: string): boolean {
@@ -453,9 +459,9 @@ async function generate(root: string, scratch: string, inputs: Map<string, Buffe
   return sha256(readFileSync(join(root, manifest)));
 }
 
-async function runProject(destination: string): Promise<void> {
+async function runProject(destination: string, variant: ComposedVariant = 'default'): Promise<void> {
   const target = externalTarget(destination);
-  const inputs = checkFixture();
+  const inputs = checkFixture(variant);
   const parent = dirname(target);
   mkdirSync(parent, { recursive: true });
   if (realpathSync(parent) !== parent) throw Error('COMPOSED_OUTPUT_PATH: output parent changed');
@@ -474,20 +480,31 @@ async function runProject(destination: string): Promise<void> {
 }
 
 if (import.meta.main) {
-  const [mode, ...extra] = process.argv.slice(2);
-  const bad = !mode ? '(missing destination)' : mode.startsWith('-') && !['--check', '--write-inputs'].includes(mode) ? mode : extra[0];
+  const raw = process.argv.slice(2);
+  let variant: ComposedVariant = 'default';
+  let bad: string | undefined;
+  const positional: string[] = [];
+  for (const arg of raw) {
+    if (arg === '--clip') {
+      if (variant === 'clip') { bad ??= arg; break; }
+      variant = 'clip';
+    } else positional.push(arg);
+  }
+  const [mode, ...extra] = positional;
+  bad ??= !mode ? '(missing destination)' : mode.startsWith('-') && !['--check', '--write-inputs'].includes(mode) ? mode : extra[0];
   if (bad !== undefined) {
     const error = new Error(`${basename(import.meta.path)}: invalid argument ${JSON.stringify(bad)}.\n`
-      + 'usage: generate-composed-direction-fixture.ts --check | --write-inputs | <fresh directory outside the repository>');
+      + 'usage: generate-composed-direction-fixture.ts [--clip] (--check | --write-inputs | <fresh directory outside the repository>)');
     error.name = 'GENERATOR_ARGS_INVALID';
     throw error;
   }
-  if (mode === '--check') console.log(`Composed direction inputs: ${checkFixture().size} files match byte for byte`);
+  const label = variant === 'clip' ? 'Clipped composed direction inputs' : 'Composed direction inputs';
+  if (mode === '--check') console.log(`${label}: ${checkFixture(variant).size} files match byte for byte`);
   else if (mode === '--write-inputs') {
-    const root = join(fixture, 'inputs');
+    const root = join(fixtures[variant], 'inputs');
     if (physicalPath(root) !== root) throw Error('COMPOSED_INPUT_MISMATCH: input directory resolves through a symlink');
     if (existsSync(root)) files(root);
-    for (const [path, bytes] of inputBytes()) put(join(root, path), bytes);
-    console.log(`Composed direction inputs: wrote ${checkFixture().size} files`);
-  } else await runProject(mode!);
+    for (const [path, bytes] of inputBytes(variant)) put(join(root, path), bytes);
+    console.log(`${label}: wrote ${checkFixture(variant).size} files`);
+  } else await runProject(mode!, variant);
 }

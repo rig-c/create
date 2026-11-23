@@ -207,7 +207,9 @@ test('acceptance scopes the part gate to its selected version', () => {
     ['REVIEW_PACKAGE_PART_FILE_MISMATCH', 'versions[v2].review_package.files[out/parts/torso.png]'],
   ]);
   accept(dir);
-  sign(dir);
+  const before = readFileSync(join(dir, 'project.json'));
+  expect(refusal(() => sign(dir)).code).toBe('RIG_VERSION_UNACCEPTED');
+  expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
 });
 
 for (const artifact of ['parts/torso.png', 'parts.json']) for (const boundary of ['acceptance', 'handoff']) test(`${boundary} refuses post-write package drift: ${artifact}`, () => {

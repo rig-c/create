@@ -512,21 +512,20 @@ assembled parts before `rigging` starts.
   selected from the draft's receipt ledger, rather than a review-saved file
   passed on the command line. Approved UI ingestion also writes this signature.
   Retained approval, source freshness and draft membership are checked before
-  writing. Historical saved-file signatures retain their legacy reader; the
-  `/1` and `/2` schema details below describe that reader, not new command
-  arguments. A part added, removed or repainted requires a new owner review.
+  writing. A pre-contract saved-file signature without a recorded receipt gets
+  a `PARTS_VERDICT_FILE_LEGACY` warning. A current signature without a receipt
+  gets `PARTS_VERDICT_RECEIPT_REQUIRED`. A part added, removed or repainted
+  requires a new owner review.
   The latest `parts-review` sign-off is the one read. **The parts themselves
   must be on disk to rig**: on a fresh clone, re-assemble them before rigging
   continues. The verdict gates rigging only until a rig version is accepted at
   `rig-review`: from then on it is not read, and a part changed after that is a
   new rig version, refused as `RIG_VERSION_UNACCEPTED` until it is reviewed.
 
-  Both schemas take the same approval, mode, evidence SHA-256, source path,
-  byte-count and source SHA-256 checks. The schema allowlist is closed: `/3`
-  and any other value refuse `PARTS_VERDICT_SCHEMA_UNKNOWN`. The signoff writer
-  calls this reader before writing; the difference-map reader receives only
-  its successfully checked `parts.json` path. These readers do not need new
-  fields (`tests/parts-verdict-v2.test.ts`).
+  The CLI receipt reader validates the retained parts response and refuses an
+  unsupported schema with `PARTS_REVIEW_CLI_INVALID`. Finalized Review acts
+  use the parts-verdict act reader. Both routes bind the response to the
+  reviewed draft before returning its `parts.json` path.
 
   **Fields added by `/2`.** The schema-final review writer at
   [`07c07d254725c97cfc63aa7b028cb8ef8ccf9045`](https://github.com/rig-c/review/blob/07c07d254725c97cfc63aa7b028cb8ef8ccf9045/src/parts-view.ts)
@@ -551,10 +550,9 @@ assembled parts before `rigging` starts.
 
   `tests/fixtures/rig-review-parts-verdict-2/README.md` records the exact producer
   head and reproducible command. Its empty-comment and pointed-comment verdicts
-  are unedited writer output. `tests/parts-verdict-v2.test.ts` exercises both
-  through `signoffCommand` then `checkProject`, tests comment-byte binding and
-  operation without external crop state, and applies source/mode refusal
-  controls to both schema versions. Existing `/1` fixture bytes are unchanged.
+  are unedited writer output. `tests/parts-verdict-v2.test.ts` checks that
+  the CLI response reader decodes these `/2` fixtures and the `/1` fixture
+  without changing their fields.
 
 - **The project record carries an agent-authored whole-figure difference map**
   at `project.json.diff_map`, while the `parts-review` sign-off records only the
@@ -850,7 +848,7 @@ checkpoints against history. Live approvals bind current steps.
   only the user (or a delegation) fills `checkpoint`.
 - **`bar`** is what *done* is measured by for that step, written before the
   step runs. A sentence that names a part, effect or extent is a bar line
-  ([INTERVIEW.md § Direction is taken in sentences](INTERVIEW.md#direction-is-taken-in-sentences)).
+  ([INTERVIEW.md § Direction and exact words](INTERVIEW.md#direction-and-exact-words)).
 - **`status`**: `pending` → `in-progress` → `at-checkpoint` (waiting for a
   sign-off) → `done`. A step without a checkpoint may skip `at-checkpoint`.
 - A changed guide — including one added from polish feedback — sends every step
@@ -1075,8 +1073,9 @@ v3 `package-lock.json`. It reads the exact resolved Parts and Core versions into
 `built_with`. Bun registry entries for both packages must include integrity.
 `registration.toolchain` records the kind (`bun-lock` or `npm-lock-v3`) and
 the retained source (`{path,sha256,bytes}`). The explicit `--toolchain-lock`
-argument declares which lock was used for the build. Producer-owned run
-attestation is tracked in parts#1165 and core#1718.
+argument declares which lock was used for the build. Parts `rig` and `assemble`
+write a `rig-run/1` stamp (parts#1165), and Core `build` writes a `rigc-run/1`
+stamp (core#1718). Each records the package version, run times and output hashes.
 
 Repeatable `--run-record <file>` binds at most one producer `run.json` per
 spec beside `--toolchain-lock`, recorded in the order given as
@@ -2711,7 +2710,7 @@ the project's next moves and whose they are from `project.json`:
   placeholders and ingest with the printed `--from-review '<actId>'` command.
   Advance if the stage requires it and keep the job open for the next ask.
   See [the live Review loop](LIVE-REVIEW.md#the-live-review-loop) for recovery,
-  close and the package-only host transition pending #700. Moves marked
+  close and the one-time close and reopen for legacy package-only hosts. Moves marked
   `unanswered_by_record` retain their missing-field guidance.
 - **Scene writing does not plan work.** `scene write` adds no plan step.
   Author the post plan steps through `plan add` before post-interview sign-off.

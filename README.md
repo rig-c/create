@@ -97,9 +97,9 @@ Release preparation and the owner-operated publication steps are in
 Agents route human picks, corrections, verdicts and signatures through Review.
 Start the first `job open` in the background and share the private URL once.
 Publish later asks with another `job open` using the matching selector, or
-through a bound writer. The open page updates in place. Until #698 lands,
-the owner has to tell the agent after submitting in Review. Then run
-`job acts` and ingest its printed writer command.
+through a bound writer. The open page updates in place. Run `job acts --wait`
+in the background after publishing an ask, then ingest the finalized act
+with the printed writer command.
 
 ```sh
 rig-create job open <project dir> --reviewer <id> --role owner --plan
@@ -129,7 +129,7 @@ no separate signoff or move back to `parts`. Ingesting an approved
 UI verdict atomically records its receipt and the parts-review signature.
 Finish each draft's record changes before publishing: a stale `projectHash`
 refuses ingestion. See [the live Review loop](docs/LIVE-REVIEW.md#the-live-review-loop)
-for recovery, close and the temporary package-only host transition pending #700.
+for recovery, close and switching between drafts and questions on the same host.
 
 Only a midflight approved verdict already ingested unsigned uses the separate
 `signoff parts-review --from-review <actId> --draft <id> --structure-file <path>`

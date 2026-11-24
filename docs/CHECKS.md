@@ -1765,7 +1765,7 @@ regressions still require their own `--known-regression` entries.
 | `RESTART_RECORD_UNCOMMITTED` | `project.json` is untracked, staged but never committed, or differs from its version at HEAD | commit `project.json`, then restart |
 | `RESTART_INPUT_INVALID` | a kept input fails the input writer's checks, or a left-out legacy entry is the declared `painting` without a writer-valid twin for the same bytes | restore the file, or register it again with `input add` (`input add --painting` for the painting) |
 | `RESTART_PART_SET_INCOMPLETE` | a kept part set (inputs under `<set>/parts/*.png` or `<set>/parts.json`) lacks `<set>/parts.json`, a part PNG, or its rig: `rig.json` and `mesh_report.json` at `<set>/rig/` or `<set>/` | register the missing files with `input add`, or stop keeping the set |
-| `RESTART_MALFORMED` | `restarts` is not a list, or an entry lacks `{ at, by, reason, previous_record_sha256 }` | restore the entry `restart` wrote |
+| `RESTART_MALFORMED` | `restarts` is not a list, an entry lacks `{ at, by, reason, previous_record_sha256 }`, or a present `dropped_additions` list or row is malformed. `restart` also refuses a source addition it cannot hash. | restore the entry `restart` wrote, or restore the source addition and its exact words before restarting |
 | `RESTART_SOURCE_CHANGED` | `project.json` changed while `restart` was validating | retry against the current record |
 | `NEXT_USAGE` | `next` receives an unsupported option or more than one project directory argument (exit 2) | use `rig-create next [<project dir>] [--json]` |
 

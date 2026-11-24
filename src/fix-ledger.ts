@@ -336,6 +336,27 @@ export function checkFixLedger(dir: string, project: JsonObject, refusals: Findi
   return summaries;
 }
 
+const DROPPED_ADDITION_KEYS = ['item', 'path', 'source', 'by', 'at', 'review_act', 'verbatim_sha256'];
+const DROPPED_ADDITION_PATH = /^interview\.(?:framing\[(.+)\]\.(?:answer|history\[\d+\])|(?:waypoints|post\.items)\[(.+)\]\.(?:guide|history\[\d+\]))\.additions\[\d+\]$/;
+
+function checkDroppedAdditions(value: Json, path: string, refusals: Finding[]): void {
+  if (!Array.isArray(value)) {
+    refusals.push(finding('RESTART_MALFORMED', path, 'expected a list of dropped additions; restore the entry restart wrote'));
+    return;
+  }
+  value.forEach((row, index) => {
+    const location = isObject(row) && typeof row.path === 'string' ? DROPPED_ADDITION_PATH.exec(row.path) : null;
+    if (!isObject(row) || !text(row.item) || !location || (location[1] ?? location[2]) !== row.item
+      || !(row.source === null || text(row.source)) || !(row.by === null || text(row.by))
+      || !(row.at === null || Number.isFinite(time(row.at))) || !hex(row.verbatim_sha256)
+      || (row.review_act !== undefined && !text(row.review_act))
+      || Object.keys(row).some(key => !DROPPED_ADDITION_KEYS.includes(key))) {
+      refusals.push(finding('RESTART_MALFORMED', `${path}[${index}]`,
+        'expected item, answer addition path, source, by, at and verbatim_sha256 with an optional review_act; restore the entry restart wrote'));
+    }
+  });
+}
+
 function checkRestarts(project: JsonObject, refusals: Finding[], warnings: Finding[]): void {
   if (project.restarts === undefined) return;
   if (!Array.isArray(project.restarts)) { refusals.push(finding('RESTART_MALFORMED', 'restarts', 'expected a list written by restart')); return; }
@@ -353,6 +374,7 @@ function checkRestarts(project: JsonObject, refusals: Finding[], warnings: Findi
     if (authority) {
       (authority.code === 'OWNER_CHAT_REQUIRED' && time(raw.at) < Date.parse(REOPEN_RESTART_OWNER_CHAT_SINCE) ? warnings : refusals).push(authority);
     }
+    if (raw.dropped_additions !== undefined) checkDroppedAdditions(raw.dropped_additions, `${path}.dropped_additions`, refusals);
   });
 }
 

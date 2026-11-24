@@ -10,7 +10,7 @@ import { freshProjectRecord } from '../src/init.ts';
 import { OWNER_CHAT_SOURCE, REOPEN_RESTART_OWNER_CHAT_SINCE } from '../src/owner-chat.ts';
 import { Refusal } from '../src/refusal.ts';
 import type { JsonObject } from '../src/templates.ts';
-import { arr, fixture, obj } from './fixtures.ts';
+import { arr, fixture, obj, waypoint } from './fixtures.ts';
 import { checkProject, draftRigCommand, inputCommand, interviewCommand, testClock, TEST_NOW } from './clock.ts';
 import { cli, gitEnv, ownerChatArgs, run, tempDir } from './helpers.ts';
 
@@ -299,6 +299,9 @@ test('restart keeps inputs and every ledger row, appends restarts[], and checks 
   const declared = load(dir); expect(declared.painting).toBe('inputs/painting.png');
   declared.owner = { language: 'ko' };
   declared.same_artwork = { reason: 'A different synthetic rig kind.', at: testClock.iso(), projects: ['first'] };
+  const motionWords = '  호흡을 조금 천천히 해 주세요.\r\n';
+  const motion = { by: 'owner', at: testClock.iso(), source: 'polish feedback, v3', review_act: 'review act synthetic-job/synthetic-act' };
+  obj(waypoint(declared, 'motion').guide).additions = [{ ...motion, verbatim: motionWords, value: null }];
   save(dir, declared); commit(dir);
   const before = readFileSync(join(dir, 'project.json'));
   const old = load(dir);
@@ -306,13 +309,27 @@ test('restart keeps inputs and every ledger row, appends restarts[], and checks 
   refused(dir, 'OWNER_CHAT_REQUIRED', () => restartCommand([dir, '--by', 'owner'], step()));
   const reason = '\uFEFF  Restart at v1; delete everything before it.\r\n';
   const saidAt = testClock.iso();
-  restartCommand(restartArgs(dir, reason), step());
+  const result = restartCommand(restartArgs(dir, reason), step());
+  expect(result.exit).toBe(0);
+  expect(result.stdout).toContain('Dropped 3 answer addition(s)');
+  expect(result.stdout).toContain('interview.waypoints[motion].guide.additions[0] (source: "polish feedback, v3")');
+  expect(result.stdout).not.toContain(motionWords.trim());
   const restarted = load(dir);
   expect(restarted).toMatchObject({ stage: 'interview', versions: [], signoffs: [], name: old.name!, owner: old.owner!, painting: old.painting!, same_artwork: old.same_artwork!, inputs: old.inputs!, fix_ledger: old.fix_ledger! });
   for (const key of ['drafts', 'review_acts', 'advances', 'scenes']) expect(restarted[key]).toBeUndefined();
   expect(obj(restarted.plan).steps).toEqual([]);
+  // The example also contains two copies of the same addition in distinct historical answers.
+  const history = arr(waypoint(old, 'bones').history);
+  const dropped = [0, 1].map(index => {
+    const { by, at, source, verbatim } = obj(arr(obj(history[index]).additions)[0]);
+    return { item: 'bones', path: `interview.waypoints[bones].history[${index}].additions[0]`,
+      by, at, source, verbatim_sha256: sha(String(verbatim)) };
+  });
   expect(arr(restarted.restarts)).toEqual([{ at: testClock.iso(), by: 'owner', reason, previous_record_sha256: sha(before),
-    source: OWNER_CHAT_SOURCE, said_at: saidAt, relayed_by: 'synthetic-relay' }]);
+    source: OWNER_CHAT_SOURCE, said_at: saidAt, relayed_by: 'synthetic-relay',
+    dropped_additions: [...dropped, { ...motion, item: 'motion', path: 'interview.waypoints[motion].guide.additions[0]', verbatim_sha256: sha(motionWords) }] }]);
+  for (const row of dropped) expect(result.stdout).toContain(row.path);
+  expect(JSON.stringify(restarted)).not.toContain(motionWords.trim());
   // A restarted record checks the same as a fresh init record: the same codes (its open interview) and 0 warnings.
   const checked = checkProject(dir);
   const fresh = checkProject(dir, { ...freshProjectRecord(String(old.name), testClock.now()), owner: old.owner! });
@@ -326,6 +343,39 @@ test('restart keeps inputs and every ledger row, appends restarts[], and checks 
   refused(dir, 'DRAFT_LEDGER_INCOMPLETE', () => draftRigCommand(draftArgs(dir, 'r1', '--ledger-report', report(dir, 'r1', {}))));
   expect(record(dir, 'r1', '--ledger-report', report(dir, 'r1', { T1: 'fail' }))).toMatchObject({ fixes_against: null, fixes: [] });
   expect(checkProject(dir).refusals).toEqual(open);
+});
+
+test('restart JSON reports additions and check refuses malformed inventory rows', () => {
+  const dir = example();
+  commit(dir);
+  const result = restartCommand([...restartArgs(dir), '--json'], step());
+  const project = load(dir);
+  const entry = obj(arr(project.restarts)[0]);
+  expect(JSON.parse(result.stdout)).toEqual(entry);
+  const rows = arr(entry.dropped_additions);
+  expect(rows).toHaveLength(2);
+  const row = obj(rows[0]);
+  const path = 'restarts[0].dropped_additions';
+  for (const value of [null, {}, [{ ...row, verbatim_sha256: 'invalid' }], [{ ...row, item: 'other' }],
+    [{ ...row, review_act: {} }], [{ ...row, verbatim: 'raw text' }]]) {
+    entry.dropped_additions = value;
+    expect(checkProject(dir, project).refusals).toContainEqual(expect.objectContaining({
+      code: 'RESTART_MALFORMED', path: Array.isArray(value) ? `${path}[0]` : path,
+    }));
+  }
+  commit(dir);
+  const next = restartCommand([...restartArgs(dir), '--json'], step());
+  expect(JSON.parse(next.stdout).dropped_additions).toEqual([]);
+  expect(arr(load(dir).restarts)[0]).toEqual(JSON.parse(result.stdout));
+});
+
+test('restart refuses an unhashable source addition before replacing the record', () => {
+  const dir = example();
+  const project = load(dir);
+  obj(waypoint(project, 'motion').guide).additions = [{ source: 'polish feedback, v3' }];
+  save(dir, project);
+  commit(dir);
+  refused(dir, 'RESTART_MALFORMED', () => restartCommand(restartArgs(dir), step()));
 });
 
 test('restart owner chat authority is dated, refuses agent and malformed relays, and preserves bytes on refusal', () => {

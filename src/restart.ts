@@ -9,7 +9,7 @@
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { asArray, checkProject, isObject, PROJECT_SCHEMA, type Finding } from './check.ts';
+import { asArray, checkProject, collectItems, isObject, PROJECT_SCHEMA, type Finding } from './check.ts';
 import { ledgerRows } from './fix-ledger.ts';
 import { freshProjectRecord, run } from './init.ts';
 import { checkInputs } from './inputs.ts';
@@ -25,8 +25,9 @@ export const RESTART_HELP = `restart:
   Replace project.json with the record init writes: the template's stage, no versions, drafts,
   signoffs, plan, answers or review acts. Keeps name, title, owner, painting, same_artwork, inputs[] (each file must
   still match its sha256) and fix_ledger with every row, and appends restarts[] with the owner's exact
-  words as reason, the relay and write times, and previous_record_sha256. git history holds the earlier record, so restart refuses unless
-  project.json is committed: tracked and byte-identical to HEAD. A kept part set (inputs under
+  words as reason, the relay and write times, and previous_record_sha256. Reports dropped answer
+  additions by path, source and text hash in restarts[].dropped_additions. Git history holds the
+  earlier record, so restart requires project.json to be tracked and byte-identical to HEAD. A kept part set (inputs under
   <set>/parts/*.png or <set>/parts.json) keeps <set>/parts.json and its rig: rig.json and
   mesh_report.json, at <set>/rig/ or <set>/.`;
 
@@ -74,6 +75,40 @@ export function partSetGaps(inputs: Json | undefined): string[] {
     if (missing.length) gaps.push(`${root === '' ? '(project root)' : root}: ${missing.join(', ')}`);
   }
   return gaps;
+}
+
+/** Inventory only the answers in the record restart replaces, including their history. */
+function droppedAdditions(project: JsonObject): JsonObject[] {
+  const rows: JsonObject[] = [];
+  for (const item of collectItems(project, { collection: null })) {
+    const recordPath = item.path.slice(0, item.path.lastIndexOf('.'));
+    const answers = [
+      { answer: item.raw, path: item.path },
+      ...asArray(item.record.history).map((answer, index) => ({ answer, path: `${recordPath}.history[${index}]` })),
+    ];
+    for (const { answer, path } of answers) {
+      if (!isObject(answer) || answer.additions === undefined) continue;
+      if (!Array.isArray(answer.additions)) {
+        refuse('RESTART_MALFORMED', `${path}.additions: restore the additions list from the source record before restarting`);
+      }
+      for (const [index, addition] of answer.additions.entries()) {
+        const additionPath = `${path}.additions[${index}]`;
+        if (!isObject(addition) || typeof addition.verbatim !== 'string') {
+          refuse('RESTART_MALFORMED', `${additionPath}: restore the exact verbatim text from the source record before restarting`);
+        }
+        rows.push({
+          item: item.id,
+          path: additionPath,
+          source: addition.source ?? null,
+          by: addition.by ?? null,
+          at: addition.at ?? null,
+          ...(addition.review_act === undefined ? {} : { review_act: addition.review_act }),
+          verbatim_sha256: createHash('sha256').update(addition.verbatim, 'utf8').digest('hex'),
+        });
+      }
+    }
+  }
+  return rows;
 }
 
 export function restartCommand(args: string[], now: number): { stdout: string; exit: number } {
@@ -150,7 +185,9 @@ export function restartCommand(args: string[], now: number): { stdout: string; e
     if (project.same_artwork !== undefined) candidate.same_artwork = project.same_artwork;
     candidate.inputs = keptInputs;
     candidate.fix_ledger = project.fix_ledger ?? [];
-    const entry: JsonObject = { at: new Date(now).toISOString(), by, reason, previous_record_sha256: createHash('sha256').update(original).digest('hex') };
+    const dropped = droppedAdditions(project);
+    const entry: JsonObject = { at: new Date(now).toISOString(), by, reason, previous_record_sha256: createHash('sha256').update(original).digest('hex'),
+      dropped_additions: dropped };
     if (chat) {
       entry.source = chat.source!;
       entry.said_at = chat.said_at!;
@@ -166,12 +203,14 @@ export function restartCommand(args: string[], now: number): { stdout: string; e
     if (rejected !== undefined) refuse(rejected.code, rejected.message);
     writeRecord(file, original, candidate, 'restart', 'RESTART_SOURCE_CHANGED');
     const rows = asArray(candidate.fix_ledger).length;
+    const droppedText = dropped.map(row => `  ${String(row.path)} (source: ${JSON.stringify(row.source)})`);
     const leftOutText = leftOut.length
       ? `; left out legacy input(s) ${leftOut.map(({ index, entry: item }) => typeof item.path === 'string' && item.path.trim() !== '' ? `inputs[${index}] (${item.path})` : `inputs[${index}]`).join(', ')}`
       : '';
     return {
       stdout: json ? JSON.stringify(entry, null, 2)
-        : `restart: project record restarted at stage ${String(candidate.stage)}; kept ${asArray(candidate.inputs).length} input(s) and ${rows} ledger row(s)${leftOutText}; the earlier record (sha256 ${String(entry.previous_record_sha256)}) is in git history`,
+        : [`restart: project record restarted at stage ${String(candidate.stage)}; kept ${asArray(candidate.inputs).length} input(s) and ${rows} ledger row(s)${leftOutText}; the earlier record (sha256 ${String(entry.previous_record_sha256)}) is in git history`,
+          `Dropped ${dropped.length} answer addition(s)`, ...droppedText].join('\n'),
       exit: 0,
     };
   } finally { release(); }

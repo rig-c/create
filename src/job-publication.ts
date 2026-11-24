@@ -32,7 +32,7 @@ import { assertPlanSignoffCandidate } from './signoff.ts';
 import { guideSignoffMatcher, staleSignoffAnswer } from './signoff-answers.ts';
 import { assertInterviewRecordSignable, checkpointSignable, packageSignSubjects, reviewVerdictSignable, rigVerdictIngestible, stageSignable } from './signable.ts';
 import { collectReopens, directionReviewClosed, liveSignoff } from './reopen.ts';
-import { acceptedReviewVerdict } from './review.ts';
+import { acceptedReviewVerdict, humanReviewVerdicts } from './review.ts';
 import { isAssembleOnlyDraft } from './draft-layout.ts';
 import { recordDirectionTarget, requireRecordDirectionTarget } from './record-direction-target.ts';
 import { latestPartsApproval, previousPartsApproval, retainedJson } from './structure.ts';
@@ -118,6 +118,23 @@ export type RecordPublicationResult = RecordOptionResult | Extract<PublishResult
 
 export function recordOptionSets(result: RecordOptionResult): readonly OptionSetRef[] {
   return result.sets ?? [{ questionId: result.questionId, setId: result.setId }];
+}
+
+/** The live direction bounce reopens post questions without moving the project stage. */
+export function optionPublicationStage(project: JsonObject, stage: string | null, now: number): string | null {
+  if (stage !== 'direction-review') return stage;
+  const reopens = collectReopens(project, []).filter(reopen => reopen.at <= now);
+  const post = asArray(project.versions).findLast(version => {
+    if (!isObject(version) || version.kind !== 'post') return false;
+    const at = Date.parse(String(version.at));
+    return at <= now && liveSignoff(reopens, 'post', at);
+  });
+  if (!isObject(post)) return stage;
+  const verdict = humanReviewVerdicts(post.verdicts, stage).findLast(({ record }) => {
+    const at = Date.parse(String(record.at));
+    return at <= now && liveSignoff(reopens, stage, at);
+  });
+  return verdict?.record.verdict === 'bounced' ? 'post-interview' : stage;
 }
 
 export interface RecordPublicationRequest {
@@ -494,10 +511,11 @@ export function readRecordPublished({ root, record, result, phase, parts: sealed
     let label: string;
     let directionTarget: { post: JsonObject; version: number; verdictIndex: number } | undefined;
     if (result.kind === 'option-set') {
+      const optionStage = optionPublicationStage(project, stage, now);
       withCandidateProject(root, project, () => {
         for (const [index, { questionId, setId }] of sets.entries()) {
           const set = selectedSets[index]!;
-          if (set.id !== setId || set.question !== questionId || set.stage !== stage) {
+          if (set.id !== setId || set.question !== questionId || set.stage !== optionStage) {
             refuse('JOB_RECORD_SUBJECT_INVALID', 'project.json: requested option set does not match its question, set id and effective stage; publish the exact current pending set');
           }
           validateContext(root, project, set, now, true);

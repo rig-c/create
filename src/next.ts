@@ -6,7 +6,7 @@ import { checkpointEnabled, checkpointRequired, completedPlanStepNeedsAmendment,
 import { createHash } from 'node:crypto';
 import { existsSync, lstatSync, readdirSync, readFileSync, realpathSync } from './check-reads.ts';
 import { isDeepStrictEqual } from 'node:util';
-import { eligibleRigDraftModel, publicationFile, riggingDraftPartsChange } from './job-publication.ts';
+import { eligibleRigDraftModel, optionPublicationStage, publicationFile, riggingDraftPartsChange } from './job-publication.ts';
 import { latestRigDraftVerdict } from './rig-draft-verdict.ts';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import {
@@ -1660,6 +1660,15 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
 
     for (const [kind, refs] of groups) {
       if (kind === 'post') {
+        if (effectiveStage === 'direction-review' && optionPublicationStage(project, effectiveStage, now) === 'post-interview') {
+          const pendingPostItems = allItems.filter(item => item.kind === 'post' && pendingInterviewOptions(item));
+          const questions = interviewQuestionMoves(dir, pendingPostItems, effectiveStage, jobId);
+          if (questions.length > 0) {
+            for (const question of questions) addAwait(question.awaits);
+            moves.push(...questions);
+            continue;
+          }
+        }
         // Earlier acceptance still closes authoring after a bounce.
         if (directionReviewClosed(project)) {
           const target = 'amendments[target.stage=direction-review]';
@@ -1678,7 +1687,7 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
         command: `rig-create ${writer} ${shellWord(dir)} ${inputs.replace(/<[^>]+>/g, shellWord)} ${refs.map(r => `--answers ${r.version}:${r.verdict}`).join(' ')}`,
         act: `build the next ${kind} version with ${writer}, recording answers_feedback ${JSON.stringify(refs)}` });
     }
-    if (moves.length > 0) return { schema: NEXT_SCHEMA, project_id: String(project.name ?? ''), stage, effective_stage: effectiveStage, accepted: false, refusals, ...warningFields, awaits: awaitsList, moves: moves.flatMap(move => reviewCommands(dir, project, move)) };
+    if (moves.length > 0) return { schema: NEXT_SCHEMA, project_id: String(project.name ?? ''), stage, effective_stage: effectiveStage, accepted: false, refusals, ...warningFields, awaits: awaitsList, moves: runnableNextMoves(dir, project, effectiveStage, moves) };
   }
   const recordedLapseTargets = new Set<string>();
   const stageHasPendingOptions = stageItems.some(pendingInterviewOptions);

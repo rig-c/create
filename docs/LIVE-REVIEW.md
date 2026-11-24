@@ -469,6 +469,9 @@ rig-create interview-answer --batch <dir> --from-review <actId-1> --from-review 
 Use `job open --question <id>` for a single set and ingest the resulting act
 with `interview-answer <id> <dir> --from-review <actId>`. Finish the current
 asks before opening a different target or it refuses `JOB_ASK_PENDING`.
+When the current post has a live changes-requested verdict, both question
+selectors can publish pending `post-interview` sets at `direction-review`.
+`next` lists the owner picks before it offers the replacement post write.
 As an alternative to publishing, relay owner chat separately for each set
 with the displayed set hash and explicit option IDs.
 

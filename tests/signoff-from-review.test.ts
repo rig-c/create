@@ -10,7 +10,7 @@ import { signoffCommand as rawSignoff } from '../src/signoff.ts';
 import { signoffIdentity } from '../src/stage-progress.ts';
 import { stepHash } from '../src/step-hash.ts';
 import type { JsonObject } from '../src/templates.ts';
-import { advanceCommand, checkProject, diffClassesCommand, signoffCommand, testClock } from './clock.ts';
+import { advanceCommand, checkProject, diffClassesCommand, signoffCommand, testClock, TEST_NOW } from './clock.ts';
 import { EXAMPLE_DIFF_REPORT } from './diff-fixture.ts';
 import { arr, fixture, obj, plantLegacyReopen, retimeFixture, step, withdrawSignature } from './fixtures.ts';
 import { preparePartsApproval } from './parts-receipt-fixture.ts';
@@ -95,7 +95,7 @@ test('a plan-bound sign-off ingests with the displayed plan and refuses a stale 
 test('#561 from-review cannot use its candidate approval to settle an unsigned stale step', () => {
   const dir = fixture(() => {}, 'example-project.json');
   const stage = 'post-interview';
-  testClock.set(Date.parse(PLAN_STEP_ANSWER_SINCE) + 3_600_000);
+  testClock.set(TEST_NOW);
   plantLegacyReopen(dir, stage);
   bindReview(dir);
   const project = read(dir);

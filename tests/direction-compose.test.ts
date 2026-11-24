@@ -509,12 +509,13 @@ test('DIRECTION_COMPOSE_SCHEMA validates final seals and forbids legacy camera k
   (doc.rig as JsonObject).acceptance = {}; expect(() => validateDirectionShape(doc)).toThrow(expect.objectContaining({ code: 'DIRECTION_COMPOSE_SCHEMA' }));
 });
 
-test('direction@3 integrates into the filled project with zero check refusals', async () => {
+test('direction@3 retains a bounced post citation when the owner re-answers composition', async () => {
   const { fixture: filled } = await import('./fixtures.ts');
   const { cpSync, writeFileSync } = await import('node:fs');
   const { collectItems } = await import('../src/check.ts');
   const { optionContext } = await import('../src/choices.ts');
-  const { checkProject, signoffCommand, inputCommand, advanceCommand, planCommand } = await import('./clock.ts');
+  const { checkProject, signoffCommand, inputCommand, advanceCommand, planCommand, interviewAnswerCommand,
+    interviewCommand, interviewOptionsCommand, assertDirectionApproval, stepStatusCommand } = await import('./clock.ts');
   const f = fixture();
   const dir = filled(() => {}, 'example-project.json'); roots.push(dir);
   testClock.set(EXAMPLE_NOW);
@@ -581,7 +582,58 @@ test('direction@3 integrates into the filled project with zero check refusals', 
   const moves = nextProject(dir, testClock.now());
   expect(JSON.stringify(moves)).not.toContain('scenes[n=1]');
   expect(JSON.stringify(moves)).not.toContain('rig-create scene write');
-});
+
+  for (const step of objects((load().plan as JsonObject).steps).filter(step => step.phase === 'post' && step.status !== 'done')) {
+    for (const status of ['in-progress', 'at-checkpoint', 'done']) {
+      testClock.set(testClock.now() + 1_000);
+      stepStatusCommand([String(step.id), status, dir, '--by', 'agent']);
+    }
+  }
+  testClock.set(testClock.now() + 1_000);
+  advanceCommand(['direction-review', dir]);
+  const bounced = load();
+  objects(bounced.versions).find(version => version.n === 5)!.verdicts = [{
+    review: 'direction-review', verdict: 'bounced', by: 'user', at: testClock.iso(), verbatim: 'Revise the composed post.', on_items: [],
+  }];
+  save(bounced);
+  const composition = collectItems(bounced, { collection: null }).find(item => item.id === 'post_composition')!;
+  const priorAnswer = composition.raw as JsonObject;
+  const setBinding = (priorAnswer.choice as JsonObject).set as JsonObject;
+  const set = JSON.parse(readFileSync(join(dir, String(setBinding.path)), 'utf8')) as JsonObject;
+  testClock.set(testClock.now() + 1_000);
+  set.id = 'revised-composition';
+  set.drafted_at = testClock.iso();
+  set.context = optionContext(bounced, 'post-interview', testClock.now(), dir);
+  const pick = objects(objects(set.asks)[0]!.options).find(option => option.id === 'keep')!;
+  pick.label = 'Use the composition for the revised post';
+  const setPath = 'evidence/interview/revised-composition.json';
+  const bytes = Buffer.from(JSON.stringify(set));
+  writeFileSync(join(dir, setPath), bytes);
+  interviewOptionsCommand(['post_composition', dir, '--file', setPath]);
+  const baseline = checkProject(dir).refusals;
+  testClock.set(testClock.now() + 1_000);
+  const answer = JSON.parse(interviewAnswerCommand(['post_composition', dir, '--set', setPath, '--sha256', directionHash(bytes),
+    '--by', 'user', '--pick', 'post_composition=keep'])) as JsonObject;
+  expect(answer.verbatim).not.toBe(priorAnswer.verbatim);
+  expect(checkProject(dir).refusals.map(finding => finding.code)).toEqual(['SIGNOFF_ANSWERS_STALE', 'GUIDE_CHANGED_UNSIGNED']);
+  expect(directionCommand(['check', '5', dir]).exit).toBe(0);
+  expect(() => assertDirectionApproval(dir, load(), 'direction-review', 5)).toThrow(expect.objectContaining({ code: 'DIRECTION_COMPOSE_CITATION' }));
+
+  testClock.set(testClock.now() + 1_000);
+  signoffCommand(['post-interview', dir, '--by', 'user', '--steps', 'composition', '--verbatim-file', join(dir, 'words.txt')]);
+  const checked = interviewCommand(['--check', dir, '--json']);
+  expect(checked.exit).toBe(0);
+  expect(JSON.parse(checked.stdout).refusals).toEqual(baseline);
+
+  const write = ['write', '6', dir, '--file', 'evidence/composed-direction.json', '--rig', '2',
+    '--compose-out', 'compose-out', '--compose-scene', 'compose.scene.json', '--answers', '5:0'];
+  const before = readFileSync(join(dir, 'project.json'));
+  expect(() => directionCommand(write)).toThrow(expect.objectContaining({ code: 'DIRECTION_COMPOSE_CITATION' }));
+  expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
+  citations.composition = { guide: 'post_composition', asks: ['post_composition'], quote: answer.verbatim! };
+  writeFileSync(join(dir, 'evidence/composed-direction.json'), JSON.stringify(doc));
+  expect(directionCommand(write).exit).toBe(0);
+}, 30_000);
 
 for (const field of ['canvas', 'plates', 'character', 'tracks']) test(`DIRECTION_COMPOSE_CHOICE_MISMATCH binds the exact owner ${field}`, () => {
   const f = fixture();

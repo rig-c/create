@@ -105,7 +105,7 @@ function command(args:string[],now:number,hooks:DirectionWriteHooks):{stdout:str
       }
       requireDirectionScene(doc, now, 'direction.schema');
       validateDirectionScene(dir, project, doc, true, snapshots);
-      if (doc.schema === DIRECTION_COMPOSE_SPEC) validateComposeDirection(dir, project, doc, true, snapshots, composeInventory);
+      if (doc.schema === DIRECTION_COMPOSE_SPEC) validateComposeDirection(dir, project, doc, { current: true, snapshots, pendingInventory: composeInventory });
       else validateDirectionRig(dir,project,doc,true);
       validateDirectionCitations(dir,project,doc,true);
       handoff(dir,Number((doc.rig as JsonObject).version),now);

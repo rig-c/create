@@ -155,7 +155,9 @@ function externalTarget(destination: string): string {
   return canonical;
 }
 
-async function submit(host: JobOwnerHost, kind: 'parts-verdict' | 'review-verdict', words: string, picture?: Buffer) {
+async function submit(host: JobOwnerHost, kind: 'parts-verdict' | 'review-verdict', words: string, {
+  stage = 'rig-review', verdict = 'approved', picture,
+}: { stage?: 'rig-review' | 'direction-review'; verdict?: 'approved' | 'changes-requested'; picture?: Buffer } = {}) {
   const { readHostActsAndAsks } = await import('../src/job-acts.ts');
   const { publication, generation } = host.session.status();
   if (!publication) throw Error('Review has no publication');
@@ -174,7 +176,7 @@ async function submit(host: JobOwnerHost, kind: 'parts-verdict' | 'review-verdic
   if (!displayed.ok) throw Error(`Review displayed: ${displayed.error.code}`);
   const value = kind === 'parts-verdict'
     ? { verdict: 'approved', issues: [], words }
-    : { stage: 'rig-review', verdict: 'approved', words };
+    : { stage, verdict, words };
   const act = await host.ports.commitUIAct(host.session.jobId, request('acts', {
     publicationId, askId, pageId, displayedNonce: displayed.value.displayedNonce,
     expectedGeneration: generation, submissionId: crypto.randomUUID(), kind, value,
@@ -188,7 +190,7 @@ async function submit(host: JobOwnerHost, kind: 'parts-verdict' | 'review-verdic
   return act.value;
 }
 
-async function generate(root: string, scratch: string, inputs: Map<string, Buffer>): Promise<string> {
+async function generate(root: string, scratch: string, inputs: Map<string, Buffer>, reviseAfterBounce: boolean): Promise<string> {
   const [{ asArray, collectItems, isObject }, { main }, { applicableAsks, optionContext, OPTIONS_SPEC, sha256 },
     { readHostActsAndAsks }, { openCreateJob, openDraftPublication }, { jobHostStateRoot }, { interviewStageOfGuide },
     { TURN_OPTIONS, TURN_QUESTION }, { EXAMPLE_ANCHOR, EXAMPLE_SOURCE_DATE_EPOCH }] = await Promise.all([
@@ -386,7 +388,7 @@ async function generate(root: string, scratch: string, inputs: Map<string, Buffe
     const stillRoot = join(candidate, 'check/setup_still');
     const png = files(stillRoot).find(path => path.endsWith('/f0000.png'));
     if (!png) throw Error('Parts --keep-stills did not produce a setup PNG');
-    const rigAct = await submit(host, 'review-verdict', inputs.get('approval/rig.txt')!.toString(), readFileSync(join(stillRoot, png)));
+    const rigAct = await submit(host, 'review-verdict', inputs.get('approval/rig.txt')!.toString(), { picture: readFileSync(join(stillRoot, png)) });
     now = Math.max(now, Date.parse(rigAct.at));
     await write('review', '1', '--from-review', rigAct.actId);
     await write('handoff', '--rig', '1');
@@ -411,21 +413,24 @@ async function generate(root: string, scratch: string, inputs: Map<string, Buffe
     const registered = join(root, 'outputs/v1/out');
     cpSync(registered, join(root, build), { recursive: true, filter: path => path !== join(registered, 'check') });
     put(join(root, build, 'check/check.json'), readFileSync(join(root, 'evidence/v1/registration/check.json')));
-    const output = 'scratch/compose';
-    put(join(root, scene), inputs.get('scene.json')!);
     env.SOURCE_DATE_EPOCH = EXAMPLE_SOURCE_DATE_EPOCH;
-    await produce(root, 'rig-parts', 'compose', '--scene', scene, '--out', output);
-    const frozen = 'outputs/v2/compose';
     const binding = (from: string, to: string) => ({ path: to, sha256: sha256(readFileSync(join(root, from))) });
-    const binds = (path: string) => binding(`${output}/${path}`, `${frozen}/${path}`);
-    const directionPath = 'evidence/direction-input.json';
-    json(join(root, directionPath), { schema: 'rig-create/direction@3', rig: intent.rig,
-      compose: { scene: binding(scene, 'evidence/compose-src/v2/scene.json'), out: frozen,
-        report: binds('scene.json'), check: binds('check/check.json'), run: binds('compose-run.json') },
-      model: binds('check/build/skeleton.model.json'), take: intent.take,
-      citations: Object.fromEntries(Object.entries(intent.guides).map(([section, guide]) => [section, cite(guide)])) });
+    const preparePost = async (version: number, scenePath: string, output: string, directionPath: string): Promise<string[]> => {
+      await produce(root, 'rig-parts', 'compose', '--scene', scenePath, '--out', output);
+      const frozen = `outputs/v${version}/compose`;
+      const binds = (path: string) => binding(`${output}/${path}`, `${frozen}/${path}`);
+      json(join(root, directionPath), { schema: 'rig-create/direction@3', rig: intent.rig,
+        compose: { scene: binding(scenePath, `evidence/compose-src/v${version}/scene.json`), out: frozen,
+          report: binds('scene.json'), check: binds('check/check.json'), run: binds('compose-run.json') },
+        model: binds('check/build/skeleton.model.json'), take: intent.take,
+        citations: Object.fromEntries(Object.entries(intent.guides).map(([section, guide]) => [section, cite(guide)])) });
+      return ['direction', 'write', String(version), '.', '--file', directionPath, '--rig', '1',
+        '--compose-out', output, '--compose-scene', scenePath];
+    };
+    put(join(root, scene), inputs.get('scene.json')!);
+    const firstPost = await preparePost(2, scene, 'scratch/compose', 'evidence/direction-input.json');
     await done(postSteps);
-    console.log((await write('direction', 'write', '2', '.', '--file', directionPath, '--rig', '1', '--compose-out', output, '--compose-scene', scene)).trimEnd());
+    console.log((await write(...firstPost)).trimEnd());
     await write('direction', 'check', '2');
     await advance('direction-review');
     const record = project();
@@ -450,16 +455,84 @@ async function generate(root: string, scratch: string, inputs: Map<string, Buffe
     }
     console.log('direction-review: stored and effective; one fresh verdict ask, zero signoff asks, zero submitted acts');
     console.log('interview --check: 0 refusals, 0 warnings');
+    if (reviseAfterBounce) {
+      const verdict = await submit(host, 'review-verdict', 'Keep both plates still in the revised post.', {
+        stage: 'direction-review', verdict: 'changes-requested',
+      });
+      now = Math.max(now, Date.parse(verdict.at));
+      await write('review', '2', '--from-review', verdict.actId);
+      await write('job', 'close');
+      host.stop();
+      host = undefined;
+
+      const revised = structuredClone(composition);
+      (revised.compose as JsonObject).idle_tracks = [];
+      const previous = JSON.parse(readFileSync(join(root, 'evidence/interview/post_composition.json'), 'utf8')) as JsonObject;
+      const previousAsk = asArray(previous.asks).filter(isObject)[0]!;
+      const previousPick = asArray(previousAsk.options).filter(isObject).find(option => option.id === 'keep')!;
+      const label = 'Keep both plates still';
+      const setPath = 'evidence/interview/post_composition-002.json';
+      json(join(root, setPath), {
+        ...previous, id: 'composed-post_composition-002', drafted_at: new Date(now).toISOString(),
+        context: optionContext(project(), 'post-interview', now, root),
+        asks: [{ ...previousAsk, options: asArray(previousAsk.options).map(option => option === previousPick
+          ? { ...previousPick, id: 'all-still', label, effect: 'Remove the plate motion tracks.', fragment: revised }
+          : option) }],
+      });
+      const wordsPath = 'evidence/composition-revision.txt';
+      put(join(root, wordsPath), Buffer.from(`${label}.\n`));
+      await write('interview-options', 'post_composition', '--file', setPath);
+      await write('interview-answer', 'post_composition', '--set', setPath, '--sha256', sha256(readFileSync(join(root, setPath))),
+        '--by', owner, '--pick', 'post_composition=all-still', '--owner-chat', wordsPath, '--said-at', new Date(now).toISOString(), '--relayed-by', 'agent');
+      await write('signoff', 'post-interview', '--steps', 'composition', '--by', owner, '--verbatim-file', wordsPath);
+      const revisedScene = JSON.parse(inputs.get('scene.json')!.toString()) as JsonObject;
+      ((revisedScene.animations as JsonObject).idle as JsonObject).tracks = [];
+      const revisedScenePath = 'compose-v3.scene.json';
+      json(join(root, revisedScenePath), revisedScene);
+      const secondPost = await preparePost(3, revisedScenePath, 'scratch/compose-v3', 'evidence/direction-v3-input.json');
+      await write(...secondPost, '--answers', '2:0');
+      await write('direction', 'check', '2');
+      await write('direction', 'check', '3');
+      const revisionCheck = JSON.parse(await write('interview', '--check', '--json')) as typeof checked;
+      if (revisionCheck.effective_stage !== 'direction-review' || revisionCheck.refusals.length || revisionCheck.warnings.length) {
+        throw Error(JSON.stringify(revisionCheck));
+      }
+
+      // The bounce leaves the stage at direction-review. A new verdict and
+      // signature authorize the next forward advance, to accepted.
+      host = await openCreateJob(root, { id: owner, role: 'owner' }, now);
+      await publish(undefined, '3');
+      const approvalWords = 'Approve the revised post with both plates still.';
+      const approval = await submit(host, 'review-verdict', approvalWords, { stage: 'direction-review' });
+      now = Math.max(now, Date.parse(approval.at));
+      await write('review', '3', '--from-review', approval.actId);
+      const approvalPath = 'evidence/direction-approval.txt';
+      put(join(root, approvalPath), Buffer.from(approvalWords));
+      await write('signoff', 'direction-review', '--by', owner, '--owner-chat', approvalPath,
+        '--said-at', new Date(now).toISOString(), '--relayed-by', 'agent');
+      await advance('accepted');
+      await publish(undefined, '3');
+      const final = host.session.status();
+      const source = final.publication?.source;
+      if (!source || !('selector' in source) || source.selector?.kind !== 'post' || source.selector.version !== 3
+        || source.projectHash !== sha256(readFileSync(join(root, 'project.json')))
+        || final.pending.some(ask => ask.publicationId === final.publication?.publicationId && ask.status === 'pending')) {
+        throw Error('Expected the accepted v3 record on the published post, with no pending asks');
+      }
+      const finalCheck = JSON.parse(await write('interview', '--check', '--json')) as typeof checked;
+      if (finalCheck.effective_stage !== 'accepted' || finalCheck.refusals.length || finalCheck.warnings.length) throw Error(JSON.stringify(finalCheck));
+      console.log('accepted: revised post v3 published from the advanced record with 0 refusals and 0 warnings');
+    }
     await write('job', 'close');
   } finally {
     host?.stop();
     if (existsSync(root)) rmSync(jobHostStateRoot(root), { recursive: true, force: true });
   }
   for (const path of ['.git', '.rig-create-review', 'scratch']) rmSync(join(root, path), { recursive: true, force: true });
-  return sha256(readFileSync(join(root, manifest)));
+  return sha256(readFileSync(join(root, reviseAfterBounce ? 'review-live-v3.json' : manifest)));
 }
 
-async function runProject(destination: string, variant: ComposedVariant = 'default'): Promise<void> {
+async function runProject(destination: string, variant: ComposedVariant = 'default', reviseAfterBounce = false): Promise<void> {
   const target = externalTarget(destination);
   const inputs = checkFixture(variant);
   const parent = dirname(target);
@@ -470,8 +543,8 @@ async function runProject(destination: string, variant: ComposedVariant = 'defau
   let complete = false;
   try {
     scratch = mkdtempSync(join(parent, '.create-composed-direction-'));
-    const digest = await generate(target, scratch, inputs);
-    console.log(`Project ${target}\nManifest ${join(target, manifest)}\nManifest SHA-256 ${digest}`);
+    const digest = await generate(target, scratch, inputs, reviseAfterBounce);
+    console.log(`Project ${target}\nManifest ${join(target, reviseAfterBounce ? 'review-live-v3.json' : manifest)}\nManifest SHA-256 ${digest}`);
     complete = true;
   } finally {
     if (scratch) rmSync(scratch, { recursive: true, force: true });
@@ -482,19 +555,24 @@ async function runProject(destination: string, variant: ComposedVariant = 'defau
 if (import.meta.main) {
   const raw = process.argv.slice(2);
   let variant: ComposedVariant = 'default';
+  let reviseAfterBounce = false;
   let bad: string | undefined;
   const positional: string[] = [];
   for (const arg of raw) {
     if (arg === '--clip') {
       if (variant === 'clip') { bad ??= arg; break; }
       variant = 'clip';
+    } else if (arg === '--revise-after-bounce') {
+      if (reviseAfterBounce) { bad ??= arg; break; }
+      reviseAfterBounce = true;
     } else positional.push(arg);
   }
   const [mode, ...extra] = positional;
   bad ??= !mode ? '(missing destination)' : mode.startsWith('-') && !['--check', '--write-inputs'].includes(mode) ? mode : extra[0];
+  if (reviseAfterBounce && mode?.startsWith('-')) bad ??= '--revise-after-bounce';
   if (bad !== undefined) {
     const error = new Error(`${basename(import.meta.path)}: invalid argument ${JSON.stringify(bad)}.\n`
-      + 'usage: generate-composed-direction-fixture.ts [--clip] (--check | --write-inputs | <fresh directory outside the repository>)');
+      + 'usage: generate-composed-direction-fixture.ts [--clip] (--check | --write-inputs | [--revise-after-bounce] <fresh directory outside the repository>)');
     error.name = 'GENERATOR_ARGS_INVALID';
     throw error;
   }
@@ -506,5 +584,5 @@ if (import.meta.main) {
     if (existsSync(root)) files(root);
     for (const [path, bytes] of inputBytes(variant)) put(join(root, path), bytes);
     console.log(`${label}: wrote ${checkFixture(variant).size} files`);
-  } else await runProject(mode!, variant);
+  } else await runProject(mode!, variant, reviseAfterBounce);
 }

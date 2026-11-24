@@ -75,11 +75,19 @@ test.each(['missing', 'accepted', 'agent', 'later', 'malformed', 'duplicate'])('
 });
 
 test('#454 no-bounce direction write and next preserve previous bytes and output', () => {
-  const { dir } = setup();
+  const { dir, load } = setup();
+  const before = load();
+  const previousVersions = arr(before.versions);
   const result = directionCommand(args(dir));
-  const record = readFileSync(join(dir, 'project.json'));
+  const recordPath = join(dir, 'project.json');
+  const record = readFileSync(recordPath);
+  const after: JsonObject = JSON.parse(record.toString('utf8'));
+  const versions = arr(after.versions);
+  expect(after.stage).toBe(before.stage);
+  expect(versions.slice(0, -1)).toEqual(previousVersions);
+  expect(versions.at(-1)).toMatchObject({ n: 3, answers_feedback: [] });
   // next prints runnable commands containing this synthetic project's temporary root.
   const outputHash = (json = false): string => jobHash(nextCommand([dir, ...(json ? ['--json'] : [])], testClock.now()).stdout.replaceAll(dir, '<project>'));
-  expect({ exit: result.exit, stdout: jobHash(result.stdout), record: jobHash(record), nextJson: outputHash(true), nextText: outputHash() }).toMatchSnapshot();
-  expect(readFileSync(join(dir, 'project.json'))).toEqual(record);
+  expect({ exit: result.exit, stdout: jobHash(result.stdout), nextJson: outputHash(true), nextText: outputHash() }).toMatchSnapshot();
+  expect(readFileSync(recordPath)).toEqual(record);
 });

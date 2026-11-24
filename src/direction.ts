@@ -7,7 +7,7 @@ import { createHash } from 'node:crypto';
 import { lstatSync, readFileSync, realpathSync } from './check-reads.ts';
 import { isAbsolute, join } from 'node:path';
 import { isDeepStrictEqual as equal } from 'node:util';
-import { asArray, collectItems, collectSignoffs, isDecision, isObject, loadCollection, type Ctx, type Finding } from './check.ts';
+import { asArray, collectItems, collectSignoffs, isDecision, isObject, loadCollection, type Ctx, type Finding, type Item } from './check.ts';
 import { optionFile, selection, validateChoice } from './choices.ts';
 import { checkEntry } from './provenance.ts';
 import { collectReopens, liveSignoff } from './reopen.ts';
@@ -163,15 +163,29 @@ export function validateDirectionCitations(dir: string, project: JsonObject, doc
   }
   if (refusals[0]) directionFail('DIRECTION_CITATION',refusals[0].path,refusals[0].message);
   if (!current) return;
-  const reopens = collectReopens(project,[]);
+  const [missing] = missingDirectionStepApprovals(project, items);
+  if (missing) directionFail('DIRECTION_CITATION', `plan.steps[${missing}]`, 'live post-interview approval and matching step hash required');
+}
+
+/** All authored direction formats cite the camera and timing plan approvals. */
+export function missingDirectionStepApprovals(project: JsonObject, items: readonly Item[]): string[] {
+  const reopens = collectReopens(project, []);
   const steps = objects(isObject(project.plan) ? project.plan.steps : undefined);
-  for (const id of ['camera','timing']) {
-    const matches = steps.filter(s => s.id === id && s.phase === 'post');
-    const state=items.find(i=>i.id===(id==='camera'?'camera_depth':'post_timing'))?.state;
-    const answer=state&&(state.state==='user'||state.state==='delegated'||state.state==='not_applicable')?state.answer:null;
-    const times=answer?[answer.at,isObject(answer.agent_decision)?answer.agent_decision.at:undefined,...objects(answer.additions).map(a=>a.at)].filter((v):v is string=>typeof v==='string').map(Date.parse):[];
-    if (matches.length !== 1 || !collectSignoffs(project,[]).some(s => s.stage === 'post-interview' && s.checkpoint === null && liveSignoff(reopens,s.stage,s.at) && (s.steps === null || s.steps.includes(id)) && isObject(s.record.step_hashes) && s.record.step_hashes[id] === stepHash(matches[0] as JsonObject) && times.every(t=>Number.isFinite(t)&&t<=s.at))) directionFail('DIRECTION_CITATION',`plan.steps[${id}]`,'live post-interview approval and matching step hash required');
-  }
+  const approvals = collectSignoffs(project, []).filter(s => s.stage === 'post-interview'
+    && s.checkpoint === null && liveSignoff(reopens, s.stage, s.at));
+  return ['camera', 'timing'].filter(id => {
+    const matches = steps.filter(step => step.id === id && step.phase === 'post');
+    if (matches.length !== 1) return true;
+    const hash = stepHash(matches[0]!);
+    const state = items.find(item => item.id === (id === 'camera' ? 'camera_depth' : 'post_timing'))?.state;
+    const answer = state && (state.state === 'user' || state.state === 'delegated' || state.state === 'not_applicable')
+      ? state.answer : null;
+    const times = answer ? [answer.at, isObject(answer.agent_decision) ? answer.agent_decision.at : undefined,
+      ...objects(answer.additions).map(addition => addition.at)]
+      .filter((value): value is string => typeof value === 'string').map(Date.parse) : [];
+    return !approvals.some(s => (s.steps === null || s.steps.includes(id)) && isObject(s.record.step_hashes)
+      && s.record.step_hashes[id] === hash && times.every(at => Number.isFinite(at) && at <= s.at));
+  });
 }
 export function validateDirectionRig(dir: string, project: JsonObject, doc: JsonObject, current: boolean): void {
   const binding = doc.rig as JsonObject;

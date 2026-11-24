@@ -82,6 +82,7 @@ import { validateRunRecord } from './run-record.ts';
 import { latestPartsApproval, partsApprovalIdentity } from './structure.ts';
 import { resolveAgentCitationSpec } from './scene-authority.ts';
 import { DIRECTION_COMPOSE_SPEC } from './direction-compose.ts';
+import { missingDirectionStepApprovals } from './direction.ts';
 
 export const NEXT_SCHEMA = 'rig-create/next@1';
 
@@ -1676,6 +1677,16 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
           moves.push({ role: 'human', field: 'amendments', awaits: target,
             command: `rig-create amend direction-review ${shellWord(dir)} --kind '<kind>' --target '<artifact id>' --change '<project-relative file>' --by '<human>' --verbatim-file '<words file>'`,
             act: 'record the human amendment and its changed artifact before writing the replacement post' });
+          continue;
+        }
+        const missingApprovals = missingDirectionStepApprovals(project, allItems);
+        if (missingApprovals.length > 0) {
+          const target = 'signoffs[stage=post-interview]';
+          const ids = missingApprovals.join(',');
+          addAwait(target);
+          moves.push({ role: 'human', field: 'signoffs', awaits: target,
+            command: `rig-create signoff post-interview ${shellWord(dir)} --steps ${ids} ${OWNER_CHAT_COMMAND_FLAGS}`,
+            act: `Re-approve the post-interview steps ${missingApprovals.join(', ')} before writing the replacement post.` });
           continue;
         }
       }

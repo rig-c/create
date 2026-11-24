@@ -555,15 +555,37 @@ async function generate(root: string, scratch: string, inputs: Map<string, Buffe
       const replanned = JSON.parse(await write('interview', '--check', '--json')) as typeof checked;
       if (replanned.refusals.length !== 0) throw Error(JSON.stringify(replanned));
 
-      // A new composed direction also needs a post-interview signature on camera and timing after the amendment.
-      const otherStepsApproval = 'evidence/camera-timing-reapproval.txt';
-      put(join(root, otherStepsApproval), Buffer.from('Approve the existing camera and timing for the revised post.\n'));
-      await write('signoff', 'post-interview', '--steps', 'camera,timing', ...ownerChat(otherStepsApproval));
       const revisedScene = JSON.parse(inputs.get('scene.json')!.toString()) as JsonObject;
       ((revisedScene.animations as JsonObject).idle as JsonObject).tracks = [];
       const revisedScenePath = 'compose-v3.scene.json';
       json(join(root, revisedScenePath), revisedScene);
       const secondPost = await preparePost(3, revisedScenePath, 'scratch/compose-v3', 'evidence/direction-v3-input.json');
+      const beforeReapproval = JSON.parse(await write('next', '--json')) as import('../src/next.ts').NextReport;
+      if (beforeReapproval.refusals.length !== 0
+        || !beforeReapproval.moves.some(move => move.role === 'human'
+          && move.command?.startsWith('rig-create signoff post-interview ')
+          && move.command.includes(' --steps camera,timing '))
+        || beforeReapproval.moves.some(move => move.command?.startsWith('rig-create direction write '))) {
+        throw Error(`Expected camera and timing reapproval before direction write: ${JSON.stringify(beforeReapproval)}`);
+      }
+      console.log('next: human signoff post-interview --steps camera,timing; direction write withheld');
+      const beforeRetry = readFileSync(join(root, 'project.json'));
+      const refused = await create(...secondPost, '--answers', '2:0');
+      if (refused.exit !== 1 || !refused.stderr.includes('DIRECTION_CITATION: plan.steps[camera]')
+        || !readFileSync(join(root, 'project.json')).equals(beforeRetry)) {
+        throw Error(`Expected camera citation refusal and unchanged project.json: ${refused.stderr}`);
+      }
+      console.log(refused.stderr.trim());
+
+      const otherStepsApproval = 'evidence/camera-timing-reapproval.txt';
+      put(join(root, otherStepsApproval), Buffer.from('Approve the existing camera and timing for the revised post.\n'));
+      await write('signoff', 'post-interview', '--steps', 'camera,timing', ...ownerChat(otherStepsApproval));
+      const afterReapproval = JSON.parse(await write('next', '--json')) as typeof beforeReapproval;
+      if (!afterReapproval.moves.some(move => move.command?.startsWith('rig-create direction write 3 ')
+        && move.command.endsWith(' --answers 2:0'))) {
+        throw Error(`Expected direction write after camera and timing reapproval: ${JSON.stringify(afterReapproval)}`);
+      }
+      console.log('next: direction write 3 offered with --answers 2:0 after reapproval');
       await done([['composition', 'post_composition']]);
       await write(...secondPost, '--answers', '2:0');
       await write('direction', 'check', '2');

@@ -73,6 +73,9 @@ test('public composed example replaces and re-signs a completed composition step
     const [exit, stdout, stderr] = await Promise.all([run.exited, new Response(run.stdout).text(), new Response(run.stderr).text()]);
     if (exit !== 0) throw Error(`Composed example exited ${exit}\n${stdout}\n${stderr}`);
     expect(stdout).toContain('PLAN_STEP_SIGNED: project.json unchanged');
+    expect(stdout).toContain('next: human signoff post-interview --steps camera,timing; direction write withheld');
+    expect(stdout).toContain('DIRECTION_CITATION: plan.steps[camera]');
+    expect(stdout).toContain('next: direction write 3 offered with --answers 2:0 after reapproval');
 
     const record = JSON.parse(readFileSync(join(project, 'project.json'), 'utf8'));
     expect(record.stage).toBe('accepted');

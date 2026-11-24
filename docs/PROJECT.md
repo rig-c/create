@@ -2496,7 +2496,7 @@ and hyphens, starting with a letter or digit. The reader identity is
 `rig-create/publication-reader/2`. Create opens new hosts in
 `record-and-package` mode. Package and record publications share the host
 identity and owner link. Record publications use the V3 symbols and types
-exported by the release-pinned Review 4.18.9.
+exported by the release-pinned Review 4.19.0.
 
 Eligibility comes from the one `checkProject` call with `readOnly: true`.
 Its effective stage must match the requested option set's stage. Plan
@@ -2977,5 +2977,5 @@ The rest of the frozen compose inventory (`scene.json`, `check/check.json`,
 published. Each published build file must match its recorded hash, and a
 declared build path that Review's `jobPath` rule refuses is
 `JOB_PUBLICATION_INVALID` before anything is written. It does not substitute
-the accepted character package. The release-pinned Review 4.18.9 reads
+the accepted character package. The release-pinned Review 4.19.0 reads
 direction@3.

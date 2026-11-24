@@ -3,6 +3,8 @@ import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } f
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { checkInputFiles } from '../scripts/generate-composed-direction-fixture.ts';
+import { stepHash } from '../src/step-hash.ts';
+import type { JsonObject } from '../src/templates.ts';
 
 test('composed direction input check seals the complete file inventory without a Review job', () => {
   const repo = join(import.meta.dir, '..');
@@ -61,7 +63,7 @@ test('clipped composed direction scene without canvas_clip is refused by the pin
   }
 });
 
-test('public composed example records a Review bounce, re-answers composition, and publishes the accepted revision', async () => {
+test('public composed example replaces and re-signs a completed composition step after a Review bounce', async () => {
   const repo = join(import.meta.dir, '..');
   const temp = mkdtempSync(join(tmpdir(), 'rig-create-test-composed-bounce-'));
   const project = join(temp, 'project');
@@ -70,6 +72,7 @@ test('public composed example records a Review bounce, re-answers composition, a
       '--revise-after-bounce', project], { cwd: temp, stdout: 'pipe', stderr: 'pipe', timeout: 180_000 });
     const [exit, stdout, stderr] = await Promise.all([run.exited, new Response(run.stdout).text(), new Response(run.stderr).text()]);
     if (exit !== 0) throw Error(`Composed example exited ${exit}\n${stdout}\n${stderr}`);
+    expect(stdout).toContain('PLAN_STEP_SIGNED: project.json unchanged');
 
     const record = JSON.parse(readFileSync(join(project, 'project.json'), 'utf8'));
     expect(record.stage).toBe('accepted');
@@ -84,6 +87,47 @@ test('public composed example records a Review bounce, re-answers composition, a
       set: { path: 'evidence/interview/post_composition-002.json' },
       picks: [{ ask: 'post_composition', option_id: 'all-still' }],
     });
+    expect(composition.guide).toMatchObject({ by: 'synthetic-owner', source: 'owner chat, relayed' });
+
+    const [amendment] = record.amendments.filter(({ target }: { target: { id: string } }) => target.id === 'post_composition');
+    expect(amendment).toMatchObject({
+      target: { stage: 'post-interview', kind: 'interview-answer', id: 'post_composition' },
+      by: 'synthetic-owner',
+      source: 'owner chat, relayed',
+    });
+    expect(amendment.changes).toContainEqual(composition.guide.choice.set);
+
+    const removed = record.plan.replaced.find(({ step }: { step: JsonObject }) => step.id === 'composition');
+    expect(removed).toMatchObject({ action: 'removed', step: { phase: 'post', does: 'Author the synthetic composition' } });
+    expect(removed.step.status_history.map(({ status }: { status: string }) => status)).toEqual(['in-progress', 'at-checkpoint', 'done']);
+    const compositionSteps = record.plan.steps.filter(({ id }: JsonObject) => id === 'composition');
+    expect(compositionSteps).toHaveLength(1);
+    const [step] = compositionSteps;
+    expect(step).toMatchObject({ phase: 'post', does: 'Keep both plates still in the revised post.', rests_on: ['post_composition'], status: 'done' });
+    expect(step.status_history[0]).toMatchObject({ from_status: 'pending', status: 'in-progress' });
+
+    const [originalSignoff, reSignoff, otherStepsReSignoff] = record.signoffs.filter(({ stage }: JsonObject) => stage === 'post-interview');
+    expect(originalSignoff.step_hashes.composition).toBe(removed.sha256);
+    expect(reSignoff).toMatchObject({
+      steps: expect.arrayContaining(['composition']),
+      step_hashes: { composition: stepHash(step) },
+      answer_hashes: { post_composition: expect.stringMatching(/^[0-9a-f]{64}$/) },
+      by: 'synthetic-owner',
+      source: 'owner chat, relayed',
+      relayed_by: 'agent',
+      said_at: expect.any(String),
+    });
+    expect(reSignoff.step_hashes.composition).not.toBe(removed.sha256);
+    expect(reSignoff.answer_hashes.post_composition).not.toBe(originalSignoff.answer_hashes.post_composition);
+    expect(otherStepsReSignoff).toMatchObject({ steps: ['camera', 'timing'], source: 'owner chat, relayed', step_hashes: {
+      camera: originalSignoff.step_hashes.camera, timing: originalSignoff.step_hashes.timing,
+    } });
+    expect(Date.parse(composition.guide.at)).toBeGreaterThan(Date.parse(v2.verdicts[0].at));
+    expect(Date.parse(amendment.at)).toBeGreaterThan(Date.parse(composition.guide.at));
+    expect(Date.parse(removed.at)).toBeGreaterThan(Date.parse(amendment.at));
+    expect(Date.parse(step.drafted_at)).toBeGreaterThan(Date.parse(removed.at));
+    expect(Date.parse(reSignoff.at)).toBeGreaterThan(Date.parse(step.drafted_at));
+
     const revised = JSON.parse(readFileSync(join(project, 'evidence/direction/v3.json'), 'utf8'));
     expect(revised.citations.composition.quote).toBe(composition.guide.verbatim);
     expect(JSON.parse(readFileSync(join(project, revised.compose.scene.path), 'utf8')).animations.idle.tracks).toEqual([]);

@@ -256,7 +256,10 @@ export function validateComposeDirection(dir: string, project: JsonObject, doc: 
     const timing = citedValues(dir, project, doc, 'post_timing', current, snapshots);
     if (take.loop !== true || !timing.some(v => v.loop === true)) directionFail('DIRECTION_COMPOSE_LOOP', 'direction.take.loop', 'take.loop and the cited post_timing.value.loop must both be true; compose green proves closure');
     const animation = objects(model.animations).filter(a => a.name === 'idle');
-    if (animation.length !== 1 || animation[0]!.duration !== take.duration || !isObject(idle) || idle.duration !== take.duration || value.end !== take.duration || !timing.some(v => v.seconds === take.duration && v.loop === true)) directionFail('DIRECTION_COMPOSE_DURATION', 'direction.take.duration', 'match the compiled idle duration, cited timing seconds and compose track end');
+    if (animation.length !== 1 || animation[0]!.duration !== take.duration || !isObject(idle) || idle.duration !== take.duration
+      || (value.idle_tracks.length > 0 && value.end !== take.duration) || !timing.some(v => v.seconds === take.duration && v.loop === true)) {
+      directionFail('DIRECTION_COMPOSE_DURATION', 'direction.take.duration', 'match the scene idle duration, compiled idle duration, cited timing seconds and, when tracks are present, the compose track end');
+    }
     composeRunMatchesAcceptedRig(dir, run, [{ id: String(character.id), build: String(character.build), rig: acceptedRig }], paths.run, snapshots);
     validateComposeRunInputs(run, scene, String((compose.scene as JsonObject).sha256), registered, paths.run);
   } catch (e) {

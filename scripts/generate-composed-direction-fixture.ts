@@ -515,6 +515,16 @@ async function generate(root: string, scratch: string, inputs: Map<string, Buffe
       if (wrongStage.exit !== 1 || !wrongStage.stderr.includes('JOB_RECORD_SUBJECT_INVALID')) {
         throw Error(`Expected the pending interview-stage reference to refuse at direction-review: ${wrongStage.stderr}`);
       }
+      const pauseWords = 'evidence/pause.txt';
+      put(join(otherRoot, pauseWords), Buffer.from('Pause this project.\n'));
+      const pauseAuthority = ['--by', owner, '--verbatim-file', pauseWords];
+      requireSuccess(await execute('rig-create', ['signoff', 'paused', ...pauseAuthority], otherRoot, ++now));
+      requireSuccess(await execute('rig-create', ['pause', ...pauseAuthority], otherRoot, ++now));
+      const pausedCheck = JSON.parse(requireSuccess(await execute('rig-create', ['interview', '--check', '--json'], otherRoot, ++now))) as typeof checked;
+      const paused = await execute('rig-create', ['job', 'open', '--question', 'post_composition', '--reviewer', owner, '--role', 'owner'], otherRoot, ++now);
+      if (pausedCheck.effective_stage !== 'direction-review' || paused.exit !== 1 || !paused.stderr.includes('JOB_RECORD_SUBJECT_INVALID')) {
+        throw Error(`Expected direction-review picks to refuse while paused: ${paused.stderr}`);
+      }
 
       host = await openCreateJob(root, { id: owner, role: 'owner' }, now);
       await write('job', 'open', '--question', 'post_composition', '--reviewer', owner, '--role', 'owner');

@@ -122,7 +122,7 @@ export function recordOptionSets(result: RecordOptionResult): readonly OptionSet
 
 /** The live direction bounce reopens post questions without moving the project stage. */
 export function optionPublicationStage(project: JsonObject, stage: string | null, now: number): string | null {
-  if (stage !== 'direction-review') return stage;
+  if (stage !== 'direction-review' || project.stage === PAUSED_STAGE) return stage;
   const reopens = collectReopens(project, []).filter(reopen => reopen.at <= now);
   const post = asArray(project.versions).findLast(version => {
     if (!isObject(version) || version.kind !== 'post') return false;

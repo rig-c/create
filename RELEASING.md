@@ -145,6 +145,40 @@ version and checks, then pushes the matching strict `vX.Y.Z` tag on that commit.
 Creating the tag and GitHub release with reviewed notes remains an explicit
 owner action, not a side effect of package scripts.
 
+### When the tag may go ahead of the main run
+
+The main run after the squash merge normally decides the tag, because a PR's
+green result is usually for a different tree than main's. When the squash
+commit has exactly the tree the PR's deciding run tested, the main run repeats
+the same jobs on the same bytes. The releaser may then tag without waiting for
+it, under all three conditions:
+
+1. **The trees are measured equal.** Compare `git rev-parse <squash>^{tree}`
+   with the tree of the commit the PR's deciding run checked out (from that
+   run's checkout log, or `git rev-parse <sha>^{tree}` of the commit it names).
+   Record both tree SHAs in the cut report. Main must not move between that run
+   and the merge; the tree comparison proves it did not.
+2. **Both PR jobs succeeded on the attempt GitHub counts as latest.** That means
+   `source-linked` and the registry `check`, on the same head. A green job in an
+   older run does not count when a newer run of that check is cancelled or
+   skipped.
+3. **The main run is still read.** It keeps running after the tag, and the cut
+   report adds whether it finished green or red. A red main run on an equal tree
+   is a flake or an environment change: rerun it once. If it is red again, it is
+   a release incident, and the remedy is to deprecate the version and patch from
+   main.
+
+If the trees differ for any reason, or either PR job is not a success on the
+latest attempt, wait for the main run as before.
+
+Evidence: in v1.23.9 and v1.23.10 the PR head, the squash commit and the tag
+all had one tree (`c8144fa5…` and `a564f7da…`). The main run re-proved it in
+about 29 and 31 minutes (registry `check`), and the tag was pushed 55 s and
+2 min 39 s after the run finished. `release.yml` does not read Actions results.
+Its own tag-time checks (tag form, reachability from main, an unpublished
+version, the example seals, and confirmation that the registry serves both
+names) still run on every tag.
+
 `.github/workflows/release.yml` resolves the tag to a full commit SHA and
 requires that SHA to match the run's `GITHUB_SHA` and fetched tag, be reachable
 from `origin/main`, and contain exactly `@rig-c/create@X.Y.Z` in `package.json`.

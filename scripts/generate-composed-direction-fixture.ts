@@ -3,6 +3,7 @@ import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, re
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { encodePng } from '@rig-c/core/plate';
 import type { JobOwnerHost } from '@rig-c/review/job-host';
+import type { CheckReport } from '../src/check.ts';
 import type { Json, JsonObject } from '../src/templates.ts';
 
 const repo = realpathSync(join(import.meta.dir, '..'));
@@ -434,7 +435,7 @@ async function generate(root: string, scratch: string, inputs: Map<string, Buffe
     await write('direction', 'check', '2');
     await advance('direction-review');
     const record = project();
-    const checked = JSON.parse(await write('interview', '--check', '--json')) as { effective_stage: string; warnings: unknown[]; refusals: unknown[] };
+    const checked = JSON.parse(await write('interview', '--check', '--json')) as CheckReport;
     const post = asArray(record.versions).filter(isObject).find(version => version.n === 2 && version.kind === 'post');
     if (record.stage !== 'direction-review' || checked.effective_stage !== 'direction-review' || !post
       || !Array.isArray(post.verdicts) || post.verdicts.length
@@ -465,6 +466,14 @@ async function generate(root: string, scratch: string, inputs: Map<string, Buffe
       host.stop();
       host = undefined;
 
+      const signedProject = readFileSync(join(root, 'project.json'));
+      const blocked = await create('plan', 'revise', 'composition', '--by', 'agent', '--does', 'Change the signed composition.');
+      if (blocked.exit !== 1 || !blocked.stderr.includes('PLAN_STEP_SIGNED:')
+        || !readFileSync(join(root, 'project.json')).equals(signedProject)) {
+        throw Error(`Expected PLAN_STEP_SIGNED and unchanged project.json: ${blocked.stderr}`);
+      }
+      console.log('PLAN_STEP_SIGNED: project.json unchanged');
+
       const revised = structuredClone(composition);
       (revised.compose as JsonObject).idle_tracks = [];
       const previous = JSON.parse(readFileSync(join(root, 'evidence/interview/post_composition.json'), 'utf8')) as JsonObject;
@@ -481,15 +490,40 @@ async function generate(root: string, scratch: string, inputs: Map<string, Buffe
       });
       const wordsPath = 'evidence/composition-revision.txt';
       put(join(root, wordsPath), Buffer.from(`${label}.\n`));
+      const ownerChat = (path = wordsPath) => ['--by', owner, '--owner-chat', path, '--said-at', new Date(now).toISOString(), '--relayed-by', 'agent'];
       await write('interview-options', 'post_composition', '--file', setPath);
       await write('interview-answer', 'post_composition', '--set', setPath, '--sha256', sha256(readFileSync(join(root, setPath))),
-        '--by', owner, '--pick', 'post_composition=all-still', '--owner-chat', wordsPath, '--said-at', new Date(now).toISOString(), '--relayed-by', 'agent');
-      await write('signoff', 'post-interview', '--steps', 'composition', '--by', owner, '--verbatim-file', wordsPath);
+        '--pick', 'post_composition=all-still', ...ownerChat());
+      const stale = JSON.parse((await create('interview', '--check', '--json')).stdout) as typeof checked;
+      if (!stale.refusals.some(finding => finding.code === 'SIGNOFF_ANSWERS_STALE'
+        && finding.path.endsWith('.answer_hashes[post_composition]'))
+        || !stale.refusals.some(finding => finding.code === 'GUIDE_CHANGED_UNSIGNED'
+          && finding.path === 'plan.steps[composition]')) throw Error(JSON.stringify(stale));
+      await write('amend', 'post-interview', '--kind', 'interview-answer', '--target', 'post_composition', '--change', setPath, ...ownerChat());
+      const awaitingPlan = JSON.parse((await create('interview', '--check', '--json')).stdout) as typeof checked;
+      if (!awaitingPlan.refusals.some(finding => finding.code === 'PLAN_STEP_PREDATES_ANSWER'
+        && finding.path === 'plan.steps[composition]')) throw Error('Expected PLAN_STEP_PREDATES_ANSWER until the composition step is replaced');
+
+      const completed = asArray((project().plan as JsonObject).steps).filter(isObject).find(step => step.id === 'composition');
+      if (!completed) throw Error('Expected a retained composition step after amendment');
+      await write('plan', 'remove', 'composition', '--by', 'agent');
+      await write('plan', 'add', 'composition', '--by', 'agent', '--phase', 'post', '--order', String(completed.order),
+        '--does', 'Keep both plates still in the revised post.', '--produces', String(completed.produces), '--rests-on', 'post_composition',
+        '--bar', String(completed.bar), '--checkpoint-proposed', String(completed.checkpoint_proposed));
+      await write('signoff', 'post-interview', '--steps', 'composition', ...ownerChat());
+      const replanned = JSON.parse(await write('interview', '--check', '--json')) as typeof checked;
+      if (replanned.refusals.length !== 0) throw Error(JSON.stringify(replanned));
+
+      // A new composed direction also needs a post-interview signature on camera and timing after the amendment.
+      const otherStepsApproval = 'evidence/camera-timing-reapproval.txt';
+      put(join(root, otherStepsApproval), Buffer.from('Approve the existing camera and timing for the revised post.\n'));
+      await write('signoff', 'post-interview', '--steps', 'camera,timing', ...ownerChat(otherStepsApproval));
       const revisedScene = JSON.parse(inputs.get('scene.json')!.toString()) as JsonObject;
       ((revisedScene.animations as JsonObject).idle as JsonObject).tracks = [];
       const revisedScenePath = 'compose-v3.scene.json';
       json(join(root, revisedScenePath), revisedScene);
       const secondPost = await preparePost(3, revisedScenePath, 'scratch/compose-v3', 'evidence/direction-v3-input.json');
+      await done([['composition', 'post_composition']]);
       await write(...secondPost, '--answers', '2:0');
       await write('direction', 'check', '2');
       await write('direction', 'check', '3');

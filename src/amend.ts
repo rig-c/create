@@ -11,8 +11,9 @@ import { publicationFile } from './job-publication.ts';
 import { OWNER_CHAT_FLAGS, ownerChatAuthorityFinding, ownerChatFinding, readOwnerChat } from './owner-chat.ts';
 import { readVerbatim } from './record-input.ts';
 import { refuse, USAGE_EXIT } from './refusal.ts';
-import { newRefusals } from './refusal-baseline.ts';
+import { baselineOf, newFindings } from './refusal-baseline.ts';
 import { liveSignoff, type Reopen } from './reopen.ts';
+import { staleSignoffAnswer } from './signoff-answers.ts';
 import { stageIndex, stageOfStep } from './stages.ts';
 import { latestPartsApproval } from './structure.ts';
 import type { Json, JsonObject } from './templates.ts';
@@ -300,8 +301,30 @@ export function amendCommand(args: string[], now: number): { stdout: string; exi
   }
   if (!chat) entry.verbatim = readVerbatim(opts['--verbatim-file'] ?? '-');
   project.amendments = [...asArray(project.amendments), entry];
-  for (const step of amendmentLapsedSteps(project, entry.target as JsonObject)) step.status = 'pending';
-  const rejected = newRefusals(dir, before, project, { now })[0];
+  const target = entry.target as JsonObject;
+  const lapsed = amendmentLapsedSteps(project, target);
+  for (const step of lapsed) step.status = 'pending';
+  const asRead = checkProject(dir, before, { now });
+  const fresh = newFindings(baselineOf(asRead), checkProject(dir, project, { now }).refusals);
+  const staleSteps = new Set<string>();
+  if (target.stage === 'post-interview' && target.kind === 'interview-answer') {
+    const answerId = amendedAnswerId(target);
+    const staleSignoffIndices = new Set(asRead.refusals.flatMap(finding => {
+      const binding = staleSignoffAnswer(finding);
+      return binding?.id === answerId ? [binding.index] : [];
+    }));
+    const approvals = collectSignoffs(before, []).filter(signoff => signoff.stage === target.stage
+      && signoff.checkpoint === null && staleSignoffIndices.has(signoff.index));
+    for (const step of lapsed) {
+      const id = String(step.id);
+      const path = `plan.steps[${id}]`;
+      if (approvals.some(signoff => signoff.steps === null || signoff.steps.includes(id))
+        && asRead.refusals.some(finding => finding.code === 'GUIDE_CHANGED_UNSIGNED' && finding.path === path)) staleSteps.add(path);
+    }
+  }
+  // Lapsing the stale approval exposes draft chronology. Keep that check refusal
+  // until the step is replanned, but let the amendment that permits replanning through.
+  const rejected = fresh.find(finding => finding.code !== 'PLAN_STEP_PREDATES_ANSWER' || !staleSteps.has(finding.path));
   if (rejected !== undefined) refuse(rejected.code, rejected.message);
   writeFileSync(file, `${JSON.stringify(project, null, 2)}\n`);
   return { stdout: json ? JSON.stringify(entry, null, 2) : `amend: ${String(positional[0])} ${String(opts['--target'])} by ${String(entry.by)} at ${String(entry.at)}; stage retained`, exit: 0 };

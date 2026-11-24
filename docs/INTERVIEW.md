@@ -19,7 +19,7 @@ full build and review. The interview moves the calls to before the work. A user
 who answers "auto" has chosen to hand that call to the agent, and the record
 says so.
 
-## The user's three steps
+## The user's four steps
 
 The user sees parts/mesh review, the rigging questionnaire, rig/animation correction, and direction. The historical three-step grouping below applies to legacy records; new projects use the split order in PROJECT.md. Everything else in this file — waypoints, states,
 provenance — is the machinery under them and is not something the user has to

@@ -4,6 +4,7 @@ import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'nod
 import { encodePng } from '@rig-c/core/plate';
 import type { JobOwnerHost } from '@rig-c/review/job-host';
 import type { CheckReport } from '../src/check.ts';
+import type { NextReport } from '../src/next.ts';
 import type { Json, JsonObject } from '../src/templates.ts';
 
 const repo = realpathSync(join(import.meta.dir, '..'));
@@ -156,9 +157,10 @@ function externalTarget(destination: string): string {
   return canonical;
 }
 
-async function submit(host: JobOwnerHost, kind: 'parts-verdict' | 'review-verdict', words: string, {
-  stage = 'rig-review', verdict = 'approved', picture,
-}: { stage?: 'rig-review' | 'direction-review'; verdict?: 'approved' | 'changes-requested'; picture?: Buffer } = {}) {
+async function submit(host: JobOwnerHost, kind: 'parts-verdict' | 'review-verdict' | 'interview-picks', words: string, {
+  stage = 'rig-review', verdict = 'approved', picture, pick,
+}: { stage?: 'rig-review' | 'direction-review'; verdict?: 'approved' | 'changes-requested'; picture?: Buffer;
+  pick?: { questionId: string; optionId: string } } = {}) {
   const { readHostActsAndAsks } = await import('../src/job-acts.ts');
   const { publication, generation } = host.session.status();
   if (!publication) throw Error('Review has no publication');
@@ -175,7 +177,9 @@ async function submit(host: JobOwnerHost, kind: 'parts-verdict' | 'review-verdic
     });
   const displayed = await host.ports.ackDisplayed(host.session.jobId, request('displayed', { publicationId, pageId, sourceHash }));
   if (!displayed.ok) throw Error(`Review displayed: ${displayed.error.code}`);
-  const value = kind === 'parts-verdict'
+  const value = pick ? { questionId: pick.questionId,
+    selections: [{ itemId: pick.questionId, optionId: pick.optionId, otherText: null }], note: words }
+    : kind === 'parts-verdict'
     ? { verdict: 'approved', issues: [], words }
     : { stage, verdict, words };
   const act = await host.ports.commitUIAct(host.session.jobId, request('acts', {
@@ -492,8 +496,45 @@ async function generate(root: string, scratch: string, inputs: Map<string, Buffe
       put(join(root, wordsPath), Buffer.from(`${label}.\n`));
       const ownerChat = (path = wordsPath) => ['--by', owner, '--owner-chat', path, '--said-at', new Date(now).toISOString(), '--relayed-by', 'agent'];
       await write('interview-options', 'post_composition', '--file', setPath);
-      await write('interview-answer', 'post_composition', '--set', setPath, '--sha256', sha256(readFileSync(join(root, setPath))),
-        '--pick', 'post_composition=all-still', ...ownerChat());
+      const next = JSON.parse(await write('next', '--json')) as NextReport;
+      if (next.stage !== 'direction-review' || next.effective_stage !== 'direction-review'
+        || !next.moves.some(move => move.command?.includes('job open') && move.command.includes('--question post_composition'))
+        || !next.moves.some(move => move.review_act?.kind === 'interview-picks' && move.review_act.option_set_id === 'composed-post_composition-002')
+        || next.moves.some(move => move.command?.includes('direction write'))) {
+        throw Error(`Expected next to request the revised composition pick before authoring: ${JSON.stringify(next)}`);
+      }
+
+      const otherRoot = join(scratch, 'wrong-stage');
+      cpSync(root, otherRoot, { recursive: true });
+      const otherPath = 'evidence/interview/reference-002.json';
+      const reference = JSON.parse(readFileSync(join(root, 'evidence/interview/reference.json'), 'utf8')) as JsonObject;
+      json(join(otherRoot, otherPath), { ...reference, id: 'composed-reference-002', drafted_at: new Date(now).toISOString(),
+        context: optionContext(project(), 'interview', now) });
+      requireSuccess(await execute('rig-create', ['interview-options', 'reference', '--file', otherPath], otherRoot, ++now));
+      const wrongStage = await execute('rig-create', ['job', 'open', '--question', 'reference', '--reviewer', owner, '--role', 'owner'], otherRoot, ++now);
+      if (wrongStage.exit !== 1 || !wrongStage.stderr.includes('JOB_RECORD_SUBJECT_INVALID')) {
+        throw Error(`Expected the pending interview-stage reference to refuse at direction-review: ${wrongStage.stderr}`);
+      }
+      const pauseWords = 'evidence/pause.txt';
+      put(join(otherRoot, pauseWords), Buffer.from('Pause this project.\n'));
+      const pauseAuthority = ['--by', owner, '--verbatim-file', pauseWords];
+      requireSuccess(await execute('rig-create', ['signoff', 'paused', ...pauseAuthority], otherRoot, ++now));
+      requireSuccess(await execute('rig-create', ['pause', ...pauseAuthority], otherRoot, ++now));
+      const pausedCheck = JSON.parse(requireSuccess(await execute('rig-create', ['interview', '--check', '--json'], otherRoot, ++now))) as typeof checked;
+      const paused = await execute('rig-create', ['job', 'open', '--question', 'post_composition', '--reviewer', owner, '--role', 'owner'], otherRoot, ++now);
+      if (pausedCheck.effective_stage !== 'direction-review' || paused.exit !== 1 || !paused.stderr.includes('JOB_RECORD_SUBJECT_INVALID')) {
+        throw Error(`Expected direction-review picks to refuse while paused: ${paused.stderr}`);
+      }
+
+      host = await openCreateJob(root, { id: owner, role: 'owner' }, now);
+      await write('job', 'open', '--question', 'post_composition', '--reviewer', owner, '--role', 'owner');
+      await write('job', 'open', '--questions', '--reviewer', owner, '--role', 'owner');
+      const pick = await submit(host, 'interview-picks', `${label}.`, { pick: { questionId: 'post_composition', optionId: 'all-still' } });
+      now = Math.max(now, Date.parse(pick.at));
+      await write('interview-answer', 'post_composition', '--from-review', pick.actId);
+      await write('job', 'close');
+      host.stop();
+      host = undefined;
       const stale = JSON.parse((await create('interview', '--check', '--json')).stdout) as typeof checked;
       if (!stale.refusals.some(finding => finding.code === 'SIGNOFF_ANSWERS_STALE'
         && finding.path.endsWith('.answer_hashes[post_composition]'))

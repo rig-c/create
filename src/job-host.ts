@@ -6,7 +6,7 @@ import { asArray, checkProject, collectItems, loadCollection, isObject, type Fin
 import { baselineOf, newFindings } from './refusal-baseline.ts';
 import { assembleOnlyDraftTarget, assembleOnlyVersionFinding, assertDraftHasRig, readAssembleOnlyDraftTarget } from './draft-layout.ts';
 import { Refusal, refuse } from './refusal.ts';
-import { liveManifestPath, draftPackageIdentity, draftPublishedContext, eligibleRigDraftModel, inspectDraftPublication, currentJobIdentity, partsEnumerator, prepareDraftManifest, prepareLiveManifest, publicationFile, publicationSelector, publishedDraft, publishedSourcePainting, readPublished, readRecordPublished, recordOptionSets, riggingDraftPartsChange, type RecordPublicationResult } from './job-publication.ts';
+import { liveManifestPath, draftPackageIdentity, draftPublishedContext, eligibleRigDraftModel, inspectDraftPublication, currentJobIdentity, optionPublicationStage, partsEnumerator, prepareDraftManifest, prepareLiveManifest, publicationFile, publicationSelector, publishedDraft, publishedSourcePainting, readPublished, readRecordPublished, recordOptionSets, riggingDraftPartsChange, type RecordPublicationResult } from './job-publication.ts';
 import { acknowledgePublication, acquireJobLock, assertJobIdentity, enqueuePublication, ensureJobPrivateIgnores, failPublication, JOB_BINDING_FILE, jobHash, jobHostStateRoot, pendingPublications, privateDirectory, publicationVersionHash, readAcknowledgedPublication, readWriterBinding, reconcilePublication, refuseJobIdentityMismatch, writePrivateJson, isRecordResult, type PublicationResult, type JobIdentity, type PendingPublication, type WriterBinding, type PublicationSubject } from './job-outbox.ts';
 import { draftPublicationResult } from './job-writer.ts';
 import { attachCreateJobForClose, refusePendingJobAsks } from './job-close.ts';
@@ -649,7 +649,8 @@ function requestedRecordPublication(root: string, question: QuestionSelection | 
     const items = collectItems(project, { collection: loadCollection(root, project) });
     let questions: readonly string[];
     if (question === true) {
-      const stage = checkProject(root, project, { now, readOnly: true, recordPublication: true }).effective_stage;
+      const effectiveStage = checkProject(root, project, { now, readOnly: true, recordPublication: true }).effective_stage;
+      const stage = optionPublicationStage(project, effectiveStage, now);
       questions = items.filter(item => item.record.pending_options !== undefined
         && interviewStageOfGuide(item.id, item.kind === 'post', hasStageOrder(project)) === stage).map(item => item.id);
     } else {

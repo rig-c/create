@@ -814,7 +814,10 @@ Context is a projection of existing recorded identities, never a new producer
 measurement:
 
 - `inputs`: `{kind:"inputs", files:[{path,sha256}]}` binds the declared source
-  inputs available before parts. It never claims future parts were shown.
+  inputs available before parts. From `INTERVIEW_PAINTING_FIRST_SINCE`, list
+  the declared painting first when available, then the other inputs in
+  `project.json` order. Earlier drafts use `project.json` order. It never
+  claims future parts were shown.
 - `parts`: `{kind:"parts", accepted_parts:{signoff_at,evidence}, structure,
   draft_id, parts:{path,files:[{path,sha256}]}}` binds the live parts-review,
   retained structure snapshot and full recorded draft input inventory,

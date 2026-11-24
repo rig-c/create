@@ -129,7 +129,7 @@
         "verdict": "versions[0].verdicts[0]",
         "review_package": {
           "path": "versions[0].review_package",
-          "sha256": "214d289c008a8f1ee4f8c4696dd770dc4af1e475cf2ab928f6a3297be67de728"
+          "sha256": "48d58c7cff8b6fc2c46d263be7de27ac43f88fcf30ccac50d67daa0482d7a411"
         }
       }
     },
@@ -1661,7 +1661,7 @@
           },
           {
             "path": "out/check/build/run.json",
-            "sha256": "f9c11c0ed89741ace9d0c9ca989e98b418bbac069c0340f77ec73eb4564d0ac7"
+            "sha256": "14aff00cfb0bc9c22ab740b688622949811ad443c0190bcfcbbc1a1e8fc359b3"
           },
           {
             "path": "out/check/build/skeleton.atlas",
@@ -1745,7 +1745,7 @@
           },
           {
             "path": "out/rig/run.json",
-            "sha256": "37452d8bc59766ae2a350e20ca8a7dd96874fc2215fa5d5bc42efbc138e226b3"
+            "sha256": "323b36367a04d34f54be912a082eeb409dab6d1a21314fb78fe16c8e7a490473"
           }
         ],
         "open": "rig-review open 'derived/review/v1/out'"
@@ -2419,7 +2419,7 @@
       "files": [
         {
           "path": "derived/drafts/chain/out/check/build/run.json",
-          "sha256": "f9c11c0ed89741ace9d0c9ca989e98b418bbac069c0340f77ec73eb4564d0ac7"
+          "sha256": "14aff00cfb0bc9c22ab740b688622949811ad443c0190bcfcbbc1a1e8fc359b3"
         },
         {
           "path": "derived/drafts/chain/out/check/build/skeleton.atlas",
@@ -2475,7 +2475,7 @@
         },
         {
           "path": "derived/drafts/chain/out/run.json",
-          "sha256": "37452d8bc59766ae2a350e20ca8a7dd96874fc2215fa5d5bc42efbc138e226b3"
+          "sha256": "323b36367a04d34f54be912a082eeb409dab6d1a21314fb78fe16c8e7a490473"
         },
         {
           "path": "derived/drafts/chain/input/recomposite_rig.png",

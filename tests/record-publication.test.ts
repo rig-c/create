@@ -6,8 +6,10 @@ import { dirname, join } from 'node:path';
 import { readNpmJson } from '../scripts/npm-json.ts';
 import { collectItems, checkProject } from '../src/check.ts';
 import { interviewCommand } from '../src/interview.ts';
-import { optionContext, sha256 } from '../src/choices.ts';
+import { INTERVIEW_PAINTING_FIRST_SINCE, optionContext, sha256 } from '../src/choices.ts';
 import { interviewOptionsCommand } from '../src/choice-writers.ts';
+import { freshProjectRecord } from '../src/init.ts';
+import { inputCommand } from '../src/inputs.ts';
 import { currentJobIdentity, loadedPartsIdentity, partsEnumerator, readPublished, readRecordPublished, type RecordPublicationRequest } from '../src/job-publication.ts';
 import { OWN_NODE_MODULES, PARTS_PACKAGE } from '../src/parts-sections.ts';
 import { jobHash, jobPrivateRoot } from '../src/job-outbox.ts';
@@ -20,7 +22,7 @@ import { fixture, retainSignoffs, supersede, obj, arr } from './fixtures.ts';
 import { TEST_NOW } from './clock.ts';
 import { tempDir } from './helpers.ts';
 import { checkpointWorkspace } from './checkpoint-evidence-fixture.ts';
-import type { JsonObject } from '../src/templates.ts';
+import { readTemplate, type JsonObject } from '../src/templates.ts';
 
 
 function save(root: string, project: JsonObject): void {
@@ -100,6 +102,50 @@ test('pending option-set publishes exact inputs and merges identical references 
   }
   expect(snapshot(root)).toEqual(before);
 });
+
+test.each([[-1, false], [0, true]] as const)(
+  '#949: source option drafted %d ms from the cutoff uses its draft-time order through publication',
+  (offset, paintingFirst) => {
+    const root = realpathSync(tempDir());
+    const cutoff = Date.parse(INTERVIEW_PAINTING_FIRST_SINCE);
+    const drafted = cutoff + offset;
+    save(root, { ...freshProjectRecord('synthetic', cutoff - 3000), owner: { language: 'en' } });
+    mkdirSync(join(root, 'inputs'));
+    const plate = 'inputs/plate.png';
+    const painting = 'inputs/painting.png';
+    for (const path of [plate, painting]) {
+      writeFileSync(join(root, path), `synthetic ${path}`);
+      inputCommand(['add', path, root, '--origin', 'synthetic', ...(path === painting ? ['--painting', '--projects-root', root] : [])], cutoff - 2000);
+    }
+    const bind = (path: string) => ({ path, sha256: jobHash(readFileSync(join(root, path))) });
+    const expected = (paintingFirst ? [painting, plate] : [plate, painting]).map(bind);
+    const set = readTemplate('example-interview-options/example-reference.json');
+    set.id = 'pending-reference';
+    set.drafted_at = new Date(drafted).toISOString();
+    const path = 'evidence/interview/pending-reference.json';
+    mkdirSync(join(root, dirname(path)), { recursive: true });
+    const project = JSON.parse(readFileSync(join(root, 'project.json'), 'utf8')) as JsonObject;
+    expect(optionContext(project, 'interview', drafted, root)).toEqual({ kind: 'inputs', files: expected });
+
+    const now = cutoff + 1000;
+    set.context = { kind: 'inputs', files: [...expected].reverse() };
+    writeFileSync(join(root, path), JSON.stringify(set));
+    const before = readFileSync(join(root, 'project.json'));
+    expect(() => interviewOptionsCommand(['reference', root, '--file', path], now))
+      .toThrow(expect.objectContaining({ code: 'INTERVIEW_OPTIONS_STALE' }));
+    expect(readFileSync(join(root, 'project.json'))).toEqual(before);
+
+    set.context = { kind: 'inputs', files: expected };
+    writeFileSync(join(root, path), JSON.stringify(set));
+    interviewOptionsCommand(['reference', root, '--file', path], now);
+    const report = checkProject(root, undefined, { now, readOnly: true, recordPublication: true });
+    expect(report.refusals.map(finding => finding.code)).not.toContain('INTERVIEW_OPTIONS_STALE');
+    expect(report.warnings).toEqual([]);
+    const publication = readRecordPublished(request(root), now);
+    expect(publication.subjects).toEqual([{ kind: 'interview-picks', questionId: 'reference', setId: 'pending-reference' }]);
+    expect(publication.files).toContainEqual(bind(path));
+  },
+);
 
 test('option-set publication leaves silent questions open in the initial interview', () => {
   const { root } = pending();

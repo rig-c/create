@@ -61,6 +61,7 @@ match their recorded hashes.
 | `JOB_ASK_PENDING` | A publication from a bound writer or `job open` would replace an unresolved owner ask. `input add`, interview record writers, `draft-rig`, and `owner-language set` also refuse while a bound live job holds an unresolved ask. The message names the job and pending asks. Collect and ingest the current page's acts before retrying the write or opening a different target. Interview answer ingestion with `--from-review` can proceed. For an interview ask, to keep the page, have the owner submit in Review if they have not already, then run `job acts --wait` and `interview-answer <question> --from-review <actId>`, or, to record chat words, ingest finalized acts, run `job close` with the owner's authorization, then retry with `--owner-chat`. If an interview page needs a refresh, include every remaining unresolved question with its exact option-set binding. For one stale interview act on an active bound job, use the reported `job withdraw-act <actId>` command with the owner-chat flags to keep the page and URL. For multiple stale acts, follow the reported `job close --discard-acts` remedy after ingesting any current acts. A verdict ask or act on a rig or post version that a later amendment made history does not hold the job (a historical reopen still holds it); `job acts` still lists the act, and its ingest still refuses. Refusal preserves `project.json` and the job state byte-identically. |
 | `JOB_PUBLICATION_ASK_REQUIRED` | A bound version writer would replace an open publication with no owner ask or verified carried draft approval. Keep the open page and use `job open` when the next review is ready. The refusal leaves the record and outbox unchanged. |
 | `JOB_ASK_REFUSED` | A publication is acknowledged, but Review refused the ask for one of its declared subjects. The message names each subject and Review's code. The publication is not pending. Restore the published record bytes and run `job open` to ask again. |
+| `JOB_ASK_INVALID` | An ask or ask batch failed without a Review error code. Create uses this fallback in the refused ask outcome reported by `JOB_ASK_REFUSED`. Restore the published record bytes and retry `job open` on the bound host. |
 | `JOB_DRAFT_UNKNOWN` | `job open --draft <id>` names a draft the record does not hold. Record the draft with `draft-rig` or name a recorded draft. |
 | `JOB_PARTS_VERDICT_UNASKABLE` | `job open --draft <id>` at `parts-review` would drop the `parts-verdict` subject because the structure snapshot for that draft is missing or invalid. Run `rig-create structure-snapshot <dir> --draft <id>` and retry `job open --draft <id>`. |
 | `JOB_RIG_VERDICT_DEFERRED` (WARN) | `job open --rig <n>` publishes a rig page while the record's effective stage is not `rig-review`, so the page leaves out the `review-verdict` ask for `rig-review`: `review <n> --from-review` could ingest the owner's approval only at `rig-review`. The page keeps its checkpoint asks. The warning names the stage and the rigging steps whose bars are unmet; meet them, run `advance rig-review`, then `job open --rig <n>` asks the verdict. Bound writers that republish the rig page apply the same rule; when the page would then have nothing to ask, the writer refuses with this code instead of `JOB_PUBLICATION_ASK_REQUIRED`, leaving the record unchanged: keep the open page, advance first, or close the job to record without publishing. |
@@ -158,18 +159,13 @@ a plan step), written to `project.json`.
   stages end on a sign-off (`interview`, `plan-approved`, `rig-review`,
   `post-interview`, `direction-review`) and which end when the last step of
   their phase meets its bar (`rigging`, `post`).
-- **The parts verdict** a `parts-review` sign-off rests on is the file its
-  `evidence.path` names, relative to the project, and nothing else. Its
-  `source.files[]` paths are relative to the verdict file's own directory
-  (POSIX), so a verdict kept outside the parts directory lists `../` paths.
-  Every listed file is hashed again, and `source.sha256` is recomputed from the
-  entries the way rig-review defines it; the field is never trusted. It is
-  read from the latest `parts-review` sign-off once rigging has started, and
-  only while the parts gate rigging: the stage is at most `rigging`, or no rig
-  version has an accepted rig-review verdict yet. After acceptance a part
-  change is a new rig version (`RIG_VERSION_UNACCEPTED`), and an accepted
-  project on a fresh clone, whose `derived/` parts are not there, is not
-  refused for them.
+- **The parts verdict** a `parts-review` sign-off rests on is a retained
+  [parts-review receipt](#recorded-parts-verdicts-create267). The check binds
+  `signoffs[].draft_id` and `evidence` to the receipt in `review_acts[]` and
+  validates the retained response and its draft bindings. A legacy saved-file
+  binding is preserved with `PARTS_VERDICT_FILE_LEGACY` without opening the
+  old verdict file. The diff-map check uses the manifest from a valid latest
+  sign-off while parts gate rigging.
 - **A collection member** (`<collection>/members/<name>/project.json`) has its
   `inherited` answers resolved against `<collection>/collection.json`. An
   inherited answer whose collection answer is `null` (or `"per-member"`) is
@@ -181,11 +177,9 @@ a plan step), written to `project.json`.
 
 ## Appearance bar wording
 
-`STEP_APPEARANCE_REVIEW` is a **warning**, not a refusal, on
-`plan.steps[<id>].bar`, including pending steps. It names the person's review:
-`rig-review` for `phase: "rig"`, `direction-review` for `phase: "post"`. Move
-the appearance item there in the plan and attach measured step readings as
-context ([INTERVIEW.md](INTERVIEW.md#appearance-belongs-to-a-persons-review)).
+| Code | Fires when | Clear it by |
+| --- | --- | --- |
+| `STEP_APPEARANCE_REVIEW` | WARN on `plan.steps[<id>].bar`, including pending steps, for appearance wording without a numeric reading | Move the appearance item to the person's `rig-review` for `phase: "rig"` or `direction-review` for `phase: "post"` and attach measured step readings as context ([INTERVIEW.md](INTERVIEW.md#appearance-belongs-to-a-persons-review)) |
 
 The single exported phrase list, `APPEARANCE_IN_MOTION_PHRASES` in
 `src/check.ts`, is: `perceived jiggle`, `perceived motion`, `looks right in the
@@ -415,6 +409,46 @@ blank or missing `reason` is refused (`BUST_EXCLUSION_UNREASONED`), and any
 other `bust` value is refused (`BUST_VALUE_UNKNOWN`). A value that is not an
 object is not read.
 
+## Command usage
+
+These refusals exit `2`.
+
+| Code | Fires when | Clear it by |
+| --- | --- | --- |
+| `UNKNOWN_COMMAND` | the first argument names no Create command | choose a command from `rig-create --help` |
+| `INTERVIEW_MODE_MISSING` | `interview` is called without `--check` | use `rig-create interview --check [<project dir>]` |
+| `INTERVIEW_TOO_MANY_ARGUMENTS` | `interview --check` receives more than one target | supply one project or collection target, or omit it to use the current folder |
+
+## Initialization
+
+| Code | Fires when | Clear it by |
+| --- | --- | --- |
+| `INIT_DIR_MISSING` | plain `init` receives no folder, `init --collection` receives other than one folder, or `init --member` receives other than a collection folder and member name (exit 2) | use `init <dir>`, `init --collection <dir>` or `init --member <collection dir> <name>` |
+| `INIT_TOO_MANY_ARGUMENTS` | plain `init` receives more than one folder, or both `--collection` and `--member` are present (exit 2) | supply one destination for plain `init`, or choose one initialization mode |
+| `INIT_NOT_A_DIRECTORY` | the project or collection destination exists and is not a directory | choose a new or empty directory |
+| `INIT_DIR_NOT_EMPTY` | the project or collection destination already contains entries | choose a new or empty directory |
+| `INIT_GIT_FAILED` | Git initialization, staging or committing the generated files failed | inspect the Git diagnostic and repair the reported operation in the destination or collection; inspect any files already created before retrying |
+| `INIT_INSTALL_FAILED` | `bun install` fails during project or collection initialization, which still creates the record and its initial commit before reporting the error | run `bun install` in that folder and commit `bun.lock` |
+| `INIT_NOT_A_COLLECTION` | `init --member` points to a folder with no `collection.json`, an unreadable or invalid record, or a schema other than `rig-create/collection@0` | supply a collection with an intact record, or create one with `init --collection` |
+| `INIT_COLLECTION_UNNAMED` | the collection record has no nonempty string `name` to bind inherited answers | restore the collection's name before adding a member |
+| `INIT_MEMBER_NAME_INVALID` | the member name is not one folder name beginning with an ASCII letter or digit and using only those characters, `.`, `_` and `-` | supply a valid member name |
+| `INIT_MEMBER_EXISTS` | the name is already in `collection.json` `members[]` or its folder exists | use the existing member or supply a new name |
+| `INIT_COLLECTION_DIRTY` | `collection.json` has uncommitted changes in the collection's Git work tree | commit those changes before registering the member |
+
+## Split captions
+
+`rig-create split-captions [<project dir|project.json>] [--config <file>]`
+prints generated caption JSON. The config defaults to `config.json` beside
+the project record. Relative `--config` paths resolve beside that record.
+
+| Code | Fires when | Clear it by |
+| --- | --- | --- |
+| `SPLIT_CAPTIONS_USAGE` | there is more than one target, or `--config` is repeated or lacks a nonempty file argument (exit 2) | supply at most one target and one `--config <file>` |
+| `SPLIT_CAPTIONS_INPUT_UNREADABLE` | the project record or config cannot be read | point the command at readable files or restore the named file |
+| `SPLIT_CAPTIONS_INPUT_INVALID` | the project record or config is invalid JSON or its root is not an object | restore the named file as a JSON object |
+| `SPLIT_CAPTIONS_PARTS_INVALID` | `project.json` has no nonempty `split.parts` list, or a part lacks a unique nonblank name or a supported label | restore the recorded parts with unique names and a `physics`, `wind`, `jiggle`, `rigid` or `still` label for each |
+| `SPLIT_CAPTIONS_CONFIG_INVALID` | the installed Parts config parser cannot load or rejects the assembly or full rig config | use the project's pinned Parts installation and fix the named config error |
+
 ## Refusals
 
 Exit `1`. Each names its object in `path`.
@@ -489,14 +523,14 @@ Exit `1`. Each names its object in `path`.
 | `DIFF_MAP_CLASS_WHY` | a class reason names neither an exact border part nor its coverage band | inspect the class and state its measured property in why |
 | `DIFF_MAP_TRIAGE` | the triage file is unreadable or malformed, supplies keys or members, or names unknown ids | read `diff-classes` and supply only status and why per class or component id |
 | `DIFF_MAP_POLICY` | `definition.floor_px` exceeds 2 or `definition.threshold` exceeds 40 | regenerate with floor at most 2 and threshold at most 40 |
-| `PARTS_VERDICT_MISSING` | rigging has started (the stage is past `parts-review`, or a `rigging` step is past `pending`), no rig version is accepted at rig-review yet or the stage is at most `rigging`, and the latest `parts-review` sign-off has no `evidence` of `kind: "parts-verdict"` with a `path` and a `sha256`; an in-flight project (`PARTS_REVIEW_PREDATES_STAGE`) is not asked | record the verdict the review wrote as the sign-off's `evidence: { kind: "parts-verdict", path, sha256 }`, `path` relative to the project ([PROJECT.md § The parts are reviewed before rigging](PROJECT.md#the-parts-are-reviewed-before-rigging)) |
-| `PARTS_VERDICT_UNREAD` | the evidence `path` leaves the project, the file is not there, its bytes do not hash to the evidence `sha256`, or it is not a JSON object; the check reads exactly that file, never a default location | restore the file the sign-off names, or review again and sign with the new verdict |
-| `PARTS_VERDICT_SCHEMA_UNKNOWN` | the verdict's `schema` is neither `rig-review-parts-verdict/1` nor `rig-review-parts-verdict/2` (including unknown `/3`) | sign with a verdict written by rig-review's parts view |
-| `PARTS_VERDICT_ATLAS` | the verdict's `mode` is `atlas`: a built rig's atlas was reviewed, which is informational and never gates `parts-review` | review the assembled parts (`rig-review parts` on the parts package) and sign with that verdict |
-| `PARTS_VERDICT_MALFORMED` | `mode` is neither `parts` nor `atlas`, `source.files[]` is empty or has an entry without `path`, `bytes` and `sha256`, an entry is not a POSIX path relative to the verdict's directory or leaves the project, or `parts.json` is not the first entry | sign with a verdict written by rig-review's parts view |
+| `PARTS_VERDICT_MISSING` | Retired. Earlier Create releases used this code when the parts sign-off lacked a saved-file verdict. | Record the parts verdict with `parts-review` and sign using its retained receipt. See `PARTS_VERDICT_RECEIPT_REQUIRED`. |
+| `PARTS_VERDICT_UNREAD` | Retired. Earlier Create releases used this code when the sign-off's saved verdict could not be read or failed its byte binding. | Restore the current retained response and its receipt, or review again and record a new receipt. |
+| `PARTS_VERDICT_SCHEMA_UNKNOWN` | Retired. Earlier Create releases used this code for an unsupported saved-verdict schema. | Record a supported Review response with `parts-review`. See `PARTS_REVIEW_CLI_INVALID`. |
+| `PARTS_VERDICT_ATLAS` | Retired. Earlier Create releases used this code when a saved build-atlas verdict was supplied for `parts-review`. | Review the assembled parts in Review and record the response with `parts-review`. |
+| `PARTS_VERDICT_MALFORMED` | Retired. Earlier Create releases used this code for an invalid saved-verdict shape or file inventory. | Record a supported Review response with `parts-review`. See `PARTS_REVIEW_CLI_INVALID`. |
 | `PARTS_VERDICT_NOT_APPROVED` | the verdict's `status` is `pending` or `changes-requested`, or a carried approval comes from a delegate | fix flagged parts and record the owner's approval before signing an amendment |
-| `PARTS_VERDICT_SOURCE_CHANGED` | a `source.files[]` entry, resolved against the verdict file's directory, is not on disk, or its byte count or sha256 is not the one reviewed: a part added, removed or repainted after the sign-off | review the parts as they now are and sign again; a parts change after sign-off is a new review |
-| `PARTS_VERDICT_SOURCE_MISMATCH` | `source.sha256` is not the sha256 of the UTF-8 lines `<path>\t<sha256>\n` over `source.files[]`, sorted by path bytewise; the check recomputes it and never trusts the field | sign with a verdict written by rig-review's parts view, unedited |
+| `PARTS_VERDICT_SOURCE_CHANGED` | Retired. Earlier Create releases used this code when a file listed by the saved verdict was missing or changed. | Review changed parts and record the new response with `parts-review` before signing again. |
+| `PARTS_VERDICT_SOURCE_MISMATCH` | Retired. Earlier Create releases used this code when the saved verdict's declared source digest differed from its file list. | Record a fresh Review response for the exact draft with `parts-review`. |
 | `STAGE_UNSIGNED` | the project's `stage` is past a stage that ends on a sign-off, and no `{ "stage": <it>, "checkpoint": null }` entry exists | the person signs it, or the stage goes back to where the signatures reach |
 | `VERSION_MALFORMED` | a `versions[]` entry has no integer `n`, a `kind` other than `rig` / `post`, or a rig version has a non-null `rig_version` | fix the entry ([PROJECT.md § Versions](PROJECT.md#versions)) |
 | `STILL_MALFORMED` | an `evidence[]` entry of `kind: "still"` lacks `path` or a 64-hex `sha256`, has a `camera` other than `"fixed"`, or no `frame` ≥ 0 | write it in the still-frame shape ([PROJECT.md § The rig review rests on a still frame](PROJECT.md#the-rig-review-rests-on-a-still-frame)); it does not count as a still until it is |
@@ -564,6 +598,8 @@ Exit `0` prints the rig version post work is on (with `--json`: `rig_version`,
 | Code | Fires when |
 | --- | --- |
 | `PROJECT_JSON_MISSING`, `PROJECT_JSON_INVALID` | as above |
+| `HANDOFF_RIG_INVALID` | `--rig` is missing a value or its value does not select a positive integer. Supply a rig version number such as `3` or `v3`, or omit `--rig`. |
+| `HANDOFF_TOO_MANY_ARGUMENTS` | more than one project folder is supplied. Name one folder or use the current folder. |
 | `RIG_REVIEW_UNSIGNED` | no human `{ "stage": "rig-review", "checkpoint": null }` sign-off |
 | `RIG_VERSION_UNACCEPTED` | no live rig version has an accepted rig-review verdict, or a newer rig version than the accepted one has none. An acceptance that a later reopen or amendment made history is named with that entry |
 | `RIG_ACCEPTED_WITHOUT_STILL` | the accepted rig version has no still-frame record |
@@ -591,8 +627,12 @@ a usage error (`REVIEW_VERSION_INVALID`, `REVIEW_OPTION_MISSING`,
 | Code | Fires when |
 | --- | --- |
 | `PROJECT_JSON_MISSING`, `PROJECT_JSON_INVALID` | as above |
+| `REVIEW_VERSION_INVALID` | the version argument is absent or does not select a positive integer. Give the version first, for example `3` or `v3`. |
+| `REVIEW_OPTION_MISSING` | the direct verdict lacks `--verdict`, `--by`, `--review`, `--source` or verbatim words, or an ingested chest-landmark edit lacks `--config`. Supply the named flags, using `--verbatim` or `--verbatim-file` for direct verdict words and the project-relative working config for the chest edit. |
+| `REVIEW_TOO_MANY_ARGUMENTS` | the version route receives extra positional arguments. Supply a version and at most one project folder. |
 | `REVIEW_VERSION_UNKNOWN` | `versions[]` has no entry with that `n` |
 | `REVIEW_WRONG_KIND` | `--review` does not judge that version's kind (`rig-review` → `rig`, `direction-review` → `post`) |
+| `FEEDBACK_ITEM_DUPLICATE` | one answer id appears in `--item` more than once. Supply one entry per answer the verdict touches. |
 | `FEEDBACK_ITEM_UNKNOWN` | `--item` names no framing, waypoint or post item, or a `--from-review` route names no rig waypoint. Name an existing target. A review cannot create `x_` prompts. |
 | `FEEDBACK_ITEM_CONTRADICTS` | the named `answer_was` is one the record rules out: anything but `delegated` on a delegation, `delegated` on a user sentence with no delegated part |
 | `FEEDBACK_ITEM_AMBIGUOUS` | no `answer_was` is named on a user sentence that left part to the agent; the record cannot choose |
@@ -645,6 +685,7 @@ collection's stages.
 
 | Code | Fires when | Clear it by |
 | --- | --- | --- |
+| `COLLECTION_USAGE` | `collection` omits its mode, `pin` or `--check` receives more than one folder, `pin --changed` lacks a value, or `answer` receives invalid arguments (exit 2) | use `collection pin [<dir>]` with a sentence if passing `--changed`, `collection --check [<dir>]`, or `collection answer <question> [<dir>] --by <who>` with either `--value-file <file>` or `--defer-until <stage>` and `--reason-file <file>` |
 | `COLLECTION_JSON_MISSING` | no `collection.json` in the folder | run in a collection folder, or name one |
 | `COLLECTION_JSON_INVALID` | the file is not a JSON object | fix the JSON |
 | `COLLECTION_ITEM_SILENT` | a collection question, framing answer or waypoint guide is `null` and the stage is past `interview` (a post item guide: past `post-interview`), or a collection question deferral is past `until_stage` | record an ordinary collection question answer with `collection answer --value-file`; for shared guides, answer, delegate or use `"per-member"` |
@@ -733,7 +774,7 @@ declared binding shape without requiring old inputs to remain working files.
 ```sh
 rig-create signoff <stage> --from-review <actId>
 rig-create signoff <stage> --by <who> [--steps <id,id,...>] [--verbatim-file <file>]
-rig-create signoff parts-review --by <who> --evidence <path> --diff-report <path> [--component '<id>=<status>:<why>'] [--verbatim-file <file>]
+rig-create signoff parts-review --draft <id> --structure-file <path> --by <owner> --owner-chat <file> --said-at <ISO> --relayed-by <operator>
 ```
 
 The command records a signature without moving the stage. Exit 0 records it. Exit 1
@@ -744,7 +785,7 @@ file unchanged. The shared `VERBATIM_*` codes also apply to `review`.
 | --- | --- |
 | `SIGNOFF_PICKS_REQUIRED` | `--from-picks` needs the current interview, plan-approved or rigging-interview stage and an ingested owner pick for every relevant answer; record the missing picks or use the regular sign-off route for other answers |
 | `SIGNOFF_PICKS_PLAN_INCOMPLETE` | `--from-picks` cannot sign until the stage's required plan steps exist; add those steps through the plan writer |
-| `SIGNOFF_OPTION_INVALID` | missing or repeated options, unknown stage, extra positional arguments, `--from-review` with `--by`, `--verbatim-file` or `--steps` on either route (the act supplies the person, words and covered steps; without `--checkpoint` it is the stage sign-off route, with `--checkpoint <id>` the checkpoint route), or `--steps` outside a plan approval stage, `--steps` with `--checkpoint`, missing parts-review `--evidence`, evidence or diff options on another stage, duplicate component ids, malformed component flags, or `--component` without `--diff-report` (exit 2) |
+| `SIGNOFF_OPTION_INVALID` | missing or repeated options, unknown stage, extra positional arguments, `--from-review` with `--by`, `--verbatim-file`, `--steps` or owner-chat flags (the act supplies the person, words and covered steps), `--steps` outside a plan approval stage or with `--checkpoint`, or `--draft` or `--structure-file` outside `parts-review` (exit 2) |
 | `SIGNOFF_NOT_HUMAN` | `--by` is `agent`, case-insensitively |
 | `SIGNOFF_MALFORMED` | the record's `signoffs` is not a list |
 | `SIGNOFF_REASK_PENDING` | a new `interview`, `rigging-interview` or `post-interview` stage signature has a pending option set in that stage. Open the named question with `rig-create job open --question <id>`, record the owner's pick with `interview-answer`, then ask for sign-off. The refusal applies to Review acts and relayed owner chat. |
@@ -759,12 +800,11 @@ file unchanged. The shared `VERBATIM_*` codes also apply to `review`.
 | `FEEDBACK_REF_UNKNOWN` | `--answers-feedback` names no existing verdict on an earlier version; `rig-version` and `direction write/patch --answers` additionally require a human bounced verdict. Name an earlier human bounce in `versions[vN].answers_feedback` |
 | `FEEDBACK_REF_DUPLICATE` | the reference already exists or occurs twice in this command |
 
-`signoff parts-review --evidence` also uses the existing `PARTS_VERDICT_*`
-refusals from the parts verdict reader before recording anything. `--diff-report`
-and repeatable `--component` also run the shared `DIFF_MAP_*` reader before
-writing. Missing maps are refused from `DIFF_MAP_SINCE`; a zero-component
-report needs no component flags. Refusals preserve the project file bytes. `--checkpoint`
-records an enabled execution checkpoint without a plan hash or phase approval.
+`signoff parts-review` validates the selected draft's retained parts-review
+receipt and the recorded diff map before writing. Prepare the map separately
+with `diff-classes`; a zero-component report needs no component flags.
+Refusals preserve the project file bytes. `--checkpoint` records an enabled
+execution checkpoint without a plan hash or phase approval.
 
 ## Prepared inputs and agent-found history bounces
 
@@ -775,6 +815,8 @@ are unchanged. No prepared files are silently registered or repaired.
 
 | Refusal | Fires when | Clear it by |
 | --- | --- | --- |
+| `DERIVED_USAGE` | `derived` omits `add`, the arguments have the wrong count or lack a required value, a value-taking option other than `--source` is repeated, or a file result lacks both operation text and a supported mask receipt (exit 2) | use `derived add` with at most one project folder, one or more `--source <file>` arguments and one `--file <file or run folder>`. For a file result, supply `--operation <text>` or a supported mask `--receipt <path>` |
+| `DERIVED_PATH_INVALID` | a source or result path is absolute, escapes the project, or resolves to the project root or `project.json`, or a source resolves to the result or is inside the result run folder | name distinct project-relative sources and a result, keeping all sources outside the run folder |
 | `PLATE_RECEIPT_INVALID` | a declared receipt is absent, outside the project, symlinked, changed, has an unknown spec or key order, or disagrees with the recorded painting, mask or output | restore the producer receipt and record it with `derived add --receipt` |
 | `MATTE_RECEIPT_INVALID` | a declared `rig-parts-matte-receipt/1` receipt, painting, raw mask, or output is malformed, absent, or disagrees with its path or sha256 binding | restore the producer receipt and its files, then record them with `derived add --receipt` |
 | `EXTERNAL_RECEIPT_INVALID` | a declared `rig-parts-external-receipt/1` receipt is malformed, its kind differs from `mask`, or the receipt, painting or mask fails its path or sha256 binding | restore the producer receipt and its files, then record the painting as the sole `--source` and the mask as `--file` with `derived add --receipt`. Operation text is optional |
@@ -804,11 +846,8 @@ independent of the parts-review stage boundary. Read the history entry's own
 | --- | --- | --- |
 | `PART_EDIT_UNCOVERED` | a dated `derived[]` result binds a named part image by path and sha256, was recorded after an execution checkpoint sign-off, and no later finalized parts-review verdict binds that part and sha256. Entries without `at` remain unclassified | review a draft with those exact part bytes in the Review parts tool and record the verdict with `rig-create parts-review` |
 
-`derived add` refuses before writing on `DERIVED_USAGE` (exit 2: missing or
-invalid arguments), `DERIVED_PATH_INVALID` (source and result not distinct
-project-relative files, or either is `project.json`), `DERIVED_RUN_MISSING_LAYERS` (a
-`--file` folder lacks `layers.json`), `DERIVED_FILE_UNREADABLE`, `DERIVED_MALFORMED` (a
-non-array `derived`), `DERIVED_AT_INVALID`, `PROJECT_JSON_INVALID`, or `SCHEMA_UNKNOWN` (exit 1).
+`derived add` also applies the shared `PROJECT_JSON_INVALID` and
+`SCHEMA_UNKNOWN` refusals before writing.
 
 `PLATE_RECEIPT_SINCE = 2026-11-08T00:00:00Z` uses the earliest retained scene registration with matching derived index, path and sha256. Input plates are excluded. Every declared receipt is verified regardless of date or scene registration. `scene write` runs the same project checker before committing.
 
@@ -892,16 +931,14 @@ asks. Projection accepts `core` or `visible`; ground accepts `plain` or `busy`.
 Missing or invalid values are `GUIDE_ASK_UNANSWERED` by name, even if coverage
 claims an answer. Record the answer or a decided delegation before approval.
 
-`ASSEMBLE_GROUND_UNANSWERED` refuses a readable config declaring
-`assemble.project: "visible"` when the guide has no valid ground answer. Ask
-plain or busy, record its ask and value, and write `assemble.ground` into the
-config. The check reads `config.json` if present and retained rig-version
+The check reads `config.json` if present and retained rig-version
 configs via their provenance paths and hashes. Core and absent projection add
 no ground question or refusal. Unread retained files remain under the existing
 provenance checks.
 
 | Code | Finding and remedy |
 | --- | --- |
+| `ASSEMBLE_GROUND_UNANSWERED` | A readable current or retained config explicitly sets `assemble.project: "visible"` but the assemble guide has no valid ground answer. The guide must be dated from `PROJECTION_ASKS_SINCE` and have no pending Other pick or unresolved choice delegation for ground. Ask `plain` or `busy`, record the ground ask and value or a decided delegation, then write `assemble.ground` in the config. |
 | `ASSEMBLE_CONFIG_ANSWER_MISMATCH` | A readable current or retained config differs from the decided projection or ground answer. Align the config with the recorded answer. Omitted fields take Parts defaults (`core` and `plain`). Pending and undecided answers are skipped. Refusal for answers dated at or after `ASSEMBLE_CONFIG_MATCH_SINCE` (2026-11-20T00:00:00Z), WARN for earlier or unreadable answer dates. |
 
 The resolved guide's own `at` controls `PROJECTION_ASKS_SINCE`,
@@ -922,14 +959,14 @@ chain and its source is the immediately preceding version of the same kind.
 | Finding | Fires when |
 | --- | --- |
 | `APPLIED_REVIEW_MISSING` | a version dated on or after `APPLIED_REVIEW_SINCE` omits the origin declaration |
+| `APPLIED_REVIEW_LEGACY` | WARN for an omitted `review_origin` on a version dated before `APPLIED_REVIEW_SINCE` or without a readable date. Preserve its history. On the next build declare `null` if no feedback was used or bind the applied feedback. |
 | `APPLIED_REVIEW_MALFORMED` | the declaration lacks its file path/hash, source, item id or applied result |
 | `APPLIED_REVIEW_FILE` | the retained file is unavailable, escapes the project or is not a single-build feedback export |
 | `APPLIED_REVIEW_SOURCE` | the source is missing, ambiguous or skipped, or the feedback inputs differ from its package |
 | `APPLIED_REVIEW_RESULT` | the selected feedback item is missing or repeated, or its applied result differs |
 
-`APPLIED_REVIEW_LEGACY` is a warning for an omitted declaration dated before
-`APPLIED_REVIEW_SINCE = 2026-11-06T00:00:00Z`, or with no readable date.
-Pre-interview versions are exempt. Explicit null declarations remain legal.
+`APPLIED_REVIEW_SINCE = 2026-11-06T00:00:00Z`. Pre-interview versions are
+exempt. Explicit null declarations remain legal.
 
 ### Setup-painting declaration
 
@@ -1050,11 +1087,10 @@ identity as for a full draft. Existing standalone and build drafts have no
 | `DRAFT_REUSE_PRODUCER` | the reused draft's recorded producer or its local run stamp disagrees with the reviewed draft's producer. The inherited identity applies to the reused parts inventory. | supply matching artifacts or run `rig-parts build` and record a normal draft |
 
 Each refusal names the record path and writes nothing in the corresponding writer.
-The existing plan, checkpoint, parts-verdict and diff-map codes remain active.
-`structure-snapshot` also refuses with the `PARTS_VERDICT_*` codes of the verdict
-it reads, and with `STRUCTURE_DECISIONS_INVALID` or `STRUCTURE_DECISIONS_CONFLICT`
-when its candidate fails the snapshot rules (a draft config whose `meshes` is not
-an object, or a part name that is not a valid pointer segment).
+`structure-snapshot` reads the draft's retained config. It also refuses with
+`STRUCTURE_DECISIONS_INVALID` or `STRUCTURE_DECISIONS_CONFLICT` when its
+candidate fails the snapshot rules (a draft config whose `meshes` is not an
+object, or a part name that is not a valid pointer segment).
 
 
 Missing ignored draft files are unavailable, not altered files. Existing files
@@ -1244,7 +1280,7 @@ direction-review signature binds an accepted verdict and its version's reviewed 
 | `SIGNOFF_TARGET_MISSING` | A current-era review signature has no target | Preserve the reviewed inputs and sign again with `--version` |
 | `SIGNOFF_TARGET_STALE` | The version, operative human accepted verdict, package inventory, imported outputs or direction binding no longer resolves, or writer selection is ambiguous | Restore the reviewed inputs and select the accepted version with `--version` |
 | `SIGNOFF_TARGET_MISSING_LEGACY` | A pre-contract signature has no target | Preserve history and bind the next review signature |
-| `SIGNOFF_TARGET_STALE_LEGACY` | A pre-contract signature's target no longer resolves | Preserve history and bind the next review signature |
+| `SIGNOFF_TARGET_STALE_LEGACY` | WARN when a signature dated before `SIGNOFF_TARGET_SINCE` has a target that no longer resolves | Preserve the reviewed inputs and sign again with `--version` |
 | `SIGNOFF_PAIR_MISMATCH` | A rig-review or direction-review sign-off predates its target verdict without a human accepted pair bound by unique immutable act receipts to the same job, publication and version. Ingest always refuses; check refuses from `SIGNOFF_PAIR_SINCE = 2026-11-13T00:00:00Z`, dated by `signoffs[].at` | Accept the intended version and sign it again in Review, then ingest both acts |
 | `SIGNOFF_PAIR_MISMATCH_LEGACY` | WARN: the same inconsistent pair on a sign-off before `SIGNOFF_PAIR_SINCE` | Preserve history; accept and sign the intended version in Review for the next pair |
 
@@ -1656,7 +1692,7 @@ gets its own rig-review verdict.
 | --- | --- |
 | `PARTS_VERDICT_FILE_ROUTE_REMOVED` | `signoff --evidence` and `structure-snapshot --verdict` are removed and exit 2 before writing. Query the draft with `parts-review`, then select its receipt with `--draft`. |
 | `PARTS_VERDICT_RECEIPT_REQUIRED` | `signoffs[].evidence` has no recorded parts-review API receipt for `draft_id`, or an amended parts signoff names an act that was never ingested. Record the response with parts-review before signing. |
-| `PARTS_VERDICT_FILE_LEGACY` | A parts-review signature predates `PARTS_VERDICT_RECEIPT_SINCE = 2026-11-08T00:00:00Z` and binds a review-saved file. Preserve the binding. Check WARNs without opening that file. Query the reviewed draft through parts-review before signing again. |
+| `PARTS_VERDICT_FILE_LEGACY` | A parts-review signature predates `PARTS_VERDICT_RECEIPT_SINCE = 2026-11-08T00:00:00Z` and lacks the required receipt. Check WARNs and preserves any saved-file binding without opening that file. Query the reviewed draft through `parts-review` before signing again. |
 
 ## Fix ledger, ledger reports and restarts (create#285)
 

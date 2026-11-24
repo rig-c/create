@@ -21,7 +21,7 @@ successful HTTP path capture, with producer source hashes unchanged.
 | `bun test tests/record-job-path.test.ts` (canonical external TMPDIR) | 0 | 7 pass, 153 assertions; picks (ordered selections, exact Other text/note, fresh resolution), checkpoint, rigging/post signoffs, replay, refusals, first unanswered questions |
 | `bun run typecheck` | 0 | Current implementation and tests |
 | `bun run lint` | 0 | Current implementation and tests |
-| Nova `generate-example-chain`, `generate-example-remesh`, then both `--check` modes | 0 | Byte-for-byte reproduction; run `20261112T051016Z-82603ccbb8914f7fbfe377f09ed43219`, 20.56 s held |
+| `generate-example-chain`, `generate-example-remesh`, then both `--check` modes on the remote job pool | 0 | Byte-for-byte reproduction; run `20261112T051016Z-82603ccbb8914f7fbfe377f09ed43219`, 20.56 s held |
 | `renderAgentGuide()` UTF-8 length | 0 | 9,976 bytes; generated example guides match |
 | Legacy package-only host -> explicit record selector, then close/reopen | 0 | 1 pass; refused operation preserves record/binding, remedy opens the plan ask |
 | Legacy API@2 finalized fetch on mixed hosts | 0 | Every successful public act ingestion uses the existing API@2 fetch implementation |

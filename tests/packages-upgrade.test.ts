@@ -12,7 +12,7 @@ import { EXAMPLE_ANCHOR, EXAMPLE_NOW } from '../scripts/example-time.ts';
 
 const roots: string[] = [];
 afterEach(() => { for (const dir of roots.splice(0)) rmSync(dir, { recursive: true, force: true }); });
-const pins = { ...PINNED_PACKAGES, '@rig-c/review': '4.18.6' };
+const pins = { ...PINNED_PACKAGES, '@rig-c/review': '4.18.7' };
 function fixture(dependencies: Record<string, string>) {
   const dir = tempDir(); roots.push(dir);
   const project = readTemplate('project.json');

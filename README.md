@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://raw.githubusercontent.com/rig-c/create/main/assets/banner.svg" alt="@rig-c/create — Project direction, an interview and a signed plan before rigging" width="100%" />
+  <img src="assets/banner.svg" alt="@rig-c/create — Project direction, an interview and a signed plan before rigging" width="100%" />
 </p>
 
 <p align="center">
@@ -185,9 +185,9 @@ A scene puts a background, and optionally a foreground, around an accepted rig
   what order and why, read before `seethrough` and `assemble`.
 - [docs/LESSONS.md](docs/LESSONS.md): the self-check every version passes
   before anyone looks, and the review lessons behind it.
-- [docs/INVARIANTS.md](https://github.com/rig-c/create/blob/main/docs/INVARIANTS.md):
+- [docs/INVARIANTS.md](docs/INVARIANTS.md):
   how guide sentences translate into checks the rig must keep.
-- [RELEASING.md](https://github.com/rig-c/create/blob/main/RELEASING.md):
+- [RELEASING.md](RELEASING.md):
   preparing and publishing a release.
 - [templates/](templates/): the empty `project.json` and `collection.json`
   skeletons, and a worked example ([example-interview.md](templates/example-interview.md),

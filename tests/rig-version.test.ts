@@ -15,6 +15,7 @@ import { Refusal } from '../src/refusal.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { arr, fixture, obj, waypoint } from './fixtures.ts';
 import { clockedCli, run } from './helpers.ts';
+import { framedRigPin } from './comment-anchor-shapes.ts';
 import { openCreateJob, reconcileCreateJob } from '../src/job-host.ts';
 import { acquireJobLock, jobHash, jobHostStateRoot, jobPrivateRoot, pendingPublications, readWriterBinding } from '../src/job-outbox.ts';
 import { readRecordPublished } from '../src/job-publication.ts';
@@ -2451,8 +2452,9 @@ describe('frozen rig registration', () => {
   });
 });
 
-describe('#812 page-level rig feedback', () => {
-  test.each(['no route', 'first ingest', 'already ingested', 'closed receipt', 'ambiguous comments', 'approved verdict'] as const)('%s: page-level motion comment and the next rig version', async mode => {
+describe('#812/#929 live rig feedback', () => {
+  test.each(['no route', 'first ingest', 'already ingested', 'closed receipt', 'ambiguous comments',
+    'approved verdict', 'pinned comment', 'mixed comments'] as const)('%s', async mode => {
     const { dir: fixtureDir, args, load } = setup(true);
     const dir = realpathSync(fixtureDir);
     const words = '  Add a keyed wind motion.\r\n';
@@ -2492,6 +2494,12 @@ describe('#812 page-level rig feedback', () => {
       };
       await cli('rig-version', ...args);
       const publication = host.session.status().publication!;
+      const pinnedWords = 'Adjust the wind pose here.';
+      const pin = mode === 'pinned comment' || mode === 'mixed comments'
+        ? framedRigPin(pinnedWords, { sourceHash: publication.source.sourceHash,
+          modelHash: publication.source.model!.sha256, target: publication.source.package!.id })
+        : undefined;
+      const general = mode === 'pinned comment' ? [] : mode === 'ambiguous comments' ? [words, 'Leave the blink unchanged.'] : [words];
       const response = await host.ports.handleJobApi(new Request(`${host.origin}/jobs/${host.session.jobId}/api`, { method: 'POST',
         headers: { authorization: `Bearer ${host.session.hostCredentials().agent}`, 'content-type': 'application/json' },
         body: JSON.stringify({ schema: 'rig-review/job-api@2', verb: 'ask', jobId: host.session.jobId, requestId: crypto.randomUUID(),
@@ -2509,7 +2517,7 @@ describe('#812 page-level rig feedback', () => {
         askId: ask.value.askId, pageId, displayedNonce: displayed.value.displayedNonce, expectedGeneration: host.session.status().generation,
         submissionId: 'synthetic-submission', kind: 'review-verdict', value: { stage: 'rig-review',
           verdict: mode === 'approved verdict' ? 'approved' : 'changes-requested', words: '',
-          general: mode === 'ambiguous comments' ? [words, 'Leave the blink unchanged.'] : [words] },
+          general, ...(pin ? { feedback: [{ ...obj(pin.anchor), summary: pin.text }] } : {}) },
         capture: { png: `data:image/png;base64,${painting.toString('base64')}`, width: 8, height: 16,
           camera: 'fixed', framing: 'default', view: 'whole-rig', frame: 'setup', playing: false,
           binding: { publicationId: publication.publicationId, instanceKey: publication.instanceKey, sourceHash: publication.source.sourceHash,
@@ -2531,9 +2539,40 @@ describe('#812 page-level rig feedback', () => {
         await refusedRoute('REVIEW_FEEDBACK_ROUTE_INVALID', '--item', 'motion:not-asked');
         return;
       }
+      const receipt = () => arr(load().review_acts).map(obj).find(row => row.actId === act.value.actId)!;
+      if (pin) {
+        const exported = host.session.readActExport(act.value.actId, false).toString('utf8');
+        const comments = arr(obj(JSON.parse(exported).value).comments);
+        expect(comments).toHaveLength(mode === 'pinned comment' ? 1 : 2);
+        expect(comments[0]).toMatchObject(pin);
+        if (mode === 'pinned comment') {
+          const before = recordBytes();
+          const routed = await runCli(...reviewArgs, '--item', 'motion:not-asked');
+          expect(routed.exit).toBe(1);
+          expect(routed.stderr).toContain('REVIEW_FEEDBACK_ROUTE_INVALID:');
+          expect(recordBytes()).toEqual(before);
+
+          const plain = ['review', '1', '--from-review', act.value.actId];
+          const recorded = await cli(...plain, '--json');
+          expect(recorded.verdict).toMatchObject({ verdict: 'bounced', on_items: [] });
+          expect(obj(recorded.verdict).verbatim).toContain(pinnedWords);
+          expect(receipt()).not.toHaveProperty('feedback_route');
+          expect(receipt().bytes).toBe(exported);
+          expect(checkProject(dir).refusals).toEqual([]);
+          expect(routed.stderr).toContain(`rig-create ${plain.join(' ')}`);
+          expect(routed.stderr).toContain('preserve pinned comments');
+        } else {
+          expect(comments[1]).toEqual({ text: words });
+          const recorded = await cli(...reviewArgs, '--item', 'motion:not-asked');
+          expect(recorded.feedback_route).toMatchObject({ item: 'motion', comment_index: 1, verbatim: words });
+          expect(receipt().feedback_route).toEqual(recorded.feedback_route!);
+          expect(receipt().bytes).toBe(exported);
+          expect(checkProject(dir).refusals.map(f => f.code)).toEqual(['SIGNOFF_ANSWERS_STALE', 'GUIDE_CHANGED_UNSIGNED']);
+        }
+        return;
+      }
       const preIngest = mode === 'closed receipt' ? recordBytes() : undefined;
       const prior = mode === 'first ingest' ? undefined : await cli(...reviewArgs);
-      const receipt = () => arr(load().review_acts).map(obj).find(row => row.actId === act.value.actId)!;
       if (mode === 'closed receipt') {
         const before = recordBytes();
         const close = await runCli('job', 'close', dir);
@@ -2643,7 +2682,7 @@ describe('#812 page-level rig feedback', () => {
     } finally {
       host.stop();
     }
-  }, 15_000);
+  }, 30_000);
 });
 
 describe('#454 feedback rebuild writer', () => {

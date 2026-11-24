@@ -477,11 +477,11 @@ test('exclusive record selectors and missing pending question refuse before host
 }, 20_000);
 
 test.each([
-  ['rigging-interview', [/rig-create interview-options motion .* --file/, /rig-create job open .* --question motion/]],
-  ['parts', [/rig-create interview --check .* --json/]],
-  ['rig-review', [/owner changes-requested/, /exactly one page-level comment/, /rig-create review 2 --from-review .* --item motion:not-asked/, /re-sign rigging-interview/]],
-  ['post-interview', [/rig-create interview --check .* --json/]],
-] as const)('#969 job open names the remedy at %s', async (stage, remedies) => {
+  ['rigging-interview', 'publish', [/rig-create interview-options motion .* --file/, /rig-create job open .* --question motion/]],
+  ['parts', 'wait', [/rig-create interview --check .* --json/, /complete the current stage/]],
+  ['rig-review', 'chat', [/owner changes-requested/, /exactly one page-level comment/, /rig-create review 2 --from-review .* --item motion:not-asked/, /re-sign rigging-interview/]],
+  ['post-interview', 'chat', [/rig-create interview --check .* --json/]],
+] as const)('#974 job open names the remedy at %s', async (stage, route, remedies) => {
   const root = synthetic(stage === 'rig-review' ? 'post-interview' : stage);
   const project = read(root);
   if (stage === 'rig-review') {
@@ -495,7 +495,15 @@ test.each([
   if (stage === 'post-interview') await registerReask(root, 'motion', 'wrong-stage-motion');
   const args = ['job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner', '--question', 'motion'];
   const path = /project\.json\.interview\.waypoints\[motion\]\.pending_options/;
-  await unchanged(root, args, 'JOB_RECORD_SUBJECT_INVALID', [path, ...remedies], stage === 'rigging-interview' ? [] : ['rig-create interview-options']);
+  const chat = route === 'chat' ? [
+    /Review publication is not available/,
+    /rig-create interview-options motion .* --file/,
+    /rig-create interview-answer motion .* --set .* --sha256 .* --by .* --pick .* --owner-chat .* --said-at .* --relayed-by/,
+    /re-sign .*rig-create next/,
+  ] : [];
+  const excluded = route === 'publish' ? ['--owner-chat'] : ['rig-create job open'];
+  if (route === 'wait') excluded.push('rig-create interview-options', 'rig-create interview-answer');
+  await unchanged(root, args, 'JOB_RECORD_SUBJECT_INVALID', [path, ...remedies, ...chat], excluded);
   expect(readWriterBinding(root)).toBeNull();
 }, 15_000);
 
@@ -512,9 +520,9 @@ test.each([true, false])('#969 post answer remedy with a live direction bounce =
     /rig-create interview-options camera_depth .* --file/,
     /rig-create job open .* --question camera_depth.*rig-create interview-answer camera_depth .* --from-review .*rig-create amend post-interview .* --kind interview-answer --target camera_depth/,
     /replan .* re-sign post-interview/,
-  ] : [/rig-create interview --check .* --json/];
+  ] : [/rig-create interview --check .* --json/, /rig-create interview-answer camera_depth .* --owner-chat/];
   await unchanged(root, ['job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner', '--question', 'camera_depth'],
-    'JOB_RECORD_SUBJECT_INVALID', [path, ...remedies], bounced ? [] : ['rig-create interview-options', 'rig-create amend']);
+    'JOB_RECORD_SUBJECT_INVALID', [path, ...remedies], bounced ? ['--owner-chat'] : ['rig-create job open', 'rig-create amend']);
   expect(readWriterBinding(root)).toBeNull();
 }, 15_000);
 

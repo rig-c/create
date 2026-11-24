@@ -144,7 +144,8 @@ export function optionPublicationRemedy(root: string, project: JsonObject, item:
   const dir = shellWord(root);
   const question = shellWord(item.id);
   const check = `rig-create interview --check ${dir} --json`;
-  if (interview === optionPublicationStage(project, stage, now)) {
+  const publicationStage = optionPublicationStage(project, stage, now);
+  if (interview === publicationStage) {
     if (!registered && !Number.isFinite(choiceAdoption(project, item))) {
       return `run ${check} and confirm the project's interview choice adoption before registering options`;
     }
@@ -156,15 +157,23 @@ export function optionPublicationRemedy(root: string, project: JsonObject, item:
     const amend = `rig-create amend post-interview ${dir} --kind interview-answer --target ${question} --change '<project-relative change>' --by '<owner>' --verbatim-file '<words file>'`;
     return `${ask}. On this direction bounce, record the owner's new pick with ${answer}, then record the owner's amendment with ${amend}, replan the affected steps and re-sign post-interview`;
   }
-  if (rigVerdictIngestible(stage) && item.kind === 'waypoint' && item.state.state === 'user'
-    && isObject(item.raw) && item.raw.basis !== 'inherited') {
-    const n = Math.max(...readVersions(project).rigs.filter(rig => rig.live).map(rig => rig.n));
-    if (Number.isFinite(n) && reviewVerdictSignable(project, n, 'rig-review')) {
-      const approval = approvalStageOfGuide(item.id, false, split);
-      return `get a fresh owner changes-requested verdict on the latest live rig v${n} with exactly one page-level comment, then run rig-create review ${n} --from-review '<act>' ${dir} --item ${question}:not-asked and re-sign ${approval}`;
+  const publicationIndex = publicationStage === null ? -1 : stageIndex(publicationStage);
+  const interviewIndex = stageIndex(interview);
+  if (publicationIndex > interviewIndex) {
+    const register = `rig-create interview-options ${question} ${dir} --file '<option-set.json>'`;
+    const answer = `rig-create interview-answer ${question} ${dir} --set '<path>' --sha256 '<sha>' --by '<owner>' --pick '<ask>=<option>' --owner-chat '<words file>' --said-at '<ISO>' --relayed-by '<operator>'`;
+    const chat = `Review publication is not available at this stage. For an owner-chat correction, register a fresh set with ${register}, show it to the owner in chat, record their pick with ${answer}, then re-sign the approvals named by rig-create next ${dir}`;
+    if (rigVerdictIngestible(stage) && item.kind === 'waypoint' && item.state.state === 'user'
+      && isObject(item.raw) && item.raw.basis !== 'inherited') {
+      const n = Math.max(...readVersions(project).rigs.filter(rig => rig.live).map(rig => rig.n));
+      if (Number.isFinite(n) && reviewVerdictSignable(project, n, 'rig-review')) {
+        const approval = approvalStageOfGuide(item.id, false, split);
+        return `get a fresh owner changes-requested verdict on the latest live rig v${n} with exactly one page-level comment, then run rig-create review ${n} --from-review '<act>' ${dir} --item ${question}:not-asked and re-sign ${approval}. ${chat}`;
+      }
     }
+    return `run ${check} to inspect the current record and its stage requirements. ${chat}`;
   }
-  if (stage !== null && stageIndex(stage) >= 0 && stageIndex(stage) < stageIndex(interview)) {
+  if (publicationIndex >= 0 && publicationIndex < interviewIndex) {
     return `run ${check} and complete the current stage before asking this question at ${interview}`;
   }
   return `run ${check} to inspect the current record and its stage requirements`;

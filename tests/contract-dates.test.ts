@@ -1,5 +1,5 @@
 /**
- * The only test that reads the real clock (README.md "The clock"). Every other
+ * The only test that reads the real clock (docs/CLOCK.md "The clock"). Every other
  * test runs create at an injected instant, so it passes on any date.
  */
 import { expect, test } from 'bun:test';

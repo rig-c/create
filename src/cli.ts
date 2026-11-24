@@ -317,7 +317,7 @@ const COMMANDS: Record<string, Command> = {
 /**
  * Run one command at `now` (ms since the epoch). The process entry below is the
  * only place create reads the wall clock; tests and scripts pass a fixed instant
- * (README.md "The clock").
+ * (docs/CLOCK.md "The clock").
  */
 export function main(argv: string[], now: number): number {
   const [first, ...rest] = argv;

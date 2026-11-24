@@ -1,19 +1,20 @@
-# Worked example: the three user steps
+# Worked example: The user's four steps
 
 A **made-up** painting, for the shape only: a lighthouse keeper standing on a
 cliff path at night — long coat, a scarf, hair tied in a tail, a lantern in her
 right hand, the lighthouse behind her. The project is `lantern-keeper`. It
-follows the user's three steps — base motion, direction, polish feedback — and
-shows a user sentence, a full delegation, a sentence that delegates the rest,
-and feedback read every way it can be read. The complete record this walk-through
+illustrates parts and meshes, the rigging interview, rig and animation, and
+direction in the historical stage order. It shows a user sentence, a full
+delegation, a sentence that delegates the rest, and feedback read every way it
+can be read. The complete record this walk-through
 produces is [example-project.json](example-project.json); the shapes are defined
 in [../docs/INTERVIEW.md](../docs/INTERVIEW.md) and
 [../docs/PROJECT.md](../docs/PROJECT.md).
 
-## Step 1. Base motion (stage `interview`)
+## Base motion (stage `interview`)
 
 Framing first, then a guide at each rig waypoint. Nothing about the camera is
-asked here: that is step 2.
+asked here: that comes during direction.
 
 | Waypoint | State | What the user said (verbatim) | Agent's reading |
 | --- | --- | --- | --- |
@@ -115,7 +116,7 @@ and its `changed` says what moved. The user accepts v2 at `rig-review`:
 *"yes, that's her"*, recorded both as v2's verdict and as the sign-off that
 closes the stage.
 
-## Step 2. Direction (stage `post-interview`)
+## Direction (stage `post-interview`)
 
 Asked only now, about the accepted rig v2:
 

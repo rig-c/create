@@ -1,5 +1,5 @@
 /**
- * The suite's clock (README.md "The clock"). create's commands, writers and
+ * The suite's clock (docs/CLOCK.md "The clock"). create's commands, writers and
  * check take the instant they run at as an explicit `now`; the wrappers below
  * pass them `testClock.now()`, so no test depends on the date it runs on.
  * Nothing replaces Date: `set` only changes the instant the next call is given.

@@ -2,6 +2,7 @@ import { afterEach, expect, test } from 'bun:test';
 import { cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative } from 'node:path';
 import { createHash } from 'node:crypto';
+import { optionContext } from '../src/choices.ts';
 import { FIX_LEDGER_REPORT_SPEC, FIX_LEDGER_SINCE, ledgerCommand } from '../src/fix-ledger.ts';
 import { nextCommand } from '../src/next.ts';
 import { restartCommand } from '../src/restart.ts';
@@ -462,6 +463,33 @@ test('restart leaves out legacy INPUT_WRITER_MISSING entries after re-registrati
   const next = nextCommand([dir], testClock.now());
   expect(next.exit).toBe(0);
   expect(next.stdout).toContain('stage: interview');
+});
+
+test('#949: source options put a painting re-added after restart ahead of retained inputs', () => {
+  const dir = example();
+  const project = load(dir);
+  delete project.painting;
+  for (const input of arr(project.inputs).map(obj)) {
+    if (input.path !== 'evidence/scene-background.png') delete input.at;
+  }
+  save(dir, project);
+  commit(dir);
+  restartCommand(restartArgs(dir), step());
+  const plate = 'evidence/scene-background.png';
+  expect(arr(load(dir).inputs).map(entry => obj(entry).path)).toEqual([plate]);
+
+  const reference = 'inputs/preparation-source.svg';
+  const painting = 'inputs/painting.png';
+  step(); inputCommand(['add', reference, dir, '--origin', 'synthetic reference']);
+  step(); inputCommand(['add', painting, dir, '--origin', 're-added synthetic painting', '--painting']);
+  const restarted = load(dir);
+  const inputs = arr(restarted.inputs).map(obj);
+  expect(inputs.map(input => input.path)).toEqual([plate, reference, painting]);
+  expect(restarted.painting).toBe(painting);
+  expect(optionContext(restarted, 'interview', testClock.now(), dir)).toEqual({ kind: 'inputs',
+    files: [inputs[2]!, inputs[0]!, inputs[1]!].map(({ path, sha256 }) => ({ path, sha256 })),
+  });
+  expect(load(dir).inputs).toEqual(inputs);
 });
 
 test('restart leaves out an untwinned legacy entry, refuses when a left-out legacy entry is the painting without a twin, and keeps the painting when re-registered', () => {

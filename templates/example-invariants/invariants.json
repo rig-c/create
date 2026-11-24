@@ -7,14 +7,14 @@
       "record": {
         "delegated": false,
         "by": "user",
-        "at": "2026-11-22T00:00:04.000Z",
-        "verbatim": "A standing character, idle. She holds a lantern.\nAs answered on 2026-11-22T00:00:02.000Z in interview, chat",
+        "at": "2026-11-24T00:00:04.000Z",
+        "verbatim": "A standing character, idle. She holds a lantern.\nAs answered on 2026-11-24T00:00:02.000Z in interview, chat",
         "source": "review questionnaire",
         "choice": {
           "spec": "rig-create/interview-choice@1",
           "set": {
             "path": "evidence/interview/example-rig-type.json",
-            "sha256": "86d1bade55a4adf7ab35db638fc796fd9b4034cb0677c6f1ee02f385d1eb932d"
+            "sha256": "6b02224dbfd052d6bb623122b0c712bfa9b6abcbd08e60842a5b09cef6b086aa"
           },
           "picks": [
             {
@@ -22,7 +22,7 @@
               "option_id": "keep",
               "shown": {
                 "label": "A standing character, idle. She holds a lantern.",
-                "effect": "As answered on 2026-11-22T00:00:02.000Z in interview, chat"
+                "effect": "As answered on 2026-11-24T00:00:02.000Z in interview, chat"
               }
             }
           ]
@@ -42,14 +42,14 @@
       "record": {
         "delegated": false,
         "by": "user",
-        "at": "2026-11-22T00:00:04.000Z",
-        "verbatim": "None.\nAs answered on 2026-11-22T00:00:03.000Z in interview, chat",
+        "at": "2026-11-24T00:00:04.000Z",
+        "verbatim": "None.\nAs answered on 2026-11-24T00:00:03.000Z in interview, chat",
         "source": "review questionnaire",
         "choice": {
           "spec": "rig-create/interview-choice@1",
           "set": {
             "path": "evidence/interview/example-reference.json",
-            "sha256": "e30b76cd55ef6b2eeb11c2273058da2279149e98662e53185c572eb3e030c145"
+            "sha256": "a32132b3bd2934976e54d433ff225c19445ce978d30766e5874d95b5894fdfd7"
           },
           "picks": [
             {
@@ -57,7 +57,7 @@
               "option_id": "keep",
               "shown": {
                 "label": "None.",
-                "effect": "As answered on 2026-11-22T00:00:03.000Z in interview, chat"
+                "effect": "As answered on 2026-11-24T00:00:03.000Z in interview, chat"
               }
             }
           ]
@@ -77,14 +77,14 @@
       "record": {
         "delegated": false,
         "by": "user",
-        "at": "2026-11-22T00:00:04.000Z",
-        "verbatim": "auto\nAs answered on 2026-11-22T00:00:04.000Z in interview, chat\n\nKeep the proposed resolution\nUse the proposed resolution on the named synthetic parts.\n\nKeep the proposed head_crop\nUse the proposed head_crop on the named synthetic parts.\n\nLet the agent decide\nThe agent must record this decision before approval.",
+        "at": "2026-11-24T00:00:04.000Z",
+        "verbatim": "auto\nAs answered on 2026-11-24T00:00:04.000Z in interview, chat\n\nKeep the proposed resolution\nUse the proposed resolution on the named synthetic parts.\n\nKeep the proposed head_crop\nUse the proposed head_crop on the named synthetic parts.\n\nLet the agent decide\nThe agent must record this decision before approval.",
         "source": "review questionnaire",
         "choice": {
           "spec": "rig-create/interview-choice@1",
           "set": {
             "path": "evidence/interview/example-seethrough.json",
-            "sha256": "e84df2610da9d33c4fcb93b060d5a0ecbae0105de55ca0112fe15801203bd8a8"
+            "sha256": "acb70629f04f7fe2c53b414d78880e11e34b85ee1cbc9c80dd5f52d484c896cb"
           },
           "picks": [
             {
@@ -92,7 +92,7 @@
               "option_id": "keep",
               "shown": {
                 "label": "auto",
-                "effect": "As answered on 2026-11-22T00:00:04.000Z in interview, chat"
+                "effect": "As answered on 2026-11-24T00:00:04.000Z in interview, chat"
               }
             },
             {
@@ -146,7 +146,7 @@
         },
         "agent_decision": {
           "by": "agent",
-          "at": "2026-11-22T00:00:05.000Z",
+          "at": "2026-11-24T00:00:05.000Z",
           "reasoning": "Retain the declared synthetic seed direction.",
           "covers": "seed",
           "fragments": [
@@ -181,14 +181,14 @@
       "record": {
         "delegated": false,
         "by": "user",
-        "at": "2026-11-22T00:00:04.000Z",
-        "verbatim": "Standard cut, at the joints. Keep her face exactly as painted. The lantern is its own part. The rest is up to you. Use core projection.\nAs answered on 2026-11-22T00:00:06.000Z in interview, chat\n\nKeep the proposed ground\nUse the proposed ground on the named synthetic parts.\n\nKeep the proposed cut\nUse the proposed cut on the named synthetic parts.\n\nKeep the proposed emphasis\nUse the proposed emphasis on the named synthetic parts.\n\nKeep the proposed draw_order\nUse the proposed draw_order on the named synthetic parts.\n\nKeep the proposed authored\nUse the proposed authored on the named synthetic parts.\n\nKeep the proposed occluders\nUse the proposed occluders on the named synthetic parts.\n\nKeep the proposed outfits\nUse the proposed outfits on the named synthetic parts.",
+        "at": "2026-11-24T00:00:04.000Z",
+        "verbatim": "Standard cut, at the joints. Keep her face exactly as painted. The lantern is its own part. The rest is up to you. Use core projection.\nAs answered on 2026-11-24T00:00:06.000Z in interview, chat\n\nKeep the proposed ground\nUse the proposed ground on the named synthetic parts.\n\nKeep the proposed cut\nUse the proposed cut on the named synthetic parts.\n\nKeep the proposed emphasis\nUse the proposed emphasis on the named synthetic parts.\n\nKeep the proposed draw_order\nUse the proposed draw_order on the named synthetic parts.\n\nKeep the proposed authored\nUse the proposed authored on the named synthetic parts.\n\nKeep the proposed occluders\nUse the proposed occluders on the named synthetic parts.\n\nKeep the proposed outfits\nUse the proposed outfits on the named synthetic parts.",
         "source": "review questionnaire",
         "choice": {
           "spec": "rig-create/interview-choice@1",
           "set": {
             "path": "evidence/interview/example-assemble.json",
-            "sha256": "1bdf507f23bd34f2b4bb5ba27eb1f09616a0ae074b64e7c0a4173d2c490730f6"
+            "sha256": "b6be80f9467ccfe4f0a39cd23ac4561f42b802c28eee5585f8be49f07bea8ae3"
           },
           "picks": [
             {
@@ -196,7 +196,7 @@
               "option_id": "keep",
               "shown": {
                 "label": "Standard cut, at the joints. Keep her face exactly as painted. The lantern is its own part. The rest is up to you. Use core projection.",
-                "effect": "As answered on 2026-11-22T00:00:06.000Z in interview, chat"
+                "effect": "As answered on 2026-11-24T00:00:06.000Z in interview, chat"
               }
             },
             {
@@ -309,14 +309,14 @@
       "record": {
         "delegated": false,
         "by": "user",
-        "at": "2026-11-22T00:00:41.000Z",
-        "verbatim": "Synthetic bones answer after viewing the approved parts and structure.\nAs answered on 2026-11-22T00:00:38.000Z in interview, chat\n\nKeep the proposed placement\nUse the proposed placement on the named synthetic parts.\n\nKeep the proposed length\nUse the proposed length on the named synthetic parts.",
+        "at": "2026-11-24T00:00:41.000Z",
+        "verbatim": "Synthetic bones answer after viewing the approved parts and structure.\nAs answered on 2026-11-24T00:00:38.000Z in interview, chat\n\nKeep the proposed placement\nUse the proposed placement on the named synthetic parts.\n\nKeep the proposed length\nUse the proposed length on the named synthetic parts.",
         "source": "review questionnaire",
         "choice": {
           "spec": "rig-create/interview-choice@1",
           "set": {
             "path": "evidence/interview/example-bones.json",
-            "sha256": "639410b123365fab2ef14709e915192e85b65ae9627b755bd33c6a1757d529e5"
+            "sha256": "ac5a2c95343647a143881117d5596fbea12c8061759d9e660579166a7b6ed4f2"
           },
           "picks": [
             {
@@ -324,7 +324,7 @@
               "option_id": "keep",
               "shown": {
                 "label": "Synthetic bones answer after viewing the approved parts and structure.",
-                "effect": "As answered on 2026-11-22T00:00:38.000Z in interview, chat"
+                "effect": "As answered on 2026-11-24T00:00:38.000Z in interview, chat"
               }
             },
             {
@@ -372,14 +372,14 @@
       "record": {
         "delegated": false,
         "by": "user",
-        "at": "2026-11-22T00:00:41.000Z",
-        "verbatim": "Synthetic meshes answer after viewing the approved parts and structure.\nAs answered on 2026-11-22T00:00:38.000Z in interview, chat\n\nKeep the proposed rigid\nUse the proposed rigid on the named synthetic parts.\n\nKeep the proposed density\nUse the proposed density on the named synthetic parts.",
+        "at": "2026-11-24T00:00:41.000Z",
+        "verbatim": "Synthetic meshes answer after viewing the approved parts and structure.\nAs answered on 2026-11-24T00:00:38.000Z in interview, chat\n\nKeep the proposed rigid\nUse the proposed rigid on the named synthetic parts.\n\nKeep the proposed density\nUse the proposed density on the named synthetic parts.",
         "source": "review questionnaire",
         "choice": {
           "spec": "rig-create/interview-choice@1",
           "set": {
             "path": "evidence/interview/example-meshes.json",
-            "sha256": "d9453a6a0b6922185e3d84af12ac9311cf8f6cce855b664ba35083f159240b29"
+            "sha256": "9a56e89dba7e15709a320e7a4549a79015dfd313492953439414681d8f04ba85"
           },
           "picks": [
             {
@@ -387,7 +387,7 @@
               "option_id": "keep",
               "shown": {
                 "label": "Synthetic meshes answer after viewing the approved parts and structure.",
-                "effect": "As answered on 2026-11-22T00:00:38.000Z in interview, chat"
+                "effect": "As answered on 2026-11-24T00:00:38.000Z in interview, chat"
               }
             },
             {
@@ -435,14 +435,14 @@
       "record": {
         "delegated": false,
         "by": "user",
-        "at": "2026-11-22T00:00:41.000Z",
-        "verbatim": "Synthetic constraints answer after viewing the approved parts and structure.\nAs answered on 2026-11-22T00:00:38.000Z in interview, chat\n\nKeep the proposed strength\nUse the proposed strength on the named synthetic parts.\n\nKeep the proposed extent\nUse the proposed extent on the named synthetic parts.\n\nKeep the proposed gravity\nUse the proposed gravity on the named synthetic parts.\n\nKeep the proposed stops\nUse the proposed stops on the named synthetic parts.",
+        "at": "2026-11-24T00:00:41.000Z",
+        "verbatim": "Synthetic constraints answer after viewing the approved parts and structure.\nAs answered on 2026-11-24T00:00:38.000Z in interview, chat\n\nKeep the proposed strength\nUse the proposed strength on the named synthetic parts.\n\nKeep the proposed extent\nUse the proposed extent on the named synthetic parts.\n\nKeep the proposed gravity\nUse the proposed gravity on the named synthetic parts.\n\nKeep the proposed stops\nUse the proposed stops on the named synthetic parts.",
         "source": "review questionnaire",
         "choice": {
           "spec": "rig-create/interview-choice@1",
           "set": {
             "path": "evidence/interview/example-constraints.json",
-            "sha256": "4f010494d132d17b121f78cd965df0c9b591c358531f9ab58fbe8ad945c8a8b4"
+            "sha256": "c3759deaea7cb3d74188eb6d1b3402131d0efe1758bd7573a95e1226eb200665"
           },
           "picks": [
             {
@@ -450,7 +450,7 @@
               "option_id": "keep",
               "shown": {
                 "label": "Synthetic constraints answer after viewing the approved parts and structure.",
-                "effect": "As answered on 2026-11-22T00:00:38.000Z in interview, chat"
+                "effect": "As answered on 2026-11-24T00:00:38.000Z in interview, chat"
               }
             },
             {
@@ -524,14 +524,14 @@
       "record": {
         "delegated": false,
         "by": "user",
-        "at": "2026-11-22T00:00:41.000Z",
+        "at": "2026-11-24T00:00:41.000Z",
         "verbatim": "Fixed view\nKeep the painted view.",
         "source": "review questionnaire",
         "choice": {
           "spec": "rig-create/interview-choice@1",
           "set": {
             "path": "evidence/interview/example-turn.json",
-            "sha256": "67ff68ffc98ddec0d1f37e24746e481afeeb9c7552c9f2d8cfcced24556c93d6"
+            "sha256": "8bf6b93a0c5b2ca7a089777d80ae67907a9123ef097b9bd9301d3f00c1a6d555"
           },
           "picks": [
             {
@@ -561,14 +561,14 @@
       "record": {
         "delegated": false,
         "by": "user",
-        "at": "2026-11-22T00:00:41.000Z",
-        "verbatim": "Synthetic motion answer after viewing the approved parts and structure.\nAs answered on 2026-11-22T00:00:38.000Z in interview, chat\n\nKeep the proposed extent\nUse the proposed extent on the named synthetic parts.\n\nKeep the proposed speed\nUse the proposed speed on the named synthetic parts.\n\nKeep the proposed loop\nUse the proposed loop on the named synthetic parts.\n\nKeep the proposed blink\nUse the proposed blink on the named synthetic parts.",
+        "at": "2026-11-24T00:00:41.000Z",
+        "verbatim": "Synthetic motion answer after viewing the approved parts and structure.\nAs answered on 2026-11-24T00:00:38.000Z in interview, chat\n\nKeep the proposed extent\nUse the proposed extent on the named synthetic parts.\n\nKeep the proposed speed\nUse the proposed speed on the named synthetic parts.\n\nKeep the proposed loop\nUse the proposed loop on the named synthetic parts.\n\nKeep the proposed blink\nUse the proposed blink on the named synthetic parts.",
         "source": "review questionnaire",
         "choice": {
           "spec": "rig-create/interview-choice@1",
           "set": {
             "path": "evidence/interview/example-motion.json",
-            "sha256": "2c6d3d0c93d00ce9458be313d860b8bf57116dfc51da9cf459c367e6d000d4a9"
+            "sha256": "bdc6a8c89dd7630e2f6162695067b4138cbc44134a8d62284af1c3389082c5e4"
           },
           "picks": [
             {
@@ -576,7 +576,7 @@
               "option_id": "keep",
               "shown": {
                 "label": "Synthetic motion answer after viewing the approved parts and structure.",
-                "effect": "As answered on 2026-11-22T00:00:38.000Z in interview, chat"
+                "effect": "As answered on 2026-11-24T00:00:38.000Z in interview, chat"
               }
             },
             {
@@ -650,14 +650,14 @@
       "record": {
         "delegated": false,
         "by": "user",
-        "at": "2026-11-22T00:00:54.000Z",
-        "verbatim": "A slow push-in, no parallax.\nAs answered on 2026-11-22T00:00:53.000Z in post-interview, chat",
+        "at": "2026-11-24T00:00:54.000Z",
+        "verbatim": "A slow push-in, no parallax.\nAs answered on 2026-11-24T00:00:53.000Z in post-interview, chat",
         "source": "review questionnaire",
         "choice": {
           "spec": "rig-create/interview-choice@1",
           "set": {
             "path": "evidence/interview/example-camera-depth.json",
-            "sha256": "40c05e92fca282301b879c6cfe14163ca1a4866c6bebe2b28af8c5a6a94d0795"
+            "sha256": "c11f1052b73cb3b634ba901d1afc4af2c09034b45c97b4a49f0290b50803adcd"
           },
           "picks": [
             {
@@ -665,7 +665,7 @@
               "option_id": "keep",
               "shown": {
                 "label": "A slow push-in, no parallax.",
-                "effect": "As answered on 2026-11-22T00:00:53.000Z in post-interview, chat"
+                "effect": "As answered on 2026-11-24T00:00:53.000Z in post-interview, chat"
               }
             }
           ]
@@ -688,14 +688,14 @@
       "record": {
         "delegated": false,
         "by": "user",
-        "at": "2026-11-22T00:00:54.000Z",
-        "verbatim": "Eight seconds, looping. The beam sweeps past once, near the end.\nAs answered on 2026-11-22T00:00:55.000Z in post-interview, chat",
+        "at": "2026-11-24T00:00:54.000Z",
+        "verbatim": "Eight seconds, looping. The beam sweeps past once, near the end.\nAs answered on 2026-11-24T00:00:55.000Z in post-interview, chat",
         "source": "review questionnaire",
         "choice": {
           "spec": "rig-create/interview-choice@1",
           "set": {
             "path": "evidence/interview/example-post-timing.json",
-            "sha256": "2b303387f54e75dc4eb14b733ea8bfcf56262bb662f137b6fed2f59b549aaf64"
+            "sha256": "a413dc54829b29bad8079e71fe920a0aa48be9ad5a22303c6300e7c753fbf5a6"
           },
           "picks": [
             {
@@ -703,7 +703,7 @@
               "option_id": "keep",
               "shown": {
                 "label": "Eight seconds, looping. The beam sweeps past once, near the end.",
-                "effect": "As answered on 2026-11-22T00:00:55.000Z in post-interview, chat"
+                "effect": "As answered on 2026-11-24T00:00:55.000Z in post-interview, chat"
               }
             }
           ]
@@ -732,14 +732,14 @@
       "record": {
         "delegated": false,
         "by": "user",
-        "at": "2026-11-22T00:00:54.000Z",
-        "verbatim": "Keep the whole lighthouse in frame. It's night; don't brighten it.\nAs answered on 2026-11-22T00:00:56.000Z in post-interview, chat",
+        "at": "2026-11-24T00:00:54.000Z",
+        "verbatim": "Keep the whole lighthouse in frame. It's night; don't brighten it.\nAs answered on 2026-11-24T00:00:56.000Z in post-interview, chat",
         "source": "review questionnaire",
         "choice": {
           "spec": "rig-create/interview-choice@1",
           "set": {
             "path": "evidence/interview/example-post-composition.json",
-            "sha256": "5fef9a256d77123370a67d5cc300ee1fc9b58adc9a89957d0e4fdcb2a85ce70e"
+            "sha256": "a06b690b8ee1557923f9b618fd5187fed9f8a50db9830d2d8ba30b17eb04c55a"
           },
           "picks": [
             {
@@ -747,7 +747,7 @@
               "option_id": "keep",
               "shown": {
                 "label": "Keep the whole lighthouse in frame. It's night; don't brighten it.",
-                "effect": "As answered on 2026-11-22T00:00:56.000Z in post-interview, chat"
+                "effect": "As answered on 2026-11-24T00:00:56.000Z in post-interview, chat"
               }
             }
           ]
@@ -782,352 +782,352 @@
       "gap": "sentence_semantics",
       "from": {
         "question": "rig_type",
-        "verbatim_sha256": "63451e99e2a874dbf1fc4c7f194e9402b3dcc0f0adc8d677465ba4ba6ed93a32"
+        "verbatim_sha256": "ed01598fb5702e387e004c124a234baacdab9e11b8e4bc24715e9d73e43f848a"
       },
       "source_path": "interview.framing[rig_type].answer",
       "value_path": "interview.framing[rig_type].answer.verbatim",
-      "sentence": "A standing character, idle. She holds a lantern.\nAs answered on 2026-11-22T00:00:02.000Z in interview, chat",
-      "value": "A standing character, idle. She holds a lantern.\nAs answered on 2026-11-22T00:00:02.000Z in interview, chat"
+      "sentence": "A standing character, idle. She holds a lantern.\nAs answered on 2026-11-24T00:00:02.000Z in interview, chat",
+      "value": "A standing character, idle. She holds a lantern.\nAs answered on 2026-11-24T00:00:02.000Z in interview, chat"
     },
     {
       "gap": "vocabulary",
       "from": {
         "question": "rig_type",
-        "verbatim_sha256": "63451e99e2a874dbf1fc4c7f194e9402b3dcc0f0adc8d677465ba4ba6ed93a32"
+        "verbatim_sha256": "ed01598fb5702e387e004c124a234baacdab9e11b8e4bc24715e9d73e43f848a"
       },
       "source_path": "interview.framing[rig_type].answer",
       "value_path": "interview.framing[rig_type].answer.value",
-      "sentence": "A standing character, idle. She holds a lantern.\nAs answered on 2026-11-22T00:00:02.000Z in interview, chat",
+      "sentence": "A standing character, idle. She holds a lantern.\nAs answered on 2026-11-24T00:00:02.000Z in interview, chat",
       "value": "character.idle"
     },
     {
       "gap": "sentence_semantics",
       "from": {
         "question": "reference",
-        "verbatim_sha256": "d08bdb62af9e946dac26e52813e9c4cae031027e98694471beeda10628e9d9a5"
+        "verbatim_sha256": "644526a7551cc900223a8efc3eb1738494b10fc3d1a81485cf7ab3564864bde2"
       },
       "source_path": "interview.framing[reference].answer",
       "value_path": "interview.framing[reference].answer.verbatim",
-      "sentence": "None.\nAs answered on 2026-11-22T00:00:03.000Z in interview, chat",
-      "value": "None.\nAs answered on 2026-11-22T00:00:03.000Z in interview, chat"
+      "sentence": "None.\nAs answered on 2026-11-24T00:00:03.000Z in interview, chat",
+      "value": "None.\nAs answered on 2026-11-24T00:00:03.000Z in interview, chat"
     },
     {
       "gap": "vocabulary",
       "from": {
         "question": "reference",
-        "verbatim_sha256": "d08bdb62af9e946dac26e52813e9c4cae031027e98694471beeda10628e9d9a5"
+        "verbatim_sha256": "644526a7551cc900223a8efc3eb1738494b10fc3d1a81485cf7ab3564864bde2"
       },
       "source_path": "interview.framing[reference].answer",
       "value_path": "interview.framing[reference].answer.value",
-      "sentence": "None.\nAs answered on 2026-11-22T00:00:03.000Z in interview, chat",
+      "sentence": "None.\nAs answered on 2026-11-24T00:00:03.000Z in interview, chat",
       "value": "none"
     },
     {
       "gap": "sentence_semantics",
       "from": {
         "question": "seethrough",
-        "verbatim_sha256": "85d0add73d139ae56af32d342a03de0ea0930d32c46900c35485113334e58bce"
+        "verbatim_sha256": "c4135c9cb885e07f1a80b1779380dc79495aff3c0b9b1b0383295ec752d2f340"
       },
       "source_path": "interview.waypoints[seethrough].guide",
       "value_path": "interview.waypoints[seethrough].guide.verbatim",
-      "sentence": "auto\nAs answered on 2026-11-22T00:00:04.000Z in interview, chat\n\nKeep the proposed resolution\nUse the proposed resolution on the named synthetic parts.\n\nKeep the proposed head_crop\nUse the proposed head_crop on the named synthetic parts.\n\nLet the agent decide\nThe agent must record this decision before approval.",
-      "value": "auto\nAs answered on 2026-11-22T00:00:04.000Z in interview, chat\n\nKeep the proposed resolution\nUse the proposed resolution on the named synthetic parts.\n\nKeep the proposed head_crop\nUse the proposed head_crop on the named synthetic parts.\n\nLet the agent decide\nThe agent must record this decision before approval."
+      "sentence": "auto\nAs answered on 2026-11-24T00:00:04.000Z in interview, chat\n\nKeep the proposed resolution\nUse the proposed resolution on the named synthetic parts.\n\nKeep the proposed head_crop\nUse the proposed head_crop on the named synthetic parts.\n\nLet the agent decide\nThe agent must record this decision before approval.",
+      "value": "auto\nAs answered on 2026-11-24T00:00:04.000Z in interview, chat\n\nKeep the proposed resolution\nUse the proposed resolution on the named synthetic parts.\n\nKeep the proposed head_crop\nUse the proposed head_crop on the named synthetic parts.\n\nLet the agent decide\nThe agent must record this decision before approval."
     },
     {
       "gap": "vocabulary",
       "from": {
         "question": "seethrough",
-        "verbatim_sha256": "85d0add73d139ae56af32d342a03de0ea0930d32c46900c35485113334e58bce"
+        "verbatim_sha256": "c4135c9cb885e07f1a80b1779380dc79495aff3c0b9b1b0383295ec752d2f340"
       },
       "source_path": "interview.waypoints[seethrough].guide",
       "value_path": "interview.waypoints[seethrough].guide.value[\"layers\"]",
-      "sentence": "auto\nAs answered on 2026-11-22T00:00:04.000Z in interview, chat\n\nKeep the proposed resolution\nUse the proposed resolution on the named synthetic parts.\n\nKeep the proposed head_crop\nUse the proposed head_crop on the named synthetic parts.\n\nLet the agent decide\nThe agent must record this decision before approval.",
+      "sentence": "auto\nAs answered on 2026-11-24T00:00:04.000Z in interview, chat\n\nKeep the proposed resolution\nUse the proposed resolution on the named synthetic parts.\n\nKeep the proposed head_crop\nUse the proposed head_crop on the named synthetic parts.\n\nLet the agent decide\nThe agent must record this decision before approval.",
       "value": "synthetic layers on the approved parts"
     },
     {
       "gap": "vocabulary",
       "from": {
         "question": "seethrough",
-        "verbatim_sha256": "85d0add73d139ae56af32d342a03de0ea0930d32c46900c35485113334e58bce"
+        "verbatim_sha256": "c4135c9cb885e07f1a80b1779380dc79495aff3c0b9b1b0383295ec752d2f340"
       },
       "source_path": "interview.waypoints[seethrough].guide",
       "value_path": "interview.waypoints[seethrough].guide.value[\"resolution\"]",
-      "sentence": "auto\nAs answered on 2026-11-22T00:00:04.000Z in interview, chat\n\nKeep the proposed resolution\nUse the proposed resolution on the named synthetic parts.\n\nKeep the proposed head_crop\nUse the proposed head_crop on the named synthetic parts.\n\nLet the agent decide\nThe agent must record this decision before approval.",
+      "sentence": "auto\nAs answered on 2026-11-24T00:00:04.000Z in interview, chat\n\nKeep the proposed resolution\nUse the proposed resolution on the named synthetic parts.\n\nKeep the proposed head_crop\nUse the proposed head_crop on the named synthetic parts.\n\nLet the agent decide\nThe agent must record this decision before approval.",
       "value": "synthetic resolution on the approved parts"
     },
     {
       "gap": "vocabulary",
       "from": {
         "question": "seethrough",
-        "verbatim_sha256": "85d0add73d139ae56af32d342a03de0ea0930d32c46900c35485113334e58bce"
+        "verbatim_sha256": "c4135c9cb885e07f1a80b1779380dc79495aff3c0b9b1b0383295ec752d2f340"
       },
       "source_path": "interview.waypoints[seethrough].guide",
       "value_path": "interview.waypoints[seethrough].guide.value[\"head_crop\"]",
-      "sentence": "auto\nAs answered on 2026-11-22T00:00:04.000Z in interview, chat\n\nKeep the proposed resolution\nUse the proposed resolution on the named synthetic parts.\n\nKeep the proposed head_crop\nUse the proposed head_crop on the named synthetic parts.\n\nLet the agent decide\nThe agent must record this decision before approval.",
+      "sentence": "auto\nAs answered on 2026-11-24T00:00:04.000Z in interview, chat\n\nKeep the proposed resolution\nUse the proposed resolution on the named synthetic parts.\n\nKeep the proposed head_crop\nUse the proposed head_crop on the named synthetic parts.\n\nLet the agent decide\nThe agent must record this decision before approval.",
       "value": "synthetic head_crop on the approved parts"
     },
     {
       "gap": "vocabulary",
       "from": {
         "question": "seethrough",
-        "verbatim_sha256": "85d0add73d139ae56af32d342a03de0ea0930d32c46900c35485113334e58bce"
+        "verbatim_sha256": "c4135c9cb885e07f1a80b1779380dc79495aff3c0b9b1b0383295ec752d2f340"
       },
       "source_path": "interview.waypoints[seethrough].guide",
       "value_path": "interview.waypoints[seethrough].guide.agent_decision.value[\"seed\"]",
-      "sentence": "auto\nAs answered on 2026-11-22T00:00:04.000Z in interview, chat\n\nKeep the proposed resolution\nUse the proposed resolution on the named synthetic parts.\n\nKeep the proposed head_crop\nUse the proposed head_crop on the named synthetic parts.\n\nLet the agent decide\nThe agent must record this decision before approval.",
+      "sentence": "auto\nAs answered on 2026-11-24T00:00:04.000Z in interview, chat\n\nKeep the proposed resolution\nUse the proposed resolution on the named synthetic parts.\n\nKeep the proposed head_crop\nUse the proposed head_crop on the named synthetic parts.\n\nLet the agent decide\nThe agent must record this decision before approval.",
       "value": "synthetic seed on the approved parts"
     },
     {
       "gap": "sentence_semantics",
       "from": {
         "question": "assemble",
-        "verbatim_sha256": "72639efea9996326a604f7652a2af31474669a8d0df28a3ce589711d60c34e83"
+        "verbatim_sha256": "37d54664242426f4c52a45557cb2e24d4a705205bdf241d0938035bd63c99952"
       },
       "source_path": "interview.waypoints[assemble].guide",
       "value_path": "interview.waypoints[assemble].guide.verbatim",
-      "sentence": "Standard cut, at the joints. Keep her face exactly as painted. The lantern is its own part. The rest is up to you. Use core projection.\nAs answered on 2026-11-22T00:00:06.000Z in interview, chat\n\nKeep the proposed ground\nUse the proposed ground on the named synthetic parts.\n\nKeep the proposed cut\nUse the proposed cut on the named synthetic parts.\n\nKeep the proposed emphasis\nUse the proposed emphasis on the named synthetic parts.\n\nKeep the proposed draw_order\nUse the proposed draw_order on the named synthetic parts.\n\nKeep the proposed authored\nUse the proposed authored on the named synthetic parts.\n\nKeep the proposed occluders\nUse the proposed occluders on the named synthetic parts.\n\nKeep the proposed outfits\nUse the proposed outfits on the named synthetic parts.",
-      "value": "Standard cut, at the joints. Keep her face exactly as painted. The lantern is its own part. The rest is up to you. Use core projection.\nAs answered on 2026-11-22T00:00:06.000Z in interview, chat\n\nKeep the proposed ground\nUse the proposed ground on the named synthetic parts.\n\nKeep the proposed cut\nUse the proposed cut on the named synthetic parts.\n\nKeep the proposed emphasis\nUse the proposed emphasis on the named synthetic parts.\n\nKeep the proposed draw_order\nUse the proposed draw_order on the named synthetic parts.\n\nKeep the proposed authored\nUse the proposed authored on the named synthetic parts.\n\nKeep the proposed occluders\nUse the proposed occluders on the named synthetic parts.\n\nKeep the proposed outfits\nUse the proposed outfits on the named synthetic parts."
+      "sentence": "Standard cut, at the joints. Keep her face exactly as painted. The lantern is its own part. The rest is up to you. Use core projection.\nAs answered on 2026-11-24T00:00:06.000Z in interview, chat\n\nKeep the proposed ground\nUse the proposed ground on the named synthetic parts.\n\nKeep the proposed cut\nUse the proposed cut on the named synthetic parts.\n\nKeep the proposed emphasis\nUse the proposed emphasis on the named synthetic parts.\n\nKeep the proposed draw_order\nUse the proposed draw_order on the named synthetic parts.\n\nKeep the proposed authored\nUse the proposed authored on the named synthetic parts.\n\nKeep the proposed occluders\nUse the proposed occluders on the named synthetic parts.\n\nKeep the proposed outfits\nUse the proposed outfits on the named synthetic parts.",
+      "value": "Standard cut, at the joints. Keep her face exactly as painted. The lantern is its own part. The rest is up to you. Use core projection.\nAs answered on 2026-11-24T00:00:06.000Z in interview, chat\n\nKeep the proposed ground\nUse the proposed ground on the named synthetic parts.\n\nKeep the proposed cut\nUse the proposed cut on the named synthetic parts.\n\nKeep the proposed emphasis\nUse the proposed emphasis on the named synthetic parts.\n\nKeep the proposed draw_order\nUse the proposed draw_order on the named synthetic parts.\n\nKeep the proposed authored\nUse the proposed authored on the named synthetic parts.\n\nKeep the proposed occluders\nUse the proposed occluders on the named synthetic parts.\n\nKeep the proposed outfits\nUse the proposed outfits on the named synthetic parts."
     },
     {
       "gap": "vocabulary",
       "from": {
         "question": "assemble",
-        "verbatim_sha256": "72639efea9996326a604f7652a2af31474669a8d0df28a3ce589711d60c34e83"
+        "verbatim_sha256": "37d54664242426f4c52a45557cb2e24d4a705205bdf241d0938035bd63c99952"
       },
       "source_path": "interview.waypoints[assemble].guide",
       "value_path": "interview.waypoints[assemble].guide.value[\"project\"]",
-      "sentence": "Standard cut, at the joints. Keep her face exactly as painted. The lantern is its own part. The rest is up to you. Use core projection.\nAs answered on 2026-11-22T00:00:06.000Z in interview, chat\n\nKeep the proposed ground\nUse the proposed ground on the named synthetic parts.\n\nKeep the proposed cut\nUse the proposed cut on the named synthetic parts.\n\nKeep the proposed emphasis\nUse the proposed emphasis on the named synthetic parts.\n\nKeep the proposed draw_order\nUse the proposed draw_order on the named synthetic parts.\n\nKeep the proposed authored\nUse the proposed authored on the named synthetic parts.\n\nKeep the proposed occluders\nUse the proposed occluders on the named synthetic parts.\n\nKeep the proposed outfits\nUse the proposed outfits on the named synthetic parts.",
+      "sentence": "Standard cut, at the joints. Keep her face exactly as painted. The lantern is its own part. The rest is up to you. Use core projection.\nAs answered on 2026-11-24T00:00:06.000Z in interview, chat\n\nKeep the proposed ground\nUse the proposed ground on the named synthetic parts.\n\nKeep the proposed cut\nUse the proposed cut on the named synthetic parts.\n\nKeep the proposed emphasis\nUse the proposed emphasis on the named synthetic parts.\n\nKeep the proposed draw_order\nUse the proposed draw_order on the named synthetic parts.\n\nKeep the proposed authored\nUse the proposed authored on the named synthetic parts.\n\nKeep the proposed occluders\nUse the proposed occluders on the named synthetic parts.\n\nKeep the proposed outfits\nUse the proposed outfits on the named synthetic parts.",
       "value": "core"
     },
     {
       "gap": "vocabulary",
       "from": {
         "question": "assemble",
-        "verbatim_sha256": "72639efea9996326a604f7652a2af31474669a8d0df28a3ce589711d60c34e83"
+        "verbatim_sha256": "37d54664242426f4c52a45557cb2e24d4a705205bdf241d0938035bd63c99952"
       },
       "source_path": "interview.waypoints[assemble].guide",
       "value_path": "interview.waypoints[assemble].guide.value[\"ground\"]",
-      "sentence": "Standard cut, at the joints. Keep her face exactly as painted. The lantern is its own part. The rest is up to you. Use core projection.\nAs answered on 2026-11-22T00:00:06.000Z in interview, chat\n\nKeep the proposed ground\nUse the proposed ground on the named synthetic parts.\n\nKeep the proposed cut\nUse the proposed cut on the named synthetic parts.\n\nKeep the proposed emphasis\nUse the proposed emphasis on the named synthetic parts.\n\nKeep the proposed draw_order\nUse the proposed draw_order on the named synthetic parts.\n\nKeep the proposed authored\nUse the proposed authored on the named synthetic parts.\n\nKeep the proposed occluders\nUse the proposed occluders on the named synthetic parts.\n\nKeep the proposed outfits\nUse the proposed outfits on the named synthetic parts.",
+      "sentence": "Standard cut, at the joints. Keep her face exactly as painted. The lantern is its own part. The rest is up to you. Use core projection.\nAs answered on 2026-11-24T00:00:06.000Z in interview, chat\n\nKeep the proposed ground\nUse the proposed ground on the named synthetic parts.\n\nKeep the proposed cut\nUse the proposed cut on the named synthetic parts.\n\nKeep the proposed emphasis\nUse the proposed emphasis on the named synthetic parts.\n\nKeep the proposed draw_order\nUse the proposed draw_order on the named synthetic parts.\n\nKeep the proposed authored\nUse the proposed authored on the named synthetic parts.\n\nKeep the proposed occluders\nUse the proposed occluders on the named synthetic parts.\n\nKeep the proposed outfits\nUse the proposed outfits on the named synthetic parts.",
       "value": "plain"
     },
     {
       "gap": "vocabulary",
       "from": {
         "question": "assemble",
-        "verbatim_sha256": "72639efea9996326a604f7652a2af31474669a8d0df28a3ce589711d60c34e83"
+        "verbatim_sha256": "37d54664242426f4c52a45557cb2e24d4a705205bdf241d0938035bd63c99952"
       },
       "source_path": "interview.waypoints[assemble].guide",
       "value_path": "interview.waypoints[assemble].guide.value[\"cut\"]",
-      "sentence": "Standard cut, at the joints. Keep her face exactly as painted. The lantern is its own part. The rest is up to you. Use core projection.\nAs answered on 2026-11-22T00:00:06.000Z in interview, chat\n\nKeep the proposed ground\nUse the proposed ground on the named synthetic parts.\n\nKeep the proposed cut\nUse the proposed cut on the named synthetic parts.\n\nKeep the proposed emphasis\nUse the proposed emphasis on the named synthetic parts.\n\nKeep the proposed draw_order\nUse the proposed draw_order on the named synthetic parts.\n\nKeep the proposed authored\nUse the proposed authored on the named synthetic parts.\n\nKeep the proposed occluders\nUse the proposed occluders on the named synthetic parts.\n\nKeep the proposed outfits\nUse the proposed outfits on the named synthetic parts.",
+      "sentence": "Standard cut, at the joints. Keep her face exactly as painted. The lantern is its own part. The rest is up to you. Use core projection.\nAs answered on 2026-11-24T00:00:06.000Z in interview, chat\n\nKeep the proposed ground\nUse the proposed ground on the named synthetic parts.\n\nKeep the proposed cut\nUse the proposed cut on the named synthetic parts.\n\nKeep the proposed emphasis\nUse the proposed emphasis on the named synthetic parts.\n\nKeep the proposed draw_order\nUse the proposed draw_order on the named synthetic parts.\n\nKeep the proposed authored\nUse the proposed authored on the named synthetic parts.\n\nKeep the proposed occluders\nUse the proposed occluders on the named synthetic parts.\n\nKeep the proposed outfits\nUse the proposed outfits on the named synthetic parts.",
       "value": "synthetic cut on the approved parts"
     },
     {
       "gap": "vocabulary",
       "from": {
         "question": "assemble",
-        "verbatim_sha256": "72639efea9996326a604f7652a2af31474669a8d0df28a3ce589711d60c34e83"
+        "verbatim_sha256": "37d54664242426f4c52a45557cb2e24d4a705205bdf241d0938035bd63c99952"
       },
       "source_path": "interview.waypoints[assemble].guide",
       "value_path": "interview.waypoints[assemble].guide.value[\"emphasis\"]",
-      "sentence": "Standard cut, at the joints. Keep her face exactly as painted. The lantern is its own part. The rest is up to you. Use core projection.\nAs answered on 2026-11-22T00:00:06.000Z in interview, chat\n\nKeep the proposed ground\nUse the proposed ground on the named synthetic parts.\n\nKeep the proposed cut\nUse the proposed cut on the named synthetic parts.\n\nKeep the proposed emphasis\nUse the proposed emphasis on the named synthetic parts.\n\nKeep the proposed draw_order\nUse the proposed draw_order on the named synthetic parts.\n\nKeep the proposed authored\nUse the proposed authored on the named synthetic parts.\n\nKeep the proposed occluders\nUse the proposed occluders on the named synthetic parts.\n\nKeep the proposed outfits\nUse the proposed outfits on the named synthetic parts.",
+      "sentence": "Standard cut, at the joints. Keep her face exactly as painted. The lantern is its own part. The rest is up to you. Use core projection.\nAs answered on 2026-11-24T00:00:06.000Z in interview, chat\n\nKeep the proposed ground\nUse the proposed ground on the named synthetic parts.\n\nKeep the proposed cut\nUse the proposed cut on the named synthetic parts.\n\nKeep the proposed emphasis\nUse the proposed emphasis on the named synthetic parts.\n\nKeep the proposed draw_order\nUse the proposed draw_order on the named synthetic parts.\n\nKeep the proposed authored\nUse the proposed authored on the named synthetic parts.\n\nKeep the proposed occluders\nUse the proposed occluders on the named synthetic parts.\n\nKeep the proposed outfits\nUse the proposed outfits on the named synthetic parts.",
       "value": "synthetic emphasis on the approved parts"
     },
     {
       "gap": "vocabulary",
       "from": {
         "question": "assemble",
-        "verbatim_sha256": "72639efea9996326a604f7652a2af31474669a8d0df28a3ce589711d60c34e83"
+        "verbatim_sha256": "37d54664242426f4c52a45557cb2e24d4a705205bdf241d0938035bd63c99952"
       },
       "source_path": "interview.waypoints[assemble].guide",
       "value_path": "interview.waypoints[assemble].guide.value[\"draw_order\"]",
-      "sentence": "Standard cut, at the joints. Keep her face exactly as painted. The lantern is its own part. The rest is up to you. Use core projection.\nAs answered on 2026-11-22T00:00:06.000Z in interview, chat\n\nKeep the proposed ground\nUse the proposed ground on the named synthetic parts.\n\nKeep the proposed cut\nUse the proposed cut on the named synthetic parts.\n\nKeep the proposed emphasis\nUse the proposed emphasis on the named synthetic parts.\n\nKeep the proposed draw_order\nUse the proposed draw_order on the named synthetic parts.\n\nKeep the proposed authored\nUse the proposed authored on the named synthetic parts.\n\nKeep the proposed occluders\nUse the proposed occluders on the named synthetic parts.\n\nKeep the proposed outfits\nUse the proposed outfits on the named synthetic parts.",
+      "sentence": "Standard cut, at the joints. Keep her face exactly as painted. The lantern is its own part. The rest is up to you. Use core projection.\nAs answered on 2026-11-24T00:00:06.000Z in interview, chat\n\nKeep the proposed ground\nUse the proposed ground on the named synthetic parts.\n\nKeep the proposed cut\nUse the proposed cut on the named synthetic parts.\n\nKeep the proposed emphasis\nUse the proposed emphasis on the named synthetic parts.\n\nKeep the proposed draw_order\nUse the proposed draw_order on the named synthetic parts.\n\nKeep the proposed authored\nUse the proposed authored on the named synthetic parts.\n\nKeep the proposed occluders\nUse the proposed occluders on the named synthetic parts.\n\nKeep the proposed outfits\nUse the proposed outfits on the named synthetic parts.",
       "value": "synthetic draw_order on the approved parts"
     },
     {
       "gap": "vocabulary",
       "from": {
         "question": "assemble",
-        "verbatim_sha256": "72639efea9996326a604f7652a2af31474669a8d0df28a3ce589711d60c34e83"
+        "verbatim_sha256": "37d54664242426f4c52a45557cb2e24d4a705205bdf241d0938035bd63c99952"
       },
       "source_path": "interview.waypoints[assemble].guide",
       "value_path": "interview.waypoints[assemble].guide.value[\"authored\"]",
-      "sentence": "Standard cut, at the joints. Keep her face exactly as painted. The lantern is its own part. The rest is up to you. Use core projection.\nAs answered on 2026-11-22T00:00:06.000Z in interview, chat\n\nKeep the proposed ground\nUse the proposed ground on the named synthetic parts.\n\nKeep the proposed cut\nUse the proposed cut on the named synthetic parts.\n\nKeep the proposed emphasis\nUse the proposed emphasis on the named synthetic parts.\n\nKeep the proposed draw_order\nUse the proposed draw_order on the named synthetic parts.\n\nKeep the proposed authored\nUse the proposed authored on the named synthetic parts.\n\nKeep the proposed occluders\nUse the proposed occluders on the named synthetic parts.\n\nKeep the proposed outfits\nUse the proposed outfits on the named synthetic parts.",
+      "sentence": "Standard cut, at the joints. Keep her face exactly as painted. The lantern is its own part. The rest is up to you. Use core projection.\nAs answered on 2026-11-24T00:00:06.000Z in interview, chat\n\nKeep the proposed ground\nUse the proposed ground on the named synthetic parts.\n\nKeep the proposed cut\nUse the proposed cut on the named synthetic parts.\n\nKeep the proposed emphasis\nUse the proposed emphasis on the named synthetic parts.\n\nKeep the proposed draw_order\nUse the proposed draw_order on the named synthetic parts.\n\nKeep the proposed authored\nUse the proposed authored on the named synthetic parts.\n\nKeep the proposed occluders\nUse the proposed occluders on the named synthetic parts.\n\nKeep the proposed outfits\nUse the proposed outfits on the named synthetic parts.",
       "value": "synthetic authored on the approved parts"
     },
     {
       "gap": "vocabulary",
       "from": {
         "question": "assemble",
-        "verbatim_sha256": "72639efea9996326a604f7652a2af31474669a8d0df28a3ce589711d60c34e83"
+        "verbatim_sha256": "37d54664242426f4c52a45557cb2e24d4a705205bdf241d0938035bd63c99952"
       },
       "source_path": "interview.waypoints[assemble].guide",
       "value_path": "interview.waypoints[assemble].guide.value[\"occluders\"]",
-      "sentence": "Standard cut, at the joints. Keep her face exactly as painted. The lantern is its own part. The rest is up to you. Use core projection.\nAs answered on 2026-11-22T00:00:06.000Z in interview, chat\n\nKeep the proposed ground\nUse the proposed ground on the named synthetic parts.\n\nKeep the proposed cut\nUse the proposed cut on the named synthetic parts.\n\nKeep the proposed emphasis\nUse the proposed emphasis on the named synthetic parts.\n\nKeep the proposed draw_order\nUse the proposed draw_order on the named synthetic parts.\n\nKeep the proposed authored\nUse the proposed authored on the named synthetic parts.\n\nKeep the proposed occluders\nUse the proposed occluders on the named synthetic parts.\n\nKeep the proposed outfits\nUse the proposed outfits on the named synthetic parts.",
+      "sentence": "Standard cut, at the joints. Keep her face exactly as painted. The lantern is its own part. The rest is up to you. Use core projection.\nAs answered on 2026-11-24T00:00:06.000Z in interview, chat\n\nKeep the proposed ground\nUse the proposed ground on the named synthetic parts.\n\nKeep the proposed cut\nUse the proposed cut on the named synthetic parts.\n\nKeep the proposed emphasis\nUse the proposed emphasis on the named synthetic parts.\n\nKeep the proposed draw_order\nUse the proposed draw_order on the named synthetic parts.\n\nKeep the proposed authored\nUse the proposed authored on the named synthetic parts.\n\nKeep the proposed occluders\nUse the proposed occluders on the named synthetic parts.\n\nKeep the proposed outfits\nUse the proposed outfits on the named synthetic parts.",
       "value": "synthetic occluders on the approved parts"
     },
     {
       "gap": "vocabulary",
       "from": {
         "question": "assemble",
-        "verbatim_sha256": "72639efea9996326a604f7652a2af31474669a8d0df28a3ce589711d60c34e83"
+        "verbatim_sha256": "37d54664242426f4c52a45557cb2e24d4a705205bdf241d0938035bd63c99952"
       },
       "source_path": "interview.waypoints[assemble].guide",
       "value_path": "interview.waypoints[assemble].guide.value[\"outfits\"]",
-      "sentence": "Standard cut, at the joints. Keep her face exactly as painted. The lantern is its own part. The rest is up to you. Use core projection.\nAs answered on 2026-11-22T00:00:06.000Z in interview, chat\n\nKeep the proposed ground\nUse the proposed ground on the named synthetic parts.\n\nKeep the proposed cut\nUse the proposed cut on the named synthetic parts.\n\nKeep the proposed emphasis\nUse the proposed emphasis on the named synthetic parts.\n\nKeep the proposed draw_order\nUse the proposed draw_order on the named synthetic parts.\n\nKeep the proposed authored\nUse the proposed authored on the named synthetic parts.\n\nKeep the proposed occluders\nUse the proposed occluders on the named synthetic parts.\n\nKeep the proposed outfits\nUse the proposed outfits on the named synthetic parts.",
+      "sentence": "Standard cut, at the joints. Keep her face exactly as painted. The lantern is its own part. The rest is up to you. Use core projection.\nAs answered on 2026-11-24T00:00:06.000Z in interview, chat\n\nKeep the proposed ground\nUse the proposed ground on the named synthetic parts.\n\nKeep the proposed cut\nUse the proposed cut on the named synthetic parts.\n\nKeep the proposed emphasis\nUse the proposed emphasis on the named synthetic parts.\n\nKeep the proposed draw_order\nUse the proposed draw_order on the named synthetic parts.\n\nKeep the proposed authored\nUse the proposed authored on the named synthetic parts.\n\nKeep the proposed occluders\nUse the proposed occluders on the named synthetic parts.\n\nKeep the proposed outfits\nUse the proposed outfits on the named synthetic parts.",
       "value": "synthetic outfits on the approved parts"
     },
     {
       "gap": "sentence_semantics",
       "from": {
         "question": "bones",
-        "verbatim_sha256": "71d9d781260d87fceed8084db90557bc3208b639279cd663fcd1ac6daf554eb7"
+        "verbatim_sha256": "e20d7d0b2eb350222bedafc4f4a6ff4fdf0a49f4644730c18b4c2859ddfc3d49"
       },
       "source_path": "interview.waypoints[bones].guide",
       "value_path": "interview.waypoints[bones].guide.verbatim",
-      "sentence": "Synthetic bones answer after viewing the approved parts and structure.\nAs answered on 2026-11-22T00:00:38.000Z in interview, chat\n\nKeep the proposed placement\nUse the proposed placement on the named synthetic parts.\n\nKeep the proposed length\nUse the proposed length on the named synthetic parts.",
-      "value": "Synthetic bones answer after viewing the approved parts and structure.\nAs answered on 2026-11-22T00:00:38.000Z in interview, chat\n\nKeep the proposed placement\nUse the proposed placement on the named synthetic parts.\n\nKeep the proposed length\nUse the proposed length on the named synthetic parts."
+      "sentence": "Synthetic bones answer after viewing the approved parts and structure.\nAs answered on 2026-11-24T00:00:38.000Z in interview, chat\n\nKeep the proposed placement\nUse the proposed placement on the named synthetic parts.\n\nKeep the proposed length\nUse the proposed length on the named synthetic parts.",
+      "value": "Synthetic bones answer after viewing the approved parts and structure.\nAs answered on 2026-11-24T00:00:38.000Z in interview, chat\n\nKeep the proposed placement\nUse the proposed placement on the named synthetic parts.\n\nKeep the proposed length\nUse the proposed length on the named synthetic parts."
     },
     {
       "gap": "vocabulary",
       "from": {
         "question": "bones",
-        "verbatim_sha256": "71d9d781260d87fceed8084db90557bc3208b639279cd663fcd1ac6daf554eb7"
+        "verbatim_sha256": "e20d7d0b2eb350222bedafc4f4a6ff4fdf0a49f4644730c18b4c2859ddfc3d49"
       },
       "source_path": "interview.waypoints[bones].guide",
       "value_path": "interview.waypoints[bones].guide.value[\"chains\"]",
-      "sentence": "Synthetic bones answer after viewing the approved parts and structure.\nAs answered on 2026-11-22T00:00:38.000Z in interview, chat\n\nKeep the proposed placement\nUse the proposed placement on the named synthetic parts.\n\nKeep the proposed length\nUse the proposed length on the named synthetic parts.",
+      "sentence": "Synthetic bones answer after viewing the approved parts and structure.\nAs answered on 2026-11-24T00:00:38.000Z in interview, chat\n\nKeep the proposed placement\nUse the proposed placement on the named synthetic parts.\n\nKeep the proposed length\nUse the proposed length on the named synthetic parts.",
       "value": "synthetic chains on the approved parts"
     },
     {
       "gap": "vocabulary",
       "from": {
         "question": "bones",
-        "verbatim_sha256": "71d9d781260d87fceed8084db90557bc3208b639279cd663fcd1ac6daf554eb7"
+        "verbatim_sha256": "e20d7d0b2eb350222bedafc4f4a6ff4fdf0a49f4644730c18b4c2859ddfc3d49"
       },
       "source_path": "interview.waypoints[bones].guide",
       "value_path": "interview.waypoints[bones].guide.value[\"placement\"]",
-      "sentence": "Synthetic bones answer after viewing the approved parts and structure.\nAs answered on 2026-11-22T00:00:38.000Z in interview, chat\n\nKeep the proposed placement\nUse the proposed placement on the named synthetic parts.\n\nKeep the proposed length\nUse the proposed length on the named synthetic parts.",
+      "sentence": "Synthetic bones answer after viewing the approved parts and structure.\nAs answered on 2026-11-24T00:00:38.000Z in interview, chat\n\nKeep the proposed placement\nUse the proposed placement on the named synthetic parts.\n\nKeep the proposed length\nUse the proposed length on the named synthetic parts.",
       "value": "synthetic placement on the approved parts"
     },
     {
       "gap": "vocabulary",
       "from": {
         "question": "bones",
-        "verbatim_sha256": "71d9d781260d87fceed8084db90557bc3208b639279cd663fcd1ac6daf554eb7"
+        "verbatim_sha256": "e20d7d0b2eb350222bedafc4f4a6ff4fdf0a49f4644730c18b4c2859ddfc3d49"
       },
       "source_path": "interview.waypoints[bones].guide",
       "value_path": "interview.waypoints[bones].guide.value[\"length\"]",
-      "sentence": "Synthetic bones answer after viewing the approved parts and structure.\nAs answered on 2026-11-22T00:00:38.000Z in interview, chat\n\nKeep the proposed placement\nUse the proposed placement on the named synthetic parts.\n\nKeep the proposed length\nUse the proposed length on the named synthetic parts.",
+      "sentence": "Synthetic bones answer after viewing the approved parts and structure.\nAs answered on 2026-11-24T00:00:38.000Z in interview, chat\n\nKeep the proposed placement\nUse the proposed placement on the named synthetic parts.\n\nKeep the proposed length\nUse the proposed length on the named synthetic parts.",
       "value": "synthetic length on the approved parts"
     },
     {
       "gap": "sentence_semantics",
       "from": {
         "question": "meshes",
-        "verbatim_sha256": "4aad4d5caf387c28aef98de7fbca9f83473c19e07969cc147120770333b1980d"
+        "verbatim_sha256": "a8e0ab85bd98f63ce66af269012a5343833cc1433774f19d6f34a4c7aec1c791"
       },
       "source_path": "interview.waypoints[meshes].guide",
       "value_path": "interview.waypoints[meshes].guide.verbatim",
-      "sentence": "Synthetic meshes answer after viewing the approved parts and structure.\nAs answered on 2026-11-22T00:00:38.000Z in interview, chat\n\nKeep the proposed rigid\nUse the proposed rigid on the named synthetic parts.\n\nKeep the proposed density\nUse the proposed density on the named synthetic parts.",
-      "value": "Synthetic meshes answer after viewing the approved parts and structure.\nAs answered on 2026-11-22T00:00:38.000Z in interview, chat\n\nKeep the proposed rigid\nUse the proposed rigid on the named synthetic parts.\n\nKeep the proposed density\nUse the proposed density on the named synthetic parts."
+      "sentence": "Synthetic meshes answer after viewing the approved parts and structure.\nAs answered on 2026-11-24T00:00:38.000Z in interview, chat\n\nKeep the proposed rigid\nUse the proposed rigid on the named synthetic parts.\n\nKeep the proposed density\nUse the proposed density on the named synthetic parts.",
+      "value": "Synthetic meshes answer after viewing the approved parts and structure.\nAs answered on 2026-11-24T00:00:38.000Z in interview, chat\n\nKeep the proposed rigid\nUse the proposed rigid on the named synthetic parts.\n\nKeep the proposed density\nUse the proposed density on the named synthetic parts."
     },
     {
       "gap": "vocabulary",
       "from": {
         "question": "meshes",
-        "verbatim_sha256": "4aad4d5caf387c28aef98de7fbca9f83473c19e07969cc147120770333b1980d"
+        "verbatim_sha256": "a8e0ab85bd98f63ce66af269012a5343833cc1433774f19d6f34a4c7aec1c791"
       },
       "source_path": "interview.waypoints[meshes].guide",
       "value_path": "interview.waypoints[meshes].guide.value[\"bend\"]",
-      "sentence": "Synthetic meshes answer after viewing the approved parts and structure.\nAs answered on 2026-11-22T00:00:38.000Z in interview, chat\n\nKeep the proposed rigid\nUse the proposed rigid on the named synthetic parts.\n\nKeep the proposed density\nUse the proposed density on the named synthetic parts.",
+      "sentence": "Synthetic meshes answer after viewing the approved parts and structure.\nAs answered on 2026-11-24T00:00:38.000Z in interview, chat\n\nKeep the proposed rigid\nUse the proposed rigid on the named synthetic parts.\n\nKeep the proposed density\nUse the proposed density on the named synthetic parts.",
       "value": "synthetic bend on the approved parts"
     },
     {
       "gap": "vocabulary",
       "from": {
         "question": "meshes",
-        "verbatim_sha256": "4aad4d5caf387c28aef98de7fbca9f83473c19e07969cc147120770333b1980d"
+        "verbatim_sha256": "a8e0ab85bd98f63ce66af269012a5343833cc1433774f19d6f34a4c7aec1c791"
       },
       "source_path": "interview.waypoints[meshes].guide",
       "value_path": "interview.waypoints[meshes].guide.value[\"rigid\"]",
-      "sentence": "Synthetic meshes answer after viewing the approved parts and structure.\nAs answered on 2026-11-22T00:00:38.000Z in interview, chat\n\nKeep the proposed rigid\nUse the proposed rigid on the named synthetic parts.\n\nKeep the proposed density\nUse the proposed density on the named synthetic parts.",
+      "sentence": "Synthetic meshes answer after viewing the approved parts and structure.\nAs answered on 2026-11-24T00:00:38.000Z in interview, chat\n\nKeep the proposed rigid\nUse the proposed rigid on the named synthetic parts.\n\nKeep the proposed density\nUse the proposed density on the named synthetic parts.",
       "value": "synthetic rigid on the approved parts"
     },
     {
       "gap": "vocabulary",
       "from": {
         "question": "meshes",
-        "verbatim_sha256": "4aad4d5caf387c28aef98de7fbca9f83473c19e07969cc147120770333b1980d"
+        "verbatim_sha256": "a8e0ab85bd98f63ce66af269012a5343833cc1433774f19d6f34a4c7aec1c791"
       },
       "source_path": "interview.waypoints[meshes].guide",
       "value_path": "interview.waypoints[meshes].guide.value[\"density\"]",
-      "sentence": "Synthetic meshes answer after viewing the approved parts and structure.\nAs answered on 2026-11-22T00:00:38.000Z in interview, chat\n\nKeep the proposed rigid\nUse the proposed rigid on the named synthetic parts.\n\nKeep the proposed density\nUse the proposed density on the named synthetic parts.",
+      "sentence": "Synthetic meshes answer after viewing the approved parts and structure.\nAs answered on 2026-11-24T00:00:38.000Z in interview, chat\n\nKeep the proposed rigid\nUse the proposed rigid on the named synthetic parts.\n\nKeep the proposed density\nUse the proposed density on the named synthetic parts.",
       "value": "synthetic density on the approved parts"
     },
     {
       "gap": "sentence_semantics",
       "from": {
         "question": "constraints",
-        "verbatim_sha256": "5fde2b7c277b880af59da6388c748c6186a39962a33b3ffeaaa6e50a0e13e305"
+        "verbatim_sha256": "efa7f000bf9ea1d636b87f21b7ed6fcfb836905d42f451856e9347ac00a8c4e7"
       },
       "source_path": "interview.waypoints[constraints].guide",
       "value_path": "interview.waypoints[constraints].guide.verbatim",
-      "sentence": "Synthetic constraints answer after viewing the approved parts and structure.\nAs answered on 2026-11-22T00:00:38.000Z in interview, chat\n\nKeep the proposed strength\nUse the proposed strength on the named synthetic parts.\n\nKeep the proposed extent\nUse the proposed extent on the named synthetic parts.\n\nKeep the proposed gravity\nUse the proposed gravity on the named synthetic parts.\n\nKeep the proposed stops\nUse the proposed stops on the named synthetic parts.",
-      "value": "Synthetic constraints answer after viewing the approved parts and structure.\nAs answered on 2026-11-22T00:00:38.000Z in interview, chat\n\nKeep the proposed strength\nUse the proposed strength on the named synthetic parts.\n\nKeep the proposed extent\nUse the proposed extent on the named synthetic parts.\n\nKeep the proposed gravity\nUse the proposed gravity on the named synthetic parts.\n\nKeep the proposed stops\nUse the proposed stops on the named synthetic parts."
+      "sentence": "Synthetic constraints answer after viewing the approved parts and structure.\nAs answered on 2026-11-24T00:00:38.000Z in interview, chat\n\nKeep the proposed strength\nUse the proposed strength on the named synthetic parts.\n\nKeep the proposed extent\nUse the proposed extent on the named synthetic parts.\n\nKeep the proposed gravity\nUse the proposed gravity on the named synthetic parts.\n\nKeep the proposed stops\nUse the proposed stops on the named synthetic parts.",
+      "value": "Synthetic constraints answer after viewing the approved parts and structure.\nAs answered on 2026-11-24T00:00:38.000Z in interview, chat\n\nKeep the proposed strength\nUse the proposed strength on the named synthetic parts.\n\nKeep the proposed extent\nUse the proposed extent on the named synthetic parts.\n\nKeep the proposed gravity\nUse the proposed gravity on the named synthetic parts.\n\nKeep the proposed stops\nUse the proposed stops on the named synthetic parts."
     },
     {
       "gap": "vocabulary",
       "from": {
         "question": "constraints",
-        "verbatim_sha256": "5fde2b7c277b880af59da6388c748c6186a39962a33b3ffeaaa6e50a0e13e305"
+        "verbatim_sha256": "efa7f000bf9ea1d636b87f21b7ed6fcfb836905d42f451856e9347ac00a8c4e7"
       },
       "source_path": "interview.waypoints[constraints].guide",
       "value_path": "interview.waypoints[constraints].guide.value[\"effects\"]",
-      "sentence": "Synthetic constraints answer after viewing the approved parts and structure.\nAs answered on 2026-11-22T00:00:38.000Z in interview, chat\n\nKeep the proposed strength\nUse the proposed strength on the named synthetic parts.\n\nKeep the proposed extent\nUse the proposed extent on the named synthetic parts.\n\nKeep the proposed gravity\nUse the proposed gravity on the named synthetic parts.\n\nKeep the proposed stops\nUse the proposed stops on the named synthetic parts.",
+      "sentence": "Synthetic constraints answer after viewing the approved parts and structure.\nAs answered on 2026-11-24T00:00:38.000Z in interview, chat\n\nKeep the proposed strength\nUse the proposed strength on the named synthetic parts.\n\nKeep the proposed extent\nUse the proposed extent on the named synthetic parts.\n\nKeep the proposed gravity\nUse the proposed gravity on the named synthetic parts.\n\nKeep the proposed stops\nUse the proposed stops on the named synthetic parts.",
       "value": "synthetic effects on the approved parts"
     },
     {
       "gap": "vocabulary",
       "from": {
         "question": "constraints",
-        "verbatim_sha256": "5fde2b7c277b880af59da6388c748c6186a39962a33b3ffeaaa6e50a0e13e305"
+        "verbatim_sha256": "efa7f000bf9ea1d636b87f21b7ed6fcfb836905d42f451856e9347ac00a8c4e7"
       },
       "source_path": "interview.waypoints[constraints].guide",
       "value_path": "interview.waypoints[constraints].guide.value[\"strength\"]",
-      "sentence": "Synthetic constraints answer after viewing the approved parts and structure.\nAs answered on 2026-11-22T00:00:38.000Z in interview, chat\n\nKeep the proposed strength\nUse the proposed strength on the named synthetic parts.\n\nKeep the proposed extent\nUse the proposed extent on the named synthetic parts.\n\nKeep the proposed gravity\nUse the proposed gravity on the named synthetic parts.\n\nKeep the proposed stops\nUse the proposed stops on the named synthetic parts.",
+      "sentence": "Synthetic constraints answer after viewing the approved parts and structure.\nAs answered on 2026-11-24T00:00:38.000Z in interview, chat\n\nKeep the proposed strength\nUse the proposed strength on the named synthetic parts.\n\nKeep the proposed extent\nUse the proposed extent on the named synthetic parts.\n\nKeep the proposed gravity\nUse the proposed gravity on the named synthetic parts.\n\nKeep the proposed stops\nUse the proposed stops on the named synthetic parts.",
       "value": "synthetic strength on the approved parts"
     },
     {
       "gap": "vocabulary",
       "from": {
         "question": "constraints",
-        "verbatim_sha256": "5fde2b7c277b880af59da6388c748c6186a39962a33b3ffeaaa6e50a0e13e305"
+        "verbatim_sha256": "efa7f000bf9ea1d636b87f21b7ed6fcfb836905d42f451856e9347ac00a8c4e7"
       },
       "source_path": "interview.waypoints[constraints].guide",
       "value_path": "interview.waypoints[constraints].guide.value[\"extent\"]",
-      "sentence": "Synthetic constraints answer after viewing the approved parts and structure.\nAs answered on 2026-11-22T00:00:38.000Z in interview, chat\n\nKeep the proposed strength\nUse the proposed strength on the named synthetic parts.\n\nKeep the proposed extent\nUse the proposed extent on the named synthetic parts.\n\nKeep the proposed gravity\nUse the proposed gravity on the named synthetic parts.\n\nKeep the proposed stops\nUse the proposed stops on the named synthetic parts.",
+      "sentence": "Synthetic constraints answer after viewing the approved parts and structure.\nAs answered on 2026-11-24T00:00:38.000Z in interview, chat\n\nKeep the proposed strength\nUse the proposed strength on the named synthetic parts.\n\nKeep the proposed extent\nUse the proposed extent on the named synthetic parts.\n\nKeep the proposed gravity\nUse the proposed gravity on the named synthetic parts.\n\nKeep the proposed stops\nUse the proposed stops on the named synthetic parts.",
       "value": "synthetic extent on the approved parts"
     },
     {
       "gap": "vocabulary",
       "from": {
         "question": "constraints",
-        "verbatim_sha256": "5fde2b7c277b880af59da6388c748c6186a39962a33b3ffeaaa6e50a0e13e305"
+        "verbatim_sha256": "efa7f000bf9ea1d636b87f21b7ed6fcfb836905d42f451856e9347ac00a8c4e7"
       },
       "source_path": "interview.waypoints[constraints].guide",
       "value_path": "interview.waypoints[constraints].guide.value[\"gravity\"]",
-      "sentence": "Synthetic constraints answer after viewing the approved parts and structure.\nAs answered on 2026-11-22T00:00:38.000Z in interview, chat\n\nKeep the proposed strength\nUse the proposed strength on the named synthetic parts.\n\nKeep the proposed extent\nUse the proposed extent on the named synthetic parts.\n\nKeep the proposed gravity\nUse the proposed gravity on the named synthetic parts.\n\nKeep the proposed stops\nUse the proposed stops on the named synthetic parts.",
+      "sentence": "Synthetic constraints answer after viewing the approved parts and structure.\nAs answered on 2026-11-24T00:00:38.000Z in interview, chat\n\nKeep the proposed strength\nUse the proposed strength on the named synthetic parts.\n\nKeep the proposed extent\nUse the proposed extent on the named synthetic parts.\n\nKeep the proposed gravity\nUse the proposed gravity on the named synthetic parts.\n\nKeep the proposed stops\nUse the proposed stops on the named synthetic parts.",
       "value": "synthetic gravity on the approved parts"
     },
     {
       "gap": "vocabulary",
       "from": {
         "question": "constraints",
-        "verbatim_sha256": "5fde2b7c277b880af59da6388c748c6186a39962a33b3ffeaaa6e50a0e13e305"
+        "verbatim_sha256": "efa7f000bf9ea1d636b87f21b7ed6fcfb836905d42f451856e9347ac00a8c4e7"
       },
       "source_path": "interview.waypoints[constraints].guide",
       "value_path": "interview.waypoints[constraints].guide.value[\"stops\"]",
-      "sentence": "Synthetic constraints answer after viewing the approved parts and structure.\nAs answered on 2026-11-22T00:00:38.000Z in interview, chat\n\nKeep the proposed strength\nUse the proposed strength on the named synthetic parts.\n\nKeep the proposed extent\nUse the proposed extent on the named synthetic parts.\n\nKeep the proposed gravity\nUse the proposed gravity on the named synthetic parts.\n\nKeep the proposed stops\nUse the proposed stops on the named synthetic parts.",
+      "sentence": "Synthetic constraints answer after viewing the approved parts and structure.\nAs answered on 2026-11-24T00:00:38.000Z in interview, chat\n\nKeep the proposed strength\nUse the proposed strength on the named synthetic parts.\n\nKeep the proposed extent\nUse the proposed extent on the named synthetic parts.\n\nKeep the proposed gravity\nUse the proposed gravity on the named synthetic parts.\n\nKeep the proposed stops\nUse the proposed stops on the named synthetic parts.",
       "value": "synthetic stops on the approved parts"
     },
     {
@@ -1156,242 +1156,242 @@
       "gap": "sentence_semantics",
       "from": {
         "question": "motion",
-        "verbatim_sha256": "0f3b45fb006cdec0af546040640124a8f75719a0faa005ac31fcec29ecdea3ba"
+        "verbatim_sha256": "8da974e9cc7b62796e25c9294905581665da08c7ba39e4e3d49dffea8cb73cc6"
       },
       "source_path": "interview.waypoints[motion].guide",
       "value_path": "interview.waypoints[motion].guide.verbatim",
-      "sentence": "Synthetic motion answer after viewing the approved parts and structure.\nAs answered on 2026-11-22T00:00:38.000Z in interview, chat\n\nKeep the proposed extent\nUse the proposed extent on the named synthetic parts.\n\nKeep the proposed speed\nUse the proposed speed on the named synthetic parts.\n\nKeep the proposed loop\nUse the proposed loop on the named synthetic parts.\n\nKeep the proposed blink\nUse the proposed blink on the named synthetic parts.",
-      "value": "Synthetic motion answer after viewing the approved parts and structure.\nAs answered on 2026-11-22T00:00:38.000Z in interview, chat\n\nKeep the proposed extent\nUse the proposed extent on the named synthetic parts.\n\nKeep the proposed speed\nUse the proposed speed on the named synthetic parts.\n\nKeep the proposed loop\nUse the proposed loop on the named synthetic parts.\n\nKeep the proposed blink\nUse the proposed blink on the named synthetic parts."
+      "sentence": "Synthetic motion answer after viewing the approved parts and structure.\nAs answered on 2026-11-24T00:00:38.000Z in interview, chat\n\nKeep the proposed extent\nUse the proposed extent on the named synthetic parts.\n\nKeep the proposed speed\nUse the proposed speed on the named synthetic parts.\n\nKeep the proposed loop\nUse the proposed loop on the named synthetic parts.\n\nKeep the proposed blink\nUse the proposed blink on the named synthetic parts.",
+      "value": "Synthetic motion answer after viewing the approved parts and structure.\nAs answered on 2026-11-24T00:00:38.000Z in interview, chat\n\nKeep the proposed extent\nUse the proposed extent on the named synthetic parts.\n\nKeep the proposed speed\nUse the proposed speed on the named synthetic parts.\n\nKeep the proposed loop\nUse the proposed loop on the named synthetic parts.\n\nKeep the proposed blink\nUse the proposed blink on the named synthetic parts."
     },
     {
       "gap": "vocabulary",
       "from": {
         "question": "motion",
-        "verbatim_sha256": "0f3b45fb006cdec0af546040640124a8f75719a0faa005ac31fcec29ecdea3ba"
+        "verbatim_sha256": "8da974e9cc7b62796e25c9294905581665da08c7ba39e4e3d49dffea8cb73cc6"
       },
       "source_path": "interview.waypoints[motion].guide",
       "value_path": "interview.waypoints[motion].guide.value[\"tracks\"]",
-      "sentence": "Synthetic motion answer after viewing the approved parts and structure.\nAs answered on 2026-11-22T00:00:38.000Z in interview, chat\n\nKeep the proposed extent\nUse the proposed extent on the named synthetic parts.\n\nKeep the proposed speed\nUse the proposed speed on the named synthetic parts.\n\nKeep the proposed loop\nUse the proposed loop on the named synthetic parts.\n\nKeep the proposed blink\nUse the proposed blink on the named synthetic parts.",
+      "sentence": "Synthetic motion answer after viewing the approved parts and structure.\nAs answered on 2026-11-24T00:00:38.000Z in interview, chat\n\nKeep the proposed extent\nUse the proposed extent on the named synthetic parts.\n\nKeep the proposed speed\nUse the proposed speed on the named synthetic parts.\n\nKeep the proposed loop\nUse the proposed loop on the named synthetic parts.\n\nKeep the proposed blink\nUse the proposed blink on the named synthetic parts.",
       "value": "synthetic tracks on the approved parts"
     },
     {
       "gap": "vocabulary",
       "from": {
         "question": "motion",
-        "verbatim_sha256": "0f3b45fb006cdec0af546040640124a8f75719a0faa005ac31fcec29ecdea3ba"
+        "verbatim_sha256": "8da974e9cc7b62796e25c9294905581665da08c7ba39e4e3d49dffea8cb73cc6"
       },
       "source_path": "interview.waypoints[motion].guide",
       "value_path": "interview.waypoints[motion].guide.value[\"extent\"]",
-      "sentence": "Synthetic motion answer after viewing the approved parts and structure.\nAs answered on 2026-11-22T00:00:38.000Z in interview, chat\n\nKeep the proposed extent\nUse the proposed extent on the named synthetic parts.\n\nKeep the proposed speed\nUse the proposed speed on the named synthetic parts.\n\nKeep the proposed loop\nUse the proposed loop on the named synthetic parts.\n\nKeep the proposed blink\nUse the proposed blink on the named synthetic parts.",
+      "sentence": "Synthetic motion answer after viewing the approved parts and structure.\nAs answered on 2026-11-24T00:00:38.000Z in interview, chat\n\nKeep the proposed extent\nUse the proposed extent on the named synthetic parts.\n\nKeep the proposed speed\nUse the proposed speed on the named synthetic parts.\n\nKeep the proposed loop\nUse the proposed loop on the named synthetic parts.\n\nKeep the proposed blink\nUse the proposed blink on the named synthetic parts.",
       "value": "synthetic extent on the approved parts"
     },
     {
       "gap": "vocabulary",
       "from": {
         "question": "motion",
-        "verbatim_sha256": "0f3b45fb006cdec0af546040640124a8f75719a0faa005ac31fcec29ecdea3ba"
+        "verbatim_sha256": "8da974e9cc7b62796e25c9294905581665da08c7ba39e4e3d49dffea8cb73cc6"
       },
       "source_path": "interview.waypoints[motion].guide",
       "value_path": "interview.waypoints[motion].guide.value[\"speed\"]",
-      "sentence": "Synthetic motion answer after viewing the approved parts and structure.\nAs answered on 2026-11-22T00:00:38.000Z in interview, chat\n\nKeep the proposed extent\nUse the proposed extent on the named synthetic parts.\n\nKeep the proposed speed\nUse the proposed speed on the named synthetic parts.\n\nKeep the proposed loop\nUse the proposed loop on the named synthetic parts.\n\nKeep the proposed blink\nUse the proposed blink on the named synthetic parts.",
+      "sentence": "Synthetic motion answer after viewing the approved parts and structure.\nAs answered on 2026-11-24T00:00:38.000Z in interview, chat\n\nKeep the proposed extent\nUse the proposed extent on the named synthetic parts.\n\nKeep the proposed speed\nUse the proposed speed on the named synthetic parts.\n\nKeep the proposed loop\nUse the proposed loop on the named synthetic parts.\n\nKeep the proposed blink\nUse the proposed blink on the named synthetic parts.",
       "value": "synthetic speed on the approved parts"
     },
     {
       "gap": "vocabulary",
       "from": {
         "question": "motion",
-        "verbatim_sha256": "0f3b45fb006cdec0af546040640124a8f75719a0faa005ac31fcec29ecdea3ba"
+        "verbatim_sha256": "8da974e9cc7b62796e25c9294905581665da08c7ba39e4e3d49dffea8cb73cc6"
       },
       "source_path": "interview.waypoints[motion].guide",
       "value_path": "interview.waypoints[motion].guide.value[\"loop\"]",
-      "sentence": "Synthetic motion answer after viewing the approved parts and structure.\nAs answered on 2026-11-22T00:00:38.000Z in interview, chat\n\nKeep the proposed extent\nUse the proposed extent on the named synthetic parts.\n\nKeep the proposed speed\nUse the proposed speed on the named synthetic parts.\n\nKeep the proposed loop\nUse the proposed loop on the named synthetic parts.\n\nKeep the proposed blink\nUse the proposed blink on the named synthetic parts.",
+      "sentence": "Synthetic motion answer after viewing the approved parts and structure.\nAs answered on 2026-11-24T00:00:38.000Z in interview, chat\n\nKeep the proposed extent\nUse the proposed extent on the named synthetic parts.\n\nKeep the proposed speed\nUse the proposed speed on the named synthetic parts.\n\nKeep the proposed loop\nUse the proposed loop on the named synthetic parts.\n\nKeep the proposed blink\nUse the proposed blink on the named synthetic parts.",
       "value": "synthetic loop on the approved parts"
     },
     {
       "gap": "vocabulary",
       "from": {
         "question": "motion",
-        "verbatim_sha256": "0f3b45fb006cdec0af546040640124a8f75719a0faa005ac31fcec29ecdea3ba"
+        "verbatim_sha256": "8da974e9cc7b62796e25c9294905581665da08c7ba39e4e3d49dffea8cb73cc6"
       },
       "source_path": "interview.waypoints[motion].guide",
       "value_path": "interview.waypoints[motion].guide.value[\"blink\"]",
-      "sentence": "Synthetic motion answer after viewing the approved parts and structure.\nAs answered on 2026-11-22T00:00:38.000Z in interview, chat\n\nKeep the proposed extent\nUse the proposed extent on the named synthetic parts.\n\nKeep the proposed speed\nUse the proposed speed on the named synthetic parts.\n\nKeep the proposed loop\nUse the proposed loop on the named synthetic parts.\n\nKeep the proposed blink\nUse the proposed blink on the named synthetic parts.",
+      "sentence": "Synthetic motion answer after viewing the approved parts and structure.\nAs answered on 2026-11-24T00:00:38.000Z in interview, chat\n\nKeep the proposed extent\nUse the proposed extent on the named synthetic parts.\n\nKeep the proposed speed\nUse the proposed speed on the named synthetic parts.\n\nKeep the proposed loop\nUse the proposed loop on the named synthetic parts.\n\nKeep the proposed blink\nUse the proposed blink on the named synthetic parts.",
       "value": "synthetic blink on the approved parts"
     },
     {
       "gap": "sentence_semantics",
       "from": {
         "question": "camera_depth",
-        "verbatim_sha256": "0cac65cef50522e42df39295440ef2bd0cb2f17aed8f02233eaa483db9c0ea04"
+        "verbatim_sha256": "4a84453bf984c9875a8913c1ac3103ebc551742cb1844a8ccfe2e99abdc77d43"
       },
       "source_path": "interview.post.items[camera_depth].guide",
       "value_path": "interview.post.items[camera_depth].guide.verbatim",
-      "sentence": "A slow push-in, no parallax.\nAs answered on 2026-11-22T00:00:53.000Z in post-interview, chat",
-      "value": "A slow push-in, no parallax.\nAs answered on 2026-11-22T00:00:53.000Z in post-interview, chat"
+      "sentence": "A slow push-in, no parallax.\nAs answered on 2026-11-24T00:00:53.000Z in post-interview, chat",
+      "value": "A slow push-in, no parallax.\nAs answered on 2026-11-24T00:00:53.000Z in post-interview, chat"
     },
     {
       "gap": "vocabulary",
       "from": {
         "question": "camera_depth",
-        "verbatim_sha256": "0cac65cef50522e42df39295440ef2bd0cb2f17aed8f02233eaa483db9c0ea04"
+        "verbatim_sha256": "4a84453bf984c9875a8913c1ac3103ebc551742cb1844a8ccfe2e99abdc77d43"
       },
       "source_path": "interview.post.items[camera_depth].guide",
       "value_path": "interview.post.items[camera_depth].guide.value[\"camera\"]",
-      "sentence": "A slow push-in, no parallax.\nAs answered on 2026-11-22T00:00:53.000Z in post-interview, chat",
+      "sentence": "A slow push-in, no parallax.\nAs answered on 2026-11-24T00:00:53.000Z in post-interview, chat",
       "value": "push_in"
     },
     {
       "gap": "vocabulary",
       "from": {
         "question": "camera_depth",
-        "verbatim_sha256": "0cac65cef50522e42df39295440ef2bd0cb2f17aed8f02233eaa483db9c0ea04"
+        "verbatim_sha256": "4a84453bf984c9875a8913c1ac3103ebc551742cb1844a8ccfe2e99abdc77d43"
       },
       "source_path": "interview.post.items[camera_depth].guide",
       "value_path": "interview.post.items[camera_depth].guide.value[\"depth\"]",
-      "sentence": "A slow push-in, no parallax.\nAs answered on 2026-11-22T00:00:53.000Z in post-interview, chat",
+      "sentence": "A slow push-in, no parallax.\nAs answered on 2026-11-24T00:00:53.000Z in post-interview, chat",
       "value": false
     },
     {
       "gap": "sentence_semantics",
       "from": {
         "question": "post_timing",
-        "verbatim_sha256": "2ad319e822e57619a361f886720e89c70faa458f7f02bdff3e99e032ddb49998"
+        "verbatim_sha256": "7ddc093a50a62d25aa2853e9f8f8bee95577ffcd073d2132e083a06929ed9909"
       },
       "source_path": "interview.post.items[post_timing].guide",
       "value_path": "interview.post.items[post_timing].guide.verbatim",
-      "sentence": "Eight seconds, looping. The beam sweeps past once, near the end.\nAs answered on 2026-11-22T00:00:55.000Z in post-interview, chat",
-      "value": "Eight seconds, looping. The beam sweeps past once, near the end.\nAs answered on 2026-11-22T00:00:55.000Z in post-interview, chat"
+      "sentence": "Eight seconds, looping. The beam sweeps past once, near the end.\nAs answered on 2026-11-24T00:00:55.000Z in post-interview, chat",
+      "value": "Eight seconds, looping. The beam sweeps past once, near the end.\nAs answered on 2026-11-24T00:00:55.000Z in post-interview, chat"
     },
     {
       "gap": "vocabulary",
       "from": {
         "question": "post_timing",
-        "verbatim_sha256": "2ad319e822e57619a361f886720e89c70faa458f7f02bdff3e99e032ddb49998"
+        "verbatim_sha256": "7ddc093a50a62d25aa2853e9f8f8bee95577ffcd073d2132e083a06929ed9909"
       },
       "source_path": "interview.post.items[post_timing].guide",
       "value_path": "interview.post.items[post_timing].guide.value[\"seconds\"]",
-      "sentence": "Eight seconds, looping. The beam sweeps past once, near the end.\nAs answered on 2026-11-22T00:00:55.000Z in post-interview, chat",
+      "sentence": "Eight seconds, looping. The beam sweeps past once, near the end.\nAs answered on 2026-11-24T00:00:55.000Z in post-interview, chat",
       "value": 8
     },
     {
       "gap": "vocabulary",
       "from": {
         "question": "post_timing",
-        "verbatim_sha256": "2ad319e822e57619a361f886720e89c70faa458f7f02bdff3e99e032ddb49998"
+        "verbatim_sha256": "7ddc093a50a62d25aa2853e9f8f8bee95577ffcd073d2132e083a06929ed9909"
       },
       "source_path": "interview.post.items[post_timing].guide",
       "value_path": "interview.post.items[post_timing].guide.value[\"loop\"]",
-      "sentence": "Eight seconds, looping. The beam sweeps past once, near the end.\nAs answered on 2026-11-22T00:00:55.000Z in post-interview, chat",
+      "sentence": "Eight seconds, looping. The beam sweeps past once, near the end.\nAs answered on 2026-11-24T00:00:55.000Z in post-interview, chat",
       "value": true
     },
     {
       "gap": "vocabulary",
       "from": {
         "question": "post_timing",
-        "verbatim_sha256": "2ad319e822e57619a361f886720e89c70faa458f7f02bdff3e99e032ddb49998"
+        "verbatim_sha256": "7ddc093a50a62d25aa2853e9f8f8bee95577ffcd073d2132e083a06929ed9909"
       },
       "source_path": "interview.post.items[post_timing].guide",
       "value_path": "interview.post.items[post_timing].guide.value[\"beats\"][0][\"what\"]",
-      "sentence": "Eight seconds, looping. The beam sweeps past once, near the end.\nAs answered on 2026-11-22T00:00:55.000Z in post-interview, chat",
+      "sentence": "Eight seconds, looping. The beam sweeps past once, near the end.\nAs answered on 2026-11-24T00:00:55.000Z in post-interview, chat",
       "value": "beam sweep"
     },
     {
       "gap": "vocabulary",
       "from": {
         "question": "post_timing",
-        "verbatim_sha256": "2ad319e822e57619a361f886720e89c70faa458f7f02bdff3e99e032ddb49998"
+        "verbatim_sha256": "7ddc093a50a62d25aa2853e9f8f8bee95577ffcd073d2132e083a06929ed9909"
       },
       "source_path": "interview.post.items[post_timing].guide",
       "value_path": "interview.post.items[post_timing].guide.value[\"beats\"][0][\"when\"]",
-      "sentence": "Eight seconds, looping. The beam sweeps past once, near the end.\nAs answered on 2026-11-22T00:00:55.000Z in post-interview, chat",
+      "sentence": "Eight seconds, looping. The beam sweeps past once, near the end.\nAs answered on 2026-11-24T00:00:55.000Z in post-interview, chat",
       "value": "near the end"
     },
     {
       "gap": "sentence_semantics",
       "from": {
         "question": "post_composition",
-        "verbatim_sha256": "aeedade92914a5f7151d34e00753de4c353ca6f2aff53f384e2239d1e71b847b"
+        "verbatim_sha256": "ee5b9b8d180490bd58da5603946c51f1b60e04a3ad0270c42e1a60999288d757"
       },
       "source_path": "interview.post.items[post_composition].guide",
       "value_path": "interview.post.items[post_composition].guide.verbatim",
-      "sentence": "Keep the whole lighthouse in frame. It's night; don't brighten it.\nAs answered on 2026-11-22T00:00:56.000Z in post-interview, chat",
-      "value": "Keep the whole lighthouse in frame. It's night; don't brighten it.\nAs answered on 2026-11-22T00:00:56.000Z in post-interview, chat"
+      "sentence": "Keep the whole lighthouse in frame. It's night; don't brighten it.\nAs answered on 2026-11-24T00:00:56.000Z in post-interview, chat",
+      "value": "Keep the whole lighthouse in frame. It's night; don't brighten it.\nAs answered on 2026-11-24T00:00:56.000Z in post-interview, chat"
     },
     {
       "gap": "vocabulary",
       "from": {
         "question": "post_composition",
-        "verbatim_sha256": "aeedade92914a5f7151d34e00753de4c353ca6f2aff53f384e2239d1e71b847b"
+        "verbatim_sha256": "ee5b9b8d180490bd58da5603946c51f1b60e04a3ad0270c42e1a60999288d757"
       },
       "source_path": "interview.post.items[post_composition].guide",
       "value_path": "interview.post.items[post_composition].guide.value[\"framing\"]",
-      "sentence": "Keep the whole lighthouse in frame. It's night; don't brighten it.\nAs answered on 2026-11-22T00:00:56.000Z in post-interview, chat",
+      "sentence": "Keep the whole lighthouse in frame. It's night; don't brighten it.\nAs answered on 2026-11-24T00:00:56.000Z in post-interview, chat",
       "value": "lighthouse fully in frame"
     },
     {
       "gap": "vocabulary",
       "from": {
         "question": "post_composition",
-        "verbatim_sha256": "aeedade92914a5f7151d34e00753de4c353ca6f2aff53f384e2239d1e71b847b"
+        "verbatim_sha256": "ee5b9b8d180490bd58da5603946c51f1b60e04a3ad0270c42e1a60999288d757"
       },
       "source_path": "interview.post.items[post_composition].guide",
       "value_path": "interview.post.items[post_composition].guide.value[\"light\"]",
-      "sentence": "Keep the whole lighthouse in frame. It's night; don't brighten it.\nAs answered on 2026-11-22T00:00:56.000Z in post-interview, chat",
+      "sentence": "Keep the whole lighthouse in frame. It's night; don't brighten it.\nAs answered on 2026-11-24T00:00:56.000Z in post-interview, chat",
       "value": "as painted"
     },
     {
       "gap": "vocabulary",
       "from": {
         "question": "post_composition",
-        "verbatim_sha256": "aeedade92914a5f7151d34e00753de4c353ca6f2aff53f384e2239d1e71b847b"
+        "verbatim_sha256": "ee5b9b8d180490bd58da5603946c51f1b60e04a3ad0270c42e1a60999288d757"
       },
       "source_path": "interview.post.items[post_composition].guide",
       "value_path": "interview.post.items[post_composition].guide.value[\"scene\"][\"background\"][\"path\"]",
-      "sentence": "Keep the whole lighthouse in frame. It's night; don't brighten it.\nAs answered on 2026-11-22T00:00:56.000Z in post-interview, chat",
+      "sentence": "Keep the whole lighthouse in frame. It's night; don't brighten it.\nAs answered on 2026-11-24T00:00:56.000Z in post-interview, chat",
       "value": "evidence/scene-background.png"
     },
     {
       "gap": "vocabulary",
       "from": {
         "question": "post_composition",
-        "verbatim_sha256": "aeedade92914a5f7151d34e00753de4c353ca6f2aff53f384e2239d1e71b847b"
+        "verbatim_sha256": "ee5b9b8d180490bd58da5603946c51f1b60e04a3ad0270c42e1a60999288d757"
       },
       "source_path": "interview.post.items[post_composition].guide",
       "value_path": "interview.post.items[post_composition].guide.value[\"scene\"][\"background\"][\"rect\"][\"x\"]",
-      "sentence": "Keep the whole lighthouse in frame. It's night; don't brighten it.\nAs answered on 2026-11-22T00:00:56.000Z in post-interview, chat",
+      "sentence": "Keep the whole lighthouse in frame. It's night; don't brighten it.\nAs answered on 2026-11-24T00:00:56.000Z in post-interview, chat",
       "value": -64
     },
     {
       "gap": "vocabulary",
       "from": {
         "question": "post_composition",
-        "verbatim_sha256": "aeedade92914a5f7151d34e00753de4c353ca6f2aff53f384e2239d1e71b847b"
+        "verbatim_sha256": "ee5b9b8d180490bd58da5603946c51f1b60e04a3ad0270c42e1a60999288d757"
       },
       "source_path": "interview.post.items[post_composition].guide",
       "value_path": "interview.post.items[post_composition].guide.value[\"scene\"][\"background\"][\"rect\"][\"y\"]",
-      "sentence": "Keep the whole lighthouse in frame. It's night; don't brighten it.\nAs answered on 2026-11-22T00:00:56.000Z in post-interview, chat",
+      "sentence": "Keep the whole lighthouse in frame. It's night; don't brighten it.\nAs answered on 2026-11-24T00:00:56.000Z in post-interview, chat",
       "value": 0
     },
     {
       "gap": "vocabulary",
       "from": {
         "question": "post_composition",
-        "verbatim_sha256": "aeedade92914a5f7151d34e00753de4c353ca6f2aff53f384e2239d1e71b847b"
+        "verbatim_sha256": "ee5b9b8d180490bd58da5603946c51f1b60e04a3ad0270c42e1a60999288d757"
       },
       "source_path": "interview.post.items[post_composition].guide",
       "value_path": "interview.post.items[post_composition].guide.value[\"scene\"][\"background\"][\"rect\"][\"width\"]",
-      "sentence": "Keep the whole lighthouse in frame. It's night; don't brighten it.\nAs answered on 2026-11-22T00:00:56.000Z in post-interview, chat",
+      "sentence": "Keep the whole lighthouse in frame. It's night; don't brighten it.\nAs answered on 2026-11-24T00:00:56.000Z in post-interview, chat",
       "value": 128
     },
     {
       "gap": "vocabulary",
       "from": {
         "question": "post_composition",
-        "verbatim_sha256": "aeedade92914a5f7151d34e00753de4c353ca6f2aff53f384e2239d1e71b847b"
+        "verbatim_sha256": "ee5b9b8d180490bd58da5603946c51f1b60e04a3ad0270c42e1a60999288d757"
       },
       "source_path": "interview.post.items[post_composition].guide",
       "value_path": "interview.post.items[post_composition].guide.value[\"scene\"][\"background\"][\"rect\"][\"height\"]",
-      "sentence": "Keep the whole lighthouse in frame. It's night; don't brighten it.\nAs answered on 2026-11-22T00:00:56.000Z in post-interview, chat",
+      "sentence": "Keep the whole lighthouse in frame. It's night; don't brighten it.\nAs answered on 2026-11-24T00:00:56.000Z in post-interview, chat",
       "value": 128
     }
   ]

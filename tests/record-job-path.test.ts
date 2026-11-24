@@ -491,8 +491,33 @@ test.each([
     arr(project.versions).map(obj).find(version => version.n === 2)!.verdicts = [];
     writeFileSync(join(root, 'project.json'), JSON.stringify(project));
   }
-  // Exercise the reader's stage-mismatch refusal for an actually registered set.
-  if (stage === 'post-interview') await registerReask(root, 'motion', 'wrong-stage-motion');
+  // Exercise the reader's stage-mismatch refusal for a registered set already on disk, and the writer's refusal for a new write.
+  if (stage === 'post-interview') {
+    const item = collectItems(project, { collection: null }).find(item => item.id === 'motion')!;
+    const old = obj(obj(item.raw).choice).set as JsonObject;
+    const set = JSON.parse(readFileSync(join(root, String(old.path)), 'utf8')) as JsonObject;
+    set.id = 'wrong-stage-motion';
+    set.drafted_at = new Date(Date.now() - 1000).toISOString();
+    set.context = optionContext(project, 'rigging-interview', Date.now() - 1000, root);
+    const path = 'evidence/interview/wrong-stage-motion.json';
+    const bytes = Buffer.from(JSON.stringify(set, null, 2) + '\n');
+    writeFileSync(join(root, path), bytes);
+    await unchanged(root, ['interview-options', 'motion', root, '--file', path], 'INTERVIEW_CHOICE_INVALID',
+      [/interview\.waypoints\[motion\]\.pending_options/, /post-interview/, /rigging-interview/, ...remedies], ['rig-create interview-options']);
+    item.record.pending_options = { path, sha256: jobHash(bytes) };
+    writeFileSync(join(root, 'project.json'), JSON.stringify(project, null, 2) + '\n');
+  } else if (stage === 'rig-review') {
+    const item = collectItems(project, { collection: null }).find(item => item.id === 'motion')!;
+    const old = obj(obj(item.raw).choice).set as JsonObject;
+    const set = JSON.parse(readFileSync(join(root, String(old.path)), 'utf8')) as JsonObject;
+    set.id = 'rig-review-motion';
+    set.drafted_at = new Date(Date.now() - 1000).toISOString();
+    set.context = optionContext(project, 'rigging-interview', Date.now() - 1000, root);
+    const path = 'evidence/interview/rig-review-motion.json';
+    writeFileSync(join(root, path), JSON.stringify(set, null, 2) + '\n');
+    await unchanged(root, ['interview-options', 'motion', root, '--file', path], 'INTERVIEW_CHOICE_INVALID',
+      [/interview\.waypoints\[motion\]\.pending_options/, /rig-review/, /rigging-interview/, ...remedies], ['rig-create interview-options']);
+  }
   const args = ['job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner', '--question', 'motion'];
   const path = /project\.json\.interview\.waypoints\[motion\]\.pending_options/;
   await unchanged(root, args, 'JOB_RECORD_SUBJECT_INVALID', [path, ...remedies], stage === 'rigging-interview' ? [] : ['rig-create interview-options']);

@@ -33,9 +33,11 @@ const current=(p:JsonObject,q:string)=>collectItems(p,{collection:null}).find(i=
 function code(action:()=>unknown):string {try{action();return 'NO_REFUSAL';}catch(e){return (e as Refusal|ChoiceError).code;}}
 function working(question='motion'): {dir:string;set:JsonObject;path:string;hash:string} {
   const source=['rig_type','reference','assemble','seethrough'].includes(question);
+  const stage=source?'interview':'rigging-interview';
   const dir=fixture(p=>{
-    p.stage=source?'interview':'rigging-interview';p.versions=[];p.scenes=[];delete p.direction_contract;
-    retainSignoffs(p, s => stageIndex(String(obj(s).stage))<(source?stageIndex('interview'):stageIndex('rigging-interview')));
+    p.stage=stage;p.versions=[];p.scenes=[];delete p.direction_contract;
+    p.advances=arr(p.advances).filter(a=>stageIndex(String(obj(a).stage))<=stageIndex(stage));
+    retainSignoffs(p, s => stageIndex(String(obj(s).stage))<stageIndex(stage));
     for(const s of arr(obj(p.plan).steps).map(obj))if(source||!['seethrough','assemble'].includes(String(s.id)))s.status='pending';
     for(const item of arr(obj(obj(p.interview).post).items).map(obj))item.guide=null;
     if(source)for(const id of ['bones','meshes','constraints','turn','motion'])waypoint(p,id).guide=null;
@@ -144,7 +146,10 @@ test('#670 interview check warns on a decided answer and clears after a Review p
 
 test('#670 an earlier-stage set does not block the current rigging interview signoff', () => {
   const w = working('motion');
-  registerReask(w.dir, 'reference', 'test-reference-earlier-stage', testClock.now());
+  const p = load(w.dir);
+  const reference = current(p, 'reference');
+  reference.record.pending_options = structuredClone(obj(obj(reference.raw).choice).set);
+  save(w.dir, p);
   const next = () => nextProject(w.dir, testClock.now());
   const wordsFile = join(w.dir, 'approval.txt');
   writeFileSync(wordsFile, 'I approve the rigging interview.');
@@ -793,4 +798,58 @@ test('#828 an agent act under an owner host records the agent, so it refuses as 
   before = readFileSync(file);
   expect(code(() => reviewSignoff(w, 'agent-sign', testClock.iso(), 'I approve the interview.', { id: 'agent', role: 'owner' }))).toBe('SIGNOFF_NOT_HUMAN');
   expect(readFileSync(file)).toEqual(before);
+});
+
+test('#972 interview-options succeeds at the question interview stage and refuses past it with the stage remedy', () => {
+  const w = working('motion');
+  expect(current(load(w.dir), 'motion').record.pending_options).toEqual({ path: w.path, sha256: w.hash });
+
+  const draftMotion = (dir: string, id: string): string => {
+    const p = load(dir);
+    const original = obj(obj(current(p, 'motion').raw).choice).set as JsonObject;
+    const set = JSON.parse(readFileSync(join(dir, String(original.path)), 'utf8')) as JsonObject;
+    set.id = id;
+    set.drafted_at = new Date(riggingDraftAt).toISOString();
+    set.context = optionContext(p, 'rigging-interview', riggingDraftAt);
+    const path = `evidence/interview/${id}.json`;
+    writeFileSync(join(dir, path), JSON.stringify(set, null, 2) + '\n');
+    return path;
+  };
+
+  for (const [stage, token] of [
+    ['rig-review', 'rig-create review 2 --from-review'],
+    ['post-interview', 'rig-create interview --check'],
+  ] as const) {
+    const dir = fixture(p => {
+      p.stage = stage;
+      retainSignoffs(p, s => stageIndex(String(obj(s).stage)) < stageIndex(stage));
+      p.advances = arr(p.advances).filter(a => stageIndex(String(obj(a).stage)) <= stageIndex(stage));
+      p.versions = arr(p.versions).filter(v => obj(v).kind === 'rig');
+      delete p.direction_contract;
+      if (stage === 'rig-review') {
+        p.scenes = [];
+        for (const item of arr(obj(obj(p.interview).post).items).map(obj)) item.guide = null;
+        for (const step of arr(obj(p.plan).steps).map(obj)) if (step.phase === 'post') step.status = 'pending';
+        arr(p.versions).map(obj).find(v => v.n === 2)!.verdicts = [];
+      }
+    }, 'example-project.json');
+    const path = draftMotion(dir, `past-${stage}`);
+    const file = join(dir, 'project.json');
+    const before = readFileSync(file);
+    testClock.set(riggingDraftAt + 1_000);
+    let refused: Refusal | undefined;
+    try {
+      interviewOptionsCommand(['motion', dir, '--file', path]);
+    } catch (error) {
+      refused = error as Refusal;
+    }
+    expect(refused).toBeInstanceOf(Refusal);
+    expect(refused?.code).toBe('INTERVIEW_CHOICE_INVALID');
+    expect(refused?.message).toContain('interview.waypoints[motion].pending_options');
+    expect(refused?.message).toContain(stage);
+    expect(refused?.message).toContain('rigging-interview');
+    expect(refused?.message).toContain(token);
+    expect(refused?.message).not.toContain('rig-create interview-options');
+    expect(readFileSync(file)).toEqual(before);
+  }
 });

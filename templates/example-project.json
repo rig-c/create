@@ -3787,7 +3787,7 @@
     {
       "stage": "rigging-interview",
       "from_stage": "parts-review",
-      "at": "2026-11-24T00:00:41.000Z",
+      "at": "2026-11-24T00:00:37.000Z",
       "post_not_passed": false,
       "order": "split",
       "signoffs_before": [
@@ -4055,7 +4055,7 @@
     {
       "stage": "post-interview",
       "from_stage": "rig-review",
-      "at": "2026-11-24T00:00:54.000Z",
+      "at": "2026-11-24T00:00:51.000Z",
       "post_not_passed": false,
       "order": "split",
       "signoffs_before": [

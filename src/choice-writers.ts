@@ -9,13 +9,14 @@ import { assertActSubjectDeclared, decodeReviewAct, fetchReviewActBytes, intervi
 import { dirname, join, resolve } from 'node:path';
 import { isDeepStrictEqual as equal } from 'node:util';
 import { answered, asArray, checkProject, collectItems, collectSignoffs, isObject, loadCollection, collectionAnswer, type Item } from './check.ts';
-import { approvalStageOfGuide } from './stages.ts';
+import { approvalStageOfGuide, hasStageOrder, interviewStageOfGuide } from './stages.ts';
+import { optionPublicationRemedy, optionPublicationStage } from './job-publication.ts';
 import { collectReopens, liveSignoff } from './reopen.ts';
 import { readProject } from './feedback.ts';
 import { readVerbatim } from './record-input.ts';
 import { refuse, USAGE_EXIT } from './refusal.ts';
 import { baselineOf, findingKey, newFindings, stoppedEarly } from './refusal-baseline.ts';
-import { CHOICE_ORDER_SPEC, CHOICE_SPEC, ChoiceError, assembleFragments, choiceAdoption, choiceVerbatim, literalFile, optionFile, refusalBaseline, selection, sha256, validateChoice, validateContext, validateSet } from './choices.ts';
+import { CHOICE_ORDER_SPEC, CHOICE_SPEC, ChoiceError, assembleFragments, choiceAdoption, choiceVerbatim, literalFile, optionFile, pendingInterviewOptionsPath, refusalBaseline, selection, sha256, validateChoice, validateContext, validateSet } from './choices.ts';
 import type { Json, JsonObject } from './templates.ts';
 
 export const CHOICE_HELP = `interview-options <question> [<dir>] --file <retained project-relative JSON>
@@ -155,6 +156,11 @@ export function interviewOptionsCommand(args: string[], now: number): string { r
     try { binding = {path,sha256:sha256(readFileSync(literalFile(dir,path)))}; } catch (e) { throw new ChoiceError('INTERVIEW_OPTIONS_FILE',String(e)); }
     const {set} = optionFile(dir,binding); validateSet(next,item,set,loadCollection(dir)); validateContext(dir,next,set,now,true);
     if (choiceAdoption(next, item) === null) refuse('INTERVIEW_CHOICE_REQUIRED',`${item.path}: adopt choices before drafting a new question`);
+    const interview = item.path === 'intake.choice.answer' ? 'parts' : interviewStageOfGuide(item.id, item.kind === 'post', hasStageOrder(next));
+    const report = checkProject(dir, project, { now, readOnly: true, recordPublication: true });
+    if (report.effective_stage !== null && interview !== optionPublicationStage(project, report.effective_stage, now)) {
+      refuse('INTERVIEW_CHOICE_INVALID', `${pendingInterviewOptionsPath(item)}: cannot register options for ${interview} at effective stage ${report.effective_stage}; ${optionPublicationRemedy(dir, project, item, report.effective_stage, now)}`);
+    }
     // A retained path/id may never be reused with a different hash, even after answer replacement.
     for (const other of [...collectItems(next,{collection:loadCollection(dir)}), ...(item.path === 'intake.choice.answer' ? [item] : [])]) {
       const bindings = [other.record.pending_options, ...[other.raw,...asArray(other.record.history)].filter(isObject).map(a => isObject(a.choice) ? a.choice.set : undefined)];

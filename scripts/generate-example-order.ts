@@ -166,6 +166,7 @@ export function generateExampleOrder(dir: string): { project: JsonObject; files:
     '--component', 'p10-n3=in-painting:the synthetic painting deliberately differs here', '--component', 'p1000-n3=in-painting:the synthetic painting deliberately differs here',
     '--by', 'agent'], clock.now); reload();
   sign('parts-review', '2026-11-11T10:20:00Z', ['--draft', 'example', '--structure-file', 'evidence/structure-example.json']);
+  advanceCommand(['rigging-interview', dir], clock.now); reload();
   for (const w of arr(obj(p.interview).waypoints).map(obj)) {
     if (!['bones', 'meshes', 'constraints', 'motion'].includes(String(w.id))) continue;
     const old = arr(obj(original.interview).waypoints).map(obj).find(x => x.id === w.id);
@@ -174,7 +175,6 @@ export function generateExampleOrder(dir: string): { project: JsonObject; files:
     guide.at = exampleTime('2026-11-11T11:00:00Z'); guide.verbatim = `Synthetic ${String(w.id)} answer after viewing the approved parts and structure.`; w.guide = guide;
   }
   save(); Object.assign(files,writeExampleChoices(dir,'rigging-interview',clock)); reload();
-  advanceCommand(['rigging-interview', dir], clock.now); reload();
   reviewPlan('rig', '2026-11-11T11:05:00Z', ['bones', 'meshes', 'constraints', 'motion']);
   sign('rigging-interview', '2026-11-11T11:10:00Z');
   sign('rigging-interview', '2026-11-12T10:30:00Z', ['--steps', 'bones,constraints']);
@@ -203,10 +203,11 @@ export function generateExampleOrder(dir: string): { project: JsonObject; files:
   advanceCommand(['rig-review', dir], clock.now); reload();
   sign('rig-review', '2026-11-13T09:15:00Z', ['--version', '2']);
   p.versions = arr(original.versions).filter(v => obj(v).kind === 'rig');
-  obj(p.interview).post = structuredClone(obj(original.interview).post as Json);
   for (const s of arr(obj(p.plan).steps).map(obj)) s.status = s.phase === 'post' ? 'pending' : 'done';
-  save(); Object.assign(files,writeExampleChoices(dir,'post-interview',clock)); reload();
+  save();
   advanceCommand(['post-interview', dir], clock.now); reload();
+  obj(p.interview).post = structuredClone(obj(original.interview).post as Json);
+  save(); Object.assign(files,writeExampleChoices(dir,'post-interview',clock)); reload();
   reviewPlan('post', '2026-11-13T10:04:00Z');
   save(); sign('post-interview', '2026-11-13T10:30:00Z');
   // The plate bytes are producer-generated and registered through input add.

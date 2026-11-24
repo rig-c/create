@@ -55,6 +55,13 @@ function linkSourcePackages(baseDir: string): {
         mkdirSync(join(pkgTarget, 'src'), { recursive: true });
         writeFileSync(join(pkgTarget, 'src/index.ts'), "export * from '../dist/index.js';\nexport const PLAY_SOURCE_LINKED = true;\n");
       }
+      // Play 1.25.0 strips the checkout-only @rig-c/source condition from its published package.json; a linked checkout keeps it.
+      const manifestPath = join(pkgTarget, 'package.json');
+      const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
+      if (manifest.exports['.'][SOURCE_CONDITION] === undefined) {
+        manifest.exports['.'] = { [SOURCE_CONDITION]: './src/index.ts', ...manifest.exports['.'] };
+        writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+      }
       writeFileSync(
         join(pkgTarget, 'dist/index.js'),
         `${readFileSync(join(pkgTarget, 'dist/index.js'), 'utf8')}\n;(globalThis).__RIG_PLAY_LOADED_ENTRY ??= import.meta.path;\n`,

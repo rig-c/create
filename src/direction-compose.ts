@@ -225,9 +225,14 @@ export function validateComposeDirection(dir: string, project: JsonObject, doc: 
     }
     validateAgentPlateRegistration(dir, project, registered, snapshots);
     const compositions = citedValues(dir, project, doc, 'post_composition', current, snapshots).map(v => readComposeValue(v.compose, 'direction.citations.composition.value.compose'));
+    const take = doc.take as JsonObject;
     const idle = isObject(scene.animations) ? scene.animations.idle : undefined;
+    if (!isObject(idle)) {
+      directionFail('DIRECTION_COMPOSE_CHOICE_MISMATCH', `${paths.scene}.animations.idle`,
+        `declare the scene idle with the take duration and cited idle tracks, then compose again. For an empty-track take, write "animations": {"idle": {"duration": ${take.duration}, "tracks": []}}`);
+    }
     const matching = compositions.filter(v => equal(v.canvas, scene.canvas) && equal(v.plates, plates.map(p => ({ name: p.name!, image: p.image!, at: p.at!, ...(p.opaque_backdrop === undefined ? {} : { opaque_backdrop: p.opaque_backdrop }) })))
-      && equal(v.order, scene.order) && isObject(idle) && equal(v.idle_tracks, idle.tracks));
+      && equal(v.order, scene.order) && equal(v.idle_tracks, idle.tracks));
     const value = matching.find(v => equal(v.character, { offset: character.offset!, ...(character.scale === undefined ? {} : { scale: character.scale }) }));
     // A unique citation with the rest of the scene intact still identifies the intended shift.
     const cited = value ?? (matching.length === 1 ? matching[0] : undefined);
@@ -252,11 +257,10 @@ export function validateComposeDirection(dir: string, project: JsonObject, doc: 
     }
     const stage = { x: -value.canvas.width / 2, y: 0, width: value.canvas.width, height: value.canvas.height };
     if (!equal(model.stage, stage)) directionFail('DIRECTION_COMPOSE_PLACEMENT', 'direction.model', 'published model stage must equal the cited canvas (root at bottom centre)');
-    const take = doc.take as JsonObject;
     const timing = citedValues(dir, project, doc, 'post_timing', current, snapshots);
     if (take.loop !== true || !timing.some(v => v.loop === true)) directionFail('DIRECTION_COMPOSE_LOOP', 'direction.take.loop', 'take.loop and the cited post_timing.value.loop must both be true; compose green proves closure');
     const animation = objects(model.animations).filter(a => a.name === 'idle');
-    if (animation.length !== 1 || animation[0]!.duration !== take.duration || !isObject(idle) || idle.duration !== take.duration
+    if (animation.length !== 1 || animation[0]!.duration !== take.duration || idle.duration !== take.duration
       || (value.idle_tracks.length > 0 && value.end !== take.duration) || !timing.some(v => v.seconds === take.duration && v.loop === true)) {
       directionFail('DIRECTION_COMPOSE_DURATION', 'direction.take.duration', 'match the scene idle duration, compiled idle duration, cited timing seconds and, when tracks are present, the compose track end');
     }

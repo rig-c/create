@@ -98,6 +98,30 @@ test('DIRECTION_COMPOSE_CHOICE_MISMATCH refuses a scene without animations for a
   f.put('compose.scene.json', f.scene);
   f.run = composeRunFixture(f.dir, f.load(), 1, f.scene);
   saveRun(f);
+  rejected(f, 'DIRECTION_COMPOSE_CHOICE_MISMATCH', () => {
+    try {
+      return f.publish();
+    } catch (error) {
+      expect(error).toMatchObject({
+        message: expect.stringContaining('"animations": {"idle": {"duration": 4, "tracks": []}}'),
+      });
+      throw error;
+    }
+  });
+});
+
+test.each([
+  { citation: 'empty', emptyTracks: true },
+  { citation: 'nonempty', emptyTracks: false },
+])('DIRECTION_COMPOSE_CHOICE_MISMATCH refuses a track present on only one side with a $citation citation', ({ emptyTracks }) => {
+  const f = fixture(undefined, emptyTracks);
+  const tracks = emptyTracks
+    ? [{ bone: 'back', property: 'translate', keys: [{ t: 0, v: [0, 0] }, { t: 4, v: [0, 0] }] }]
+    : [];
+  f.scene.animations = { idle: { duration: 4, tracks } };
+  f.put('compose.scene.json', f.scene);
+  f.run = composeRunFixture(f.dir, f.load(), 1, f.scene);
+  saveRun(f);
   rejected(f, 'DIRECTION_COMPOSE_CHOICE_MISMATCH');
 });
 

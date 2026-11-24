@@ -160,7 +160,9 @@ export function composeInventory(project: JsonObject, doc: JsonObject): JsonObje
   return rows;
 }
 
-export function validateComposeDirection(dir: string, project: JsonObject, doc: JsonObject, current = false, snapshots?: Map<string, Buffer>, pendingInventory?: JsonObject[]): void {
+export function validateComposeDirection(dir: string, project: JsonObject, doc: JsonObject, {
+  current = false, currentCitations = current, snapshots, pendingInventory,
+}: { current?: boolean; currentCitations?: boolean; snapshots?: Map<string, Buffer>; pendingInventory?: JsonObject[] } = {}): void {
   try {
     validateComposeDirectionShape(doc);
     const rig = doc.rig as JsonObject;
@@ -224,7 +226,11 @@ export function validateComposeDirection(dir: string, project: JsonObject, doc: 
       if (rp.name !== plate.name || rp.image !== plate.image || !equal(rp.at, plate.at) || (rp.opaque_backdrop ?? false) !== (plate.opaque_backdrop ?? false) || rp.sha256 !== binding.sha256) directionFail('DIRECTION_COMPOSE_PLACEMENT', paths.report, 'plate report must bind the declared image bytes and placement');
     }
     validateAgentPlateRegistration(dir, project, registered, snapshots);
-    const compositions = citedValues(dir, project, doc, 'post_composition', current, snapshots).map(v => readComposeValue(v.compose, 'direction.citations.composition.value.compose'));
+    const compositionAnswers = citedValues(dir, project, doc, 'post_composition', currentCitations, snapshots);
+    // The same words can also match an older scene-only choice.
+    const composeAnswers = compositionAnswers.filter(value => value.compose !== undefined);
+    const compositions = (composeAnswers.length ? composeAnswers : compositionAnswers)
+      .map(value => readComposeValue(value.compose, 'direction.citations.composition.value.compose'));
     const take = doc.take as JsonObject;
     const idle = isObject(scene.animations) ? scene.animations.idle : undefined;
     if (!isObject(idle)) {
@@ -257,7 +263,7 @@ export function validateComposeDirection(dir: string, project: JsonObject, doc: 
     }
     const stage = { x: -value.canvas.width / 2, y: 0, width: value.canvas.width, height: value.canvas.height };
     if (!equal(model.stage, stage)) directionFail('DIRECTION_COMPOSE_PLACEMENT', 'direction.model', 'published model stage must equal the cited canvas (root at bottom centre)');
-    const timing = citedValues(dir, project, doc, 'post_timing', current, snapshots);
+    const timing = citedValues(dir, project, doc, 'post_timing', currentCitations, snapshots);
     if (take.loop !== true || !timing.some(v => v.loop === true)) directionFail('DIRECTION_COMPOSE_LOOP', 'direction.take.loop', 'take.loop and the cited post_timing.value.loop must both be true; compose green proves closure');
     const animation = objects(model.animations).filter(a => a.name === 'idle');
     if (animation.length !== 1 || animation[0]!.duration !== take.duration || idle.duration !== take.duration

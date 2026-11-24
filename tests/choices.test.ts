@@ -33,11 +33,9 @@ const current=(p:JsonObject,q:string)=>collectItems(p,{collection:null}).find(i=
 function code(action:()=>unknown):string {try{action();return 'NO_REFUSAL';}catch(e){return (e as Refusal|ChoiceError).code;}}
 function working(question='motion'): {dir:string;set:JsonObject;path:string;hash:string} {
   const source=['rig_type','reference','assemble','seethrough'].includes(question);
-  const stage=source?'interview':'rigging-interview';
   const dir=fixture(p=>{
-    p.stage=stage;p.versions=[];p.scenes=[];delete p.direction_contract;
-    p.advances=arr(p.advances).filter(a=>stageIndex(String(obj(a).stage))<=stageIndex(stage));
-    retainSignoffs(p, s => stageIndex(String(obj(s).stage))<stageIndex(stage));
+    p.stage=source?'interview':'rigging-interview';p.versions=[];p.scenes=[];delete p.direction_contract;
+    retainSignoffs(p, s => stageIndex(String(obj(s).stage))<(source?stageIndex('interview'):stageIndex('rigging-interview')));
     for(const s of arr(obj(p.plan).steps).map(obj))if(source||!['seethrough','assemble'].includes(String(s.id)))s.status='pending';
     for(const item of arr(obj(obj(p.interview).post).items).map(obj))item.guide=null;
     if(source)for(const id of ['bones','meshes','constraints','turn','motion'])waypoint(p,id).guide=null;
@@ -800,11 +798,11 @@ test('#828 an agent act under an owner host records the agent, so it refuses as 
   expect(readFileSync(file)).toEqual(before);
 });
 
-test('#972 interview-options succeeds at the question interview stage and refuses past it with the stage remedy', () => {
+test('#972 interview-options succeeds at or before the question interview stage and refuses past it with the stage remedy', () => {
   const w = working('motion');
   expect(current(load(w.dir), 'motion').record.pending_options).toEqual({ path: w.path, sha256: w.hash });
 
-  const draftMotion = (dir: string, id: string): string => {
+  const draftMotion = (dir: string, id: string): { path: string; hash: string } => {
     const p = load(dir);
     const original = obj(obj(current(p, 'motion').raw).choice).set as JsonObject;
     const set = JSON.parse(readFileSync(join(dir, String(original.path)), 'utf8')) as JsonObject;
@@ -812,9 +810,25 @@ test('#972 interview-options succeeds at the question interview stage and refuse
     set.drafted_at = new Date(riggingDraftAt).toISOString();
     set.context = optionContext(p, 'rigging-interview', riggingDraftAt);
     const path = `evidence/interview/${id}.json`;
-    writeFileSync(join(dir, path), JSON.stringify(set, null, 2) + '\n');
-    return path;
+    const bytes = JSON.stringify(set, null, 2) + '\n';
+    writeFileSync(join(dir, path), bytes);
+    return { path, hash: sha256(Buffer.from(bytes)) };
   };
+
+  // Earlier stage (parts-review < rigging-interview) registers and writes pending_options.
+  const earlierDir = fixture(p => {
+    p.stage = 'parts-review';
+    retainSignoffs(p, s => stageIndex(String(obj(s).stage)) <= stageIndex('parts-review'));
+    p.advances = arr(p.advances).filter(a => stageIndex(String(obj(a).stage)) <= stageIndex('parts-review'));
+    p.versions = []; p.scenes = [];
+    delete p.direction_contract;
+    for (const item of arr(obj(obj(p.interview).post).items).map(obj)) item.guide = null;
+    for (const step of arr(obj(p.plan).steps).map(obj)) if (!['seethrough', 'assemble'].includes(String(step.id))) step.status = 'pending';
+  }, 'example-project.json');
+  const earlierSet = draftMotion(earlierDir, 'earlier-parts-review');
+  testClock.set(riggingDraftAt + 1_000);
+  interviewOptionsCommand(['motion', earlierDir, '--file', earlierSet.path]);
+  expect(current(load(earlierDir), 'motion').record.pending_options).toEqual({ path: earlierSet.path, sha256: earlierSet.hash });
 
   for (const [stage, token] of [
     ['rig-review', 'rig-create review 2 --from-review'],
@@ -833,7 +847,7 @@ test('#972 interview-options succeeds at the question interview stage and refuse
         arr(p.versions).map(obj).find(v => v.n === 2)!.verdicts = [];
       }
     }, 'example-project.json');
-    const path = draftMotion(dir, `past-${stage}`);
+    const { path } = draftMotion(dir, `past-${stage}`);
     const file = join(dir, 'project.json');
     const before = readFileSync(file);
     testClock.set(riggingDraftAt + 1_000);

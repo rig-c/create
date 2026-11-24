@@ -9,7 +9,7 @@ import { assertActSubjectDeclared, decodeReviewAct, fetchReviewActBytes, intervi
 import { dirname, join, resolve } from 'node:path';
 import { isDeepStrictEqual as equal } from 'node:util';
 import { answered, asArray, checkProject, collectItems, collectSignoffs, isObject, loadCollection, collectionAnswer, type Item } from './check.ts';
-import { approvalStageOfGuide, hasStageOrder, interviewStageOfGuide } from './stages.ts';
+import { approvalStageOfGuide, hasStageOrder, interviewStageOfGuide, stageIndex } from './stages.ts';
 import { optionPublicationRemedy, optionPublicationStage } from './job-publication.ts';
 import { collectReopens, liveSignoff } from './reopen.ts';
 import { readProject } from './feedback.ts';
@@ -158,7 +158,8 @@ export function interviewOptionsCommand(args: string[], now: number): string { r
     if (choiceAdoption(next, item) === null) refuse('INTERVIEW_CHOICE_REQUIRED',`${item.path}: adopt choices before drafting a new question`);
     const interview = item.path === 'intake.choice.answer' ? 'parts' : interviewStageOfGuide(item.id, item.kind === 'post', hasStageOrder(next));
     const report = checkProject(dir, project, { now, readOnly: true, recordPublication: true });
-    if (report.effective_stage !== null && interview !== optionPublicationStage(project, report.effective_stage, now)) {
+    const pub = optionPublicationStage(project, report.effective_stage, now);
+    if (pub !== null && stageIndex(pub) > stageIndex(interview)) {
       refuse('INTERVIEW_CHOICE_INVALID', `${pendingInterviewOptionsPath(item)}: cannot register options for ${interview} at effective stage ${report.effective_stage}; ${optionPublicationRemedy(dir, project, item, report.effective_stage, now)}`);
     }
     // A retained path/id may never be reused with a different hash, even after answer replacement.

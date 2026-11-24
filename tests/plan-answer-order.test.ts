@@ -475,22 +475,15 @@ test('#561 job open refuses a stale step covered by a post-interview re-sign at 
   expect(amendCommand(['post', root, '--kind', 'interview-answer', '--target', basis,
     '--change', 'words.txt', '--by', 'user', ...ownerChatArgs(words)], testClock.now()).exit).toBe(0);
   const register = (question: string) => {
-    const current = read(root);
-    const original = obj(obj(obj(postItem(current, question).guide).choice).set);
+    const original = obj(obj(obj(postItem(read(root), question).guide).choice).set);
     const options = JSON.parse(readFileSync(join(root, String(original.path)), 'utf8')) as JsonObject;
     options.id = `${question}-resign-amendment`;
     options.drafted_at = testClock.iso();
     const path = `evidence/interview/${String(options.id)}.json`;
     const bytes = JSON.stringify(options);
     writeFileSync(join(root, path), bytes);
-    const sha = createHash('sha256').update(bytes).digest('hex');
-    expect(() => interviewOptionsCommand([question, root, '--file', path], testClock.now())).toThrow(expect.objectContaining({
-      code: 'INTERVIEW_CHOICE_INVALID',
-      message: expect.stringContaining(`interview.post.items[${question}].pending_options`),
-    }));
-    postItem(current, question).pending_options = { path, sha256: sha };
-    write(root, current);
-    return (pick: string) => interviewAnswerCommand([question, root, '--set', path, '--sha256', sha,
+    interviewOptionsCommand([question, root, '--file', path], testClock.now());
+    return (pick: string) => interviewAnswerCommand([question, root, '--set', path, '--sha256', createHash('sha256').update(bytes).digest('hex'),
       '--by', 'user', ...ownerChatArgs(words), ...arr(options.asks).flatMap(ask => ['--pick', `${String(obj(ask).id)}=${pick}`])], testClock.now());
   };
   const correctCamera = register(basis);

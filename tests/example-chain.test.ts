@@ -523,17 +523,9 @@ test.each([
     const path = 'evidence/interview/synthetic-correction.json';
     const bytes = JSON.stringify(set);
     writeFileSync(join(dir, path), bytes);
+    interviewOptionsCommand([question, dir, '--file', path]);
     const words = join(dir, 'approval.txt');
     writeFileSync(words, 'Keep the shown options in the corrected record.');
-    expect(() => interviewOptionsCommand([question, dir, '--file', path])).toThrow(expect.objectContaining({
-      code: 'INTERVIEW_CHOICE_INVALID',
-      message: expect.stringContaining(`${question === 'rig_type' ? 'interview.framing[rig_type]' : 'interview.waypoints[assemble]'}.pending_options`),
-    }));
-    const rawProject = JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')) as JsonObject;
-    collectItems(rawProject, { collection: null }).find(entry => entry.id === question)!.record.pending_options = {
-      path, sha256: sha256(Buffer.from(bytes)),
-    };
-    writeFileSync(join(dir, 'project.json'), JSON.stringify(rawProject, null, 2) + '\n');
     const picks = (set.asks as JsonObject[]).flatMap(ask => ['--pick', `${String(ask.id)}=keep`]);
     const args = [question, dir, '--set', path, '--sha256', sha256(Buffer.from(bytes)), '--by', 'user',
       ...picks, ...ownerChatArgs(words)];

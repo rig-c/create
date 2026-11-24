@@ -491,7 +491,7 @@ test.each([
     arr(project.versions).map(obj).find(version => version.n === 2)!.verdicts = [];
     writeFileSync(join(root, 'project.json'), JSON.stringify(project));
   }
-  // Exercise the reader's stage-mismatch refusal for a registered set already on disk, and the writer's refusal for a new write.
+  // Exercise the reader's stage-mismatch refusal for a registered set already on disk.
   if (stage === 'post-interview') {
     const item = collectItems(project, { collection: null }).find(item => item.id === 'motion')!;
     const old = obj(obj(item.raw).choice).set as JsonObject;
@@ -502,26 +502,40 @@ test.each([
     const path = 'evidence/interview/wrong-stage-motion.json';
     const bytes = Buffer.from(JSON.stringify(set, null, 2) + '\n');
     writeFileSync(join(root, path), bytes);
-    await unchanged(root, ['interview-options', 'motion', root, '--file', path], 'INTERVIEW_CHOICE_INVALID',
-      [/interview\.waypoints\[motion\]\.pending_options/, /post-interview/, /rigging-interview/, ...remedies], ['rig-create interview-options']);
     item.record.pending_options = { path, sha256: jobHash(bytes) };
     writeFileSync(join(root, 'project.json'), JSON.stringify(project, null, 2) + '\n');
-  } else if (stage === 'rig-review') {
-    const item = collectItems(project, { collection: null }).find(item => item.id === 'motion')!;
-    const old = obj(obj(item.raw).choice).set as JsonObject;
-    const set = JSON.parse(readFileSync(join(root, String(old.path)), 'utf8')) as JsonObject;
-    set.id = 'rig-review-motion';
-    set.drafted_at = new Date(Date.now() - 1000).toISOString();
-    set.context = optionContext(project, 'rigging-interview', Date.now() - 1000, root);
-    const path = 'evidence/interview/rig-review-motion.json';
-    writeFileSync(join(root, path), JSON.stringify(set, null, 2) + '\n');
-    await unchanged(root, ['interview-options', 'motion', root, '--file', path], 'INTERVIEW_CHOICE_INVALID',
-      [/interview\.waypoints\[motion\]\.pending_options/, /rig-review/, /rigging-interview/, ...remedies], ['rig-create interview-options']);
   }
   const args = ['job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner', '--question', 'motion'];
   const path = /project\.json\.interview\.waypoints\[motion\]\.pending_options/;
   await unchanged(root, args, 'JOB_RECORD_SUBJECT_INVALID', [path, ...remedies], stage === 'rigging-interview' ? [] : ['rig-create interview-options']);
   expect(readWriterBinding(root)).toBeNull();
+}, 15_000);
+
+test('#972 interview-options CLI registers at or before the question interview stage and refuses past it', async () => {
+  const draftSet = (root: string, id: string) => {
+    const project = read(root);
+    const item = collectItems(project, { collection: null }).find(entry => entry.id === 'motion')!;
+    const old = obj(obj(item.raw).choice).set as JsonObject;
+    const set = JSON.parse(readFileSync(join(root, String(old.path)), 'utf8')) as JsonObject;
+    set.id = id;
+    set.drafted_at = new Date(Date.now() - 1000).toISOString();
+    set.context = optionContext(project, 'rigging-interview', Date.now() - 1000, root);
+    const path = `evidence/interview/${id}.json`;
+    writeFileSync(join(root, path), JSON.stringify(set, null, 2) + '\n');
+    return path;
+  };
+  for (const stage of ['parts-review', 'rigging-interview'] as const) {
+    const root = synthetic(stage);
+    const path = draftSet(root, `cli-${stage}`);
+    const registered = await cli(root, ['interview-options', 'motion', root, '--file', path]);
+    expect(registered.exit, registered.stderr).toBe(0);
+    expect(collectItems(read(root), { collection: null }).find(entry => entry.id === 'motion')?.record.pending_options).toMatchObject({ path });
+  }
+  const root = synthetic('post-interview');
+  const path = draftSet(root, 'cli-post-interview');
+  await unchanged(root, ['interview-options', 'motion', root, '--file', path], 'INTERVIEW_CHOICE_INVALID',
+    [/interview\.waypoints\[motion\]\.pending_options/, /post-interview/, /rigging-interview/, /rig-create interview --check .* --json/],
+    ['rig-create interview-options']);
 }, 15_000);
 
 test.each([true, false])('#969 post answer remedy with a live direction bounce = %s', async bounced => {

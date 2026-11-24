@@ -1744,12 +1744,7 @@ test('#561 tower shows rig repair at post-interview and gates only covered appro
   const path = String(set.path);
   const words = join(dir, 'correction.txt');
   writeFileSync(words, 'Use the synthetic alternate chains, placement, and length.');
-  expect(runMainCapture(['interview-options', 'bones', dir, '--file', path], now)).toMatchObject({
-    code: 1,
-    stderr: expect.stringContaining('INTERVIEW_CHOICE_INVALID: interview.waypoints[bones].pending_options'),
-  });
-  waypoint(project, 'bones').pending_options = structuredClone(set);
-  writeFileSync(file, JSON.stringify(project));
+  expect(runMainCapture(['interview-options', 'bones', dir, '--file', path], now)).toMatchObject({ code: 0, stderr: '' });
   const picks = arr(obj(guide.choice).picks).flatMap(pick => ['--pick', `${String(obj(pick).ask)}=alternative`]);
   expect(runMainCapture(['interview-answer', 'bones', dir, '--set', path, '--sha256', String(set.sha256), '--by', 'user',
     ...ownerChatArgs(words, answeredAt), ...picks], now + 1000)).toMatchObject({ code: 0, stderr: '' });

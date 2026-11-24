@@ -919,10 +919,9 @@ as `pending_options`; it never rewrites the option file. Answer flags include
 repeatable `--other <ask>=<text file>` and optional
 `--other-fragment <ask>=<JSON file>`, plus `--note-file` and `--source`.
 The decision writer supplies exactly the auto fragments. A fresh option set
-registers only at the question's open interview stage; on a live direction
-bounce, that includes post questions at `direction-review`. Past the interview
-stage, the `interview-options` refusal names the route that works there: at
-`rig-review`, a fresh changes-requested verdict routed with
+registers at or before the question's interview stage (including post questions
+at `direction-review` on a live direction bounce); past it, the refusal names
+the route: at `rig-review`, a fresh changes-requested verdict routed with
 `review <n> --from-review <act> --item <id>:not-asked`, and elsewhere the
 amendment route (`amend <stage> --kind interview-answer`). Check reports the
 signoffs whose answer hashes are stale, and `next` offers the corresponding

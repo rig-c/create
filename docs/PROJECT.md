@@ -2667,12 +2667,35 @@ words, the time they said them and the operator relaying them. The legacy
 Restart writes the record `init` writes, with
 no versions, drafts, signoffs, plan, answers or review acts. It keeps the name,
 title, `owner`, `painting`, `same_artwork`, `inputs[]` and `fix_ledger` with every row, and appends
-`restarts[] { at, by, reason, previous_record_sha256, source, said_at, relayed_by }`.
+`restarts[] { at, by, reason, previous_record_sha256, source, said_at, relayed_by, dropped_additions }`.
 The owner's exact words populate `reason`. create does not keep
 the earlier `project.json`; git history holds it, so restart refuses before it
 writes unless `project.json` is committed: tracked and byte-identical to its
 version at HEAD. create's writers don't commit, so commit `project.json`, then
-restart. Before writing, restart also re-validates every input with the input writer's checks. A kept part set
+restart.
+
+Restart prints how many free-text answer additions it drops and lists each
+one's path and source. Each `dropped_additions` row gives the item, path in
+the earlier record (including answer history), source, author (`by`),
+timestamp (`at`), optional `review_act` and SHA-256 of the exact UTF-8
+words (`verbatim_sha256`). Missing source, author or timestamp is recorded as
+`null`. In JSON mode, stdout is the restart entry, including these rows.
+Use `previous_record_sha256` and the row path to locate the words in the
+committed record. Earlier restart entries may omit the list.
+
+To recover words on a restarted project with a new live rig at `rig-review`,
+open that rig with `rig-create job open <dir> --rig <n> --reviewer <owner> --role owner`.
+Have the owner request changes in Review and include the exact words as the
+single page-level comment. Collect the act with `rig-create job acts <dir> --wait`
+and record it with
+`rig-create review <n> <dir> --from-review <actId> --item <id>:not-asked`.
+Open the updated plan with `rig-create job open <dir> --plan --reviewer <owner> --role owner`,
+have the owner approve it in Review, then collect the sign-off with
+`rig-create job acts <dir> --wait` and ingest it with
+`rig-create signoff rigging-interview <dir> --from-review <signoffActId>`.
+Run `rig-create interview --check <dir> --json` before citing the new addition.
+
+Before writing, restart also re-validates every input with the input writer's checks. A kept part set
 (inputs under `<set>/parts/*.png` or `<set>/parts.json`) must keep its
 `parts.json`, its PNGs and its rig (`rig.json` and `mesh_report.json`). The
 first draft after a restart has no predecessor, but it covers the whole

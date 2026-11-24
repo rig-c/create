@@ -109,7 +109,7 @@ function reviewPackageIdentity(version: number, row: JsonObject) {
   return { path: `derived/review/v${version}/${String(row.path)}`, sha256: row.sha256 };
 }
 
-/** The parts the check loads: its name and version, and that version's integrity from the lockfile beside its install. */
+/** The parts the check loads: its name and version, and its integrity from the governing lockfiles. */
 export interface RecordPartsIdentity { readonly name: string; readonly version: string; readonly integrity: string }
 
 type OptionSetRef = Pick<RecordPicksSubject, 'questionId' | 'setId'>;
@@ -215,27 +215,28 @@ export class RecordClosureIncomplete extends Refusal {
   }
 }
 
-/** The lockfile entries for parts beside `base/node_modules`: bun.lock and package-lock.json, each one that exists. */
-function lockedParts(base: string): { file: string; version: unknown; integrity: unknown }[] {
+/** Read each lockfile present at this root, using the actual path to the selected install. */
+function lockedParts(base: string, installed: string): { file: string; version: unknown; integrity: unknown }[] {
   const entries: { file: string; version: unknown; integrity: unknown }[] = [];
+  const installPath = relative(base, installed).split(sep).join('/');
   const bun = join(base, 'bun.lock');
   if (existsSync(bun)) {
     let raw: unknown;
     try { raw = Bun.JSONC.parse(readFileSync(bun, 'utf8')); } catch { raw = undefined; }
-    entries.push({ file: 'bun.lock', ...lockedPackage(raw, 'bun-lock', PARTS_PACKAGE) });
+    entries.push({ file: 'bun.lock', ...lockedPackage(raw, 'bun-lock', PARTS_PACKAGE, installPath) });
   }
   const npm = join(base, 'package-lock.json');
   if (existsSync(npm)) {
     let raw: unknown;
     try { raw = JSON.parse(readFileSync(npm, 'utf8')); } catch { raw = undefined; }
-    entries.push({ file: 'package-lock.json', ...lockedPackage(raw, 'npm-lock-v3', PARTS_PACKAGE) });
+    entries.push({ file: 'package-lock.json', ...lockedPackage(raw, 'npm-lock-v3', PARTS_PACKAGE, installPath) });
   }
   return entries;
 }
 
 /**
  * The identity of the parts `checkProject(dir)` loads (`locateParts`): the installed version and the
- * integrity every lockfile beside that install records for it. Never the version alone.
+ * integrity every lockfile in the nearest enclosing lockfile root records for that install.
  */
 export function loadedPartsIdentity(dir: string, who: 'project' | 'host'): RecordPartsIdentity {
   const missing = (why: string): never => refuse('JOB_RECORD_PARTS_LOCK_MISSING', `project.json: the ${who}'s ${PARTS_PACKAGE} ${why}; install it from a lockfile that records its integrity and publish again`);
@@ -244,12 +245,16 @@ export function loadedPartsIdentity(dir: string, who: 'project' | 'host'): Recor
   let version: unknown;
   try { version = (JSON.parse(readFileSync(join(installed, 'package.json'), 'utf8')) as { version?: unknown }).version; } catch { version = undefined; }
   if (typeof version !== 'string') return missing(`at ${installed} has no readable version`);
-  const base = dirname(dirname(dirname(installed)));
-  const entries = lockedParts(base);
-  if (!entries.length) return missing(`${version} has no lockfile beside its install`);
+  let base = dirname(dirname(dirname(resolve(installed))));
+  let entries = lockedParts(base, installed);
+  while (!entries.length && dirname(base) !== base) {
+    base = dirname(base);
+    entries = lockedParts(base, installed);
+  }
+  if (!entries.length) return missing(`${version} has no lockfile governing its install`);
   const integrities = new Set<string>();
   for (const entry of entries) {
-    if (entry.version !== version || typeof entry.integrity !== 'string' || !/^sha(256|384|512)-/.test(entry.integrity)) {
+    if (entry.version !== version || typeof entry.integrity !== 'string' || !/^sha(?:256|384|512)-\S+$/.test(entry.integrity)) {
       return missing(`${version} has no matching ${entry.file} entry with an integrity`);
     }
     integrities.add(entry.integrity);

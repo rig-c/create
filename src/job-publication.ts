@@ -38,7 +38,7 @@ import { recordDirectionTarget, requireRecordDirectionTarget } from './record-di
 import { latestPartsApproval, previousPartsApproval, retainedJson } from './structure.ts';
 import { partsStructureSnapshot, shellWord } from './job-acts.ts';
 import { jobHash, pendingPublications, isRecordResult, type JobIdentity } from './job-outbox.ts';
-import { PLAN_BOUND_SIGNOFF_STAGES } from './review-act.ts';
+import { decodeReviewAct, PLAN_BOUND_SIGNOFF_STAGES, retainedActBy, reviewActVerdict } from './review-act.ts';
 import { Refusal, refuse } from './refusal.ts';
 import { lockedPackage } from './toolchain-lock.ts';
 import type { Json, JsonObject } from './templates.ts';
@@ -789,6 +789,43 @@ export function prepareLiveManifest(root: string, project: JsonObject, n: number
   return path;
 }
 
+// Review main implements the field before its package version moves. Use its
+// public error catalogue to detect the contract in source and registry builds.
+const reviewJobErrors: readonly string[] = reviewJobHost.JOB_ERROR_CODES;
+const supportsAnsweredDirectionFeedback = reviewJobErrors.includes('JOB_ANSWERED_DIRECTION_FEEDBACK_INVALID');
+
+function answeredDirectionFeedbackContext(project: JsonObject, postVersion: number) {
+  const jobId = isObject(project.review_job) ? project.review_job.jobId : undefined;
+  if (!supportsAnsweredDirectionFeedback || typeof jobId !== 'string' || !jobId) return {};
+
+  const versions = asArray(project.versions).filter(isObject);
+  const post = versions.find(version => version.n === postVersion);
+  const receipts = asArray(project.review_acts).filter(isObject);
+  const answeredDirectionFeedback = asArray(post?.answers_feedback).filter(isObject).flatMap(ref => {
+    if (typeof ref.version !== 'number' || ref.version >= postVersion || typeof ref.verdict !== 'number') return [];
+    const earlier = versions.find(version => version.n === ref.version && version.kind === 'post');
+    const verdict = asArray(earlier?.verdicts)[ref.verdict];
+    if (!isObject(verdict) || verdict.review !== 'direction-review' || verdict.verdict !== 'bounced') return [];
+
+    const matches = receipts.filter(row => row.schema === 'rig-create/review-act@1' && row.kind === undefined
+      && row.version === ref.version && row.verdict === ref.verdict);
+    const receipt = matches[0];
+    if (matches.length !== 1 || receipt.jobId !== jobId || typeof receipt.actId !== 'string'
+      || typeof receipt.bytes !== 'string' || jobHash(receipt.bytes) !== receipt.sha256) return [];
+    try {
+      const act = decodeReviewAct(receipt.bytes);
+      if (act.jobId !== jobId || act.actId !== receipt.actId || act.source.selector?.kind !== 'post'
+        || act.source.selector.version !== ref.version
+        || !isDeepStrictEqual(verdict, reviewActVerdict(act, retainedActBy(act, verdict.by)))) return [];
+      return [{ jobId, actId: act.actId }];
+    } catch (error) {
+      if (!(error instanceof Refusal)) throw error;
+      return [];
+    }
+  });
+  return answeredDirectionFeedback.length ? { answeredDirectionFeedback } : {};
+}
+
 /** Actual public create read contract, called only under the writer's freeze. */
 export const readPublished: JobPublicationReader = async ({ root, record, result }): Promise<JobPublishedContext> => {
   const bytes = publicationFile(root, record.path);
@@ -801,6 +838,7 @@ export const readPublished: JobPublicationReader = async ({ root, record, result
   if (!isDeepStrictEqual(selector, result.selector) || result.path !== liveManifestPath(root, project, selector.version)) {
     refuse('JOB_PUBLICATION_INVALID', 'project.json: publication result differs from its recorded version; restore the writer result');
   }
+  const answered = selector.kind === 'post' ? answeredDirectionFeedbackContext(project, selector.version) : {};
   if (selector.kind === 'post') {
     const directionPath = `evidence/direction/v${selector.version}.json`;
     let raw: JsonObject | undefined;
@@ -810,7 +848,7 @@ export const readPublished: JobPublicationReader = async ({ root, record, result
       files.push({ path: directionPath, sha256: jobHash(publicationFile(root, directionPath)) }, { path: result.path, sha256: jobHash(publicationFile(root, result.path)) });
       const steps = isObject(project.plan) ? asArray(project.plan.steps).filter(isObject) : [];
       return { selector, plan: { steps: steps.map(step => ({ id: String(step.id), hash: stepHash(step) })) }, parts: null,
-        subjects: livePublicationSubjects(root, project, selector), partIds: [], files };
+        subjects: livePublicationSubjects(root, project, selector), partIds: [], files, ...answered };
     }
   }
   const rig = selector.kind === 'post' ? selector.rigVersion : selector.version;
@@ -869,7 +907,7 @@ export const readPublished: JobPublicationReader = async ({ root, record, result
     parts: { enumeratorVersion: partsEnumerator.version, manifest: { path: manifestPath, sha256: jobHash(manifest) }, images },
     ...(selector.kind === 'rig' ? rigChestLandmarks(root, rig, packageFiles) : {}),
     subjects, ...checkpointEvidenceContext(root, project, subjects, files),
-    partIds: (JSON.parse(manifest.toString('utf8')).parts as { name: string }[]).map(part => part.name), files,
+    partIds: (JSON.parse(manifest.toString('utf8')).parts as { name: string }[]).map(part => part.name), files, ...answered,
   };
 };
 

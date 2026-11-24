@@ -22,8 +22,8 @@ test('scripts/ci-suite.ts source permits only the exact consumer skip, never its
 });
 
 test('registry check invokes the coverage-enforcing full-suite runner', async()=>{
- const workflow=await Bun.file(new URL('../.github/workflows/ci.yml',import.meta.url)).text();
- const check=workflow.slice(workflow.indexOf('  check:'),workflow.indexOf('  source-linked:'));
+ const workflow=await Bun.file(new URL('../.github/workflows/registry-check.yml',import.meta.url)).text();
+ const check=workflow.slice(workflow.indexOf('  check:'));
  expect(check).toContain('run: bun scripts/run-registry-ci.ts');
  const runner=await Bun.file(new URL('../scripts/run-registry-ci.ts',import.meta.url)).text();
  expect(runner).toContain("runCiSuite(resolve(import.meta.dir,'..'),'registry')");

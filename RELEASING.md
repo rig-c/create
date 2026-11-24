@@ -138,6 +138,14 @@ labelled `release`, the explicit Create release trigger. After that protection
 change, a consumer-entry generation failure is caught on main rather than on
 the PR. Release preparation must include the registry result.
 
+Open the release PR with the label in the same command
+(`gh pr create --label release`). The registry `check` workflow starts on
+`labeled`, `synchronize` and `reopened`, not on `opened`, so a release PR gets
+exactly one registry `check` run per head, and `source-linked` never runs on a
+label event. Add no other label to a release PR after it opens: an unrelated
+label starts a registry-check run whose job is skipped, and that skipped run
+becomes the latest `check` on the head.
+
 ## Tag publication
 
 After the approved candidate lands, the owner verifies its exact main commit,

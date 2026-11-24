@@ -170,8 +170,9 @@ test('parsed YAML removes release-please, triggers on version tags, preserves le
 });
 
 test('CI and release share the exact proven toolchain and original staging command',()=>{
- const ci=Bun.YAML.parse(readFileSync(new URL('../.github/workflows/ci.yml',import.meta.url),'utf8')) as {permissions:Record<string,string>;jobs:{check:{steps:Step[];permissions?:Record<string,string>};'source-linked':{steps:Step[]}}};
- const smokeSteps=ci.jobs.check.steps;
+ const ci=Bun.YAML.parse(readFileSync(new URL('../.github/workflows/ci.yml',import.meta.url),'utf8')) as {permissions:Record<string,string>;jobs:{'source-linked':{steps:Step[]}}};
+ const registryCheck=Bun.YAML.parse(readFileSync(new URL('../.github/workflows/registry-check.yml',import.meta.url),'utf8')) as {permissions:Record<string,string>;jobs:{check:{steps:Step[];permissions?:Record<string,string>}}};
+ const smokeSteps=registryCheck.jobs.check.steps;
  const setup=smokeSteps.findIndex(step=>step.uses==='./.github/actions/stage-release');
  const pack=smokeSteps.findIndex(step=>step.name==='Pack, verify and dry-run both package names');
  expect(setup).toBeGreaterThan(-1);expect(pack).toBeGreaterThan(setup);
@@ -200,7 +201,7 @@ test('CI and release share the exact proven toolchain and original staging comma
  expect(smoke).toContain('bun scripts/npm-json.ts e404');
  expect(smoke).toContain('npm publish "$tarball" --dry-run --access public');
  expect(smoke).not.toContain('--provenance');
- expect(ci.permissions['id-token']).toBeUndefined();expect(ci.jobs.check.permissions?.['id-token']).toBeUndefined();
+ expect(ci.permissions['id-token']).toBeUndefined();expect(registryCheck.permissions['id-token']).toBeUndefined();expect(registryCheck.jobs.check.permissions?.['id-token']).toBeUndefined();
 });
 
 type View={exit:number;stdout:string;stderr?:string};
@@ -242,7 +243,7 @@ console.error('UNEXPECTED_SMOKE_COMMAND',command,JSON.stringify(args));process.e
    const executable=Bun.which(name);if(!executable)throw Error(`${name} is required by the CI smoke`);
    symlinkSync(executable,join(bin,name));
   }
-  const ci=Bun.YAML.parse(readFileSync(new URL('../.github/workflows/ci.yml',import.meta.url),'utf8')) as {jobs:{check:{steps:Step[]}}};
+  const ci=Bun.YAML.parse(readFileSync(new URL('../.github/workflows/registry-check.yml',import.meta.url),'utf8')) as {jobs:{check:{steps:Step[]}}};
   const body=ci.jobs.check.steps.find(step=>step.name==='Pack, verify and dry-run both package names')!.run!;
   const result=Bun.spawnSync(['/bin/bash','--noprofile','--norc','-c',body],{cwd:root,timeout:10000,
    env:{PATH:bin,HOME:root,TMPDIR:root,TRACE:trace,FIXTURE:fixture,RUNNER_TEMP:runner,

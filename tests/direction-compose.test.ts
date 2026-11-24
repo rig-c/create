@@ -13,7 +13,7 @@ import type { JsonObject } from '../src/templates.ts';
 
 const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); testClock.reset(); });
-function fixture(placement?: Parameters<typeof composeFixture>[0]) { const f = composeFixture(placement); roots.push(f.dir); return f; }
+function fixture(...args: Parameters<typeof composeFixture>) { const f = composeFixture(...args); roots.push(f.dir); return f; }
 function rejected(f: ReturnType<typeof fixture>, code: string, run = () => f.publish()) {
   const before = readFileSync(join(f.dir, 'project.json'));
   const paths = ['outputs', 'outputs/v2', 'outputs/v2/compose', 'evidence', 'evidence/compose-src', 'evidence/compose-src/v2', 'evidence/direction', 'evidence/direction/v2.json'];
@@ -80,6 +80,58 @@ test('direction@3 publishes the compose model, atlas and pages without the chara
   expect(readFileSync(join(f.dir, 'project.json'))).toEqual(recordBefore);
   const pAfter = f.load();
   expect(composeInventory(pAfter, readDirection(f.dir, pAfter, 2))).toEqual(inventoryBefore);
+});
+
+test('direction@3 writes and checks a composed idle with empty scene tracks', () => {
+  const f = fixture(undefined, true);
+  expect(f.publish().exit).toBe(0);
+  expect(directionCommand(['check', '2', f.dir, '--json']).exit).toBe(0);
+  const ctx = { dir: f.dir, project: f.load(), refusals: [], warnings: [] };
+  checkDirections(ctx);
+  expect(ctx.refusals).toEqual([]);
+  expect(ctx.warnings).toEqual([]);
+});
+
+test('DIRECTION_COMPOSE_CHOICE_MISMATCH refuses a scene without animations for an empty-track citation', () => {
+  const f = fixture(undefined, true);
+  delete f.scene.animations;
+  f.put('compose.scene.json', f.scene);
+  f.run = composeRunFixture(f.dir, f.load(), 1, f.scene);
+  saveRun(f);
+  rejected(f, 'DIRECTION_COMPOSE_CHOICE_MISMATCH', () => {
+    try {
+      return f.publish();
+    } catch (error) {
+      expect(error).toMatchObject({
+        message: expect.stringContaining('"animations": {"idle": {"duration": 4, "tracks": []}}'),
+      });
+      throw error;
+    }
+  });
+});
+
+test.each([
+  { citation: 'empty', emptyTracks: true },
+  { citation: 'nonempty', emptyTracks: false },
+])('DIRECTION_COMPOSE_CHOICE_MISMATCH refuses a track present on only one side with a $citation citation', ({ emptyTracks }) => {
+  const f = fixture(undefined, emptyTracks);
+  const tracks = emptyTracks
+    ? [{ bone: 'back', property: 'translate', keys: [{ t: 0, v: [0, 0] }, { t: 4, v: [0, 0] }] }]
+    : [];
+  f.scene.animations = { idle: { duration: 4, tracks } };
+  f.put('compose.scene.json', f.scene);
+  f.run = composeRunFixture(f.dir, f.load(), 1, f.scene);
+  saveRun(f);
+  rejected(f, 'DIRECTION_COMPOSE_CHOICE_MISMATCH');
+});
+
+test('DIRECTION_COMPOSE_DURATION refuses a mismatched scene idle duration with empty tracks', () => {
+  const f = fixture(undefined, true);
+  f.scene.animations = { idle: { duration: 5, tracks: [] } };
+  f.put('compose.scene.json', f.scene);
+  f.run = composeRunFixture(f.dir, f.load(), 1, f.scene);
+  saveRun(f);
+  rejected(f, 'DIRECTION_COMPOSE_DURATION');
 });
 
 test('JOB_PUBLICATION_INVALID refuses a declared build file whose name contains : before anything is written', async () => {

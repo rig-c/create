@@ -6,14 +6,13 @@
  *
  * Per AGENTS.md invariant 1 (create reads producer reports and never computes them),
  * this validator checks only the closed shape, literal paths, finite numbers and
- * self-consistent key times (starting at 0, strictly increasing, ending at one
- * positive `end` across all `idle_tracks`). It deliberately does NOT range-check
- * slider dials (`SCENE_DIAL_KEY_RANGE`) or check posed loop closure
- * (`SCENE_ANIMATION_LOOP_CLOSES`) — `rig-parts compose` refuses both and Create
- * reads compose's report. Equality between the composed model stage and the cited `canvas`, and
- * between `end`, `post_timing.value.seconds` and the composed model's idle duration,
- * is checked by the `direction@3` writer (#600), not here, so `post_timing` and
- * `post_composition` can be revised sequentially.
+ * self-consistent key times when tracks are present (starting at 0, strictly
+ * increasing, ending at one positive `end` across all tracks). Parts range-checks
+ * slider dials (`SCENE_DIAL_KEY_RANGE`) and checks posed loop closure
+ * (`SCENE_ANIMATION_LOOP_CLOSES`). Create reads compose's report.
+ * The `direction@3` writer (#600) matches the composed model stage to the
+ * cited `canvas` and aligns the take, scene idle, model idle, cited timing
+ * seconds and any track end. Timing and composition can be revised sequentially.
  */
 import { asArray, isObject, itemFor, type Ctx, type Finding } from './check.ts';
 import { closed } from './direction.ts';
@@ -22,7 +21,7 @@ import type { Json, JsonObject } from './templates.ts';
 export const COMPOSE_VALUE_INVALID = 'COMPOSE_VALUE_INVALID';
 
 const COMPOSE_VALUE_REMEDY =
-  'record a post_composition choice in the Review tool (or complete its delegated agent_decision) whose value.compose binds closed {canvas,plates,order,character,idle_tracks} with a common positive track end';
+  'record a post_composition choice in the Review tool (or complete its delegated agent_decision) whose value.compose binds closed {canvas,plates,order,character,idle_tracks} with empty idle_tracks or a common positive track end';
 
 /**
  * Vector and scalar bone track properties from `@rig-c/core`:
@@ -87,7 +86,7 @@ export interface ComposeValueSpec {
   order: string[];
   character: ComposeCharacterSpec;
   idle_tracks: ComposeIdleTrackSpec[];
-  end: number;
+  end?: number;
 }
 
 export class ComposeValueError extends Error {
@@ -281,8 +280,8 @@ export function readComposeValue(value: Json | undefined, path: string): Compose
   };
 
   const tracksPath = `${composePath}.idle_tracks`;
-  if (!Array.isArray(raw.idle_tracks) || raw.idle_tracks.length === 0) {
-    composeFail(tracksPath, 'post_composition value.compose.idle_tracks must be a nonempty array');
+  if (!Array.isArray(raw.idle_tracks)) {
+    composeFail(tracksPath, 'post_composition value.compose.idle_tracks must be an array');
   }
   const idle_tracks: ComposeIdleTrackSpec[] = [];
   let end: number | undefined;
@@ -377,7 +376,7 @@ export function readComposeValue(value: Json | undefined, path: string): Compose
     idle_tracks.push({ bone: entry.bone, property, keys });
   }
 
-  return { canvas, plates, order, character, idle_tracks, end: end! };
+  return { canvas, plates, order, character, idle_tracks, ...(end === undefined ? {} : { end }) };
 }
 
 function collectAnswerValues(answer: JsonObject, basePath: string): { value: Json | undefined; path: string }[] {

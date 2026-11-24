@@ -1226,8 +1226,8 @@ this exact table, also exported as `PRE_INTERVIEW_VERDICTS`.
 | `provisional`, `Provisional` | `provisional` |
 | `accepted (HQ-provisional, sent to owner)` | `provisional` — the reviewer marked “HQ-provisional”, org HQ ruling 2026-11-06 |
 | `accepted-provisional` | `provisional` — the reviewer marked “provisional”, org HQ ruling 2026-11-06 |
-| `ok for now, polish wanted` | `accepted`, polish in `on_items[]` — owner 2026-11-03, “`<pilot>`도 여기까지 OK” and “일단 여기까지는 OK”; org HQ ruling 2026-11-06 |
-| `close, polish wanted` | `provisional`, polish as its open item — owner 2026-11-03, “`<pilot>` 많이 좋아졌다. 조금만 더 다듬으면 되겠어”; org HQ ruling 2026-11-06 |
+| `ok for now, polish wanted` | `accepted`, polish in `on_items[]` — owner ruling 2026-11-03; org ruling 2026-11-06 |
+| `close, polish wanted` | `provisional`, polish as its open item — owner ruling 2026-11-03; org ruling 2026-11-06 |
 
 An unlisted string is refused as `PRE_INTERVIEW_VERDICT_UNKNOWN`. Preserve it
 and obtain an explicit mapping before extending the table. A converted value

@@ -67,8 +67,8 @@ function makeProject(): string {
   return root;
 }
 
-test('installed Review 4.18.6 exports the act and previous-draft contracts and retains package-only job schemas', () => {
-  expect(reviewPackage.version).toBe('4.18.6');
+test('installed Review 4.18.7 exports the act and previous-draft contracts and retains package-only job schemas', () => {
+  expect(reviewPackage.version).toBe('4.18.7');
   expect(reviewPackage.dependencies['@rig-c/play']).toBe('1.25.0');
   expect(JOB_API_SCHEMA).toBe('rig-review/job-api@2');
   expect(JOB_ACT_SCHEMA).toBe('rig-review/act@2');

@@ -9,6 +9,7 @@ import { interviewOptionsCommand } from '../src/choice-writers.ts';
 import { currentJobIdentity, loadedPartsIdentity, partsEnumerator, readPublished, readRecordPublished, type RecordPublicationRequest } from '../src/job-publication.ts';
 import { OWN_NODE_MODULES, PARTS_PACKAGE } from '../src/parts-sections.ts';
 import { jobHash, jobPrivateRoot } from '../src/job-outbox.ts';
+import { jobRuntimeExecArgv } from '../src/job-writer.ts';
 import { signoffCommand } from '../src/signoff.ts';
 import { outputsHash } from '../src/signoff-target.ts';
 import { Refusal } from '../src/refusal.ts';
@@ -547,9 +548,126 @@ function installed(lockfiles: Record<string, unknown>): string {
   return root;
 }
 
-const bunLock = (version: string, integrity: string) => ({ lockfileVersion: 1, workspaces: {}, packages: {
-  [PARTS_PACKAGE]: [`${PARTS_PACKAGE}@${version}`, '', {}, integrity], 'unrelated-dep': ['unrelated-dep@1.0.0', '', {}, 'sha512-unrelated'] } });
-const npmLock = (version: string, integrity: string) => ({ lockfileVersion: 3, packages: { [`node_modules/${PARTS_PACKAGE}`]: { version, integrity } } });
+const bunLock = (version: string, integrity: string, key = PARTS_PACKAGE) => ({ lockfileVersion: 1, workspaces: {}, packages: {
+  [key]: [`${PARTS_PACKAGE}@${version}`, '', {}, integrity], 'unrelated-dep': ['unrelated-dep@1.0.0', '', {}, 'sha512-unrelated'] } });
+const npmLock = (version: string, integrity: string, key = `node_modules/${PARTS_PACKAGE}`) => ({ lockfileVersion: 3, packages: { [key]: { version, integrity } } });
+
+const nestedPartsKey = `node_modules/@rig-c/create/node_modules/${PARTS_PACKAGE}`;
+const bunNestedPartsKey = `@rig-c/create/${PARTS_PACKAGE}`;
+const otherPartsIntegrity = 'sha512-YQ==';
+
+/** Run the reader from a consumer's installed Create, with Parts nested under Create. */
+function nestedReader() {
+  const consumer = realpathSync(tempDir());
+  const create = join(consumer, 'node_modules', '@rig-c', 'create');
+  const parts = join(consumer, nestedPartsKey);
+  mkdirSync(parts, { recursive: true });
+  for (const entry of ['src', 'scripts', 'templates', 'package.json']) {
+    cpSync(join(import.meta.dir, '..', entry), join(create, entry), { recursive: true });
+  }
+  const ownParts = join(OWN_NODE_MODULES, PARTS_PACKAGE);
+  cpSync(join(ownParts, 'package.json'), join(parts, 'package.json'));
+  symlinkSync(join(ownParts, 'src'), join(parts, 'src'));
+  for (const entry of ['@rig-c/core', '@rig-c/review']) {
+    symlinkSync(join(OWN_NODE_MODULES, entry), join(consumer, 'node_modules', entry));
+  }
+  function publish(input: RecordPublicationRequest) {
+    return Bun.spawnSync([process.execPath, ...jobRuntimeExecArgv(), '--eval', `
+      import { readRecordPublished } from ${JSON.stringify(join(create, 'src/job-publication.ts'))};
+      import { Refusal } from ${JSON.stringify(join(create, 'src/refusal.ts'))};
+      try {
+        console.log(JSON.stringify(readRecordPublished(${JSON.stringify(input)}, ${TEST_NOW})));
+      } catch (error) {
+        if (!(error instanceof Refusal)) throw error;
+        console.log(JSON.stringify({ code: error.code, message: error.message }));
+        process.exitCode = error.exitCode;
+      }
+    `], { cwd: consumer, stdout: 'pipe', stderr: 'pipe' });
+  }
+  return { consumer, create, publish };
+}
+
+test('#945 a nested npm v3 Parts install publishes a plan', () => {
+  const { consumer, publish } = nestedReader();
+  const { root } = pending('plan-approved');
+  const { version, integrity } = hostParts();
+  writeFileSync(join(consumer, 'package-lock.json'), JSON.stringify(npmLock(version, integrity, nestedPartsKey)));
+  const before = readFileSync(join(root, 'project.json'));
+  const result = publish({ ...request(root), result: { kind: 'plan' } });
+  if (result.exitCode !== 0) throw Error(result.stderr.toString() + result.stdout.toString());
+  const context = JSON.parse(result.stdout.toString());
+  expect(context.parts).toEqual({ name: PARTS_PACKAGE, version, integrity });
+  expect(context.subjects).toEqual([{ kind: 'signoff', stage: 'plan-approved' }]);
+  expect(readFileSync(join(root, 'project.json'))).toEqual(before);
+});
+
+test.each(['bun.lock', 'both'])('#945 nested %s uses the installed Parts entry in both phases', which => {
+  const { consumer, publish } = nestedReader();
+  const { root } = pending('plan-approved');
+  const host = hostParts();
+  const bun = bunLock(host.version, host.integrity, bunNestedPartsKey);
+  writeFileSync(join(consumer, 'bun.lock'), JSON.stringify({ ...bun,
+    packages: { ...bunLock(host.version, otherPartsIntegrity).packages, ...bun.packages },
+  }));
+  if (which === 'both') {
+    const npm = npmLock(host.version, host.integrity, nestedPartsKey);
+    writeFileSync(join(consumer, 'package-lock.json'), JSON.stringify({ ...npm,
+      packages: { ...npmLock(host.version, otherPartsIntegrity).packages, ...npm.packages },
+    }));
+  }
+  const input = { ...request(root), result: { kind: 'plan' as const } };
+  const inventory = publish(input);
+  if (inventory.exitCode !== 0) throw Error(inventory.stderr.toString() + inventory.stdout.toString());
+  const context = JSON.parse(inventory.stdout.toString());
+  expect(context.parts).toEqual(host);
+  const replay = publish(retained(input));
+  if (replay.exitCode !== 0) throw Error(replay.stderr.toString() + replay.stdout.toString());
+  expect(JSON.parse(replay.stdout.toString())).toEqual(context);
+});
+
+test.each([
+  ['hoisted row only', 'has no matching package-lock.json entry'],
+  ['different version', 'has no matching package-lock.json entry'],
+  ['empty digest', 'has no matching package-lock.json entry'],
+  ['multiple digests', 'has no matching package-lock.json entry'],
+  ['disagreeing lockfiles', 'has different integrities in bun.lock and package-lock.json'],
+  ['unreadable nearer lockfile', 'has no matching bun.lock entry'],
+])('#945 %s refuses JOB_RECORD_PARTS_LOCK_MISSING for nested Parts', (control, reason) => {
+  const { consumer, create, publish } = nestedReader();
+  const { root } = pending('plan-approved');
+  const { version, integrity } = hostParts();
+  let digest = integrity;
+  if (control === 'empty digest') digest = 'sha512-';
+  if (control === 'multiple digests') digest = `${integrity} ${otherPartsIntegrity}`;
+  const npm = npmLock(control === 'different version' ? '0.0.1' : version, digest,
+    control === 'hoisted row only' ? undefined : nestedPartsKey);
+  writeFileSync(join(consumer, 'package-lock.json'), JSON.stringify(npm));
+  if (control === 'disagreeing lockfiles') writeFileSync(join(consumer, 'bun.lock'), JSON.stringify(bunLock(version, otherPartsIntegrity, bunNestedPartsKey)));
+  if (control === 'unreadable nearer lockfile') writeFileSync(join(create, 'bun.lock'), '{');
+  const before = readFileSync(join(root, 'project.json'));
+  const result = publish({ ...request(root), result: { kind: 'plan' } });
+  expect(result.exitCode).toBe(1);
+  const refusal = JSON.parse(result.stdout.toString());
+  expect(refusal.code).toBe('JOB_RECORD_PARTS_LOCK_MISSING');
+  expect(refusal.message).toContain(reason);
+  expect(readFileSync(join(root, 'project.json'))).toEqual(before);
+});
+
+test('#945 a different valid nested host integrity refuses JOB_RECORD_PARTS_MISMATCH', () => {
+  const { consumer, publish } = nestedReader();
+  const { root } = pending('plan-approved');
+  const { version, integrity } = hostParts();
+  writeFileSync(join(consumer, 'package-lock.json'), JSON.stringify(npmLock(version, otherPartsIntegrity, nestedPartsKey)));
+  const copy = retained({ ...request(root), result: { kind: 'plan' } });
+  const before = readFileSync(join(copy.root, 'project.json'));
+  const result = publish(copy);
+  expect(result.exitCode).toBe(1);
+  const refusal = JSON.parse(result.stdout.toString());
+  expect(refusal.code).toBe('JOB_RECORD_PARTS_MISMATCH');
+  expect(refusal.message).toContain(integrity);
+  expect(refusal.message).toContain(otherPartsIntegrity);
+  expect(readFileSync(join(copy.root, 'project.json'))).toEqual(before);
+});
 
 test.each([['bun.lock'], ['package-lock.json'], ['both']])('matching parts identity from %s passes both phases', which => {
   const host = hostParts();

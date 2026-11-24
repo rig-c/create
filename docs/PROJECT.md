@@ -2883,10 +2883,13 @@ Parts' and `rigc`'s own vocabulary: vector bone properties (`translate`, `scale`
 `shear`) take two-number key values `v: [x, y]`, and scalar bone properties
 (`translatex`, `translatey`, `scalex`, `scaley`, `shearx`, `sheary`, `rotate`)
 take one-number key values `v: [n]`, with key times starting at `0`, strictly
-increasing, and ending at one common positive `end` across all tracks. Copy these
-into `spine-parts-scene/1` and run Parts compose. Create reads its producer
-reports and never repeats dial-range, loop-closure or canvas-containment
-measurements. A smaller canvas than the accepted character's stage is allowed.
+increasing, and ending at one common positive `end` across all tracks. Use
+`idle_tracks: []` when the scene adds no motion to the rig idle. The scene still
+declares `animations.idle` with `tracks: []` and `duration` equal to the cited
+timing seconds. Copy the composition into `spine-parts-scene/1` and run Parts
+compose. Create reads its producer reports and never repeats dial-range,
+loop-closure or canvas-containment measurements. A smaller canvas than the
+accepted character's stage is allowed.
 
 ```sh
 rig-create direction write 5 <dir> --file evidence/composed-direction.json --rig 2 --compose-out derived/compose --compose-scene composed.scene.json
@@ -2902,7 +2905,7 @@ The closed `rig-create/direction@3` document contains exactly these fields:
 | `rig` | `{version,acceptance}`; the writer fills the same rig-review signoff, verdict reference and review-package seal used by scene@1. Authored input may omit `acceptance`; supplied acceptance is replaced from the record. |
 | `compose` | `{scene:{path,sha256},out,report:{path,sha256},check:{path,sha256},run:{path,sha256},clipped_bounds?:[x0,y0,x1,y1]}`; `clipped_bounds` is carried by the writer from `compose-run.json` `characters[0].placement.clipped_bounds` when the scene character opts into `canvas_clip: true` |
 | `model` | `{path,sha256}` of `outputs/v<N>/compose/check/build/skeleton.model.json` |
-| `take` | `{duration,loop}`; duration equals compiled idle duration, cited timing seconds and compose track end; loop and cited timing loop must both be true |
+| `take` | `{duration,loop}`. Duration equals the scene idle duration, the single compiled idle duration, cited timing seconds and the common track end when tracks are present. Both loop flags must be true. |
 | `citations` | `{camera,timing,composition}`; exact guide/ask citations for camera_depth, post_timing and post_composition, each with quote or delegated:true |
 
 The camera quote carries the recorded answer as it is. No camera value is

@@ -72,6 +72,13 @@ function expectRefusal(value: Json | undefined, expectedPath: string, path = BAS
   }
 }
 
+test('accepts empty idle tracks with no track end', () => {
+  const input = { ...validCompose(), idle_tracks: [] };
+  const parsed = readComposeValue(input, BASE_PATH);
+  expect(parsed.idle_tracks).toEqual([]);
+  expect(Object.hasOwn(parsed, 'end')).toBe(false);
+});
+
 test('accepts a valid composed take value with canvas, two plates, one character, translate and rotate tracks', () => {
   const input = validCompose();
   const parsed = readComposeValue(input, BASE_PATH);
@@ -257,9 +264,9 @@ test('refuses each malformed compose rule with COMPOSE_VALUE_INVALID and the exa
   }
 
   // idle_tracks[] rules
-  for (const badTracks of ['not-array', []] as unknown as Json[]) {
+  {
     const c = validCompose();
-    c.idle_tracks = badTracks;
+    c.idle_tracks = 'not-array';
     expectRefusal(c, `${BASE_PATH}.idle_tracks`);
   }
   {

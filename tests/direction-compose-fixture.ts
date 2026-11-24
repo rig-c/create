@@ -23,7 +23,7 @@ export function composeRunFixture(dir: string, project: JsonObject, rigN: number
     plate: null, plates: objects(scene.plates).map(p => ({ name: p.name!, ...file(String(p.image)) })) };
 }
 
-export function composeFixture(placement?: { offset: [number, number]; scale?: number; rigSize: [number, number]; shift: [number, number] }) {
+export function composeFixture(placement?: { offset: [number, number]; scale?: number; rigSize: [number, number]; shift: [number, number] }, emptyTracks = false) {
   const f = sceneFixture();
   f.dir = realpathSync(f.dir);
   const put = (path: string, value: JsonObject | string | Buffer): JsonObject => {
@@ -37,7 +37,7 @@ export function composeFixture(placement?: { offset: [number, number]; scale?: n
   ];
   const character = placement ? { offset: placement.offset, ...(placement.scale === undefined ? {} : { scale: placement.scale }) } : { offset: [0, 0], scale: 1 };
   const value = { canvas: { width: 64, height: 48 }, plates, order: ['back', 'actor', 'front'], character,
-  idle_tracks: [
+  idle_tracks: emptyTracks ? [] : [
     { bone: 'back', property: 'translate', keys: [{ t: 0, v: [0, 0] }, { t: 2, v: [3, 0] }, { t: 4, v: [0, 0] }] },
     { bone: 'actor:yaw_dial', property: 'rotate', keys: [{ t: 0, v: [-6] }, { t: 2, v: [6] }, { t: 4, v: [-6] }] },
   ] };

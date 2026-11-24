@@ -12,7 +12,7 @@ import { advanceCommand } from '../src/progress-writers.ts';
 import { signoffCommand } from '../src/signoff.ts';
 import { stepHash } from '../src/step-hash.ts';
 import type { JsonObject } from '../src/templates.ts';
-import { checkProject, testClock } from './clock.ts';
+import { checkProject, testClock, TEST_NOW } from './clock.ts';
 import { arr, obj, plantLegacyReopen, step, waypoint } from './fixtures.ts';
 import { cli, clockedCli, ownerChatArgs, run as runProcess, tempDir, treeDigest } from './helpers.ts';
 
@@ -274,7 +274,7 @@ test('#561 a recorded reopen restores chronology for previously signed stale and
   expect(stepHash(camera)).toBe(hashes.camera as string);
   expect(stepHash(timing)).toBe(hashes.timing as string);
   write(root, project);
-  testClock.set(T0);
+  testClock.set(TEST_NOW);
   expect(chronology(checkProject(root))).toEqual([]);
   const edited = structuredClone(project);
   step(edited, 'camera').does = 'Change the signed synthetic definition.';
@@ -309,7 +309,7 @@ test('#561 a completed step stays immutable after an owner amendment and next re
   write(root, project);
   const captions = JSON.parse(readFileSync(join(root, 'evidence/captions.json'), 'utf8')) as JsonObject;
   expect(createHash('sha256').update(readFileSync(file(root))).digest('hex')).toBe(obj(obj(captions.inputs).project).sha256 as string);
-  testClock.set(T0);
+  testClock.set(TEST_NOW);
   expect(checkProject(root)).toMatchObject({ refusals: [], warnings: [] });
   const done = step(project, id);
   expect(done.status).toBe('done');
@@ -324,7 +324,7 @@ test('#561 a completed step stays immutable after an owner amendment and next re
   write(root, scoped);
   expect(chronology(checkProject(root))).toEqual([]);
 
-  testClock.set(T0 + 1_000);
+  testClock.set(TEST_NOW + 1_000);
   const oldSet = obj(obj(obj(waypoint(project, id).guide).choice).set);
   const options = JSON.parse(readFileSync(join(root, String(oldSet.path)), 'utf8')) as JsonObject;
   options.id = 'completed-step-amendment';
@@ -333,7 +333,7 @@ test('#561 a completed step stays immutable after an owner amendment and next re
   const bytes = JSON.stringify(options);
   writeFileSync(join(root, path), bytes);
   expect(run('interview-options', id, '--file', path)).toMatchObject({ code: 0, stderr: '' });
-  testClock.set(T0 + 2_000);
+  testClock.set(TEST_NOW + 2_000);
   const picks = arr(options.asks).flatMap(ask => ['--pick', `${String(obj(ask).id)}=alternative`]);
   expect(run('interview-answer', id, '--set', path, '--sha256', createHash('sha256').update(bytes).digest('hex'),
     '--by', 'user', ...ownerChatArgs(words), ...picks)).toMatchObject({ code: 0, stderr: '' });
@@ -355,7 +355,7 @@ test('#561 a completed step stays immutable after an owner amendment and next re
     .toMatchObject({ code: 1, stderr: expect.stringContaining('PLAN_STEP_DONE') });
   expect(readFileSync(file(root))).toEqual(before);
 
-  testClock.set(T0 + 3_000);
+  testClock.set(TEST_NOW + 3_000);
   const bin = tempDir();
   const shim = join(bin, 'rig-create');
   writeFileSync(shim, '#!/bin/sh\nexec "$RIG_TEST_BUN" "$RIG_TEST_CLI" "$RIG_TEST_NOW" "$@"\n');

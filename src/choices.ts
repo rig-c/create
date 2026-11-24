@@ -21,6 +21,8 @@ export { CHOICE_ORDER_SPEC } from './stages.ts';
 export const CHOICE_ANSWERS_SINCE = '2026-11-06T00:00:00Z';
 /** Scene-kind option sets drafted earlier keep the rule of their day: the latest scene, current or not. */
 export const SCENE_CONTEXT_SINCE = '2026-11-08T00:00:00Z';
+/** Source option sets drafted earlier keep input record order. */
+export const INTERVIEW_PAINTING_FIRST_SINCE = '2026-11-24T00:00:00Z';
 export const sha256 = (bytes: Uint8Array): string => createHash('sha256').update(bytes).digest('hex');
 const text = (v: Json | undefined): v is string => typeof v === 'string' && v.trim() !== '';
 const date = (v: Json | undefined): number => typeof v === 'string' ? Date.parse(v) : NaN;
@@ -152,16 +154,21 @@ export function validateSet(project: JsonObject, item: Item, set: JsonObject, co
  * A context is a projection of existing identities, never a producer report reconstructed by create.
  * A post set takes the scene kind only while the scene is current at `at`, which reads the scene
  * document under `dir`; `legacyScene` is the rule before SCENE_CONTEXT_SINCE, where any latest scene was taken.
+ * `draftedAt` selects the input ordering rule, independently of which inputs are available at `at`.
  */
-export function optionContext(project: JsonObject, stage: string, at: number, dir?: string, legacyScene = false): JsonObject {
+export function optionContext(project: JsonObject, stage: string, at: number, dir?: string, legacyScene = false, draftedAt = at): JsonObject {
   if (stage === 'parts') {
     try { return intakeContext(project, at); } catch (e) { fail('INTERVIEW_OPTIONS_STALE', `${String(e)}; record the preflight before showing options`); }
   }
   const reopens = collectReopens(project, []).filter(r => r.at <= at);
   if (stage === 'interview') {
-    const files = objects(project.inputs).filter(f => f.at === undefined || date(f.at) <= at).map(f => ({ path: f.path as Json, sha256: f.sha256 as Json }));
-    if (!files.length) fail('INTERVIEW_OPTIONS_STALE', 'source inputs must be recorded before drafting options');
-    return { kind: 'inputs', files };
+    const inputs = objects(project.inputs).filter(f => f.at === undefined || date(f.at) <= at);
+    if (!inputs.length) fail('INTERVIEW_OPTIONS_STALE', 'source inputs must be recorded before drafting options');
+    if (text(project.painting) && draftedAt >= Date.parse(INTERVIEW_PAINTING_FIRST_SINCE)) {
+      const index = inputs.findIndex(input => input.path === project.painting);
+      if (index > 0) inputs.unshift(...inputs.splice(index, 1));
+    }
+    return { kind: 'inputs', files: inputs.map(f => ({ path: f.path as Json, sha256: f.sha256 as Json })) };
   }
   if (stage === 'rigging-interview') {
     const approval = latestPartsApproval(project, at);
@@ -232,7 +239,7 @@ export function validateContext(dir: string, project: JsonObject, set: JsonObjec
   } else {
     const live = (legacyScene: boolean): void => {
       for (const time of [drafted, at]) {
-        const expected = optionContext(contextProject, String(set.stage), time, dir, legacyScene);
+        const expected = optionContext(contextProject, String(set.stage), time, dir, legacyScene, drafted);
         if (!equal(expected, set.context)) {
           const difference = contextDifference(expected, set.context, 'context');
           fail('INTERVIEW_OPTIONS_STALE', `options no longer match the live context: ${difference}; redraft against current accepted inputs`);

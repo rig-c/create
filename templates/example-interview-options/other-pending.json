@@ -4,17 +4,17 @@
   "question": "reference",
   "stage": "interview",
   "drafted_by": "agent",
-  "drafted_at": "2026-11-22T00:00:08.000Z",
+  "drafted_at": "2026-11-24T00:00:08.000Z",
   "context": {
     "kind": "inputs",
     "files": [
       {
-        "path": "inputs/preparation-source.svg",
-        "sha256": "3b2012bb72f7c55b64d7fec307bba26ff53f9bf8474ec7409650d218c168942e"
-      },
-      {
         "path": "inputs/painting.png",
         "sha256": "02e6ea41dfec89a7eced0f66b98e0fea048846c6f4174fa1cc7631fe360e614f"
+      },
+      {
+        "path": "inputs/preparation-source.svg",
+        "sha256": "3b2012bb72f7c55b64d7fec307bba26ff53f9bf8474ec7409650d218c168942e"
       }
     ]
   },
@@ -27,7 +27,7 @@
           "id": "keep",
           "kind": "value",
           "label": "None.",
-          "effect": "As answered on 2026-11-22T00:00:03.000Z in interview, chat",
+          "effect": "As answered on 2026-11-24T00:00:03.000Z in interview, chat",
           "fragment": "none",
           "recommended": true,
           "reason": "Preserves the stated synthetic direction and the accepted structure."

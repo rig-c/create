@@ -918,9 +918,13 @@ Registration reads an already retained authored file and records its binding
 as `pending_options`; it never rewrites the option file. Answer flags include
 repeatable `--other <ask>=<text file>` and optional
 `--other-fragment <ask>=<JSON file>`, plus `--note-file` and `--source`.
-The decision writer supplies exactly the auto fragments. To correct a recorded
-answer at a later stage, register a fresh option set and record the owner’s
-selection with `interview-answer`. The stage stays in place. Check reports the
+The decision writer supplies exactly the auto fragments. A fresh option set
+registers only at the question's open interview stage; on a live direction
+bounce, that includes post questions at `direction-review`. Past the interview
+stage, the `interview-options` refusal names the route that works there: at
+`rig-review`, a fresh changes-requested verdict routed with
+`review <n> --from-review <act> --item <id>:not-asked`, and elsewhere the
+amendment route (`amend <stage> --kind interview-answer`). Check reports the
 signoffs whose answer hashes are stale, and `next` offers the corresponding
 re-sign commands. Collection members write local overrides and retain the
 inherited source answers as historical evidence.

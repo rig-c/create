@@ -33,11 +33,10 @@ export function directionPin(sourceHash: string, modelHash: string, time: number
 }
 
 /** A rig pin with an explicit producer frame, the Feedback shape interview picks already carry (#860). */
-export function framedRigPin(text: string): Json {
-  const source = 'a'.repeat(64);
-  const model = 'b'.repeat(64);
-  return { text, anchor: { id: 'synthetic-rig-point', frameStart: 3, frameEnd: 3, target: { kind: 'rig', name: 'synthetic-rig' }, category: 'quality',
-    context: { comment: mark(source, model, 0.25, { index: 3, basis: 'producer' }) } } };
+export function framedRigPin(text: string, { sourceHash, modelHash, target } =
+  { sourceHash: 'a'.repeat(64), modelHash: 'b'.repeat(64), target: 'synthetic-rig' }): Json {
+  return { text, anchor: { id: 'synthetic-rig-point', frameStart: 3, frameEnd: 3, target: { kind: 'rig', name: target }, category: 'quality',
+    context: { comment: mark(sourceHash, modelHash, 0.25, { index: 3, basis: 'producer' }) } } };
 }
 
 /** The direction act value Review wrote before #1136: the pin's projected label inside one anchorless comment (Review #1136 readback). */

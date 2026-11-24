@@ -25,6 +25,7 @@ import { closeSync, fsyncSync, mkdirSync, openSync, renameSync, rmdirSync, rmSyn
 import { existsSync, lstatSync, readFileSync, realpathSync } from './check-reads.ts';
 import { randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
+import { shellWord } from './job-acts.ts';
 import { acquireBoundJobWrite, beginJobProgress } from './job-writer.ts';
 import { acquireJobLock, jobHash, pendingPublications, readWriterBinding } from './job-outbox.ts';
 import { assertReviewActSource, decodeReviewAct, fetchBustPublicationSeeds, fetchReviewActRuntime, meshReviewVerdict, reviewActFindings, reviewActPublicationWarning, reviewActStill, reviewActTransport, reviewActVerbatim, reviewActVersionHash, type FetchedReviewAct } from './review-act.ts';
@@ -837,7 +838,11 @@ export function recordReviewAct(root: string, requestedVersion: number, actId: s
     let route: FeedbackRoute | undefined;
     if (routeItem !== undefined && !existingRoute) {
       const comment = reviewFeedbackComment(act);
-      if (!comment) refuse('REVIEW_FEEDBACK_ROUTE_INVALID', 'project.json.review_acts: routing requires an owner changes-requested rig verdict with exactly one page-level comment; ingest without --item otherwise');
+      if (!comment) {
+        const workingConfig = chest && !existing ? ` --config ${shellWord(config || '<project-relative working config>')}` : '';
+        refuse('REVIEW_FEEDBACK_ROUTE_INVALID', 'project.json.review_acts: routing requires an owner changes-requested rig verdict with exactly one page-level comment. '
+          + `With the Review job open, run rig-create review ${requestedVersion} --from-review ${act.actId}${workingConfig} from the project directory to ingest the verdict and preserve pinned comments in the retained Review act.`);
+      }
       const rigs = readVersions(project).rigs.filter(rig => rig.live);
       const latest = humanReviewVerdicts(version?.verdicts, 'rig-review').at(-1);
       if (checkProject(root, project, { now }).effective_stage !== 'rig-review'

@@ -1218,7 +1218,7 @@ direction*, defines the closed schema, immutable paths and read contract.
 | `DIRECTION_VERSION` | post identity/number/path/config/output binding conflicts or is not uniquely later for authoring/current for acceptance | create a later uniquely numbered post and bind its document |
 | `DIRECTION_REVIEW_CLOSED` | authoring attempts to change still-live approved direction review | record the owner's correction with `amend direction-review` before writing |
 | `DIRECTION_SOURCE_CHANGED` | lock held, immutable destination exists, or any captured source differs before project commit | preserve published bytes and retry against frozen inputs |
-| `DIRECTION_PATCH` | wrong patch schema/base/allowed replacement fields, absent replacements or semantic no-op | export whole changed camera/timing/take sections on the exact current base |
+| `DIRECTION_PATCH` | Retired. Earlier Create releases refused invalid direction patch input with this code. | Record direction feedback as a review verdict and publish a revised post with `direction write --answers`. |
 | `DIRECTION_CORRECTION_OUTCOME` | a correction@2 source/outcome differs from the exact direction post identity, or a made direction closure lacks matching patch/base/result and the same rig | retain the exact compiled model and direction bindings, and resolve a made patch only to its create-ingested result |
 | `CORRECTION_DIRECTION_PATCH_FILE_REMOVED` | `correction` receives `--direction-patch-file` or resolves a `direction-patch` record (exit 2) | record direction feedback as a review verdict and publish the revised post with `direction write <N> --file <direction.json> --rig <R> --answers <version>:<verdict>` |
 | `DIRECTION_PATCH_FILE_REMOVED` | `direction` receives `patch` or `--patch-file` (exit 2) | record direction feedback as a review verdict and publish the revised post with `direction write <N> --file <direction.json> --rig <R> --answers <version>:<verdict>` |
@@ -1269,6 +1269,9 @@ any write, not a screening decision about the painting.
 | Code | Meaning and remedy |
 | --- | --- |
 | `GENERATOR_ARGS_INVALID` | The named generator refuses the displayed argument (a destination starting with `-`, a missing destination, or any flag but `--check`) before writing its destination. Supply the destination shown in its unchanged usage line and only the optional `--check` flag. |
+| `COMPOSED_INPUT_MISMATCH` | `scripts/generate-composed-direction-fixture.ts`: the fixture directory has missing or unexpected entries, or its input path resolves through a symlink. Restore the retained fixture layout with a regular input directory. |
+| `COMPOSED_OUTPUT_PATH` | `scripts/generate-composed-direction-fixture.ts`: the output already exists, resolves inside the repository, or its parent changed. Choose a fresh output path outside the repository with a stable parent. |
+| `UNCONSUMED_SHA256` | `scripts/check-direction-fixture-hashes.ts`: the displayed fixture JSON field has a SHA-256 that the checker cannot bind to a file. Restore the expected binding or teach the checker to verify that field against the retained file. |
 
 ### Review sign-off targets
 
@@ -1811,6 +1814,7 @@ other post generation delta refuses `PUBLICATION_GENERATION_INVALID`.
 | --- | --- | --- |
 | `SOURCE_PIN_ANCESTRY` | `scripts/source-ci-pins.json` names a SHA before the package's release tag, or release metadata/history is unavailable or not exact | fetch complete sibling history and tags; choose a SHA at or after the exact `package.json` release pin; play uses the dependency at the release-pinned Review tag |
 | `CONSUMER_CI_COVERAGE` | `scripts/consumer-ci-tests.json` names an absent case, registry check does not pass it, or source CI skips any other case | restore exact consumerOnlyTest registration and registry execution; run every other source case |
+| `TMP_LEAK_CHECK` | `scripts/ci-suite.ts`: the test suite left new temporary directories behind | use `tempDir()` from `tests/helpers.ts` or remove the directories during test cleanup |
 
 ### Record asks on the live screen
 

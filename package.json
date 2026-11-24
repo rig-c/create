@@ -1,6 +1,6 @@
 {
   "name": "@rig-c/create",
-  "version": "1.23.9",
+  "version": "1.23.10",
   "type": "module",
   "description": "Create a rig project: its folder, decision record, repository and pinned rig-c packages",
   "license": "MIT",
@@ -33,7 +33,7 @@
   "dependencies": {
     "@rig-c/core": "3.8.1",
     "@rig-c/parts": "2.56.0",
-    "@rig-c/review": "4.18.8"
+    "@rig-c/review": "4.18.9"
   },
   "devDependencies": {
     "@types/bun": "^1.3.0",

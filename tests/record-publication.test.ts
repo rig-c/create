@@ -1,7 +1,9 @@
 import { expect, test } from 'bun:test';
 import { startJobHost } from '@rig-c/review/job-host';
-import { cpSync, chmodSync, mkdirSync, readFileSync, readdirSync, lstatSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { cpSync, chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, lstatSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+import { readNpmJson } from '../scripts/npm-json.ts';
 import { collectItems, checkProject } from '../src/check.ts';
 import { interviewCommand } from '../src/interview.ts';
 import { optionContext, sha256 } from '../src/choices.ts';
@@ -556,6 +558,21 @@ const nestedPartsKey = `node_modules/@rig-c/create/node_modules/${PARTS_PACKAGE}
 const bunNestedPartsKey = `@rig-c/create/${PARTS_PACKAGE}`;
 const otherPartsIntegrity = 'sha512-YQ==';
 
+function publishFromInstall(consumer: string, input: RecordPublicationRequest, execArgv = jobRuntimeExecArgv()) {
+  const create = join(consumer, 'node_modules', '@rig-c', 'create');
+  return Bun.spawnSync([process.execPath, ...execArgv, '--eval', `
+    import { readRecordPublished } from ${JSON.stringify(join(create, 'src/job-publication.ts'))};
+    import { Refusal } from ${JSON.stringify(join(create, 'src/refusal.ts'))};
+    try {
+      console.log(JSON.stringify(readRecordPublished(${JSON.stringify(input)}, ${TEST_NOW})));
+    } catch (error) {
+      if (!(error instanceof Refusal)) throw error;
+      console.log(JSON.stringify({ code: error.code, message: error.message }));
+      process.exitCode = error.exitCode;
+    }
+  `], { cwd: consumer, stdout: 'pipe', stderr: 'pipe' });
+}
+
 /** Run the reader from a consumer's installed Create, with Parts nested under Create. */
 function nestedReader() {
   const consumer = realpathSync(tempDir());
@@ -571,20 +588,7 @@ function nestedReader() {
   for (const entry of ['@rig-c/core', '@rig-c/review']) {
     symlinkSync(join(OWN_NODE_MODULES, entry), join(consumer, 'node_modules', entry));
   }
-  function publish(input: RecordPublicationRequest) {
-    return Bun.spawnSync([process.execPath, ...jobRuntimeExecArgv(), '--eval', `
-      import { readRecordPublished } from ${JSON.stringify(join(create, 'src/job-publication.ts'))};
-      import { Refusal } from ${JSON.stringify(join(create, 'src/refusal.ts'))};
-      try {
-        console.log(JSON.stringify(readRecordPublished(${JSON.stringify(input)}, ${TEST_NOW})));
-      } catch (error) {
-        if (!(error instanceof Refusal)) throw error;
-        console.log(JSON.stringify({ code: error.code, message: error.message }));
-        process.exitCode = error.exitCode;
-      }
-    `], { cwd: consumer, stdout: 'pipe', stderr: 'pipe' });
-  }
-  return { consumer, create, publish };
+  return { consumer, create, publish: (input: RecordPublicationRequest) => publishFromInstall(consumer, input) };
 }
 
 test('#945 a nested npm v3 Parts install publishes a plan', () => {
@@ -600,6 +604,58 @@ test('#945 a nested npm v3 Parts install publishes a plan', () => {
   expect(context.subjects).toEqual([{ kind: 'signoff', stage: 'plan-approved' }]);
   expect(readFileSync(join(root, 'project.json'))).toEqual(before);
 });
+
+test.skipIf(process.env.RIG_CREATE_NETWORK !== '1')('#945 npm registry install with conflicting Parts pins publishes a plan', () => {
+  const scratch = tempDir('rig-create-npm-');
+  const consumer = join(scratch, 'consumer');
+  mkdirSync(consumer);
+  expect(readdirSync(consumer)).toEqual([]);
+  const npmEnv = { ...process.env, npm_config_cache: join(scratch, 'npm-cache') };
+  const npm = (args: string[], cwd: string): string => {
+    const result = spawnSync('npm', args, { cwd, env: npmEnv, encoding: 'utf8', timeout: 40_000 });
+    if (result.status !== 0) {
+      throw Error(`npm ${args.join(' ')} in ${cwd}: exit ${result.status}, signal ${result.signal}\n${result.error ?? ''}\n${result.stderr}\n${result.stdout}`);
+    }
+    return result.stdout;
+  };
+  const createName = '@rig-c/create';
+  const rootPartsVersion = '2.54.0';
+  const packArgs = ['pack', '--json', '--ignore-scripts', '--pack-destination', scratch];
+  const pack = readNpmJson(npm(packArgs, join(import.meta.dir, '..')), `npm ${packArgs.join(' ')}`, 'pack', createName);
+  const tarball = join(scratch, pack.filename);
+  npm(['install', '--install-strategy=hoisted', '--package-lock', '--save-exact', '--ignore-scripts', '--no-audit', '--no-fund',
+    tarball, `${PARTS_PACKAGE}@${rootPartsVersion}`], consumer);
+
+  const rootPartsKey = `node_modules/${PARTS_PACKAGE}`;
+  const create = join(consumer, 'node_modules', createName);
+  const rootParts = JSON.parse(readFileSync(join(consumer, rootPartsKey, 'package.json'), 'utf8'));
+  const nestedParts = JSON.parse(readFileSync(join(consumer, nestedPartsKey, 'package.json'), 'utf8'));
+  const createManifest = JSON.parse(readFileSync(join(create, 'package.json'), 'utf8'));
+  const lock = JSON.parse(readFileSync(join(consumer, 'package-lock.json'), 'utf8'));
+  const nestedRow = lock.packages[nestedPartsKey];
+  console.log('NPM_NESTED_PARTS', JSON.stringify({ tarballSha256: jobHash(readFileSync(tarball)), lockfileVersion: lock.lockfileVersion,
+    rootPartsVersion: rootParts.version, createPartsPin: createManifest.dependencies[PARTS_PACKAGE], nestedPartsVersion: nestedParts.version,
+    nestedPartsKey, nestedIntegrity: nestedRow?.integrity }));
+  expect(rootParts).toMatchObject({ name: PARTS_PACKAGE, version: rootPartsVersion });
+  expect(nestedParts).toMatchObject({ name: PARTS_PACKAGE, version: createManifest.dependencies[PARTS_PACKAGE] });
+  expect(nestedParts.version).not.toBe(rootParts.version);
+  expect(lock.lockfileVersion).toBe(3);
+  expect(lock.packages[''].dependencies[PARTS_PACKAGE]).toBe(rootPartsVersion);
+  expect(lock.packages[rootPartsKey]).toMatchObject({ version: rootPartsVersion });
+  expect(nestedRow).toMatchObject({ version: nestedParts.version, integrity: expect.stringMatching(/^sha512-\S+$/) });
+  for (const base of [consumer, create]) expect(existsSync(join(base, 'bun.lock'))).toBe(false);
+  expect(existsSync(join(create, 'package-lock.json'))).toBe(false);
+
+  const { root } = pending('plan-approved');
+  expect(existsSync(join(root, 'node_modules'))).toBe(false);
+  const before = readFileSync(join(root, 'project.json'));
+  const result = publishFromInstall(consumer, { ...request(root), result: { kind: 'plan' } }, []);
+  if (result.exitCode !== 0) throw Error(`installed publication reader exit ${result.exitCode}\n${result.stderr}${result.stdout}`);
+  const context = JSON.parse(result.stdout.toString());
+  expect(context.parts).toEqual({ name: PARTS_PACKAGE, version: nestedRow.version, integrity: nestedRow.integrity });
+  expect(context.subjects).toEqual([{ kind: 'signoff', stage: 'plan-approved' }]);
+  expect(readFileSync(join(root, 'project.json'))).toEqual(before);
+}, 90_000);
 
 test.each(['bun.lock', 'both'])('#945 nested %s uses the installed Parts entry in both phases', which => {
   const { consumer, publish } = nestedReader();

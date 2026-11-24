@@ -261,14 +261,22 @@ async function unchanged(root: string, args: string[], code: string, remedy: Reg
   }
 }
 
+function stampOptionSet(root: string, project: JsonObject, set: JsonObject) {
+  // Draft just after the fixture evidence the set can bind, independently of the CLI clock.
+  const contextRecords = [...arr(project.inputs), ...arr(project.signoffs), ...arr(project.scenes ?? [])];
+  const times = contextRecords.map(record => Date.parse(String(obj(record).at))).filter(Number.isFinite);
+  const draftedAt = Math.max(...times) + 1;
+  set.drafted_at = new Date(draftedAt).toISOString();
+  set.context = optionContext(project, String(set.stage), draftedAt, root);
+}
+
 async function registerReask(root: string, question: string, id: string, customize?: (set: JsonObject) => void): Promise<JsonObject> {
   const project = read(root);
   const item = collectItems(project, { collection: null }).find(item => item.id === question)!;
   const old = obj(obj(item.raw).choice).set as JsonObject;
   const set = JSON.parse(readFileSync(join(root, String(old.path)), 'utf8')) as JsonObject;
   set.id = id;
-  set.drafted_at = new Date(Date.now() - 1000).toISOString();
-  set.context = optionContext(project, 'rigging-interview', Date.now() - 1000, root);
+  stampOptionSet(root, project, set);
   customize?.(set);
   const path = `evidence/interview/${id}.json`;
   writeFileSync(join(root, path), JSON.stringify(set, null, 2) + '\n');
@@ -415,8 +423,7 @@ test('record question public path, API@2 fetch, retry, stale source and wrong su
   expect(obj(answer.choice).note).toBe(WORDS);
   // Unresolved Other needs an explicit fresh pick. Register/refresh through the CLI.
   set.id = 'resolved-motion';
-  set.drafted_at = new Date(Date.now() - 1000).toISOString();
-  set.context = optionContext(read(root), 'rigging-interview', Date.now() - 1000, root);
+  stampOptionSet(root, read(root), set);
   const resolved = 'evidence/interview/resolved-motion.json';
   writeFileSync(join(root, resolved), JSON.stringify(set, null, 2) + '\n');
   const refreshed = await cli(root, ['interview-options', 'motion', root, '--file', resolved]);
@@ -536,8 +543,7 @@ test.each(['rigging-interview', 'post-interview'])('first unanswered %s question
   item.record.guide = null;
   writeFileSync(join(root, 'project.json'), JSON.stringify(project, null, 2) + '\n');
   set.id = 'first-pending';
-  set.drafted_at = new Date(Date.now() - 1000).toISOString();
-  set.context = optionContext(project, stage, Date.now() - 1000, root);
+  stampOptionSet(root, project, set);
   const path = 'evidence/interview/first-pending.json';
   writeFileSync(join(root, path), JSON.stringify(set, null, 2) + '\n');
   const registered = await cli(root, ['interview-options', question, root, '--file', path]);
@@ -579,8 +585,7 @@ test('post-interview --questions opens two pending sets on the same rig', async 
   writeFileSync(join(root, 'project.json'), JSON.stringify(project, null, 2) + '\n');
   for (const set of sets) {
     set.id = `grouped-${set.question}`;
-    set.drafted_at = new Date(Date.now() - 1000).toISOString();
-    set.context = optionContext(read(root), 'post-interview', Date.now() - 1000, root);
+    stampOptionSet(root, project, set);
     expect(set.context).toMatchObject({ kind: 'rig', rig_version: rigVersion });
     const path = `evidence/interview/${set.id}.json`;
     writeFileSync(join(root, path), JSON.stringify(set, null, 2) + '\n');
@@ -725,8 +730,7 @@ test('legacy post-only adoption reaches all three owner picks and the post move'
     const set = JSON.parse(readFileSync(join(import.meta.dir, '../templates/example-interview-options/example-' + question.replaceAll('_', '-') + '.json'), 'utf8')) as JsonObject;
     set.id = 'legacy-control-' + question;
     set.stage = 'interview';
-    set.drafted_at = new Date(Date.now() - 1000).toISOString();
-    set.context = optionContext(read(root), 'interview', Date.now() - 1000, root);
+    stampOptionSet(root, read(root), set);
     const path = 'evidence/interview/' + set.id + '.json';
     writeFileSync(join(root, path), JSON.stringify(set, null, 2) + '\n');
     await unchanged(root, ['interview-options', question, root, '--file', path], 'INTERVIEW_CHOICE_REQUIRED');
@@ -755,8 +759,7 @@ test('legacy post-only adoption reaches all three owner picks and the post move'
   for (const question of ['camera_depth', 'post_timing', 'post_composition']) {
     const set = JSON.parse(readFileSync(join(import.meta.dir, '../templates/example-interview-options/example-' + question.replaceAll('_', '-') + '.json'), 'utf8')) as JsonObject;
     set.id = 'legacy-' + question;
-    set.drafted_at = new Date(Date.now() - 1000).toISOString();
-    set.context = optionContext(read(root), 'post-interview', Date.now() - 1000, root);
+    stampOptionSet(root, read(root), set);
     const path = 'evidence/interview/' + set.id + '.json';
     mkdirSync(dirname(join(root, path)), { recursive: true });
     writeFileSync(join(root, path), JSON.stringify(set, null, 2) + '\n');

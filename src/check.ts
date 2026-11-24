@@ -920,7 +920,7 @@ interface CheckOptions {
 
 /**
  * With a candidate record, validate the would-be write against the same project files without writing it.
- * `options.now` is the instant the check runs at (ms since the epoch); see README.md "The clock".
+ * `options.now` is the instant the check runs at (ms since the epoch); see docs/CLOCK.md "The clock".
  * With `options.recordReads`, the report also lists every project file the check read (`reads`).
  * `recordPublication` checks the decision record and its answer/approval evidence,
  * without revalidating producer artifacts. Stage resolution and record predicates

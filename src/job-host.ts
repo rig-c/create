@@ -6,7 +6,7 @@ import { asArray, checkProject, collectItems, loadCollection, isObject, type Fin
 import { baselineOf, newFindings } from './refusal-baseline.ts';
 import { assembleOnlyDraftTarget, assembleOnlyVersionFinding, assertDraftHasRig, readAssembleOnlyDraftTarget } from './draft-layout.ts';
 import { Refusal, refuse } from './refusal.ts';
-import { liveManifestPath, draftPackageIdentity, draftPublishedContext, eligibleRigDraftModel, inspectDraftPublication, currentJobIdentity, optionPublicationStage, partsEnumerator, prepareDraftManifest, prepareLiveManifest, publicationFile, publicationSelector, publishedDraft, publishedSourcePainting, readPublished, readRecordPublished, recordOptionSets, riggingDraftPartsChange, type RecordPublicationResult } from './job-publication.ts';
+import { liveManifestPath, draftPackageIdentity, draftPublishedContext, eligibleRigDraftModel, inspectDraftPublication, currentJobIdentity, optionPublicationRemedy, optionPublicationStage, partsEnumerator, prepareDraftManifest, prepareLiveManifest, publicationFile, publicationSelector, publishedDraft, publishedSourcePainting, readPublished, readRecordPublished, recordOptionSets, riggingDraftPartsChange, type RecordPublicationResult } from './job-publication.ts';
 import { acknowledgePublication, acquireJobLock, assertJobIdentity, enqueuePublication, ensureJobPrivateIgnores, failPublication, JOB_BINDING_FILE, jobHash, jobHostStateRoot, pendingPublications, privateDirectory, publicationVersionHash, readAcknowledgedPublication, readWriterBinding, reconcilePublication, refuseJobIdentityMismatch, writePrivateJson, isRecordResult, type PublicationResult, type JobIdentity, type PendingPublication, type WriterBinding, type PublicationSubject } from './job-outbox.ts';
 import { draftPublicationResult } from './job-writer.ts';
 import { attachCreateJobForClose, refusePendingJobAsks } from './job-close.ts';
@@ -20,6 +20,7 @@ import { requireOwnerLanguage } from './owner-language.ts';
 import { postJobProgress } from './job-progress.ts';
 import { reportOwnerSubmitRefusal } from './job-refusal.ts';
 import { hasStageOrder, interviewStageOfGuide } from './stages.ts';
+import { pendingInterviewOptionsPath } from './choices.ts';
 
 function installBinding(root: string, binding: WriterBinding): void {
   ensureJobPrivateIgnores(root);
@@ -656,15 +657,30 @@ function requestedRecordPublication(root: string, question: QuestionSelection | 
     } else {
       questions = typeof question === 'string' ? [question] : question;
     }
-    if (questions.length === 0 || questions.length > 64) {
-      refuse('JOB_RECORD_SUBJECT_INVALID', 'project.json: select 1 to 64 pending option sets in the effective stage; register missing sets with rig-create interview-options or select a group with repeated --question');
+    const check = `rig-create interview --check ${shellWord(root)} --json`;
+    if (questions.length === 0) {
+      refuse('JOB_RECORD_SUBJECT_INVALID', `project.json.interview: no pending option sets selected for publication; run ${check} to inspect the current stage and questions`);
+    }
+    if (questions.length > 64) {
+      refuse('JOB_RECORD_SUBJECT_INVALID', `project.json.interview: select at most 64 current pending sets per publication with repeated --question on rig-create job open`);
     }
     const sets = questions.map(questionId => {
       const matches = items.filter(item => item.id === questionId);
-      const binding = matches.length === 1 ? matches[0]!.record.pending_options : undefined;
-      if (!isObject(binding) || typeof binding.path !== 'string') refuse('JOB_RECORD_SUBJECT_INVALID', `project.json: requested question has no unique pending option set; register it with rig-create interview-options ${questionId} '${root.replaceAll("'", "'\\''")}' --file '<option-set.json>' first (draft a new option set to re-ask an answered question)`);
+      if (matches.length !== 1) {
+        refuse('JOB_RECORD_SUBJECT_INVALID', `project.json.interview: requested question ${JSON.stringify(questionId)} is absent or ambiguous; run ${check} and select an existing, uniquely recorded question`);
+      }
+      const item = matches[0]!;
+      const path = `project.json.${pendingInterviewOptionsPath(item)}`;
+      const binding = item.record.pending_options;
+      if (binding === undefined) {
+        const stage = checkProject(root, project, { now, readOnly: true, recordPublication: true }).effective_stage;
+        refuse('JOB_RECORD_SUBJECT_INVALID', `${path}: no pending option set at effective stage ${stage ?? 'unknown'}; ${optionPublicationRemedy(root, project, item, stage, now)}`);
+      }
+      if (!isObject(binding) || typeof binding.path !== 'string') {
+        refuse('JOB_RECORD_SUBJECT_INVALID', `${path}: invalid pending option set binding; run ${check} and restore the retained binding`);
+      }
       const set = JSON.parse(publicationFile(root, binding.path).toString('utf8')) as JsonObject;
-      if (typeof set.id !== 'string') refuse('JOB_RECORD_SUBJECT_INVALID', 'project.json: pending option set has no id; restore its original identity');
+      if (typeof set.id !== 'string') refuse('JOB_RECORD_SUBJECT_INVALID', `${path}: pending option set has no id; run ${check} and restore its original identity`);
       return { questionId, setId: set.id };
     });
     result = { kind: 'option-set', ...sets[0]!, ...(sets.length > 1 ? { sets } : {}) };

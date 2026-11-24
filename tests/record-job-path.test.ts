@@ -249,12 +249,14 @@ async function reviseAfterAnswer(root: string, step: string, reason: string) {
   expect(revised.exit, revised.stderr).toBe(0);
 }
 
-async function unchanged(root: string, args: string[], code: string) {
+async function unchanged(root: string, args: string[], code: string, remedy: RegExp[] = [], excluded: string[] = []) {
   const before = readFileSync(join(root, 'project.json'));
   for (let n = 0; n < 2; n++) {
     const result = await cli(root, args);
     expect(result.exit).not.toBe(0);
     expect(result.stderr).toContain(code);
+    for (const token of remedy) expect(result.stderr).toMatch(token);
+    for (const token of excluded) expect(result.stderr).not.toContain(token);
     expect(readFileSync(join(root, 'project.json'))).toEqual(before);
   }
 }
@@ -469,9 +471,52 @@ test('exclusive record selectors and missing pending question refuse before host
   for (const flags of [['--plan', '--question', 'motion'], ['--question', 'motion', '--draft', 'example'], ['--plan', '--rig', '1']]) {
     await unchanged(root, ['job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner', ...flags], 'JOB_BINDING_INVALID');
   }
-  await unchanged(root, ['job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner', '--question', 'absent'], 'JOB_RECORD_SUBJECT_INVALID');
+  await unchanged(root, ['job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner', '--question', 'absent'], 'JOB_RECORD_SUBJECT_INVALID',
+    [/project\.json\.interview/, /rig-create interview --check .* --json/], ['rig-create interview-options']);
   expect(readWriterBinding(root)).toBeNull();
-});
+}, 20_000);
+
+test.each([
+  ['rigging-interview', [/rig-create interview-options motion .* --file/, /rig-create job open .* --question motion/]],
+  ['parts', [/rig-create interview --check .* --json/]],
+  ['rig-review', [/owner changes-requested/, /exactly one page-level comment/, /rig-create review 2 --from-review .* --item motion:not-asked/, /re-sign rigging-interview/]],
+  ['post-interview', [/rig-create interview --check .* --json/]],
+] as const)('#969 job open names the remedy at %s', async (stage, remedies) => {
+  const root = synthetic(stage === 'rig-review' ? 'post-interview' : stage);
+  const project = read(root);
+  if (stage === 'rig-review') {
+    project.stage = stage;
+    retainSignoffs(project, signature => signature.stage !== stage);
+    project.advances = arr(project.advances).filter(value => obj(value).stage !== 'post-interview');
+    arr(project.versions).map(obj).find(version => version.n === 2)!.verdicts = [];
+    writeFileSync(join(root, 'project.json'), JSON.stringify(project));
+  }
+  // Exercise the reader's stage-mismatch refusal for an actually registered set.
+  if (stage === 'post-interview') await registerReask(root, 'motion', 'wrong-stage-motion');
+  const args = ['job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner', '--question', 'motion'];
+  const path = /project\.json\.interview\.waypoints\[motion\]\.pending_options/;
+  await unchanged(root, args, 'JOB_RECORD_SUBJECT_INVALID', [path, ...remedies], stage === 'rigging-interview' ? [] : ['rig-create interview-options']);
+  expect(readWriterBinding(root)).toBeNull();
+}, 15_000);
+
+test.each([true, false])('#969 post answer remedy with a live direction bounce = %s', async bounced => {
+  const root = realpathSync(fixture(project => {
+    project.stage = 'direction-review';
+    retainSignoffs(project, signature => signature.stage !== 'direction-review');
+    project.advances = arr(project.advances).filter(value => obj(value).stage !== 'accepted');
+    if (bounced) project.versions = arr(project.versions).filter(value => obj(value).n !== 4);
+  }, 'example-project.json'));
+  roots.push(root);
+  const path = /project\.json\.interview\.post\.items\[camera_depth\]\.pending_options/;
+  const remedies = bounced ? [
+    /rig-create interview-options camera_depth .* --file/,
+    /rig-create job open .* --question camera_depth.*rig-create interview-answer camera_depth .* --from-review .*rig-create amend post-interview .* --kind interview-answer --target camera_depth/,
+    /replan .* re-sign post-interview/,
+  ] : [/rig-create interview --check .* --json/];
+  await unchanged(root, ['job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner', '--question', 'camera_depth'],
+    'JOB_RECORD_SUBJECT_INVALID', [path, ...remedies], bounced ? [] : ['rig-create interview-options', 'rig-create amend']);
+  expect(readWriterBinding(root)).toBeNull();
+}, 15_000);
 
 test.each(['rigging-interview', 'post-interview'])('first unanswered %s question can be published before the interview is complete', async stage => {
   const root = synthetic(stage);

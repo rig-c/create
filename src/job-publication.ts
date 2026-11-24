@@ -14,7 +14,7 @@ import { DIRECTION_COMPOSE_SPEC, composeInventory } from './direction-compose.ts
 import { directionJson, directionPath, readDirection, validateDirectionShape } from './direction.ts';
 import { checkpointEvidenceContext, type CheckpointEvidence } from './checkpoint-evidence.ts';
 import { locateParts, PARTS_PACKAGE } from './parts-sections.ts';
-import { asArray, checkProject, collectItems, isObject, loadCollection, postNotPassed, type Finding } from './check.ts';
+import { asArray, checkProject, collectItems, isObject, loadCollection, postNotPassed, type Finding, type Item } from './check.ts';
 import { checkDiffMap, diffStackCandidates, reportShape } from './diff-map.ts';
 import { relativeInventory } from './draft-reuse.ts';
 import { PARTS_CHECK_SPEC, partsCheckFindings } from './parts-check.ts';
@@ -26,13 +26,13 @@ import {
   verifyCollectionBinding,
   withCandidateProject,
 } from './collection-binding-reader.ts';
-import { optionContextFiles, optionFile, validateContext } from './choices.ts';
-import { isOpenInterviewStage, PAUSED_STAGE, silentInterviewItems, stageOfStep, stepCoveredByApproval } from './stages.ts';
+import { choiceAdoption, optionContextFiles, optionFile, pendingInterviewOptionsPath, validateContext } from './choices.ts';
+import { approvalStageOfGuide, hasStageOrder, interviewStageOfGuide, isOpenInterviewStage, PAUSED_STAGE, silentInterviewItems, stageIndex, stageOfStep, stepCoveredByApproval } from './stages.ts';
 import { assertPlanSignoffCandidate } from './signoff.ts';
 import { guideSignoffMatcher, staleSignoffAnswer } from './signoff-answers.ts';
 import { assertInterviewRecordSignable, checkpointSignable, packageSignSubjects, reviewVerdictSignable, rigVerdictIngestible, stageSignable } from './signable.ts';
 import { collectReopens, directionReviewClosed, liveSignoff } from './reopen.ts';
-import { acceptedReviewVerdict, humanReviewVerdicts } from './review.ts';
+import { acceptedReviewVerdict, humanReviewVerdicts, readVersions } from './review.ts';
 import { isAssembleOnlyDraft } from './draft-layout.ts';
 import { recordDirectionTarget, requireRecordDirectionTarget } from './record-direction-target.ts';
 import { latestPartsApproval, previousPartsApproval, retainedJson } from './structure.ts';
@@ -135,6 +135,39 @@ export function optionPublicationStage(project: JsonObject, stage: string | null
     return at <= now && liveSignoff(reopens, stage, at);
   });
   return verdict?.record.verdict === 'bounced' ? 'post-interview' : stage;
+}
+
+export function optionPublicationRemedy(root: string, project: JsonObject, item: Item, stage: string | null, now: number, registered = false): string {
+  const split = hasStageOrder(project);
+  const post = item.kind === 'post';
+  const interview = interviewStageOfGuide(item.id, post, split);
+  const dir = shellWord(root);
+  const question = shellWord(item.id);
+  const check = `rig-create interview --check ${dir} --json`;
+  if (interview === optionPublicationStage(project, stage, now)) {
+    if (!registered && !Number.isFinite(choiceAdoption(project, item))) {
+      return `run ${check} and confirm the project's interview choice adoption before registering options`;
+    }
+    const publish = `rig-create job open ${dir} --reviewer '<owner>' --role owner --question ${question}`;
+    const ask = registered ? `publish the current registered set with ${publish}`
+      : `register a fresh set with rig-create interview-options ${question} ${dir} --file '<option-set.json>', then run ${publish}`;
+    if (stage !== 'direction-review') return ask;
+    const answer = `rig-create interview-answer ${question} ${dir} --from-review '<pick-act>'`;
+    const amend = `rig-create amend post-interview ${dir} --kind interview-answer --target ${question} --change '<project-relative change>' --by '<owner>' --verbatim-file '<words file>'`;
+    return `${ask}. On this direction bounce, record the owner's new pick with ${answer}, then record the owner's amendment with ${amend}, replan the affected steps and re-sign post-interview`;
+  }
+  if (rigVerdictIngestible(stage) && item.kind === 'waypoint' && item.state.state === 'user'
+    && isObject(item.raw) && item.raw.basis !== 'inherited') {
+    const n = Math.max(...readVersions(project).rigs.filter(rig => rig.live).map(rig => rig.n));
+    if (Number.isFinite(n) && reviewVerdictSignable(project, n, 'rig-review')) {
+      const approval = approvalStageOfGuide(item.id, false, split);
+      return `get a fresh owner changes-requested verdict on the latest live rig v${n} with exactly one page-level comment, then run rig-create review ${n} --from-review '<act>' ${dir} --item ${question}:not-asked and re-sign ${approval}`;
+    }
+  }
+  if (stage !== null && stageIndex(stage) >= 0 && stageIndex(stage) < stageIndex(interview)) {
+    return `run ${check} and complete the current stage before asking this question at ${interview}`;
+  }
+  return `run ${check} to inspect the current record and its stage requirements`;
 }
 
 export interface RecordPublicationRequest {
@@ -425,7 +458,8 @@ export function readRecordPublished({ root, record, result, phase, parts: sealed
     if (ids.some(id => typeof id !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(id))) {
       refuse('JOB_RECORD_SUBJECT_INVALID', 'project.json: a requested question, set or displayed step id is outside the record publication id domain; retain a representable producer id without aliases');
     }
-    let selectedSets: JsonObject[] = [];
+    const remedyRoot = phase === 'retained' ? '<project dir>' : root;
+    let selectedSets: { item: Item; set: JsonObject }[] = [];
     if (result.kind === 'option-set') {
       const seen = new Set<string>();
       for (const { questionId, setId } of sets) {
@@ -436,13 +470,20 @@ export function readRecordPublished({ root, record, result, phase, parts: sealed
       selectedSets = sets.map(({ questionId }) => {
         const matches = items.filter(item => item.id === questionId);
         if (matches.length !== 1) throw Error('the requested question is absent or ambiguous');
-        const binding = matches[0].record.pending_options;
+        const item = matches[0];
+        const binding = item.record.pending_options;
         // A question whose pick is already recorded has no pending set to publish.
-        if (!isObject(binding)) refuse('JOB_RECORD_SUBJECT_INVALID', 'project.json: the requested question has no pending option set; publish the exact current pending set');
+        if (binding === undefined) {
+          const stage = checkProject(root, project, { now, readOnly: true, recordPublication: true }).effective_stage;
+          refuse('JOB_RECORD_SUBJECT_INVALID', `project.json.${pendingInterviewOptionsPath(item)}: no pending option set at effective stage ${stage ?? 'unknown'}; ${optionPublicationRemedy(remedyRoot, project, item, stage, now)}`);
+        }
+        if (!isObject(binding)) {
+          refuse('JOB_RECORD_SUBJECT_INVALID', `project.json.${pendingInterviewOptionsPath(item)}: invalid pending option set binding; run rig-create interview --check ${shellWord(remedyRoot)} --json and restore the retained binding`);
+        }
         seal(binding);
         const set = optionFile(root, binding).set;
         sealContext(set.context as JsonObject);
-        return set;
+        return { item, set };
       });
     } else if (result.kind === 'plan') {
       if (!plan && project.stage === 'interview' && stageSignable(project, 'interview')) {
@@ -519,9 +560,9 @@ export function readRecordPublished({ root, record, result, phase, parts: sealed
       const optionStage = optionPublicationStage(project, stage, now);
       withCandidateProject(root, project, () => {
         for (const [index, { questionId, setId }] of sets.entries()) {
-          const set = selectedSets[index]!;
+          const { item, set } = selectedSets[index]!;
           if (set.id !== setId || set.question !== questionId || set.stage !== optionStage) {
-            refuse('JOB_RECORD_SUBJECT_INVALID', 'project.json: requested option set does not match its question, set id and effective stage; publish the exact current pending set');
+            refuse('JOB_RECORD_SUBJECT_INVALID', `project.json.${pendingInterviewOptionsPath(item)}: requested set does not match its question, set id and effective stage ${stage ?? 'unknown'}; ${optionPublicationRemedy(remedyRoot, project, item, stage, now, true)}`);
           }
           validateContext(root, project, set, now, true);
         }

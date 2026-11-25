@@ -91,9 +91,9 @@ test('checkpoint writer and CLI preserve all four images, 103 rows, exact text a
   expect(table.rows).toEqual(f.rows.map(row => Object.values(row).map(value => value !== null && typeof value === 'object' ? JSON.stringify(value) : value)));
   expect(table.rows).toHaveLength(103);
   expect(table.rows.every(row => row[2] === 'FAIL')).toBe(true);
-  const historical = checkpointEvidenceContext(f.root, record, [{ kind: 'signoff' }], []);
-  expect(historical).toEqual({});
-  expect(Object.hasOwn(historical, 'checkpointEvidence')).toBe(false);
+  const contextFiles: { path: string; sha256: string }[] = [];
+  expect(checkpointEvidenceContext(f.root, record, contextFiles)).toEqual({ checkpointEvidence: [f.packet] });
+  expect(contextFiles).toHaveLength(f.packet.tiles.length + 1);
 });
 
 test.each([1, 2])('clear removes all %s packet declarations and preserves raw assets and byte-identical replay', count => {

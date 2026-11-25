@@ -204,12 +204,12 @@ test('duplicate context declarations refuse even when the official context accep
   rejectsUnchanged(request(root));
 });
 
-test('pending plan reads the signoff answer evidence and binds the signoff to its effective stage', () => {
+test('pending plan reads the signoff answer evidence and declares no subjects', () => {
   const { root } = pending('plan-approved');
   const input = { ...request(root), result: { kind: 'plan' as const } };
   const before = snapshot(root);
   const context = readRecordPublished(input, TEST_NOW);
-  expect(context.subjects).toEqual([{ kind: 'signoff', stage: 'plan-approved' }]);
+  expect(context.subjects).toEqual([]);
   expect(context.plan?.steps.length).toBeGreaterThan(0);
   expect(context.files.some(file => file.path.includes('interview'))).toBe(true);
   expect(snapshot(root)).toEqual(before);
@@ -292,35 +292,6 @@ test('#656 read-only interview --check takes no writer lock on an existing outbo
   }
 });
 
-test('#656 JOB_DIRECTION_VERDICT_REQUIRED names the current live post number and exact job open --rig move', () => {
-  const root = realpathSync(fixture(project => {
-    project.stage = 'direction-review';
-    retainSignoffs(project, signature => obj(signature).stage !== 'direction-review');
-    project.advances = arr(project.advances).filter(value => obj(value).stage !== 'accepted');
-    const currentPost = arr(project.versions).map(obj).find(v => v.n === 4)!;
-    currentPost.verdicts = [];
-  }, 'example-project.json'));
-
-  const before = snapshot(root);
-  let caught: unknown;
-  try {
-    readRecordPublished({ ...request(root), result: { kind: 'plan' } }, TEST_NOW);
-  } catch (error) {
-    caught = error;
-  }
-  expect(caught).toBeInstanceOf(Refusal);
-  const refusal = caught as Refusal;
-  expect(refusal.code).toBe('JOB_DIRECTION_VERDICT_REQUIRED');
-  expect(refusal.message).toContain('project.json.versions[v4]');
-  expect(refusal.message).toContain('current live post v4');
-  expect(refusal.message).toContain('job open --rig 4');
-  expect(refusal.message).toContain('review 4 --from-review <actId>');
-  expect(refusal.message).not.toContain('<n>');
-  expect(refusal.message).not.toContain('v3');
-  expect(snapshot(root)).toEqual(before);
-});
-
-
 test('external collection evidence refuses by code and preserves the entire synthetic member tree', () => {
   const { root } = pending();
   const container = dirname(root);
@@ -359,7 +330,7 @@ test.each(['rigging-interview', 'post-interview'])('%s plan seals the current wr
   const before = snapshot(root);
   const input = { ...request(root), result: { kind: 'plan' as const }, phase: 'inventory' as const };
   const context = readRecordPublished(input, TEST_NOW);
-  expect(context.subjects).toEqual([{ kind: 'signoff', stage }]);
+  expect(context.subjects).toEqual([]);
   if (stage === 'rigging-interview') {
     const project = JSON.parse(readFileSync(join(root, 'project.json'), 'utf8'));
     const approval = project.signoffs.find((signature: JsonObject) => signature.stage === 'parts-review' && signature.checkpoint === null);
@@ -380,7 +351,7 @@ test.each(['plan-approved', 'rigging-interview', 'post-interview', 'direction-re
     const input = { ...request(root), result: { kind: 'plan' as const } };
     const before = snapshot(root);
     const first = readRecordPublished(input, TEST_NOW);
-    expect(first.subjects).toEqual([{ kind: 'signoff', stage }]);
+    expect(first.subjects).toEqual([]);
     expect(readRecordPublished(input, TEST_NOW)).toEqual(first);
     expect(snapshot(root)).toEqual(before);
   },
@@ -433,8 +404,7 @@ test('an explicitly inapplicable empty post plan stays eligible under the writer
   signoffCommand(['interview', root, '--by', 'user', '--verbatim-file', words], TEST_NOW);
   const before = snapshot(root);
   const context = readRecordPublished({ ...request(root), result: { kind: 'plan' }, phase: 'inventory' }, TEST_NOW);
-  // The dated post versions still witness reach after the project moved back.
-  expect(context.subjects).toEqual([{ kind: 'signoff', stage: 'post-interview' }]);
+  expect(context.subjects).toEqual([]);
   expect(snapshot(root)).toEqual(before);
 });
 
@@ -552,34 +522,6 @@ test('input order stays in project order while unique file rows remain sorted', 
   expect(Object.keys(context.subjects[0]!)).toEqual(['kind', 'questionId', 'setId']);
 });
 
-test('only an enabled at-checkpoint step is offered with canonical subject keys', () => {
-  const root = realpathSync(fixture(project => {
-    project.stage = 'parts';
-    project.versions = [];
-    project.scenes = [];
-    delete project.direction_contract;
-    retainSignoffs(project, signature => stageIndex(String(obj(signature).stage)) < stageIndex('parts'));
-    project.advances = arr(project.advances).filter(value => stageIndex(String(obj(value).stage)) <= stageIndex('parts'));
-    for (const item of arr(obj(obj(project.interview).post).items).map(obj)) item.guide = null;
-    for (const item of arr(obj(project.interview).waypoints).map(obj)) {
-      if (['bones', 'meshes', 'constraints', 'turn', 'motion'].includes(String(item.id))) item.guide = null;
-    }
-    for (const step of arr(obj(project.plan).steps).map(obj)) {
-      step.status = step.id === 'assemble' ? 'at-checkpoint' : step.id === 'seethrough' ? 'done' : 'pending';
-    }
-  }, 'example-project.json'));
-  const input = { ...request(root), result: { kind: 'plan' as const } };
-  const context = readRecordPublished(input, TEST_NOW);
-  expect(context.subjects).toEqual([{ kind: 'checkpoint', checkpointId: 'assemble' }]);
-  expect(Object.keys(context.subjects[0]!)).toEqual(['kind', 'checkpointId']);
-  const project = JSON.parse(readFileSync(join(root, 'project.json'), 'utf8'));
-  const step = obj(arr(obj(project.plan).steps).find(step => obj(step).id === 'assemble'));
-  step.status = 'in-progress';
-  step.status_history = arr(step.status_history).filter(entry => obj(entry).status === 'in-progress');
-  save(root, project);
-  expect(readRecordPublished({ ...request(root), result: { kind: 'plan' } }, TEST_NOW).subjects).toEqual([]);
-});
-
 /** The host's own parts identity, read independently from create's install and lockfile. */
 function hostParts(): { name: string; version: string; integrity: string } {
   const version = JSON.parse(readFileSync(join(OWN_NODE_MODULES, PARTS_PACKAGE, 'package.json'), 'utf8')).version as string;
@@ -647,7 +589,7 @@ test('#945 a nested npm v3 Parts install publishes a plan', () => {
   if (result.exitCode !== 0) throw Error(result.stderr.toString() + result.stdout.toString());
   const context = JSON.parse(result.stdout.toString());
   expect(context.parts).toEqual({ name: PARTS_PACKAGE, version, integrity });
-  expect(context.subjects).toEqual([{ kind: 'signoff', stage: 'plan-approved' }]);
+  expect(context.subjects).toEqual([]);
   expect(readFileSync(join(root, 'project.json'))).toEqual(before);
 });
 
@@ -699,7 +641,7 @@ test.skipIf(process.env.RIG_CREATE_NETWORK !== '1')('#945 npm registry install w
   if (result.exitCode !== 0) throw Error(`installed publication reader exit ${result.exitCode}\n${result.stderr}${result.stdout}`);
   const context = JSON.parse(result.stdout.toString());
   expect(context.parts).toEqual({ name: PARTS_PACKAGE, version: nestedRow.version, integrity: nestedRow.integrity });
-  expect(context.subjects).toEqual([{ kind: 'signoff', stage: 'plan-approved' }]);
+  expect(context.subjects).toEqual([]);
   expect(readFileSync(join(root, 'project.json'))).toEqual(before);
 }, 90_000);
 
@@ -901,17 +843,22 @@ test.each(recordAsks)('%s: every retained input refuses on tamper; excluded draf
     expect(published.ok).toBe(true);
     const publicationId = published.value!.publicationId;
     const snapshot = host.session.retainedSourceV3(publicationId);
-    const subject = context.subjects[0]!;
-    for (const file of context.files) {
-      const path = join(snapshot.snapshotRoot, file.path);
-      const original = readFileSync(path);
-      try {
-        writeFileSync(path, Buffer.concat([original, Buffer.from(' ')]));
-        // Review's existing immutable-seal gate runs before Create's retained check.
-        expect(await api('ask', { publicationId, subject })).toMatchObject({ ok: false, error: { code: 'JOB_SOURCE_UNRETAINABLE' } });
-      } finally { writeFileSync(path, original); }
+    const subject = context.subjects[0];
+    if (subject) {
+      for (const file of context.files) {
+        const path = join(snapshot.snapshotRoot, file.path);
+        const original = readFileSync(path);
+        try {
+          writeFileSync(path, Buffer.concat([original, Buffer.from(' ')]));
+          // Review's existing immutable-seal gate runs before Create's retained check.
+          expect(await api('ask', { publicationId, subject })).toMatchObject({ ok: false, error: { code: 'JOB_SOURCE_UNRETAINABLE' } });
+        } finally { writeFileSync(path, original); }
+      }
+      expect((await api('ask', { publicationId, subject })).ok).toBe(true);
+    } else {
+      expect(input.result).toEqual({ kind: 'plan' });
+      expect(context.subjects).toEqual([]);
     }
-    expect((await api('ask', { publicationId, subject })).ok).toBe(true);
   } finally { host.stop(); rmSync(identity.stateDir, { recursive: true, force: true }); }
   const project = JSON.parse(readFileSync(join(input.root, 'project.json'), 'utf8'));
   const output = obj(arr(obj(arr(project.drafts)[0]).files).find(file => String(obj(file).path).endsWith('/motion.json')));

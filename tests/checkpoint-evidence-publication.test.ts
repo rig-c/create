@@ -17,8 +17,10 @@ test('#395 sealed checkpoint record and package publications retain every asset 
   for (const mode of ['package-v2', 'package-v3', 'record-v3']) {
     const f = checkpointWorkspace();
     const state = tempDir();
+    const legacyState = tempDir();
     const now = Math.max(TEST_NOW, Date.now() + 60_000);
     let host: JobOwnerHost | undefined;
+    let legacyHost: JobOwnerHost | undefined;
     try {
       const [beforeTile, afterTile] = f.packet.tiles;
       const pair = {
@@ -95,22 +97,60 @@ test('#395 sealed checkpoint record and package publications retain every asset 
       expect(Buffer.from(await tableResponse.arrayBuffer())).toEqual(originalTable);
       expect((await readAsset(String(obj(projected.table).url).slice(1), 'HEAD')).status).toBe(200);
       expect((await readAsset('api/checkpoint-evidence/undeclared/table')).status).toBe(404);
+      if (mode === 'record-v3') expect(obj(publication.source).subjects).toEqual([]);
 
-      const uiRequest = (route: string, body: object) => new Request(`${owner.origin}/jobs/${owner.session.jobId}/${route}`, {
-        method: 'POST', headers: { origin: owner.origin, 'X-Review-Capability': credentials.ui, 'content-type': 'application/json' }, body: JSON.stringify(body),
+      // Stored checkpoint acts from publications that declared the subject still fetch, decode, validate, and ingest.
+      const legacySubject = { kind: 'checkpoint' as const, checkpointId: 'assemble' };
+      const legacyIdentity = currentJobIdentity({ root: f.root, stateDir: legacyState, fingerprint: 'synthetic-checkpoint-legacy',
+        reviewer: { id: 'synthetic-owner', role: 'owner' } }, f.root);
+      let legacyFetchCapability = '';
+      legacyHost = await startJobHost({
+        ...legacyIdentity, readerId: legacyIdentity.readerId, partsEnumerator,
+        readPublished: async input => ({ ...await readPublished(input), subjects: [legacySubject] }),
+        installWriterBinding: async grant => { legacyFetchCapability = grant.fetchCapability; },
+        ...(mode === 'package-v2' ? {} : {
+          publicationMode: 'record-and-package', recordReaderId: legacyIdentity.readerId,
+          readRecordPublished: (request => {
+            const context = readRecordPublished(request);
+            return context.plan === null ? context : { ...context, subjects: [legacySubject] };
+          }) as typeof readRecordPublished,
+        }),
       });
-      const displayed = await owner.ports.ackDisplayed(owner.session.jobId, uiRequest('ui/displayed', {
-        publicationId: publication.publicationId, pageId: 'synthetic-page', sourceHash: obj(publication.source).sourceHash,
+      const legacyOwner = legacyHost;
+      const legacyCredentials = legacyOwner.session.hostCredentials();
+      project.review_job = { jobId: legacyOwner.session.jobId, origin: legacyOwner.origin };
+      writeFileSync(recordFile, JSON.stringify(project, null, 2) + '\n');
+      writePrivateJson(join(f.root, JOB_BINDING_FILE), { schema: 'rig-create/job-binding@1', identity: legacyIdentity,
+        jobId: legacyOwner.session.jobId, origin: legacyOwner.origin, fetchCapability: legacyFetchCapability }, true);
+      let legacySequence = 0;
+      async function legacyApi(verb: string, fields: object = {}): Promise<JsonObject> {
+        const response = await legacyOwner.ports.handleJobApi(new Request(`${legacyOwner.origin}/jobs/${legacyOwner.session.jobId}/api`, {
+          method: 'POST', headers: { authorization: `Bearer ${legacyCredentials.agent}`, 'content-type': 'application/json' },
+          body: JSON.stringify({ schema, verb, jobId: legacyOwner.session.jobId, requestId: `legacy-request-${++legacySequence}`,
+            idempotencyKey: `legacy-operation-${legacySequence}`, expectedGeneration: legacyOwner.session.status().generation, ...fields }),
+        }));
+        const body = await response.json() as JsonObject;
+        expect(body.ok).toBe(true);
+        return obj(body.value);
+      }
+      const legacyRecordBytes = readFileSync(recordFile);
+      const legacyPublication = await legacyApi('publish', { result, freeze: { kind: 'producer-held', holdId: 'synthetic-legacy-freeze',
+        record: { path: 'project.json', sha256: jobHash(legacyRecordBytes) } } });
+      const uiRequest = (route: string, body: object) => new Request(`${legacyOwner.origin}/jobs/${legacyOwner.session.jobId}/${route}`, {
+        method: 'POST', headers: { origin: legacyOwner.origin, 'X-Review-Capability': legacyCredentials.ui, 'content-type': 'application/json' }, body: JSON.stringify(body),
+      });
+      const displayed = await legacyOwner.ports.ackDisplayed(legacyOwner.session.jobId, uiRequest('ui/displayed', {
+        publicationId: legacyPublication.publicationId, pageId: 'synthetic-page', sourceHash: obj(legacyPublication.source).sourceHash,
       }));
       expect(displayed.ok).toBe(true);
       if (!displayed.ok) throw Error('synthetic display refused');
       const acts: CheckpointAct[] = [];
       for (const [index, words] of ['(i) accept openings', '  (ii) repair\nverbatim 한글  ', '(iii) change source\nraw FAIL'].entries()) {
-        const ask = await api('ask', { publicationId: publication.publicationId, subject: { kind: 'checkpoint', checkpointId: 'assemble' } });
+        const ask = await legacyApi('ask', { publicationId: legacyPublication.publicationId, subject: legacySubject });
         const value = { checkpointId: 'assemble', outcome: index === 0 ? 'pass' as const : 'fail' as const, words };
-        const committed = await owner.ports.commitUIAct(owner.session.jobId, uiRequest('ui/acts', {
-          publicationId: publication.publicationId, askId: ask.askId, pageId: 'synthetic-page', displayedNonce: displayed.value.displayedNonce,
-          expectedGeneration: owner.session.status().generation, submissionId: `synthetic-route-${index}`, kind: 'checkpoint', value,
+        const committed = await legacyOwner.ports.commitUIAct(legacyOwner.session.jobId, uiRequest('ui/acts', {
+          publicationId: legacyPublication.publicationId, askId: ask.askId, pageId: 'synthetic-page', displayedNonce: displayed.value.displayedNonce,
+          expectedGeneration: legacyOwner.session.status().generation, submissionId: `synthetic-route-${index}`, kind: 'checkpoint', value,
         }));
         expect(committed.ok).toBe(true);
         if (!committed.ok) throw Error('synthetic owner act refused');
@@ -119,8 +159,8 @@ test('#395 sealed checkpoint record and package publications retain every asset 
         expect(act.value).toEqual(mode === 'record-v3' ? { ...value, planStepId: 'assemble' }
           : { checkpointId: value.checkpointId, outcome: value.outcome, planStepId: 'assemble',
             comments: [{ anchor: { checkpointId: 'assemble', planStepId: 'assemble' }, text: words }] });
-        const fetched = await fetchReviewAct({ origin: owner.origin, jobId: owner.session.jobId, actId: String(act.actId),
-          fetchCapability, kind: 'checkpoint' });
+        const fetched = await fetchReviewAct({ origin: legacyOwner.origin, jobId: legacyOwner.session.jobId, actId: String(act.actId),
+          fetchCapability: legacyFetchCapability, kind: 'checkpoint' });
         const decoded = decodeReviewAct(fetched.bytes, 'checkpoint');
         expect<unknown>(decoded).toEqual(act);
         acts.push(decoded);
@@ -160,9 +200,11 @@ test('#395 sealed checkpoint record and package publications retain every asset 
         expect(jobHash(Buffer.from(await retained.arrayBuffer()))).toBe(String(tile.sha256));
       }
     } finally {
+      legacyHost?.stop();
       host?.stop();
       rmSync(f.root, { recursive: true, force: true });
       rmSync(state, { recursive: true, force: true });
+      rmSync(legacyState, { recursive: true, force: true });
     }
   }
 }, 120_000);

@@ -6,13 +6,12 @@ import { asArray, checkProject, collectItems, loadCollection, isObject, type Fin
 import { baselineOf, newFindings } from './refusal-baseline.ts';
 import { assembleOnlyDraftTarget, assembleOnlyVersionFinding, assertDraftHasRig, readAssembleOnlyDraftTarget } from './draft-layout.ts';
 import { Refusal, refuse } from './refusal.ts';
-import { liveManifestPath, draftPackageIdentity, draftPublishedContext, eligibleRigDraftModel, inspectDraftPublication, currentJobIdentity, optionPublicationRemedy, optionPublicationStage, partsEnumerator, prepareDraftManifest, prepareLiveManifest, publicationFile, publicationSelector, publishedDraft, publishedSourcePainting, readPublished, readRecordPublished, recordOptionSets, riggingDraftPartsChange, type RecordPublicationResult } from './job-publication.ts';
+import { liveManifestPath, livePublicationSubjects, draftPackageIdentity, draftPublishedContext, eligibleRigDraftModel, inspectDraftPublication, currentJobIdentity, optionPublicationRemedy, optionPublicationStage, partsEnumerator, prepareDraftManifest, prepareLiveManifest, publicationFile, publicationSelector, publishedDraft, publishedSourcePainting, readPublished, readRecordPublished, recordOptionSets, riggingDraftPartsChange, type RecordPublicationResult } from './job-publication.ts';
 import { acknowledgePublication, acquireJobLock, assertJobIdentity, enqueuePublication, ensureJobPrivateIgnores, failPublication, JOB_BINDING_FILE, jobHash, jobHostStateRoot, pendingPublications, privateDirectory, publicationVersionHash, readAcknowledgedPublication, readWriterBinding, reconcilePublication, refuseJobIdentityMismatch, writePrivateJson, isRecordResult, type PublicationResult, type JobIdentity, type PendingPublication, type WriterBinding, type PublicationSubject } from './job-outbox.ts';
 import { draftPublicationResult } from './job-writer.ts';
 import { attachCreateJobForClose, refusePendingJobAsks } from './job-close.ts';
 import { actionablePendingAct, agentCall, ingestedJobActs, ingestedSummary, jobEvents, pendingJobActs, readHostActsAndAsks, shellWord, type AgentReply, type IngestedJobAct, type PendingJobAct } from './job-acts.ts';
 import { checkReviewPackages } from './review-package.ts';
-import { reviewVerdictSignable } from './signable.ts';
 import { rigVerdictDeferred } from './rig-signoff.ts';
 import type { JsonObject } from './templates.ts';
 import { recoverReplacedJobHostState, replacedRootRefusal } from './job-host-state.ts';
@@ -752,12 +751,9 @@ export async function openDraftPublication(root: string, host: JobOwnerHost, now
   const draft = targetSelector?.kind === 'draft'
     ? inspectDraftPublication(root, project, targetSelector.id, warnings, stage)
     : undefined;
-  // Re-publish an older post head that still declares a sign-off or checkpoint:
-  // either pending ask would prevent the legacy direction panel from rendering.
-  const currentSubjects = draft?.context.subjects ?? (targetSelector?.kind === 'post'
-    ? (reviewVerdictSignable(project, targetSelector.version, 'direction-review')
-      ? [{ kind: 'review-verdict' as const, stage: 'direction-review' as const }]
-      : [])
+  // Re-publish an older head that still declares retired sign-off or checkpoint asks.
+  const currentSubjects = draft?.context.subjects ?? (targetSelector && targetSelector.kind !== 'draft'
+    ? livePublicationSubjects(root, project, targetSelector)
     : undefined);
   const sameDraftPackage = targetSelector?.kind !== 'draft'
     || Boolean(draft?.rigging) === (source?.package?.id === draftPackageIdentity(targetSelector.id, true).id);

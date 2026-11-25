@@ -2,7 +2,7 @@ import { checkExampleParts } from '../scripts/generate-example-parts.ts';
 import { draftRigCommand } from '../src/drafts.ts';
 import { checkInputs } from '../src/inputs.ts';
 import { planCommand } from '../src/plan-writers.ts';
-import { checkpointProblem, packageSignSubjects } from '../src/signable.ts';
+import { checkpointProblem } from '../src/signable.ts';
 import { stepHash } from '../src/step-hash.ts';
 import { afterEach, expect, test } from 'bun:test';
 import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
@@ -239,7 +239,13 @@ test('check and reconcile name a changed version entry and preserve its receipt'
 });
 
 test('lost acknowledgment replays the same request without a second publication', async () => {
-  const { root, host } = await bound();
+  const { root, project } = setup();
+  project.stage = 'rig-review';
+  writeFileSync(join(root, 'project.json'), JSON.stringify(project));
+  const host = await openCreateJob(root, { id: 'reviewer', role: 'owner' }, now);
+  hosts.push(host);
+  const path = prepareLiveManifest(root, project, 1);
+  enqueuePublication(root, readWriterBinding(root)!, { path, selector: { kind: 'rig', version: 1 } });
   await expect(reconcileCreateJob(root, async entry => {
     await publishPending(entry);
     refuse('JOB_PUBLISH_PENDING', 'project.json: planted acknowledgment loss');
@@ -1305,8 +1311,7 @@ test('normal publication omits only the withdrawn checkpoint and retains its sig
   const reason = join(root, 'reason.txt'); const quote = join(root, 'quote.txt');
   writeFileSync(reason, 'Retire one checkpoint.'); writeFileSync(quote, 'Keep its evidence.');
   const hash = stepHash(assemble);
-  expect(packageSignSubjects(project, 'parts', { kind: 'draft', id: 'chain' }, steps.length))
-    .toContainEqual({ kind: 'checkpoint', checkpointId: 'assemble' });
+  expect(checkpointProblem(project, 'parts', 'assemble')).toBeNull();
   expect(planCommand(['checkpoint-withdraw', 'assemble', root, '--by', 'operator', '--reason-file', reason, '--quote-file', quote], now).exit).toBe(0);
   const after = JSON.parse(readFileSync(join(root, 'project.json'), 'utf8')) as JsonObject;
   expect(checkpointProblem(after, 'parts', 'assemble')).not.toBeNull();
@@ -1315,11 +1320,12 @@ test('normal publication omits only the withdrawn checkpoint and retains its sig
     result: { path, selector: { kind: 'draft', id: 'chain' } } });
   expect(published.subjects).toEqual([]);
   expect(stepHash(((after.plan as JsonObject).steps as JsonObject[])[1]!)).toBe(hash);
-  const rigStep = { id: 'meshes', phase: 'rig', checkpoint: { delegated: false, value: true, by: 'user', at: '2026-11-06T00:00:00Z', verbatim: 'Inspect.' } };
+  const rigStep = { id: 'meshes', phase: 'rig', status: 'at-checkpoint', checkpoint: { delegated: false, value: true, by: 'user', at: '2026-11-06T00:00:00Z', verbatim: 'Inspect.' } };
   const motionStep = { ...rigStep, id: 'motion' };
   const rig: JsonObject = { plan: { steps: [rigStep, motionStep], checkpoint_withdrawals: [{ schema: 'rig-create/checkpoint-withdrawal@1', step: rigStep,
     sha256: stepHash(rigStep), generation: 0, by: 'operator', at: '2026-11-07T00:00:00Z', reason: 'Retire meshes.', verbatim: 'Keep motion.' }] } };
-  expect(packageSignSubjects(rig, 'rigging', { kind: 'rig', version: 1 }, 2)).toEqual([{ kind: 'checkpoint', checkpointId: 'motion' }]);
+  expect(checkpointProblem(rig, 'rigging', 'meshes')).not.toBeNull();
+  expect(checkpointProblem(rig, 'rigging', 'motion')).toBeNull();
 });
 
 test.each(['rig', 'post'] as const)('new %s publication binds exactly one original PNG without writing the project', kind => {

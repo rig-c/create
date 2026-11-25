@@ -10,15 +10,15 @@ import { plantLegacyReopen, fixture, retainSignoffs, arr, obj, step } from './fi
 import { stageIndex } from '../src/stages.ts';
 import { recordPartsReceipt } from './parts-receipt-fixture.ts';
 import { nextCommand, nextProject } from '../src/next.ts';
-import { pendingJobActs, pendingJobAsksForTarget, jobActsText, shellWord, type PendingJobAct } from '../src/job-acts.ts';
+import { agentCall, pendingJobActs, pendingJobAsksForTarget, jobActsText, shellWord, type PendingJobAct } from '../src/job-acts.ts';
 import { amendCommand } from './clock.ts';
 import type { PendingAskV3 } from '@rig-c/review/job-host';
-import { JOB_BINDING_FILE, writePrivateJson, jobHash, jobHostStateRoot, jobPrivateRoot, pendingPublications, readWriterBinding, type AcknowledgedPublication } from '../src/job-outbox.ts';
-import { jobRuntimeExecArgv, prepareVersionIntent } from '../src/job-writer.ts';
-import { listCreateJobActs } from '../src/job-host.ts';
+import { acknowledgePublication, enqueuePublication, JOB_BINDING_FILE, writePrivateJson, jobHash, jobHostStateRoot, jobPrivateRoot, pendingPublications, readWriterBinding, type AcknowledgedPublication } from '../src/job-outbox.ts';
+import { draftPublicationResult, jobRuntimeExecArgv, prepareVersionIntent } from '../src/job-writer.ts';
+import { listCreateJobActs, openCreateJob, reconcileCreateJob } from '../src/job-host.ts';
 import { assertNoPendingJobAsk } from '../src/job-close.ts';
-import { currentJobIdentity } from '../src/job-publication.ts';
-import { JOB_COMMENTS_ACT_SCHEMA, parseCommentsAct, startJobHost, type ActV3, type JobOwnerHost, type JobHostOptions } from '@rig-c/review/job-host';
+import { currentJobIdentity, prepareDraftManifest, readPublished, readRecordPublished, type RecordPublicationRequest } from '../src/job-publication.ts';
+import { JOB_COMMENTS_ACT_SCHEMA, JOB_RECORD_ACT_SCHEMA, parseCommentsAct, parseRecordAct, startJobHost, type ActV3, type JobOwnerHost, type JobHostOptions, type RecordPlanSubject } from '@rig-c/review/job-host';
 import { interviewAnswerCommand } from '../src/choice-writers.ts';
 import { reviewActFindings } from '../src/review-act.ts';
 import { sorted, stepHash } from '../src/step-hash.ts';
@@ -352,6 +352,74 @@ test('#756 job acts shows a pending act verdict and comments byte-equal to the h
   expect(readFileSync(join(root, 'project.json'))).toEqual(projectBefore);
 }, 30_000);
 
+async function serveStoredRecordAct(
+  root: string,
+  subject: RecordPlanSubject,
+  kind: 'checkpoint' | 'signoff',
+  value: JsonObject,
+): Promise<{ host: JobOwnerHost; act: JsonObject }> {
+  const host = await openCreateJob(root, { id: 'synthetic-owner', role: 'owner' }, testClock.now(), options => startJobHost({
+    ...options,
+    readRecordPublished: ((request: RecordPublicationRequest) => {
+      const context = readRecordPublished(request, testClock.now());
+      return context.plan === null ? context : { ...context, subjects: [subject] };
+    }) as typeof readRecordPublished,
+  }), true);
+  try {
+    enqueuePublication(root, readWriterBinding(root)!, { kind: 'plan' });
+    await reconcileCreateJob(root, async entry => {
+      const requestId = randomUUID();
+      const reply = await agentCall(host, {
+        verb: 'publish',
+        requestId,
+        idempotencyKey: requestId,
+        expectedGeneration: 0,
+        result: { kind: 'plan' },
+        freeze: { kind: 'producer-held', holdId: entry.id, record: { path: 'project.json', sha256: entry.recordHash } },
+      });
+      expect(reply.ok).toBe(true);
+      const { publication, generation } = host.session.status();
+      acknowledgePublication(entry, publication!.publicationId, generation, requestId, [subject]);
+    });
+    const session = host.session as unknown as {
+      jobId: string;
+      store: { update(jobId: string, rev: null, fn: (row: { data: { generation: number; reviewer: { id: string; role: string }; publications: Record<string, { retained: { source: unknown } }>; asks: Record<string, unknown>; acts: Record<string, unknown> } }) => { data: unknown }): unknown };
+      event(data: unknown, value: object): unknown;
+    };
+    const publicationId = host.session.status().publication!.publicationId;
+    let act!: JsonObject;
+    session.store.update(session.jobId, null, ({ data }) => {
+      data.generation++;
+      const askId = randomUUID();
+      const source = data.publications[publicationId]!.retained.source;
+      const ask = { askId, publicationId, subject, source, status: 'answered' };
+      data.asks[askId] = ask;
+      session.event(data, { type: 'pending', ask: { ...ask, status: 'pending' } });
+      const actId = randomUUID();
+      act = parseRecordAct({
+        schema: JOB_RECORD_ACT_SCHEMA,
+        actId,
+        jobId: session.jobId,
+        askId,
+        publicationId,
+        authority: { actor: 'human', channel: 'review-ui', reviewer: { ...data.reviewer } },
+        at: testClock.iso(),
+        kind,
+        source,
+        value,
+      }) as unknown as JsonObject;
+      data.generation++;
+      data.acts[actId] = act;
+      session.event(data, { type: 'act', act });
+      return { data };
+    });
+    return { host, act };
+  } catch (error) {
+    host.stop();
+    throw error;
+  }
+}
+
 test('#789 job acts preserves checkpoint and signoff words and interview comments in text and JSON', async () => {
   const root = copy('1-parts-verdict', project => {
     project.stage = 'parts';
@@ -365,61 +433,68 @@ test('#789 job acts preserves checkpoint and signoff words and interview comment
       if (['bones', 'meshes', 'constraints', 'turn', 'motion'].includes(String(item.id))) item.guide = null;
     }
   });
-  const opening = await open(root, ['--plan']);
-  const view = await page(root, opening.url, 1, 'checkpoint');
   const label = `["rig-review-comment/1","setup","reference","evidence/setup.png","${'a'.repeat(64)}",10,21,8,3]`;
   const words = `[${label}]\nFix this reference region.\n\n[general]\nApprove assemble checkpoint.`;
-  const checkpoint = await view.act('checkpoint', 'checkpoint', {
+  const servedCheckpoint = await serveStoredRecordAct(root, { kind: 'checkpoint', checkpointId: 'assemble' }, 'checkpoint', {
     checkpointId: 'assemble',
+    planStepId: 'assemble',
     outcome: 'pass',
     words,
   });
-  expect(checkpoint.schema).toBe('rig-review/act@4');
-  const projectBefore = readFileSync(join(root, 'project.json'));
+  try {
+    const checkpoint = servedCheckpoint.act;
+    expect(checkpoint.schema).toBe('rig-review/act@4');
+    const projectBefore = readFileSync(join(root, 'project.json'));
 
-  const listed = await cli(root, ['job', 'acts', root, '--json']);
-  expectExit0(listed);
-  const parsed = JSON.parse(listed.stdout) as { acts: PendingJobAct[] };
-  expect(parsed.acts).toHaveLength(1);
-  expect(parsed.acts[0]!.publicationId).toBe(String(checkpoint.publicationId));
-  expect((parsed.acts[0]!.value as { words?: string }).words).toBe(words);
-  expect(JSON.stringify(parsed.acts[0]!.value)).toBe(JSON.stringify(checkpoint.value));
+    const listed = await cli(root, ['job', 'acts', root, '--json']);
+    expectExit0(listed);
+    const parsed = JSON.parse(listed.stdout) as { acts: PendingJobAct[] };
+    expect(parsed.acts).toHaveLength(1);
+    expect(parsed.acts[0]!.publicationId).toBe(String(checkpoint.publicationId));
+    expect((parsed.acts[0]!.value as { words?: string }).words).toBe(words);
+    expect(JSON.stringify(parsed.acts[0]!.value)).toBe(JSON.stringify(checkpoint.value));
 
-  const text = await cli(root, ['job', 'acts', root]);
-  expectExit0(text);
-  expect(text.stdout).toContain([
-    `${String(checkpoint.actId)} checkpoint checkpoint assemble / parts at ${String(checkpoint.at)}`,
-    `  words: ${words}`,
-    `  ${parsed.acts[0]!.command!}`,
-  ].join('\n'));
-  expect(readFileSync(join(root, 'project.json'))).toEqual(projectBefore);
+    const text = await cli(root, ['job', 'acts', root]);
+    expectExit0(text);
+    expect(text.stdout).toContain([
+      `${String(checkpoint.actId)} checkpoint checkpoint assemble / parts at ${String(checkpoint.at)}`,
+      `  words: ${words}`,
+      `  ${parsed.acts[0]!.command!}`,
+    ].join('\n'));
+    expect(readFileSync(join(root, 'project.json'))).toEqual(projectBefore);
+  } finally {
+    servedCheckpoint.host.stop();
+  }
 
   // Record signoff act words also print byte-for-byte in text and JSON.
   const signoffRoot = copy('0b-plan-pending');
-  const signoffOpening = await open(signoffRoot, ['--plan']);
-  const signoffView = await page(signoffRoot, signoffOpening.url, 1, 'signoff');
   const pointLabel = `["rig-review-comment/1","setup","reference","evidence/setup.png","${'b'.repeat(64)}",32,4,0,0]`;
   const signoffWords = `[${pointLabel}]\nApprove the plan picture point.`;
-  const signoff = await signoffView.act('signoff', 'signoff', {
+  const servedSignoff = await serveStoredRecordAct(signoffRoot, { kind: 'signoff', stage: 'plan-approved' }, 'signoff', {
     stage: 'plan-approved',
     decision: 'approved',
     words: signoffWords,
   });
-  expect(signoff.schema).toBe('rig-review/act@4');
-  const signoffJson = await cli(signoffRoot, ['job', 'acts', signoffRoot, '--json']);
-  expectExit0(signoffJson);
-  const signoffParsed = JSON.parse(signoffJson.stdout) as { acts: PendingJobAct[] };
-  expect(signoffParsed.acts).toHaveLength(1);
-  expect((signoffParsed.acts[0]!.value as { words?: string }).words).toBe(signoffWords);
-  expect(JSON.stringify(signoffParsed.acts[0]!.value)).toBe(JSON.stringify(signoff.value));
+  try {
+    const signoff = servedSignoff.act;
+    expect(signoff.schema).toBe('rig-review/act@4');
+    const signoffJson = await cli(signoffRoot, ['job', 'acts', signoffRoot, '--json']);
+    expectExit0(signoffJson);
+    const signoffParsed = JSON.parse(signoffJson.stdout) as { acts: PendingJobAct[] };
+    expect(signoffParsed.acts).toHaveLength(1);
+    expect((signoffParsed.acts[0]!.value as { words?: string }).words).toBe(signoffWords);
+    expect(JSON.stringify(signoffParsed.acts[0]!.value)).toBe(JSON.stringify(signoff.value));
 
-  const signoffText = await cli(signoffRoot, ['job', 'acts', signoffRoot]);
-  expectExit0(signoffText);
-  expect(signoffText.stdout).toContain([
-    `${String(signoff.actId)} signoff stage plan-approved at ${String(signoff.at)}`,
-    `  words: ${signoffWords}`,
-    `  ${signoffParsed.acts[0]!.command!}`,
-  ].join('\n'));
+    const signoffText = await cli(signoffRoot, ['job', 'acts', signoffRoot]);
+    expectExit0(signoffText);
+    expect(signoffText.stdout).toContain([
+      `${String(signoff.actId)} signoff stage plan-approved at ${String(signoff.at)}`,
+      `  words: ${signoffWords}`,
+      `  ${signoffParsed.acts[0]!.command!}`,
+    ].join('\n'));
+  } finally {
+    servedSignoff.host.stop();
+  }
 
   // Review wraps legacy submission words in a comment, preserving the text byte-for-byte.
   const { root: picksRoot, view: picksView, value: picksValue } = await openMotionQuestion();
@@ -1478,19 +1553,79 @@ test('#490 legacy parts signoff prints ordered verdict and structure prerequisit
   expect(ready!.preconditions).toHaveLength(1);
   await executePrinted(root, ready!.preconditions![0]!.command!);
   expect(pendingJobActs(read(root), [signoff], root)[0]!.preconditions).toBeUndefined();
-  // The exact final command needs a real Review act. Open the draft after the
-  // prerequisite writes so its source binds the current record.
+  // The exact final command needs a stored Review act bound to the current record after prerequisite writes.
   expectExit0(await cli(root, ['advance', 'parts-review', root, '--parts-check', 'evidence/parts-check.json', '--parts', 'derived/drafts/chain/input']));
   cpSync(join(import.meta.dir, '../templates/example-chain/evidence/diff-components.json'), join(root, 'evidence/diff-components.json'));
   expectExit0(await cli(root, ['diff-classes', root, '--diff-report', 'evidence/diff-components.json', '--by', 'agent']));
-  const opening = await open(root);
-  const view = await page(root, opening.url, 1);
-  const act = await view.act('signoff', 'signoff', { stage: 'parts-review', decision: 'approved', words: WORDS });
-  const row = pendingJobActs(read(root), [act as unknown as ActV3], root)[0]!;
-  expect(row.command).toContain('--structure-file');
-  await executePrinted(root, row.command!);
-  expect(read(root).signoffs).toContainEqual(expect.objectContaining({ stage: 'parts-review', draft_id: 'chain' }));
-  expect(nextProject(root, testClock.now()).refusals.map(row => row.code)).not.toContain('STRUCTURE_DECISIONS_MISSING');
+  const legacySubject = { kind: 'signoff' as const, stage: 'parts-review' as const };
+  const host = await openCreateJob(root, { id: 'synthetic-owner', role: 'owner' }, testClock.now(), options => startJobHost({
+    ...options,
+    readPublished: async input => ({ ...await readPublished(input), subjects: [legacySubject] }),
+  }));
+  try {
+    prepareDraftManifest(root, read(root), 'chain');
+    enqueuePublication(root, readWriterBinding(root)!, draftPublicationResult('chain'));
+    await reconcileCreateJob(root, async entry => {
+      const requestId = randomUUID();
+      const response = await host.ports.handleJobApi(new Request(`${host.origin}/jobs/${host.session.jobId}/api`, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${host.session.hostCredentials().agent}`, 'content-type': 'application/json' },
+        body: JSON.stringify({
+          schema: 'rig-review/job-api@2',
+          verb: 'publish',
+          jobId: host.session.jobId,
+          requestId,
+          idempotencyKey: requestId,
+          expectedGeneration: 0,
+          result: entry.result,
+          freeze: { kind: 'producer-held', holdId: entry.id, record: { path: 'project.json', sha256: entry.recordHash } },
+        }),
+      }));
+      expect(((await response.json()) as { ok: boolean }).ok).toBe(true);
+      const { publication, generation } = host.session.status();
+      acknowledgePublication(entry, publication!.publicationId, generation, requestId, [legacySubject]);
+      return [];
+    });
+    const session = host.session as unknown as {
+      jobId: string;
+      store: { update(jobId: string, rev: null, fn: (row: { data: { generation: number; reviewer: { id: string; role: string }; publications: Record<string, { retained: { source: unknown } }>; asks: Record<string, unknown>; acts: Record<string, unknown> } }) => { data: unknown }): unknown };
+      event(data: unknown, value: object): unknown;
+    };
+    const publicationId = host.session.status().publication!.publicationId;
+    let act!: ActV3;
+    session.store.update(session.jobId, null, ({ data }) => {
+      data.generation++;
+      const askId = randomUUID();
+      const source = data.publications[publicationId]!.retained.source;
+      const ask = { askId, publicationId, subject: legacySubject, source, status: 'answered' };
+      data.asks[askId] = ask;
+      session.event(data, { type: 'pending', ask: { ...ask, status: 'pending' } });
+      const actId = randomUUID();
+      act = parseCommentsAct({
+        schema: JOB_COMMENTS_ACT_SCHEMA,
+        actId,
+        jobId: session.jobId,
+        askId,
+        publicationId,
+        authority: { actor: 'human', channel: 'review-ui', reviewer: { ...data.reviewer } },
+        at: testClock.iso(),
+        kind: 'signoff',
+        source,
+        value: { stage: 'parts-review', decision: 'approved', comments: [{ text: WORDS }] },
+      }) as unknown as ActV3;
+      data.generation++;
+      data.acts[actId] = act;
+      session.event(data, { type: 'act', act });
+      return { data };
+    });
+    const row = pendingJobActs(read(root), [act], root)[0]!;
+    expect(row.command).toContain('--structure-file');
+    await executePrinted(root, row.command!);
+    expect(read(root).signoffs).toContainEqual(expect.objectContaining({ stage: 'parts-review', draft_id: 'chain' }));
+    expect(nextProject(root, testClock.now()).refusals.map(row => row.code)).not.toContain('STRUCTURE_DECISIONS_MISSING');
+  } finally {
+    host.stop();
+  }
 }, 30_000);
 
 
@@ -1556,22 +1691,6 @@ test.each([
   expect(answered.state.state).toBe('user');
 }, 30_000);
 
-test('#507 plan-approved signoff executes printed host, acts and ingest', async () => {
-  receipt({ test: '#507 plan-approved signoff', source: 'checkpoint 0b-plan-pending' });
-  const root = copy('0b-plan-pending');
-  await nextReview(root, 'signoff', { stage: 'plan-approved', decision: 'approved', words: WORDS });
-  expect(arr(read(root).signoffs).map(obj).some(row => row.stage === 'plan-approved')).toBe(true);
-}, 30_000);
-
-test('#507 reachable interview signoff executes printed host, acts and ingest', async () => {
-  receipt({ test: '#507 reachable interview signoff', source: 'synthetic fixture from checkpoint 0b-plan-pending' });
-  const root = copy('0b-plan-pending', project => {
-    project.stage = 'interview'; project.signoffs = []; project.advances = [];
-  });
-  await nextReview(root, 'signoff', { stage: 'interview', decision: 'approved', words: WORDS });
-  expect(arr(read(root).signoffs).map(obj).some(row => row.stage === 'interview')).toBe(true);
-}, 30_000);
-
 test('#557 fresh parts verdict executes printed commands and atomically signs without a second human act', async () => {
   receipt({ test: '#557 fresh parts fold', source: 'writer-prepared synthetic checkpoint 1-parts-verdict' });
   testClock.set(EXAMPLE_REOPEN_AT);
@@ -1603,18 +1722,6 @@ function unsignedRiggingInterview(): string {
   });
 }
 
-test('#507 reachable rigging-interview signoff executes printed host, acts and ingest', async () => {
-  receipt({ test: '#507 reachable rigging-interview signoff', source: 'synthetic fixture from checkpoint 3-rig-review; checkpoint 2-rigging-answers observed separately' });
-  const checkpoint = copy('2-rigging-answers');
-  const observed = nextProject(checkpoint, testClock.now());
-  const signoff = observed.moves.find(move => move.review_act?.kind === 'signoff')!;
-  receipt({ checkpoint: '2-rigging-answers', stage: 'rigging-interview',
-    prints_commands: observed.moves.some(move => move.command?.includes('signoff rigging-interview') && move.command.includes('--from-review')), move: signoff });
-  const root = unsignedRiggingInterview();
-  await nextReview(root, 'signoff', { stage: 'rigging-interview', decision: 'approved', words: WORDS });
-  expect(arr(read(root).signoffs).map(obj).some(row => row.stage === 'rigging-interview')).toBe(true);
-}, 30_000);
-
 test('#711 relayed rigging-interview signoff unblocks draft publication on the same Review host', async () => {
   const root = unsignedRiggingInterview();
   const fixture = read(root);
@@ -1622,9 +1729,53 @@ test('#711 relayed rigging-interview signoff unblocks draft publication on the s
   bones.checkpoint_proposed = true;
   obj(bones.checkpoint).value = true;
   write(root, fixture);
-  const opening = await open(root, ['--plan']);
-  const plan = await page(root, opening.url, 1, 'signoff');
-  expect(plan.asks.map(ask => ask.subject)).toEqual([{ kind: 'signoff', stage: 'rigging-interview' }]);
+
+  // Seed a persisted legacy plan publication carrying a pending signoff ask, then start the live background host on it.
+  const legacySubject = { kind: 'signoff' as const, stage: 'rigging-interview' as const };
+  let planPublicationId = '';
+  let legacyAskId = '';
+  const seedHost = await openCreateJob(root, { id: 'synthetic-owner', role: 'owner' }, testClock.now(), options => startJobHost({
+    ...options,
+    readRecordPublished: ((request: RecordPublicationRequest) => {
+      const context = readRecordPublished(request, testClock.now());
+      return context.plan === null ? context : { ...context, subjects: [legacySubject] };
+    }) as typeof readRecordPublished,
+  }), true);
+  try {
+    enqueuePublication(root, readWriterBinding(root)!, { kind: 'plan' });
+    await reconcileCreateJob(root, async entry => {
+      const requestId = randomUUID();
+      const reply = await agentCall(seedHost, {
+        verb: 'publish',
+        requestId,
+        idempotencyKey: requestId,
+        expectedGeneration: 0,
+        result: { kind: 'plan' },
+        freeze: { kind: 'producer-held', holdId: entry.id, record: { path: 'project.json', sha256: entry.recordHash } },
+      });
+      expect(reply.ok).toBe(true);
+      const { publication, generation } = seedHost.session.status();
+      planPublicationId = publication!.publicationId;
+      acknowledgePublication(entry, planPublicationId, generation, requestId, [legacySubject]);
+    });
+    const session = seedHost.session as unknown as {
+      jobId: string;
+      store: { update(jobId: string, rev: null, fn: (row: { data: { generation: number; publications: Record<string, { retained: { source: unknown } }>; asks: Record<string, unknown> } }) => { data: unknown }): unknown };
+      event(data: unknown, value: object): unknown;
+    };
+    session.store.update(session.jobId, null, ({ data }) => {
+      data.generation++;
+      legacyAskId = randomUUID();
+      const ask = { askId: legacyAskId, publicationId: planPublicationId, subject: legacySubject, source: data.publications[planPublicationId]!.retained.source, status: 'pending' };
+      data.asks[legacyAskId] = ask;
+      session.event(data, { type: 'pending', ask });
+      return { data };
+    });
+  } finally {
+    seedHost.stop();
+  }
+
+  const opening = await open(root);
   const binding = readWriterBinding(root)!;
   const descriptor = join(binding.identity.stateDir, 'job-ui', `${binding.jobId}.json`);
   const pid = () => obj(JSON.parse(readFileSync(descriptor, 'utf8'))).pid;
@@ -1660,11 +1811,10 @@ test('#711 relayed rigging-interview signoff unblocks draft publication on the s
   const draftResult = JSON.parse(recorded.stdout) as { id: string; publication: { status: string; lines: string[] } };
   expect(draftResult.id).toBe('next');
   expect(draftResult.publication, draftResult.publication.lines.join('\n')).toMatchObject({ status: 'published' });
-  const next = await page(root, opening.url, 2, 'checkpoint');
-  expect(next.head.publicationId).not.toBe(plan.head.publicationId);
+  const next = await page(root, opening.url, 1, 'review-verdict');
+  expect(next.head.publicationId).not.toBe(planPublicationId);
   expect(next.asks.map(ask => ask.subject)).toEqual([
     { kind: 'review-verdict', stage: 'rig-review' },
-    { kind: 'checkpoint', checkpointId: 'bones' },
   ]);
   expect(next.asks.find(ask => obj(ask.subject).kind === 'review-verdict')?.source).toMatchObject({ selector: draft });
   expect(readWriterBinding(root)).toEqual(binding);
@@ -1673,7 +1823,7 @@ test('#711 relayed rigging-interview signoff unblocks draft publication on the s
   try {
     const row = db.query<{ status: string }, [string, string]>(
       "SELECT value ->> '$.status' AS status FROM jobs, json_each(document, '$.asks') WHERE job_id = ? AND key = ?",
-    ).get(binding.jobId, String(plan.asks[0]!.askId));
+    ).get(binding.jobId, legacyAskId);
     expect(row?.status).toBe('superseded');
   } finally { db.close(); }
 }, 30_000);
@@ -1717,11 +1867,18 @@ test('#502 all post-interview picks and plan signoff execute next host and expor
   expect(composition.command).toContain('--rests-on post_composition');
   await executePrinted(root, composition.command!.replace("'<work>'", "'Write the approved composition scene'")
     .replace("'<result>'", "'A cited scene document'").replace("'<acceptance bar>'", "'Roles and rects match the approved choice'"));
-  await nextReview(root, 'signoff', { stage: 'post-interview', decision: 'approved', words: WORDS });
+  const signReport = nextProject(root, testClock.now());
+  expect(signReport.moves.some(m => m.command?.includes('--plan'))).toBe(false);
+  const postWords = join(root, 'post-approval.txt');
+  writeFileSync(postWords, WORDS);
+  const postChatMove = signReport.moves.find(m => m.command?.includes('signoff post-interview') && m.command.includes('--owner-chat'))!;
+  expect(postChatMove).toBeDefined();
+  expectExit0(await cli(root, ['signoff', 'post-interview', root, '--by', 'synthetic-owner',
+    '--owner-chat', postWords, '--said-at', testClock.iso(), '--relayed-by', 'synthetic-operator']));
   expect(arr(read(root).signoffs).map(obj).some(row => row.stage === 'post-interview')).toBe(true);
 }, 30_000);
 
-test('#502 direction verdict then record signoff execute next host and exported-act ingest commands', async () => {
+test('#502 direction verdict then owner-chat signoff execute next host and exported-act ingest commands', async () => {
   testClock.set(Date.now());
   const root = copy('example-chain', project => {
     project.stage = 'direction-review';
@@ -1732,7 +1889,13 @@ test('#502 direction verdict then record signoff execute next host and exported-
   const before = nextProject(root, testClock.now());
   expect(before.moves.filter(move => move.command?.includes('--plan'))).toEqual([]);
   await nextReview(root, 'review-verdict', { stage: 'direction-review', verdict: 'approved', words: WORDS });
-  await nextReview(root, 'signoff', { stage: 'direction-review', decision: 'approved', words: WORDS });
+  const afterVerdict = nextProject(root, testClock.now());
+  expect(afterVerdict.moves.filter(move => move.command?.includes('--plan'))).toEqual([]);
+  expect(afterVerdict.moves.some(move => move.command?.includes('signoff direction-review') && move.command.includes('--owner-chat'))).toBe(true);
+  const directionWords = join(root, 'direction-approval.txt');
+  writeFileSync(directionWords, WORDS);
+  expectExit0(await cli(root, ['signoff', 'direction-review', root, '--by', 'synthetic-owner',
+    '--owner-chat', directionWords, '--said-at', testClock.iso(), '--relayed-by', 'synthetic-operator']));
   const advance = nextProject(root, testClock.now()).moves.find(move => move.command?.startsWith('rig-create advance accepted'))!;
   await executePrinted(root, advance.command!);
   expect(nextProject(root, testClock.now()).accepted).toBe(true);
@@ -1740,10 +1903,15 @@ test('#502 direction verdict then record signoff execute next host and exported-
 
 test('#556 job close refuses un-ingested acts byte-identically, closes after ingest, and records discarded acts with a reason', async () => {
   testClock.set(EXAMPLE_NOW);
-  const root = copy('0b-plan-pending');
+  const root = copy('0a-interview-options');
+  const pickValue = {
+    questionId: 'rig_type',
+    selections: [{ itemId: 'rig_type', optionId: 'keep', otherText: null }],
+    note: WORDS,
+  };
 
   // 1. A job with no acts closes as before and leaves project.json byte-identical.
-  const emptyOpen = await open(root, ['--plan']);
+  const emptyOpen = await open(root, ['--question', 'rig_type']);
   const emptyBefore = readFileSync(join(root, 'project.json'));
   const emptyClose = await cli(root, ['job', 'close', root]);
   expectExit0(emptyClose);
@@ -1754,9 +1922,9 @@ test('#556 job close refuses un-ingested acts byte-identically, closes after ing
 
   // 2. An un-ingested finalized act refuses with JOB_ACTS_PENDING, names the act id and ingest command,
   // and leaves both the binding and project.json byte-identical; after ingest, close succeeds.
-  const firstOpen = await open(root, ['--plan']);
-  const firstView = await page(root, firstOpen.url, 1, 'signoff');
-  const firstAct = await firstView.act('signoff', 'signoff', { stage: 'plan-approved', decision: 'approved', words: WORDS });
+  const firstOpen = await open(root, ['--question', 'rig_type']);
+  const firstView = await page(root, firstOpen.url, 1, 'interview-picks');
+  const firstAct = await firstView.act('interview-picks', 'interview-picks', pickValue);
   const bindingPath = join(root, JOB_BINDING_FILE);
   const beforeBindingBytes = readFileSync(bindingPath);
   const beforeProjectBytes = readFileSync(join(root, 'project.json'));
@@ -1778,10 +1946,10 @@ test('#556 job close refuses un-ingested acts byte-identically, closes after ing
   expect(readWriterBinding(root)).toBeNull();
 
   // 3. --discard-acts validates the reason and record through the check validator, records the dropped act ids, and closes.
-  const discardRoot = copy('0b-plan-pending');
-  const secondOpen = await open(discardRoot, ['--plan']);
-  const secondView = await page(discardRoot, secondOpen.url, 1, 'signoff');
-  const droppedAct = await secondView.act('signoff', 'signoff', { stage: 'plan-approved', decision: 'approved', words: WORDS });
+  const discardRoot = copy('0a-interview-options');
+  const secondOpen = await open(discardRoot, ['--question', 'rig_type']);
+  const secondView = await page(discardRoot, secondOpen.url, 1, 'interview-picks');
+  const droppedAct = await secondView.act('interview-picks', 'interview-picks', pickValue);
   const discardBindingPath = join(discardRoot, JOB_BINDING_FILE);
   const discardBeforeBinding = readFileSync(discardBindingPath);
   const discardBeforeProject = readFileSync(join(discardRoot, 'project.json'));
@@ -1847,15 +2015,15 @@ test('#556 job close refuses un-ingested acts byte-identically, closes after ing
   const reask = nextProject(discardRoot, testClock.now());
   expect(reask.refusals.filter(r => r.code === 'REVIEW_ACT_LEDGER_INVALID')).toEqual([]);
   expect(reask.moves).toContainEqual(expect.objectContaining({ role: 'agent', command: expect.stringContaining('job open') }));
-  expect(reask.moves).toContainEqual(expect.objectContaining({ role: 'human', review_act: expect.objectContaining({ kind: 'signoff', stage: 'plan-approved' }) }));
+  expect(reask.moves).toContainEqual(expect.objectContaining({ role: 'human', review_act: expect.objectContaining({ kind: 'interview-picks', question_id: 'rig_type' }) }));
 
-  const thirdOpen = await open(discardRoot, ['--plan']);
-  const thirdView = await page(discardRoot, thirdOpen.url, 1, 'signoff');
-  const freshAct = await thirdView.act('signoff', 'signoff', { stage: 'plan-approved', decision: 'approved', words: WORDS });
+  const thirdOpen = await open(discardRoot, ['--question', 'rig_type']);
+  const thirdView = await page(discardRoot, thirdOpen.url, 1, 'interview-picks');
+  const freshAct = await thirdView.act('interview-picks', 'interview-picks', pickValue);
   expect(freshAct.jobId).not.toBe(droppedAct.jobId);
   const beforeReplay = readFileSync(join(discardRoot, 'project.json'));
   const beforeReplayBinding = readFileSync(discardBindingPath);
-  const replay = await cli(discardRoot, ['signoff', 'plan-approved', discardRoot, '--from-review', String(droppedAct.actId)]);
+  const replay = await cli(discardRoot, ['interview-answer', 'rig_type', discardRoot, '--from-review', String(droppedAct.actId)]);
   expect(replay.exit).toBe(1);
   expect(replay.stderr).toStartWith('rig-create: REVIEW_ACT_DISCARDED: ');
   expect(readFileSync(join(discardRoot, 'project.json'))).toEqual(beforeReplay);

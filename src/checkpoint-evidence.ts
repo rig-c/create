@@ -119,11 +119,10 @@ export function checkCheckpointEvidence(root: string, project: JsonObject, refus
   }
 }
 
-/** Publish only declared subjects, with their exact asset closure. No fallback association. */
+/** Publish sealed checkpoint packets with their exact asset closure. No fallback association. */
 export function checkpointEvidenceContext(root: string, project: JsonObject,
-  subjects: readonly { readonly kind: string; readonly checkpointId?: string; readonly planStepId?: string }[], files: Seal[]): { checkpointEvidence?: readonly CheckpointEvidence[] } {
-  const packets = readCheckpointEvidence(root, project)?.filter(packet => subjects.some(subject => subject.kind === 'checkpoint'
-    && subject.checkpointId === packet.checkpointId && (subject.planStepId ?? subject.checkpointId) === packet.planStepId));
+  files: Seal[]): { checkpointEvidence?: readonly CheckpointEvidence[] } {
+  const packets = readCheckpointEvidence(root, project);
   if (!packets?.length) return {};
   for (const packet of packets) {
     for (const { path, sha256 } of [...packet.tiles, packet.table]) {

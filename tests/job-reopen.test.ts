@@ -66,8 +66,8 @@ function writeReviewJob<T>(host: JobOwnerHost, write: (data: ReviewJobDocument, 
   return written;
 }
 
-/** Store a pending reopen ask as Review <= 4.9 did: bound to the plan's retained source. */
-function seedReopenAsk(host: JobOwnerHost, publicationId: string, subject: RecordPlanSubject): string {
+/** Store a pending retired plan ask as Review stored it before retirement: bound to the plan's retained source. */
+function seedPlanAsk(host: JobOwnerHost, publicationId: string, subject: RecordPlanSubject): string {
   return writeReviewJob(host, (data, append) => {
     const ask = { askId: crypto.randomUUID(), publicationId, subject, source: data.publications[publicationId]!.retained.source, status: 'pending' };
     data.asks[ask.askId] = ask;
@@ -92,8 +92,25 @@ function seedReopenAct(host: JobOwnerHost, askId: string, words: string, actId: 
   });
 }
 
+/** Store the owner's answered signoff act@4 for a seeded ask; Review's own stored-act decoder builds it. */
+function seedSignoffAct(host: JobOwnerHost, askId: string, words: string, actId: string = crypto.randomUUID()): JsonObject {
+  return writeReviewJob(host, (data, append, jobId) => {
+    const ask = data.asks[askId] as unknown as { publicationId: string; subject: { stage: string }; source: unknown };
+    const act = parseRecordAct({
+      schema: JOB_RECORD_ACT_SCHEMA, actId, jobId, askId, publicationId: ask.publicationId,
+      authority: { actor: 'human', channel: 'review-ui', reviewer: { ...data.reviewer } },
+      at: new Date().toISOString(), kind: 'signoff', source: ask.source,
+      value: { stage: ask.subject.stage, decision: 'approved', words },
+    }) as unknown as JsonObject;
+    data.acts[String(act.actId)] = act;
+    data.asks[askId] = { ...data.asks[askId]!, status: 'answered' };
+    append({ type: 'act', act });
+    return act;
+  });
+}
+
 /** Seed a retained Review publication that predates removal of the Create writer.
- * Review asks the subjects it still supports; a reopen subject's ask is seeded as Review <= 4.9 stored it. */
+ * Review asks the subjects it still supports; retired reopen and signoff asks are seeded as Review stored them. */
 async function openLegacyPlan(root: string, subjects: RecordPlanSubject[]) {
   const host = await openCreateJob(root, reviewer, Date.now(), options => startJobHost({
     ...options,
@@ -114,11 +131,11 @@ async function openLegacyPlan(root: string, subjects: RecordPlanSubject[]) {
       expect(reply.ok, JSON.stringify(reply.error)).toBe(true);
       const { publication, generation } = host.session.status();
       acknowledgePublication(entry, publication!.publicationId, generation, requestId, subjects);
-      const live = subjects.filter(subject => subject.kind !== 'reopen');
+      const live = subjects.filter(subject => subject.kind !== 'reopen' && subject.kind !== 'signoff');
       expect(await askDeclaredSubjects(host, publication!.publicationId, live, false)).toEqual(
         live.map(subject => ({ subject, status: 'asked' })));
       for (const subject of subjects) {
-        if (subject.kind === 'reopen') seedReopenAsk(host, publication!.publicationId, subject);
+        if (subject.kind === 'reopen' || subject.kind === 'signoff') seedPlanAsk(host, publication!.publicationId, subject);
       }
     });
     return host;
@@ -173,11 +190,11 @@ test('#639 open replaces an unchanged old plan head and reuses the new head on r
   try {
     const lines = await openRecordPublication(root, host, undefined, true, Date.now());
     const { publication, generation } = host.session.status();
-    expect(lines).toEqual([`job: plan published (publication ${publication!.publicationId})`, 'job: asked signoff plan-approved']);
+    expect(lines).toEqual([`job: plan published (publication ${publication!.publicationId})`]);
     expect(publication!.publicationId).not.toBe(oldId);
-    expect(publication!.source).toMatchObject({ subjects: [signoff] });
+    expect(publication!.source).toMatchObject({ subjects: [] });
     expect(await openRecordPublication(root, host, undefined, true, Date.now())).toEqual(
-      [`job: plan already published (publication ${publication!.publicationId})`, 'job: already asked signoff plan-approved']);
+      [`job: plan already published (publication ${publication!.publicationId})`]);
     expect(host.session.status()).toMatchObject({ generation, publication: { publicationId: publication!.publicationId } });
     expect(recordBytes(root)).toEqual(original);
   } finally { host.stop(); }
@@ -192,28 +209,9 @@ test('#677 job withdraw-act withdraws one pending act in place, leaves the job a
     const { asks } = await readHostActsAndAsks(host);
     expect(asks.map(ask => ask.subject)).toEqual([signoff, legacyReopen]);
 
-    const url = new URL(host.ownerUrl);
-    const endpoint = url.origin + '/jobs/' + host.session.jobId + '/ui/';
-    const headers = {
-      origin: url.origin, 'X-Review-Capability': url.hash.slice('#cap='.length), 'content-type': 'application/json',
-    };
-    const post = async (route: string, body: object) => {
-      const response = await fetch(endpoint + route, { method: 'POST', headers, body: JSON.stringify(body) });
-      const payload = await response.json() as JsonObject;
-      expect(response.ok, JSON.stringify(payload)).toBe(true);
-      return obj(payload.value);
-    };
-    const { publication } = host.session.status();
-    const { publicationId, source: { sourceHash } } = publication!;
-    const pageId = crypto.randomUUID();
-    const { displayedNonce } = await post('displayed', { publicationId, pageId, sourceHash });
-
     const signoffAsk = asks.find(ask => ask.subject.kind === 'signoff')!;
     const reopenAsk = asks.find(ask => ask.subject.kind === 'reopen')!;
-    const signoffAct = await post('acts', {
-      publicationId, askId: signoffAsk.askId, pageId, displayedNonce, expectedGeneration: host.session.status().generation,
-      submissionId: crypto.randomUUID(), kind: 'signoff', value: { stage: 'plan-approved', decision: 'approved', words: 'Approve the synthetic plan.\n' },
-    });
+    const signoffAct = seedSignoffAct(host, signoffAsk.askId, 'Approve the synthetic plan.\n');
     const sharedPrefix = String(signoffAct.actId).slice(0, 4);
     const nextChar = String(signoffAct.actId)[4] === 'a' ? 'b' : 'a';
     const reopenAct = seedReopenAct(host, reopenAsk.askId, 'Misclicked reopen.\n', `${sharedPrefix}${nextChar}${crypto.randomUUID().slice(5)}`);

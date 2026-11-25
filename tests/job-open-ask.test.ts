@@ -445,19 +445,19 @@ test('#412 public job open selects a registered rig on a new empty head and retr
   const before = read(root);
 
   const selected = await open(root, ['--rig', '1']);
-  // At rigging the page keeps its checkpoint ask and names the deferred rig verdict (#754).
-  expect(selected.lines.slice(1)).toEqual([publishedLine('rig v1 published', root), 'job: asked checkpoint meshes']);
+  // At rigging the page carries no asks and names the deferred rig verdict (#754).
+  expect(selected.lines.slice(1)).toEqual([publishedLine('rig v1 published', root)]);
   expect(selected.lines[0]).toStartWith('WARN JOB_RIG_VERDICT_DEFERRED: versions[v1]: ');
-  const first = await publication(root, selected.url, 1);
+  const first = await publication(root, selected.url, 0);
   expect((first.head.source as JsonObject).selector).toEqual({ kind: 'rig', version: 1 });
-  expect(first.asks.map(ask => ask.subject)).toEqual([{ kind: 'checkpoint', checkpointId: 'meshes' }]);
+  expect(first.asks.map(ask => ask.subject)).toEqual([]);
   const saved = readFileSync(join(root, 'project.json'));
   const again = await cli(root, ['job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner', '--rig', 'v1']);
   expect({ exit: again.exit, stderr: again.stderr }).toEqual({ exit: 0, stderr: '' });
   expect(again.stdout.trim().split('\n')).toEqual([
-    selected.url.href, selected.lines[0], publishedLine('rig v1 already published', root), 'job: already asked checkpoint meshes',
+    selected.url.href, selected.lines[0], publishedLine('rig v1 already published', root),
   ]);
-  const repeated = await publication(root, selected.url, 1);
+  const repeated = await publication(root, selected.url, 0);
   expect(repeated.head.publicationId).toBe(first.head.publicationId);
   expect(repeated.asks.map(ask => ask.askId)).toEqual(first.asks.map(ask => ask.askId));
   expect(readFileSync(join(root, 'project.json'))).toEqual(saved);
@@ -512,21 +512,21 @@ const unmetMotion = (project: JsonObject) => {
   ((project.plan as JsonObject).steps as JsonObject[]).find(step => step.id === 'motion')!.status = 'in-progress';
 };
 
-test('#754 before rig-review the rig page declares its checkpoint ask, no review-verdict ask, and names the deferred verdict', async () => {
+test('#754 before rig-review the rig page declares no asks and names the deferred verdict', async () => {
   const root = registeredRig('rigging', unmetMotion);
   const before = readFileSync(join(root, 'project.json'));
   // Writer preflight and job open read the same live subjects.
-  expect(livePublicationSubjects(root, read(root), { kind: 'rig', version: 1 })).toEqual([{ kind: 'checkpoint', checkpointId: 'meshes' }]);
+  expect(livePublicationSubjects(root, read(root), { kind: 'rig', version: 1 })).toEqual([]);
   const opening = await open(root, ['--rig', '1']);
   expect(opening.lines).toEqual([
     `WARN JOB_RIG_VERDICT_DEFERRED: versions[v1]: stage rigging publishes rig v1 without its review-verdict rig-review ask, which review --from-review could not ingest here; the verdict becomes askable at rig-review: unmet bars before rig-review: plan.steps[motion] is in-progress, bar "The synthetic output matches its declared input."; meet them, then run rig-create advance rig-review ${root} and rig-create job open ${root} --rig 1 again`,
-    publishedLine('rig v1 published', root), 'job: asked checkpoint meshes',
+    publishedLine('rig v1 published', root),
   ]);
-  const view = await publication(root, opening.url, 1);
-  expect(view.asks.map(ask => ask.subject)).toEqual([{ kind: 'checkpoint', checkpointId: 'meshes' }]);
+  const view = await publication(root, opening.url, 0);
+  expect(view.asks.map(ask => ask.subject)).toEqual([]);
   const binding = readWriterBinding(root)!;
   expect(readAcknowledgedPublication(root, binding.jobId, view.head.publicationId as string)!.subjects)
-    .toEqual([{ kind: 'checkpoint', checkpointId: 'meshes' }]);
+    .toEqual([]);
   const { review_job: _job, ...record } = read(root);
   const { review_job: _old, ...original } = JSON.parse(before.toString('utf8')) as JsonObject;
   expect(record).toEqual(original);
@@ -925,8 +925,26 @@ test.each(['signoff', 'checkpoint', 'both'] as const)('#467 replaces an unchange
     expect(reply.ok).toBe(true);
     previousId = reply.value.publicationId;
     acknowledgePublication(entry, previousId, reply.value.generation, requestId, subjects);
-    expect((await askDeclaredSubjects(legacy, previousId, subjects, false)).map(outcome => outcome.status)).toEqual(subjects.map(() => 'asked'));
-    expect(legacy.session.status().pending.map(ask => ask.subject)).toEqual(subjects);
+    const live = subjects.filter(subject => subject.kind !== 'signoff');
+    expect((await askDeclaredSubjects(legacy, previousId, live, false)).map(outcome => outcome.status)).toEqual(live.map(() => 'asked'));
+    for (const subject of subjects) {
+      if (subject.kind === 'signoff') {
+        const session = legacy.session as unknown as {
+          jobId: string;
+          store: { update(jobId: string, rev: null, fn: (row: { data: { generation: number; publications: Record<string, { retained: { source: unknown } }>; asks: Record<string, unknown> } }) => { data: unknown }): unknown };
+          event(data: unknown, value: object): unknown;
+        };
+        session.store.update(session.jobId, null, ({ data }) => {
+          data.generation++;
+          const ask = { askId: randomUUID(), publicationId: previousId, subject, source: data.publications[previousId]!.retained.source, status: 'pending' };
+          data.asks[ask.askId] = ask;
+          session.event(data, { type: 'pending', ask });
+          return { data };
+        });
+      }
+    }
+    expect(legacy.session.status().pending.map(ask => ask.subject)).toEqual(expect.arrayContaining(subjects));
+    expect(legacy.session.status().pending).toHaveLength(subjects.length);
     expect(readAcknowledgedPublication(root, binding.jobId, previousId)!.subjects).toEqual(subjects);
     expect(readFileSync(join(root, 'project.json'))).toEqual(saved);
   } finally { legacy.stop(); }
@@ -943,16 +961,6 @@ test.each(['signoff', 'checkpoint', 'both'] as const)('#467 replaces an unchange
 
 test('#467 a post page asks only the direction verdict before and after ingest, and reopens idempotently', async () => {
   const root = registeredPost();
-
-  const before = readFileSync(join(root, 'project.json'));
-  const premature = await cli(root, ['job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner', '--plan']);
-  expect(premature.exit).toBe(1);
-  expect(premature.stderr).toStartWith('JOB_DIRECTION_VERDICT_REQUIRED: ');
-  expect(premature.stderr).toContain('project.json.versions[v2]');
-  expect(premature.stderr).toContain('job open --rig 2');
-  expect(readFileSync(join(root, 'project.json'))).toEqual(before);
-  expect(readWriterBinding(root)).toBeNull();
-  expect(existsSync(jobHostStateRoot(root))).toBe(false);
 
   const opening = await open(root, ['--rig', '2']);
   expect(opening.lines).toEqual([publishedLine('post v2 published', root), 'job: asked review-verdict direction-review']);

@@ -89,7 +89,11 @@ test('@6 sealed record checkpoint ingests and replays after normal withdrawal', 
   const identity = currentJobIdentity({ root: dir, stateDir, fingerprint: 'comments-checkpoint',
     reviewer: { id: 'synthetic-owner', role: 'owner' } }, dir);
   const host = await startJobHost({ ...identity, readerId: identity.readerId, partsEnumerator, readPublished,
-    publicationMode: 'record-and-package', recordReaderId: identity.readerId, readRecordPublished,
+    publicationMode: 'record-and-package', recordReaderId: identity.readerId,
+    readRecordPublished: (request => {
+      const context = readRecordPublished(request);
+      return context.plan === null ? context : { ...context, subjects: [{ kind: 'checkpoint', checkpointId: 'assemble' }] };
+    }) as typeof readRecordPublished,
     installWriterBinding: grant => writePrivateJson(join(dir, JOB_BINDING_FILE), { schema: 'rig-create/job-binding@1', identity, ...grant }, true) });
   try {
     const project = load(dir); project.review_job = { jobId: host.session.jobId, origin: host.origin }; save(dir, project);

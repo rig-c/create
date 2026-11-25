@@ -103,7 +103,7 @@ function draftAndAnswer(fixture: ReturnType<typeof prepare>, phase: 'rig' | 'pos
 
 const jobOpen = ['job', 'open', '--plan', '--reviewer', 'user', '--role', 'owner'];
 
-async function assertSignoffAsk({ root, env, run, stage }: Pick<ReturnType<typeof prepare>, 'root' | 'env' | 'run' | 'stage'>): Promise<void> {
+async function assertSignoffAsk({ root, env, run }: Pick<ReturnType<typeof prepare>, 'root' | 'env' | 'run' | 'stage'>): Promise<void> {
   const proc = Bun.spawn([process.execPath, ...clockedCli(), ...jobOpen], { cwd: root, env, stdout: 'pipe', stderr: 'pipe' });
   const errors = new Response(proc.stderr).text();
   const reader = proc.stdout.getReader();
@@ -111,13 +111,14 @@ async function assertSignoffAsk({ root, env, run, stage }: Pick<ReturnType<typeo
   const timeout = setTimeout(() => proc.kill('SIGTERM'), 10_000);
   let output = '';
   try {
-    while (!output.includes(`job: asked signoff ${stage}\n`)) {
+    while (!/\njob: plan published \(publication [^\n]+\)\n/.test(output)) {
       const chunk = await reader.read();
       if (chunk.done) break;
       output += decoder.decode(chunk.value, { stream: true });
     }
     // Keep the owner URL out of test failure output.
-    expect(output.split('\n').slice(1)).toContain(`job: asked signoff ${stage}`);
+    const lines = output.trim().split('\n').slice(1);
+    expect(lines).toEqual([expect.stringMatching(/^job: plan published \(publication [A-Za-z0-9._-]+\)$/)]);
   } finally {
     clearTimeout(timeout);
     reader.releaseLock();
@@ -434,7 +435,6 @@ test('#561 approving an uncovered rig step leaves a stale step repairable', () =
   step(missingCheckpoints, 'meshes').checkpoint = { delegated: true, by: 'user', at: testClock.iso(), verbatim: 'Decide for me.' };
   expect(checkProject(root, missingCheckpoints).refusals).toEqual([
     expect.objectContaining({ code: STALE, path: 'plan.steps[bones]' }),
-    expect.objectContaining({ code: 'CHECKPOINT_UNANSWERED', path: 'plan.steps[bones].checkpoint' }),
     expect.objectContaining({ code: 'DELEGATION_UNDECIDED', path: 'plan.steps[meshes].checkpoint' }),
   ]);
 
@@ -498,7 +498,9 @@ test('#561 job open refuses a stale step covered by a post-interview re-sign at 
   expect(planCommand(['revise', id, root, '--by', 'agent', '--reason', 'Reviewed the amended camera guide.'], testClock.now()).exit).toBe(0);
   const host = await openCreateJob(root, { id: 'user', role: 'owner' }, testClock.now(), undefined, true);
   try {
-    expect(await openRecordPublication(root, host, undefined, true, testClock.now())).toContain(`job: asked signoff ${stage}`);
+    expect(await openRecordPublication(root, host, undefined, true, testClock.now())).toEqual([
+      expect.stringMatching(/^job: plan published \(publication [A-Za-z0-9._-]+\)$/),
+    ]);
   } finally {
     host.stop();
   }

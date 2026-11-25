@@ -17,7 +17,6 @@ import { openCreateJob, publishPending, reconcileCreateJob } from '../src/job-ho
 import { draftPublicationResult, jobRuntimeExecArgv } from '../src/job-writer.ts';
 import { enqueuePublication, jobHostStateRoot, readAcknowledgedPublication, readWriterBinding, type PublicationSubject } from '../src/job-outbox.ts';
 import { currentScene, sceneReference } from '../src/scene.ts';
-import { packageSignSubjects } from '../src/signable.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { plantLegacyReopen } from './fixtures.ts';
 
@@ -135,30 +134,6 @@ test('a fresh rig version published in rig-review folds its approval into the di
   expect(codes(root)).toEqual([]);
 });
 
-test('a draft published at an enabled parts checkpoint carries it, and the passed act is the checkpoint sign-off', async () => {
-  const root = partsAtCheckpoint();
-  const host = await open(root);
-  const drafted = await cli(root, draftArgs);
-  expect({ exit: drafted.exit, stderr: drafted.stderr }).toEqual({ exit: 0, stderr: '' });
-  // seethrough's checkpoint is off and parts is a bar stage, so neither is declared.
-  expect(declared(root, host)).toEqual([{ kind: 'checkpoint', checkpointId: 'assemble' }]);
-  expect((await ask(host, { kind: 'checkpoint', checkpointId: 'seethrough' })).error?.code).toBe('JOB_ASK_INVALID');
-  const asked = await ask(host, { kind: 'checkpoint', checkpointId: 'assemble' });
-  expect(asked.ok).toBe(true);
-  const passed = await (await page(host)).act(String(asked.value.askId), 'checkpoint', { checkpointId: 'assemble', outcome: 'pass', words: WORDS });
-  expect(passed).toMatchObject({ schema: 'rig-review/act@6', kind: 'checkpoint', value: { checkpointId: 'assemble', planStepId: 'assemble', outcome: 'pass',
-    comments: [{ text: WORDS, anchor: { checkpointId: 'assemble', planStepId: 'assemble' } }] } });
-  const before = codes(root);
-  const result = await cli(root, ['signoff', 'parts', root, '--checkpoint', 'assemble', '--from-review', passed.actId, '--json']);
-  expect({ exit: result.exit, stderr: result.stderr }).toEqual({ exit: 0, stderr: '' });
-  expect((read(root).signoffs as JsonObject[]).at(-1)).toMatchObject({ stage: 'parts', checkpoint: 'assemble', by: 'user', verbatim: `[["checkpoint","assemble"]]\n${WORDS}`,
-    at: passed.at, source: `review act ${host.session.jobId}/${passed.actId}` });
-  expect(before).toEqual([]);
-  expect(codes(root)).toEqual([]);
-  // Any later write ends the publication's asks: Review requires the published record bytes.
-  expect((await ask(host, { kind: 'checkpoint', checkpointId: 'assemble' })).error?.code).toBe('JOB_RECORD_MOVED');
-});
-
 test('an act for a subject create did not declare refuses by name and leaves the record byte-identical', async () => {
   const root = partsAtCheckpoint();
   const drafted = await cli(root, draftArgs);
@@ -166,15 +141,15 @@ test('an act for a subject create did not declare refuses by name and leaves the
   // A host that declares more than create's records allow: Review asks and finalizes the extra subject.
   const wider = (options: JobHostOptions) => startJobHost({ ...options, readPublished: async input => {
     const context = await options.readPublished!(input);
-    return { ...context, subjects: [...context.subjects, { kind: 'signoff', stage: 'interview' }] };
+    return { ...context, subjects: [...context.subjects, { kind: 'checkpoint', checkpointId: 'assemble' }] };
   } });
   const host = await open(root, wider);
   enqueuePublication(root, readWriterBinding(root)!, draftPublicationResult('chain'));
   expect(await reconcileCreateJob(root, entry => publishPending(entry, undefined, undefined, wider))).toBe(1);
-  expect(declared(root, host)).toEqual([{ kind: 'checkpoint', checkpointId: 'assemble' }]);
-  const asked = await ask(host, { kind: 'signoff', stage: 'interview' });
+  expect(declared(root, host)).toEqual([]);
+  const asked = await ask(host, { kind: 'checkpoint', checkpointId: 'assemble' });
   expect(asked.error).toBeUndefined();
-  const planted = await (await page(host)).act(String(asked.value.askId), 'signoff', { stage: 'interview', decision: 'approved', words: WORDS });
+  const planted = await (await page(host)).act(String(asked.value.askId), 'checkpoint', { checkpointId: 'assemble', outcome: 'pass', words: WORDS });
   // Only these two consumers run at the finalized act's instant; Review's producer is unchanged.
   const signoff = async () => {
     const requested = { jobId: readWriterBinding(root)!.jobId, actId: planted.actId };
@@ -188,31 +163,19 @@ test('an act for a subject create did not declare refuses by name and leaves the
       },
     });
     const child = Bun.spawn([process.execPath, ...jobRuntimeExecArgv(), join(import.meta.dir, 'cli-at.ts'), commandClock,
-      'signoff', 'interview', root, '--from-review', requested.actId], { cwd: root, stdout: 'pipe', stderr: 'pipe' });
+      'signoff', 'parts', root, '--checkpoint', 'assemble', '--from-review', requested.actId], { cwd: root, stdout: 'pipe', stderr: 'pipe' });
     const [stdout, stderr, exit] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
     return { stdout, stderr, exit, diagnostic };
   };
   const bytes = readFileSync(join(root, 'project.json'));
   const result = await signoff();
   expect(result.exit, result.diagnostic).toBe(1);
-  expect(result.stderr, result.diagnostic).toStartWith('rig-create: REVIEW_ACT_SUBJECT_UNDECLARED: project.json.review_acts:');
+  expect(result.stderr, result.diagnostic).toStartWith('rig-create: REVIEW_ACT_SUBJECT_UNDECLARED: signoffs.checkpoint assemble:');
   expect(readFileSync(join(root, 'project.json'))).toEqual(bytes);
   // Control: without the acknowledged receipt (a clone) the same act is recorded, so the receipt is what refused it.
   rmSync(join(root, '.rig-create-review/acknowledged-publications'), { recursive: true });
   const unverified = await signoff();
   expect({ exit: unverified.exit, stderr: unverified.stderr }, unverified.diagnostic).toEqual({ exit: 0, stderr: '' });
-});
-
-test('a target stage needs its own version kind and a plan-bound stage needs plan steps', () => {
-  const project = read(copy('3-rig-review'));
-  expect(packageSignSubjects(project, 'rig-review', { kind: 'rig', version: 1 }, 6)).toEqual([{ kind: 'signoff', stage: 'rig-review' }]);
-  expect(packageSignSubjects(project, 'rig-review', { kind: 'post', version: 2, rigVersion: 1 }, 6)).toEqual([]);
-  expect(packageSignSubjects(project, 'rig-review', { kind: 'draft', id: 'chain' }, 6)).toEqual([]);
-  // rigging-interview is already signed in this record, so it is not signable again.
-  expect(packageSignSubjects(project, 'rigging-interview', { kind: 'rig', version: 1 }, 6)).toEqual([]);
-  project.signoffs = (project.signoffs as JsonObject[]).filter(signoff => signoff.stage !== 'rigging-interview');
-  expect(packageSignSubjects(project, 'rigging-interview', { kind: 'draft', id: 'chain' }, 6)).toEqual([{ kind: 'signoff', stage: 'rigging-interview' }]);
-  expect(packageSignSubjects(project, 'rigging-interview', { kind: 'draft', id: 'chain' }, 0)).toEqual([]);
 });
 
 async function ingestChainVerdict(root: string, host: JobOwnerHost) {
@@ -336,40 +299,6 @@ test('bar: review-verdict is declared when only an earlier version has a verdict
     { kind: 'review-verdict', stage: 'rig-review' },
   ]);
 }, 15_000);
-
-test('bar: checkpoint is not declared once the step is signed and its signature is live', async () => {
-  const root = partsAtCheckpoint();
-  const host = await open(root);
-  expect((await cli(root, draftArgs)).exit).toBe(0);
-  expect(declared(root, host)).toEqual([
-    { kind: 'checkpoint', checkpointId: 'assemble' },
-  ]);
-  const asked = await ask(host, { kind: 'checkpoint', checkpointId: 'assemble' });
-  const passed = await (await page(host)).act(String(asked.value.askId), 'checkpoint', { checkpointId: 'assemble', outcome: 'pass', words: WORDS });
-  const signed = await cli(root, ['signoff', 'parts', root, '--checkpoint', 'assemble', '--from-review', String(passed.actId), '--json']);
-  expect({ exit: signed.exit, stderr: signed.stderr }).toEqual({ exit: 0, stderr: '' });
-  enqueuePublication(root, readWriterBinding(root)!, draftPublicationResult('chain'));
-  expect(await reconcileCreateJob(root)).toBe(1);
-  expect(declared(root, host)).toEqual([]);
-});
-
-test('bar: checkpoint is declared when its signature lapsed or the stage was reopened', async () => {
-  const root = partsAtCheckpoint();
-  const host = await open(root);
-  expect((await cli(root, draftArgs)).exit).toBe(0);
-  const asked = await ask(host, { kind: 'checkpoint', checkpointId: 'assemble' });
-  const passed = await (await page(host)).act(String(asked.value.askId), 'checkpoint', { checkpointId: 'assemble', outcome: 'pass', words: WORDS });
-  expect((await cli(root, ['signoff', 'parts', root, '--checkpoint', 'assemble', '--from-review', String(passed.actId), '--json'])).exit).toBe(0);
-  enqueuePublication(root, readWriterBinding(root)!, draftPublicationResult('chain'));
-  expect(await reconcileCreateJob(root)).toBe(1);
-  expect(declared(root, host)).toEqual([]);
-  plantLegacyReopen(root, 'parts', { by: 'user', wordsFile: join(root, 'evidence/approval.txt'), at: new Date().toISOString() });
-  enqueuePublication(root, readWriterBinding(root)!, draftPublicationResult('chain'));
-  expect(await reconcileCreateJob(root)).toBe(1);
-  expect(declared(root, host)).toEqual([
-    { kind: 'checkpoint', checkpointId: 'assemble' },
-  ]);
-});
 
 test('bar: fresh rig approval folds its signature and reopened stages ask only for a new verdict', async () => {
   const root = copy('3-rig-review');

@@ -1,6 +1,0 @@
-{
-  "source": "rig-c/create@3ef4aeee98b6ab1ea9cfa1827ac22f9a77aec789",
-  "path": "src/job-publication.ts",
-  "purpose": "Retained two-subject publication producer for upgrade recovery controls; no saved job state or capabilities.",
-  "subjectsSource": "  const subjects: JobPublishedContext['subjects'] = [\n    ...(reviewVerdictSignable(project, selector.version, reviewStage) ? [{ kind: 'review-verdict' as const, stage: reviewStage }] : []),\n    // The legacy direction panel accepts only the verdict on a post publication.\n    ...(selector.kind === 'post' ? [] : packageSignSubjects(project, effectiveStage(root, project), selector, steps.length)),\n  ];"
-}

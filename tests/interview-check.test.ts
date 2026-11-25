@@ -220,11 +220,6 @@ describe('a plan step that rests on no answer', () => {
     const report = checkProject(fixture((p) => { step(p, 'bones').id = 'skeleton'; }));
     expect(withCode(report, 'STEP_NOT_A_WAYPOINT').map((f) => f.path)).toEqual(['plan.steps[skeleton]']);
   });
-
-  test('a checkpoint left null under a signed plan is refused', () => {
-    const report = checkProject(fixture((p) => { step(p, 'meshes').checkpoint = null; }));
-    expect(withCode(report, 'CHECKPOINT_UNANSWERED').map((f) => f.path)).toEqual(['plan.steps[meshes].checkpoint']);
-  });
 });
 
 describe('a stage moved without a human sign-off', () => {

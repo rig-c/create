@@ -4,30 +4,30 @@ import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, 
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { JOB_RECORD_ACT_SCHEMA, parseRecordAct, startJobHost } from '@rig-c/review/job-host';
 import { checkProject as rawCheckProject } from '../src/check.ts';
-import { jobHash, jobHostStateRoot, jobPrivateRoot, pendingPublications, readAcknowledgedPublication, readWriterBinding, type AcknowledgedPublication } from '../src/job-outbox.ts';
-import { readPublished } from '../src/job-publication.ts';
+import { agentCall } from '../src/job-acts.ts';
+import { openCreateJob, reconcileCreateJob } from '../src/job-host.ts';
+import { acknowledgePublication, enqueuePublication, jobHash, jobHostStateRoot, jobPrivateRoot, pendingPublications, readAcknowledgedPublication, readWriterBinding, type AcknowledgedPublication } from '../src/job-outbox.ts';
+import { readPublished, readRecordPublished, type RecordPublicationRequest } from '../src/job-publication.ts';
 import { jobRuntimeExecArgv } from '../src/job-writer.ts';
 import type { Json, JsonObject } from '../src/templates.ts';
 import { testClock, interviewOptionsCommand, interviewAnswerCommand } from './clock.ts';
 import { optionContext } from '../src/choices.ts';
 import { clockedCli } from './helpers.ts';
 import { OWNER_CHAT_SOURCE } from '../src/owner-chat.ts';
-import { recordPartsReceipt } from './parts-receipt-fixture.ts';
 import { nextCommand, nextProject, type NextReport } from '../src/next.ts';
 import { locateParts } from '../src/parts-sections.ts';
 import { generateExampleParts } from '../scripts/generate-example-parts.ts';
 import { EXAMPLE_REOPEN_AT } from '../scripts/example-time.ts';
 import { reviewActFindings, decodeReviewAct, reviewActVerdict } from '../src/review-act.ts';
 import { foldRigSignoff } from '../src/rig-signoff.ts';
-import { legacyRigPublicationCli } from './legacy-rig-publication.ts';
 import { plantLegacyReopen } from './fixtures.ts';
 
 const WORDS = '  Synthetic owner review words.\r\n';
 // Measured 2.59s–3.67s per multi-spawn CLI + live host flow locally; 15_000ms tier avoids 5s default timeout flakes under load.
 const REFRESH_FLOW_TIMEOUT_MS = 15_000;
 const roots: string[] = [];
-const legacyClis = new Map<string, string>();
 const opened: { proc: Bun.Subprocess; root: string }[] = [];
 const checkProject = (dir: string, candidate?: JsonObject, _options?: { now: number }) =>
   rawCheckProject(dir, candidate, { now: testClock.now() });
@@ -46,7 +46,6 @@ afterEach(async () => {
     rmSync(root, { recursive: true, force: true });
   }
   testClock.reset();
-  legacyClis.clear();
 });
 
 const read = (root: string): JsonObject => JSON.parse(readFileSync(join(root, 'project.json'), 'utf8')) as JsonObject;
@@ -68,20 +67,9 @@ function copy(checkpoint: string, edit?: (project: JsonObject) => void): string 
 }
 
 async function cli(root: string, args: string[]): Promise<{ stdout: string; stderr: string; exit: number }> {
-  const child = Bun.spawn([process.execPath, ...jobRuntimeExecArgv(), ...cliAt(root), ...args], { cwd: root, stdout: 'pipe', stderr: 'pipe' });
+  const child = Bun.spawn([process.execPath, ...jobRuntimeExecArgv(), ...clockedCli(), ...args], { cwd: root, stdout: 'pipe', stderr: 'pipe' });
   const [stdout, stderr, exit] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
   return { stdout, stderr, exit };
-}
-
-function cliAt(root: string): string[] {
-  const legacy = legacyClis.get(root);
-  return legacy ? [legacy, testClock.iso()] : clockedCli();
-}
-
-function useLegacyRigPublication(root: string): void {
-  const runtime = realpathSync(mkdtempSync(join(tmpdir(), 'create-legacy-publication-')));
-  roots.push(runtime);
-  legacyClis.set(root, legacyRigPublicationCli(runtime));
 }
 
 async function freshRigVerdict(verdict: 'approved' | 'changes-requested' | 'pending' = 'approved') {
@@ -100,7 +88,7 @@ async function freshRigVerdict(verdict: 'approved' | 'changes-requested' | 'pend
 }
 
 async function open(root: string, options: string[] = []): Promise<{ url: URL; lines: string[] }> {
-  const proc = Bun.spawn([process.execPath, ...jobRuntimeExecArgv(), ...cliAt(root), 'job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner', ...options], {
+  const proc = Bun.spawn([process.execPath, ...jobRuntimeExecArgv(), ...clockedCli(), 'job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner', ...options], {
     cwd: root,
     stdout: 'pipe',
     stderr: 'pipe',
@@ -242,38 +230,6 @@ function rigCapture(root: string, view: Awaited<ReturnType<typeof page>>, askId:
 function expectExit0(result: { stdout: string; stderr: string; exit: number }): void {
   expect({ exit: result.exit, stderr: result.stderr }).toEqual({ exit: 0, stderr: '' });
 }
-
-test('#475 source-linked clean interview record signoff ingests advances and offers plan-approved', async () => {
-  const root = copy('0b-plan-pending', project => {
-    project.stage = 'interview'; project.signoffs = []; project.advances = [];
-  });
-  expectExit0(await cli(root, ['interview', '--check', root]));
-  const opening = await open(root, ['--plan']);
-  const view = await page(root, opening.url, 1);
-  expect(view.asks.map(ask => ask.subject)).toEqual([{ kind: 'signoff', stage: 'interview' }]);
-  expect((view.head.source as JsonObject).subject).toBe('plan');
-  const displayed = read(root);
-  const planBefore = structuredClone(displayed.plan);
-  const signed = await view.act('signoff', 'signoff', { stage: 'interview', decision: 'approved', words: WORDS });
-  expect(signed.schema).toBe('rig-review/act@4');
-  expect((signed.source as JsonObject).projectHash).toBe(jobHash(readFileSync(join(root, 'project.json'))));
-  expectExit0(await cli(root, ['signoff', 'interview', root, '--from-review', String(signed.actId)]));
-  expect(read(root).stage).toBe('interview');
-  expect(read(root).plan).toEqual(planBefore);
-  expect((read(root).signoffs as JsonObject[]).at(-1)).toMatchObject({ stage: 'interview', by: 'user', verbatim: WORDS });
-  expect(reviewActFindings(read(root))).toEqual([]);
-  expectExit0(await cli(root, ['advance', 'plan-approved', root, '--json']));
-  const advanced = readFileSync(join(root, 'project.json'));
-  expectExit0(await cli(root, ['signoff', 'interview', root, '--from-review', String(signed.actId)]));
-  expect(readFileSync(join(root, 'project.json'))).toEqual(advanced);
-  const next = await cli(root, ['next', root, '--json']);
-  expectExit0(next);
-  const report = JSON.parse(next.stdout) as { moves: JsonObject[] };
-  expect(report.moves).toContainEqual(expect.objectContaining({ command: null, review_act: expect.objectContaining({ kind: 'signoff', stage: 'plan-approved' }) }));
-  expectExit0(await cli(root, ['job', 'open', root, '--plan', '--reviewer', 'synthetic-owner', '--role', 'owner']));
-  const approvalPage = await page(root, opening.url, 1);
-  expect(approvalPage.asks.map(ask => ask.subject)).toEqual([{ kind: 'signoff', stage: 'plan-approved' }]);
-}, REFRESH_FLOW_TIMEOUT_MS);
 
 async function preparedParts(): Promise<string> {
   // Write after the retained narrative, before the live host stamps its verdict.
@@ -755,151 +711,6 @@ test('#557 parts-review retouch lifecycle rejects once, records a real edited dr
   expect(readFileSync(join(root, entryReport))).toEqual(oldReport);
 }, 60_000);
 
-test('legacy approved unsigned parts refresh preserves JOB_RECORD_MOVED and the separate signoff route', async () => {
-  const root = await preparedParts();
-  recordPartsReceipt(root, 'chain', testClock.now());
-  const opening = await open(root);
-  const firstView = await page(root, opening.url, 1);
-  expect(opening.lines).toEqual([`job: draft chain published (publication ${firstView.head.publicationId})`, 'job: asked signoff parts-review']);
-  const project = read(root); project.title = 'Synthetic midflight title edit'; write(root, project);
-  const staleSignoff = await firstView.tryAct('signoff', 'signoff', { stage: 'parts-review', decision: 'approved', words: WORDS });
-  expect((staleSignoff.error as JsonObject | undefined)?.code).toBe('JOB_RECORD_MOVED');
-  const refreshed = await cli(root, ['job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner']);
-  expectExit0(refreshed);
-  const refreshedView = await page(root, opening.url, 1);
-  expect(refreshed.stdout.trim().split('\n')).toEqual([opening.url.href, `job: draft chain published (publication ${refreshedView.head.publicationId})`, 'job: asked signoff parts-review']);
-  expect(refreshedView.head.publicationId).not.toBe(firstView.head.publicationId);
-  expect((refreshedView.head.source as JsonObject).selector).toEqual({ kind: 'draft', id: 'chain' });
-  expect((refreshedView.head.source as JsonObject).projectHash).toBe(jobHash(readFileSync(join(root, 'project.json'))));
-  const signed = await refreshedView.act('signoff', 'signoff', { stage: 'parts-review', decision: 'approved', words: WORDS });
-  expectExit0(await cli(root, ['signoff', 'parts-review', root, '--from-review', String(signed.actId), '--structure-file', 'evidence/structure-chain.json', '--json']));
-  expect((read(root).signoffs as JsonObject[]).at(-1)).toMatchObject({ stage: 'parts-review', checkpoint: null, by: 'user',
-    verbatim: `[general]\n${WORDS}`, draft_id: 'chain', source: `review act ${String(signed.jobId)}/${String(signed.actId)}` });
-  expect(checkProject(root).refusals.map(row => row.code)).toEqual([]);
-}, REFRESH_FLOW_TIMEOUT_MS);
-
-test('rig-review verdict -> ingest -> job open refresh -> UI signoff -> ingest preserves rig selector, updates projectHash, and keeps stale/authority guards', async () => {
-  const root = copy('3-rig-review', project => {
-    project.stage = 'rigging';
-    project.advances = (project.advances as JsonObject[]).filter(entry => entry.stage !== 'rig-review');
-  });
-  // Actual retained 1.7.2 subject producer; fresh jobs now fold instead of asking twice.
-  useLegacyRigPublication(root);
-  const opening = await open(root);
-  expectExit0(await cli(root, ['advance', 'rig-review', root, '--json']));
-
-  const firstView = await page(root, opening.url);
-  expect((firstView.head.source as JsonObject).selector).toEqual({ kind: 'rig', version: 1 });
-  const verdictAsk = firstView.asks.find(item => (item.subject as JsonObject).kind === 'review-verdict')!;
-  const verdict = await firstView.act(
-    'review-verdict',
-    'review-verdict',
-    { stage: 'rig-review', verdict: 'approved', words: WORDS },
-    rigCapture(root, firstView, String(verdictAsk.askId)),
-  );
-
-  const reviewed = await cli(root, ['review', '1', root, '--from-review', String(verdict.actId), '--json']);
-  expectExit0(reviewed);
-
-  // Replaying the actual old two-subject approval cannot retroactively add a folded signature.
-  const legacyBytes = readFileSync(join(root, 'project.json'));
-  // Upgrade the CLI/writer before replay and recovery; the already-running host retains its old reader.
-  legacyClis.delete(root);
-  expect((read(root).review_acts as JsonObject[]).at(-1)!.signoff).toBeUndefined();
-  expectExit0(await cli(root, ['review', '1', root, '--from-review', String(verdict.actId), '--json']));
-  expect(readFileSync(join(root, 'project.json'))).toEqual(legacyBytes);
-
-  // Submitting signoff on the pre-verdict publication fails with JOB_RECORD_MOVED because review modified project.json.
-  const staleSignoff = await firstView.tryAct('signoff', 'signoff', { stage: 'rig-review', decision: 'approved', words: WORDS });
-  expect((staleSignoff.error as JsonObject | undefined)?.code).toBe('JOB_RECORD_MOVED');
-
-  // Refresh via job open republishes rig v1 with the current project.json hash and asks the remaining signoff subject.
-  const refreshed = await cli(root, ['job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner']);
-  expectExit0(refreshed);
-  // Re-opening again when project.json has not moved reuses the refreshed head without republishing.
-  const reused = await cli(root, ['job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner']);
-  expectExit0(reused);
-
-  const refreshedView = await page(root, opening.url, 1);
-  expect(refreshed.stdout.trim().split('\n')).toEqual([
-    opening.url.href,
-    `job: rig v1 published (publication ${refreshedView.head.publicationId})`,
-    'job: asked signoff rig-review',
-  ]);
-  expect(reused.stdout.trim().split('\n')).toEqual([
-    opening.url.href,
-    `job: rig v1 already published (publication ${refreshedView.head.publicationId})`,
-    'job: already asked signoff rig-review',
-  ]);
-  expect(refreshedView.head.publicationId).not.toBe(firstView.head.publicationId);
-  expect((refreshedView.head.source as JsonObject).selector).toEqual({ kind: 'rig', version: 1 });
-  expect((refreshedView.head.source as JsonObject).projectHash).toBe(jobHash(readFileSync(join(root, 'project.json'))));
-  expect(refreshedView.asks.map(ask => ask.subject)).toEqual([
-    { kind: 'signoff', stage: 'rig-review' },
-  ]);
-
-  const signed = await refreshedView.act('signoff', 'signoff', { stage: 'rig-review', decision: 'approved', words: WORDS });
-
-  // Negative guards: wrong version, wrong stage, or competing authority flags refuse and leave project.json byte-identical.
-  const beforeSignoffBytes = readFileSync(join(root, 'project.json'));
-  const wrongVersion = await cli(root, ['signoff', 'rig-review', root, '--from-review', String(signed.actId), '--version', '2']);
-  expect({ exit: wrongVersion.exit, stderr: wrongVersion.stderr }).toEqual({
-    exit: 1,
-    stderr: expect.stringContaining('REVIEW_ACT_TARGET_MISMATCH:'),
-  });
-  expect(readFileSync(join(root, 'project.json'))).toEqual(beforeSignoffBytes);
-
-  const wrongStage = await cli(root, ['signoff', 'direction-review', root, '--from-review', String(signed.actId)]);
-  expect({ exit: wrongStage.exit, stderr: wrongStage.stderr }).toEqual({
-    exit: 1,
-    stderr: expect.stringContaining('REVIEW_ACT_KIND_MISMATCH:'),
-  });
-  expect(readFileSync(join(root, 'project.json'))).toEqual(beforeSignoffBytes);
-
-  const mixedBy = await cli(root, ['signoff', 'rig-review', root, '--from-review', String(signed.actId), '--by', 'user']);
-  expect({ exit: mixedBy.exit, stderr: mixedBy.stderr }).toEqual({
-    exit: 2,
-    stderr: expect.stringContaining('SIGNOFF_OPTION_INVALID:'),
-  });
-  expect(readFileSync(join(root, 'project.json'))).toEqual(beforeSignoffBytes);
-
-  // Valid signoff ingest succeeds and records target.version = 1.
-  const signoffRes = await cli(root, ['signoff', 'rig-review', root, '--from-review', String(signed.actId), '--json']);
-  expectExit0(signoffRes);
-  expect((read(root).signoffs as JsonObject[]).at(-1)).toMatchObject({
-    stage: 'rig-review',
-    checkpoint: null,
-    by: 'user',
-    verbatim: `[general]\n${WORDS}`,
-    target: { version: 1 },
-    source: `review act ${String(signed.jobId)}/${String(signed.actId)}`,
-  });
-
-  // Replay of the earlier verdict act still succeeds without rewriting project.json, and corrupting a bound source refuses REVIEW_ACT_SOURCE_STALE.
-  const afterSignoffBytes = readFileSync(join(root, 'project.json'));
-  const replayVerdict = await cli(root, ['review', '1', root, '--from-review', String(verdict.actId), '--json']);
-  expectExit0(replayVerdict);
-  expect(readFileSync(join(root, 'project.json'))).toEqual(afterSignoffBytes);
-
-  const modelPath = join(root, 'derived/review/v1/out/check/build/skeleton.model.json');
-  const savedModel = readFileSync(modelPath);
-  writeFileSync(modelPath, '{}\n');
-  try {
-    const staleReplay = await cli(root, ['review', '1', root, '--from-review', String(verdict.actId), '--json']);
-    expect({ exit: staleReplay.exit, stderr: staleReplay.stderr }).toEqual({
-      exit: 1,
-      stderr: expect.stringContaining('REVIEW_ACT_SOURCE_STALE:'),
-    });
-    expect(readFileSync(join(root, 'project.json'))).toEqual(afterSignoffBytes);
-  } finally {
-    writeFileSync(modelPath, savedModel);
-  }
-
-  const report = checkProject(root, undefined, { now: Date.now() });
-  expect(report.refusals.map(f => f.code)).toEqual([]);
-  expect(report.holes ?? []).toEqual([]);
-}, REFRESH_FLOW_TIMEOUT_MS);
-
 test('#467 source-linked direction verdict then record sign-off ingests and advances accepted', async () => {
   const historyWords = `Synthetic direction history. ${'retained review words. '.repeat(400)}`;
   const root = copy('example-chain', project => {
@@ -942,129 +753,125 @@ test('#467 source-linked direction verdict then record sign-off ingests and adva
 
   const record = await cli(root, ['job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner', '--plan']);
   expectExit0(record);
-  const recordSubjects = [{ kind: 'signoff', stage: 'direction-review' }];
-  const recordView = await page(root, opening.url, recordSubjects.length);
-  expect(record.stdout.trim().split('\n')).toEqual([opening.url.href, `job: plan published (publication ${recordView.head.publicationId})`,
-    `job: asked ${recordSubjects.map(({ kind, stage }) => `${kind} ${stage}`).join(', ')}`]);
+  const recordView = await page(root, opening.url, 0);
+  expect(record.stdout.trim().split('\n')).toEqual([opening.url.href, `job: plan published (publication ${recordView.head.publicationId})`]);
   expect((recordView.head.source as JsonObject).subject).toBe('plan');
   expect((recordView.head.source as JsonObject).selector).toBeUndefined();
-  expect((recordView.head.source as JsonObject).subjects).toEqual(recordSubjects);
-  expect(recordView.asks.map(ask => ask.subject)).toEqual(recordSubjects);
-  const signed = await recordView.act('signoff', 'signoff', { stage: 'direction-review', decision: 'approved', words: WORDS });
-  expect(signed.schema).toBe('rig-review/act@4');
-  expect((signed.source as JsonObject).selector).toBeUndefined();
-  const original = readFileSync(join(root, 'project.json'));
-  expect(original.length).toBeGreaterThan(512_000);
-  writeFileSync(join(root, 'project.json'), Buffer.concat([original, Buffer.from(' ')]));
-  const staleBytes = readFileSync(join(root, 'project.json'));
-  const stale = await cli(root, ['signoff', 'direction-review', root, '--from-review', String(signed.actId)]);
-  expect(stale.exit).toBe(1);
-  expect(stale.stderr).toContain('REVIEW_ACT_SOURCE_STALE:');
-  expect(readFileSync(join(root, 'project.json'))).toEqual(staleBytes);
-  writeFileSync(join(root, 'project.json'), original);
-  const wrongVersion = await cli(root, ['signoff', 'direction-review', root, '--from-review', String(signed.actId), '--version', '1']);
-  expect(wrongVersion.exit).toBe(1);
-  expect(wrongVersion.stderr).toContain('REVIEW_ACT_TARGET_MISMATCH:');
-  expect(readFileSync(join(root, 'project.json'))).toEqual(original);
-  expectExit0(await cli(root, ['signoff', 'direction-review', root, '--from-review', String(signed.actId)]));
-  const saved = read(root);
-  const target = (saved.signoffs as JsonObject[]).at(-1)!.target as JsonObject;
-  expect(target.version).toBe(2);
-  const signedBytes = readFileSync(join(root, 'project.json'));
-  const growth = signedBytes.length - original.length;
-  expect(growth).toBeGreaterThan(0);
-  expect(growth).toBeLessThan(32_768);
-  expect(growth).toBeLessThan(original.length / 10);
-  const receipt = (saved.review_acts as JsonObject[]).find(entry => entry.actId === signed.actId)!;
-  expect(receipt.record_bytes).toBeUndefined();
-  expect(JSON.stringify(receipt)).not.toContain(historyWords);
-  expect(receipt.record_sha256).toBe(jobHash(original));
-  expect(receipt.record_sha256).toBe((signed.source as JsonObject).projectHash);
-  expect(receipt.target_version).toBe(target.version);
-  expect(receipt.verdict).toBe(target.verdict);
-  console.log(JSON.stringify({ evidence: '#467 compact direction receipt growth', before_bytes: original.length,
-    after_bytes: signedBytes.length, delta_bytes: growth }));
-  expect(reviewActFindings(saved)).toEqual([]);
-  const later = structuredClone(saved);
-  (later.versions as JsonObject[]).push({ ...(later.versions as JsonObject[]).find(version => version.n === 2)!, n: 99 });
-  expect(reviewActFindings(later)).toEqual([]);
-  expectExit0(await cli(root, ['advance', 'accepted', root, '--json']));
-  const accepted = readFileSync(join(root, 'project.json'));
-  expectExit0(await cli(root, ['signoff', 'direction-review', root, '--from-review', String(signed.actId)]));
-  expect(readFileSync(join(root, 'project.json'))).toEqual(accepted);
-  for (const [key, value] of Object.entries({ record_sha256: '0'.repeat(64), target_version: 99, verdict: 'versions[1].verdicts[0]' })) {
-    const tampered = JSON.parse(accepted.toString('utf8')) as JsonObject;
-    (tampered.review_acts as JsonObject[]).find(entry => entry.actId === signed.actId)![key] = value;
-    write(root, tampered);
-    expect(reviewActFindings(tampered).map(finding => finding.code)).toContain('REVIEW_ACT_LEDGER_INVALID');
-    const beforeRetry = readFileSync(join(root, 'project.json'));
-    const invalidReplay = await cli(root, ['signoff', 'direction-review', root, '--from-review', String(signed.actId)]);
-    expect(invalidReplay.exit).toBe(1);
-    expect(invalidReplay.stderr).toContain('REVIEW_ACT_LEDGER_INVALID:');
-    expect(readFileSync(join(root, 'project.json'))).toEqual(beforeRetry);
+  expect((recordView.head.source as JsonObject).subjects).toEqual([]);
+  expect(recordView.asks).toEqual([]);
+
+  // Close the background listener and serve a stored historical record signoff act@4 to exercise compact receipt ingestion and replay.
+  const active = opened.pop()!;
+  expectExit0(await cli(root, ['job', 'close', root]));
+  await active.proc.exited;
+  const legacySubjects = [{ kind: 'signoff' as const, stage: 'direction-review' as const }];
+  const legacyHost = await openCreateJob(root, { id: 'synthetic-owner', role: 'owner' }, testClock.now(), options => startJobHost({
+    ...options,
+    readRecordPublished: ((request: RecordPublicationRequest) => {
+      const context = readRecordPublished(request, testClock.now());
+      return context.plan === null ? context : { ...context, subjects: legacySubjects };
+    }) as typeof readRecordPublished,
+  }), true);
+  try {
+    const result = { kind: 'plan' as const };
+    enqueuePublication(root, readWriterBinding(root)!, result);
+    await reconcileCreateJob(root, async entry => {
+      const requestId = randomUUID();
+      const reply = await agentCall(legacyHost, { verb: 'publish', requestId, idempotencyKey: requestId,
+        expectedGeneration: 0, result,
+        freeze: { kind: 'producer-held', holdId: entry.id, record: { path: 'project.json', sha256: entry.recordHash } } });
+      expect(reply.ok, JSON.stringify(reply.error)).toBe(true);
+      const { publication, generation } = legacyHost.session.status();
+      acknowledgePublication(entry, publication!.publicationId, generation, requestId, legacySubjects);
+    });
+    const session = legacyHost.session as unknown as {
+      jobId: string;
+      store: { update(jobId: string, rev: null, fn: (row: { data: { generation: number; reviewer: { id: string; role: string }; publications: Record<string, { retained: { source: unknown } }>; asks: Record<string, unknown>; acts: Record<string, unknown> } }) => { data: unknown }): unknown };
+      event(data: unknown, value: object): unknown;
+    };
+    const publicationId = legacyHost.session.status().publication!.publicationId;
+    let signed!: JsonObject;
+    session.store.update(session.jobId, null, ({ data }) => {
+      data.generation++;
+      const askId = randomUUID();
+      const source = data.publications[publicationId]!.retained.source;
+      const ask = { askId, publicationId, subject: legacySubjects[0], source, status: 'answered' };
+      data.asks[askId] = ask;
+      session.event(data, { type: 'pending', ask: { ...ask, status: 'pending' } });
+      const actId = randomUUID();
+      const act = parseRecordAct({
+        schema: JOB_RECORD_ACT_SCHEMA, actId, jobId: session.jobId, askId, publicationId,
+        authority: { actor: 'human', channel: 'review-ui', reviewer: { ...data.reviewer } },
+        at: testClock.iso(), kind: 'signoff', source,
+        value: { stage: 'direction-review', decision: 'approved', words: WORDS },
+      }) as unknown as JsonObject;
+      data.generation++;
+      data.acts[actId] = act;
+      session.event(data, { type: 'act', act });
+      signed = act;
+      return { data };
+    });
+    expect(signed.schema).toBe('rig-review/act@4');
+    expect((signed.source as JsonObject).selector).toBeUndefined();
+    const original = readFileSync(join(root, 'project.json'));
+    expect(original.length).toBeGreaterThan(512_000);
+    writeFileSync(join(root, 'project.json'), Buffer.concat([original, Buffer.from(' ')]));
+    const staleBytes = readFileSync(join(root, 'project.json'));
+    const stale = await cli(root, ['signoff', 'direction-review', root, '--from-review', String(signed.actId)]);
+    expect(stale.exit).toBe(1);
+    expect(stale.stderr).toContain('REVIEW_ACT_SOURCE_STALE:');
+    expect(readFileSync(join(root, 'project.json'))).toEqual(staleBytes);
+    writeFileSync(join(root, 'project.json'), original);
+    const wrongVersion = await cli(root, ['signoff', 'direction-review', root, '--from-review', String(signed.actId), '--version', '1']);
+    expect(wrongVersion.exit).toBe(1);
+    expect(wrongVersion.stderr).toContain('REVIEW_ACT_TARGET_MISMATCH:');
+    expect(readFileSync(join(root, 'project.json'))).toEqual(original);
+    expectExit0(await cli(root, ['signoff', 'direction-review', root, '--from-review', String(signed.actId)]));
+    const saved = read(root);
+    const target = (saved.signoffs as JsonObject[]).at(-1)!.target as JsonObject;
+    expect(target.version).toBe(2);
+    const signedBytes = readFileSync(join(root, 'project.json'));
+    const growth = signedBytes.length - original.length;
+    expect(growth).toBeGreaterThan(0);
+    expect(growth).toBeLessThan(32_768);
+    expect(growth).toBeLessThan(original.length / 10);
+    const receipt = (saved.review_acts as JsonObject[]).find(entry => entry.actId === signed.actId)!;
+    expect(receipt.record_bytes).toBeUndefined();
+    expect(JSON.stringify(receipt)).not.toContain(historyWords);
+    expect(receipt.record_sha256).toBe(jobHash(original));
+    expect(receipt.record_sha256).toBe((signed.source as JsonObject).projectHash);
+    expect(receipt.target_version).toBe(target.version);
+    expect(receipt.verdict).toBe(target.verdict);
+    console.log(JSON.stringify({ evidence: '#467 compact direction receipt growth', before_bytes: original.length,
+      after_bytes: signedBytes.length, delta_bytes: growth }));
+    expect(reviewActFindings(saved)).toEqual([]);
+    const later = structuredClone(saved);
+    (later.versions as JsonObject[]).push({ ...(later.versions as JsonObject[]).find(version => version.n === 2)!, n: 99 });
+    expect(reviewActFindings(later)).toEqual([]);
+    expectExit0(await cli(root, ['advance', 'accepted', root, '--json']));
+    const accepted = readFileSync(join(root, 'project.json'));
+    expectExit0(await cli(root, ['signoff', 'direction-review', root, '--from-review', String(signed.actId)]));
+    expect(readFileSync(join(root, 'project.json'))).toEqual(accepted);
+    for (const [key, value] of Object.entries({ record_sha256: '0'.repeat(64), target_version: 99, verdict: 'versions[1].verdicts[0]' })) {
+      const tampered = JSON.parse(accepted.toString('utf8')) as JsonObject;
+      (tampered.review_acts as JsonObject[]).find(entry => entry.actId === signed.actId)![key] = value;
+      write(root, tampered);
+      expect(reviewActFindings(tampered).map(finding => finding.code)).toContain('REVIEW_ACT_LEDGER_INVALID');
+      const beforeRetry = readFileSync(join(root, 'project.json'));
+      const invalidReplay = await cli(root, ['signoff', 'direction-review', root, '--from-review', String(signed.actId)]);
+      expect(invalidReplay.exit).toBe(1);
+      expect(invalidReplay.stderr).toContain('REVIEW_ACT_LEDGER_INVALID:');
+      expect(readFileSync(join(root, 'project.json'))).toEqual(beforeRetry);
+    }
+    writeFileSync(join(root, 'project.json'), accepted);
+    const report = checkProject(root, undefined, { now: Date.now() });
+    expect(report.refusals).toEqual([]);
+    expect(report.warnings).toEqual([]);
+    expect(report.holes ?? []).toEqual([]);
+  } finally {
+    legacyHost.stop();
   }
-  writeFileSync(join(root, 'project.json'), accepted);
-  const report = checkProject(root, undefined, { now: Date.now() });
-  expect(report.refusals).toEqual([]);
-  expect(report.warnings).toEqual([]);
-  expect(report.holes ?? []).toEqual([]);
 }, 30_000);
-
-test('both-acts-before-ingest remains supported without an intermediate refresh, and pending refresh failure recovers via job reconcile', async () => {
-  const root = copy('3-rig-review', project => {
-    project.stage = 'rigging';
-    project.advances = (project.advances as JsonObject[]).filter(entry => entry.stage !== 'rig-review');
-  });
-  useLegacyRigPublication(root);
-  const opening = await open(root);
-  expectExit0(await cli(root, ['advance', 'rig-review', root, '--json']));
-
-  // Both UI acts submitted before any ingest remain supported.
-  const firstView = await page(root, opening.url);
-  const verdictAsk = firstView.asks.find(item => (item.subject as JsonObject).kind === 'review-verdict')!;
-  const verdict = await firstView.act(
-    'review-verdict',
-    'review-verdict',
-    { stage: 'rig-review', verdict: 'approved', words: WORDS },
-    rigCapture(root, firstView, String(verdictAsk.askId)),
-  );
-  const signedBeforeIngest = await firstView.act('signoff', 'signoff', { stage: 'rig-review', decision: 'approved', words: WORDS });
-
-  expectExit0(await cli(root, ['review', '1', root, '--from-review', String(verdict.actId), '--json']));
-
-  // Plant a corrupted package source before running job open refresh: leaves JOB_PUBLISH_PENDING in the outbox.
-  const partsPath = join(root, 'derived/review/v1/out/parts.json');
-  const savedParts = readFileSync(partsPath);
-  writeFileSync(partsPath, '{}\n');
-  const failedRefresh = await cli(root, ['job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner']);
-  expect({ exit: failedRefresh.exit, stderr: failedRefresh.stderr }).toEqual({
-    exit: 1,
-    stderr: expect.stringContaining('JOB_PUBLISH_PENDING:'),
-  });
-  expect(failedRefresh.stderr).toContain('JOB_PUBLICATION_INVALID');
-  expect(pendingPublications(root)).toHaveLength(1);
-  expect(checkProject(root, undefined, { now: Date.now() }).holes?.map(h => h.code)).toEqual(['JOB_PUBLISH_PENDING']);
-
-  // Restore the corrupted file and recover the pending refresh through job reconcile.
-  writeFileSync(partsPath, savedParts);
-  const reconciled = await cli(root, ['job', 'reconcile', root]);
-  expect({ exit: reconciled.exit, stderr: reconciled.stderr, stdout: reconciled.stdout.trim() }).toEqual({
-    exit: 0,
-    stderr: '',
-    stdout: 'job: reconciled 1 publication(s)',
-  });
-  expect(pendingPublications(root)).toEqual([]);
-  expect(checkProject(root, undefined, { now: Date.now() }).holes ?? []).toEqual([]);
-
-  // The signoff act finalized before ingest still ingests cleanly after reconciliation.
-  const signoffRes = await cli(root, ['signoff', 'rig-review', root, '--from-review', String(signedBeforeIngest.actId), '--json']);
-  expectExit0(signoffRes);
-  expect((read(root).signoffs as JsonObject[]).at(-1)).toMatchObject({
-    stage: 'rig-review',
-    target: { version: 1 },
-    source: `review act ${String(signedBeforeIngest.jobId)}/${String(signedBeforeIngest.actId)}`,
-  });
-}, REFRESH_FLOW_TIMEOUT_MS);
 
 // These are fresh publications, including the same non-pre_interview rig used by the legacy control above.
 test('#574 fresh rig approval folds one signature, preserves words, replays bytes and advances at check0', async () => {

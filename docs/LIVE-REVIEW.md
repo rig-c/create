@@ -56,14 +56,12 @@ Reopening the same result over unchanged record
 bytes reuses its publication and asks each declared subject once.
 
 Judge direction on the post page with `job open --rig <post>`,
-then ingest `review <post> --from-review <actId>`. Before the current live post has an accepted live verdict,
-the record request refuses `JOB_DIRECTION_VERDICT_REQUIRED` without writing.
-After verdict ingest, `job open --plan` asks `signoff direction-review` on the
-record page. Ingest `signoff direction-review --from-review <actId>`, then
-`advance accepted`. This route is supported by release-pinned
-[Review 4.21.0](https://github.com/rig-c/review/tree/v4.21.0), including the
-record direction-review sign-off from
-[Review #795](https://github.com/rig-c/review/pull/795).
+then ingest `review <post> --from-review <actId>`. Stage sign-off at
+`direction-review` is recorded from owner chat with `signoff direction-review --owner-chat ...`,
+followed by `advance accepted`. Previously stored record `signoff` acts from
+[Review 4.21.0](https://github.com/rig-c/review/tree/v4.21.0)
+([Review #795](https://github.com/rig-c/review/pull/795)) still ingest through
+`signoff direction-review --from-review <actId>`.
 
 The act has no version selector. Its record hash binds the exact displayed
 `project.json` bytes. Before the first write, create checks those bytes and
@@ -729,8 +727,8 @@ writer. Choose one of `--file` and `--clear`. Clear uses the same locks, candida
 check and atomic commit. Its JSON result is `null`. Repeating clear on an absent
 field writes nothing.
 
-The trusted record-plan and package readers include `checkpointEvidence` only
-for checkpoint subjects they actually declare. Every supplied asset enters the
+The trusted record-plan and package readers include `checkpointEvidence` whenever
+the record carries sealed packets, without declaring a checkpoint ask. Every supplied asset enters the
 trusted closure with its exact path and raw SHA-256. Record option sets omit this
 extension. Historical absence emits no evidence field. Review's signed extension
 owns full PNG decoding, source/instance hashing, retained delivery and EN/KO owner

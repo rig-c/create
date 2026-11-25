@@ -1,6 +1,5 @@
 import { checkInputs } from './inputs.ts';
 import { pngDimensions } from './scene.ts';
-import { recordedPartsVerdict } from './parts-verdict-record.ts';
 import { renameSync, rmSync, writeFileSync } from 'node:fs';
 import { existsSync, lstatSync, readFileSync, realpathSync } from './check-reads.ts';
 import { dirname, join, relative, resolve, sep } from 'node:path';
@@ -8,13 +7,13 @@ import { isDeepStrictEqual } from 'node:util';
 import { partsFileReferences } from '@rig-c/parts/src/parts.ts';
 import partsPackage from '@rig-c/parts/package.json';
 import * as reviewJobHost from '@rig-c/review/job-host';
-import { JOB_ACT_SCHEMA, JOB_API_SCHEMA, type JobPublicationReader, type JobPublishedContext, type JobSelector, type JobRecordSignoffStage, type PublishResultV3, type RecordPicksSubject, type RecordPlanSubject } from '@rig-c/review/job-host';
+import { JOB_ACT_SCHEMA, JOB_API_SCHEMA, type JobPublicationReader, type JobPublishedContext, type JobSelector, type PublishResultV3, type RecordPicksSubject, type RecordPlanSubject } from '@rig-c/review/job-host';
 import { stepHash } from './step-hash.ts';
 import { DIRECTION_COMPOSE_SPEC, composeInventory } from './direction-compose.ts';
-import { directionJson, directionPath, readDirection, validateDirectionShape } from './direction.ts';
+import { readDirection } from './direction.ts';
 import { checkpointEvidenceContext, type CheckpointEvidence } from './checkpoint-evidence.ts';
 import { locateParts, PARTS_PACKAGE } from './parts-sections.ts';
-import { asArray, checkProject, collectItems, isObject, loadCollection, postNotPassed, type Finding, type Item } from './check.ts';
+import { asArray, checkProject, collectItems, isObject, loadCollection, type Finding, type Item } from './check.ts';
 import { checkDiffMap, diffStackCandidates, reportShape } from './diff-map.ts';
 import { relativeInventory } from './draft-reuse.ts';
 import { PARTS_CHECK_SPEC, partsCheckFindings } from './parts-check.ts';
@@ -27,14 +26,12 @@ import {
   withCandidateProject,
 } from './collection-binding-reader.ts';
 import { choiceAdoption, optionContextFiles, optionFile, pendingInterviewOptionsPath, validateContext } from './choices.ts';
-import { approvalStageOfGuide, hasStageOrder, interviewStageOfGuide, isOpenInterviewStage, PAUSED_STAGE, silentInterviewItems, stageIndex, stageOfStep, stepCoveredByApproval } from './stages.ts';
-import { assertPlanSignoffCandidate } from './signoff.ts';
+import { approvalStageOfGuide, hasStageOrder, interviewStageOfGuide, isOpenInterviewStage, PAUSED_STAGE, silentInterviewItems, stageIndex, stepCoveredByApproval } from './stages.ts';
 import { guideSignoffMatcher, staleSignoffAnswer } from './signoff-answers.ts';
-import { assertInterviewRecordSignable, checkpointSignable, packageSignSubjects, reviewVerdictSignable, rigVerdictIngestible, stageSignable } from './signable.ts';
-import { collectReopens, directionReviewClosed, liveSignoff } from './reopen.ts';
-import { acceptedReviewVerdict, humanReviewVerdicts, readVersions } from './review.ts';
+import { reviewVerdictSignable, rigVerdictIngestible } from './signable.ts';
+import { collectReopens, liveSignoff } from './reopen.ts';
+import { humanReviewVerdicts, readVersions } from './review.ts';
 import { isAssembleOnlyDraft } from './draft-layout.ts';
-import { recordDirectionTarget, requireRecordDirectionTarget } from './record-direction-target.ts';
 import { latestPartsApproval, previousPartsApproval, retainedJson } from './structure.ts';
 import { partsStructureSnapshot, shellWord } from './job-acts.ts';
 import { jobHash, pendingPublications, isRecordResult, type JobIdentity } from './job-outbox.ts';
@@ -194,7 +191,6 @@ type RecordContextBase = {
   readonly inputs: JobPublishedContext['files'];
   readonly files: JobPublishedContext['files'];
 };
-type RecordSignoffStage = JobRecordSignoffStage;
 export type RecordOptionContext = RecordContextBase & {
   readonly plan: null;
   readonly subjects: readonly RecordPicksSubject[];
@@ -203,53 +199,10 @@ export type RecordPlanContext = RecordContextBase & {
   readonly checkpointEvidence?: readonly CheckpointEvidence[];
   /** Post stages only: the record's latest post picture, one raster entry of `files` (Review #983). */
   readonly planPicture?: { readonly path: string; readonly sha256: string };
-  /** Display only. The direction-review sign-off binds the record independently of this summary. */
-  readonly directionReview?: {
-    readonly postVersion: number;
-    readonly verdictActId: string | null;
-    readonly take: { readonly duration: number; readonly loop: boolean };
-    readonly camera: 'composed' | 'fixed' | 'moving';
-  };
   readonly plan: NonNullable<JobPublishedContext['plan']>;
   readonly subjects: readonly RecordPlanSubject[];
 };
 export type RecordPublishedContext = RecordOptionContext | RecordPlanContext;
-
-function directionReviewContext(root: string, project: JsonObject, post: JsonObject, postVersion: number, verdictIndex: number,
-  seals: ReadonlyMap<string, string>): RecordPlanContext['directionReview'] {
-  if (verdictIndex < 0) return undefined;
-  const receipts = asArray(project.review_acts).filter(isObject).filter(receipt =>
-    receipt.schema === 'rig-create/review-act@1' && receipt.kind === undefined
-    && receipt.version === postVersion && receipt.verdict === verdictIndex);
-  const actId = receipts[0]?.actId;
-  if (receipts.length > 1 || (receipts.length === 1 && (typeof actId !== 'string' || !actId))) return undefined;
-
-  const binding = isObject(post.provenance) ? post.provenance.direction : undefined;
-  const path = directionPath(postVersion);
-  // Sign-off preflight already seals its direction evidence. Display metadata cannot enlarge that closure.
-  if (!isObject(binding) || binding.path !== path || typeof binding.sha256 !== 'string'
-    || seals.get(path) !== binding.sha256) return undefined;
-  let doc: JsonObject;
-  try {
-    const bytes = publicationFile(root, path);
-    if (jobHash(bytes) !== binding.sha256) return undefined;
-    doc = directionJson(bytes, path);
-    validateDirectionShape(doc, path);
-  } catch {
-    return undefined;
-  }
-
-  const { duration, loop } = doc.take as NonNullable<RecordPlanContext['directionReview']>['take'];
-  let camera: 'composed' | 'fixed' | 'moving' = 'composed';
-  if (doc.schema !== DIRECTION_COMPOSE_SPEC) {
-    const keys = (doc.camera as { keys: { box: JsonObject }[] }).keys;
-    const first = keys[0]!.box;
-    const fixed = keys.every(({ box }) => box.x === first.x && box.y === first.y
-      && box.width === first.width && box.height === first.height);
-    camera = fixed ? 'fixed' : 'moving';
-  }
-  return { postVersion, verdictActId: typeof actId === 'string' ? actId : null, take: { duration, loop }, camera };
-}
 
 export class RecordClosureIncomplete extends Refusal {
   constructor(readonly details: readonly { code: string; path: string }[]) {
@@ -494,9 +447,6 @@ export function readRecordPublished({ root, record, result, phase, parts: sealed
         return { item, set };
       });
     } else if (result.kind === 'plan') {
-      if (!plan && project.stage === 'interview' && stageSignable(project, 'interview')) {
-        refuse('INTERVIEW_SIGNOFF_PLAN_REQUIRED', 'project.json.plan.steps: interview record sign-off needs displayed plan steps; draft the plan through the writers and publish it with job open --plan');
-      }
       if (!plan) throw Error('the requested plan is absent');
       // Seal current answer evidence for every displayed step before checking eligibility.
       const basis = new Set(steps.flatMap(step => asArray(step.rests_on).map(String)));
@@ -513,9 +463,8 @@ export function readRecordPublished({ root, record, result, phase, parts: sealed
     } else throw Error('unknown record result');
     // Seal the decision record and every file its record check reads, rather than
     // revalidating all producer artifacts from earlier versions and drafts.
-    const interviewSignoff = result.kind === 'plan' && project.stage === 'interview' && stageSignable(project, 'interview');
     const pausedPlan = result.kind === 'plan' && project.stage === PAUSED_STAGE;
-    const report = checkProject(root, project, { now, readOnly: true, recordReads: true, recordPublication: !interviewSignoff });
+    const report = checkProject(root, project, { now, readOnly: true, recordReads: true, recordPublication: true });
     for (const { path, sha256 } of report.reads ?? []) seal({ path, sha256 });
     // Picks and read-only paused plans can show unfinished work. Only silent
     // questions of the current interview may remain open.
@@ -530,7 +479,7 @@ export function readRecordPublished({ root, record, result, phase, parts: sealed
       && (finding.code !== 'INTERVIEW_INCOMPLETE' || !openQuestions.has(finding.path)));
     const stalePlan = scopedRefusals.find(finding => finding.code === 'PLAN_STEP_PREDATES_ANSWER');
     if (stalePlan) refuse(stalePlan.code, stalePlan.message);
-    const canResign = result.kind === 'plan' && !pausedPlan && !interviewSignoff
+    const canResign = result.kind === 'plan' && !pausedPlan
       && scopedRefusals.some(finding => staleSignoffAnswer(finding) !== undefined);
     // Inventory sees the live project. A re-sign may only repair the scoped findings,
     // even when another refusal depends on producer files outside the retained plan.
@@ -557,13 +506,10 @@ export function readRecordPublished({ root, record, result, phase, parts: sealed
       && entry.origin === ownPending.origin && isDeepStrictEqual(entry.identity, ownPending.identity)
       && (isDeepStrictEqual(entry.result, result) || entry.result.selector?.kind === 'draft'));
     const holes = sameBatch ? report.holes?.filter(hole => hole.code !== 'JOB_PUBLISH_PENDING') : report.holes;
-    if (interviewSignoff) assertInterviewRecordSignable(project, { ...report, holes });
     const finding = blocking[0] ?? holes?.[0];
     if (finding) throw Error(`${finding.code} at ${finding.path}`);
     const stage = resignStage ?? report.effective_stage;
-    let subjects: RecordPlanSubject[] = [];
     let label: string;
-    let directionTarget: { post: JsonObject; version: number; verdictIndex: number } | undefined;
     if (result.kind === 'option-set') {
       const optionStage = optionPublicationStage(project, stage, now);
       withCandidateProject(root, project, () => {
@@ -580,38 +526,6 @@ export function readRecordPublished({ root, record, result, phase, parts: sealed
       label = `plan / ${project.stage}`;
     } else if (result.kind === 'plan') {
       if (!plan) throw Error('the requested plan is absent');
-      const directionNeedsAmendment = stage === 'direction-review' && directionReviewClosed(project)
-        && recordDirectionTarget(project, now) === null;
-      if (stage === 'direction-review' && !directionNeedsAmendment) {
-        const reopens = collectReopens(project, []);
-        const post = asArray(project.versions).filter(isObject).filter(version => version.kind === 'post'
-          && liveSignoff(reopens, 'post', Date.parse(String(version.at)))).at(-1);
-        const verdictIndex = post ? acceptedReviewVerdict(post, stage) : -1;
-        const verdict = verdictIndex >= 0 ? asArray(post?.verdicts)[verdictIndex] : undefined;
-        if (!isObject(verdict) || !liveSignoff(reopens, 'direction-review', Date.parse(String(verdict.at)))) {
-          const n = post?.n !== undefined ? String(post.n) : null;
-          refuse('JOB_DIRECTION_VERDICT_REQUIRED', `${n === null ? 'project.json.versions' : `project.json.versions[v${n}]`}: the current live post${n === null ? '' : ` v${n}`} has no accepted direction-review verdict; open it with job open --rig ${n ?? '<n>'} and ingest review ${n ?? '<n>'} --from-review <actId> before requesting the direction sign-off`);
-        }
-        const version = requireRecordDirectionTarget(project, now);
-        const target = post?.n === version ? post : asArray(project.versions).filter(isObject).find(row => row.n === version);
-        if (target) directionTarget = { post: target, version, verdictIndex: target === post ? verdictIndex : acceptedReviewVerdict(target, stage) };
-      }
-      const covered = steps.filter(step => stepCoveredByApproval(project, step, stage));
-      const signable = !directionNeedsAmendment && stage !== null && ['interview', 'plan-approved', 'rigging-interview', 'post-interview', 'direction-review'].includes(stage)
-        && (resignStage !== null || ((stage !== 'interview' || interviewSignoff) && stageSignable(project, stage)));
-      if (signable && stage === 'direction-review' && steps.length === 0) throw Error('direction-review record sign-off needs displayed plan steps');
-      const emptyPost = stage === 'post-interview' && !steps.some(step => step.phase === 'post') && postNotPassed({ items });
-      if (signable && stage !== 'interview' && stage !== 'direction-review' && !covered.length && !emptyPost) throw Error('the requested plan has no steps at this approval stage');
-      if (signable) {
-        const resign = resignStage === null ? undefined : { clear: refusals, baseline };
-        const reads = withCandidateProject(root, project, () => assertPlanSignoffCandidate(root, project, stage, now, resign));
-        for (const { path, sha256 } of reads) seal({ path, sha256 });
-      }
-      subjects = steps.filter(step => {
-        if (step.status !== 'at-checkpoint' || (step.phase !== 'rig' && step.phase !== 'post') || stageOfStep(step.phase, String(step.id)) !== stage) return false;
-        return checkpointSignable(project, stage, String(step.id), now);
-      }).map(step => ({ kind: 'checkpoint' as const, checkpointId: String(step.id) }));
-      if (signable) subjects = [...subjects, { kind: 'signoff', stage: stage as RecordSignoffStage }];
       label = `plan / ${stage}`;
     } else throw Error('unknown record result');
     // #665: a post-stage plan names its picture by the record's own identity, sealed into the closure.
@@ -625,15 +539,11 @@ export function readRecordPublished({ root, record, result, phase, parts: sealed
       return { label, parts, inputs, files, plan: null,
         subjects: sets.map(({ questionId, setId }) => ({ kind: 'interview-picks', questionId, setId })) };
     }
-    const evidence = checkpointEvidenceContext(root, project, subjects, files);
-    const directionReview = directionTarget
-      && subjects.some(subject => subject.kind === 'signoff' && subject.stage === 'direction-review')
-      ? directionReviewContext(root, project, directionTarget.post, directionTarget.version, directionTarget.verdictIndex, seals) : undefined;
+    const evidence = checkpointEvidenceContext(root, project, files);
     return { label, parts, inputs, files, ...evidence, ...(planPicture ? { planPicture } : {}),
-      ...(directionReview ? { directionReview } : {}),
-      plan: { steps: steps.map(step => ({ id: String(step.id), hash: stepHash(step) })) }, subjects };
+      plan: { steps: steps.map(step => ({ id: String(step.id), hash: stepHash(step) })) }, subjects: [] };
   } catch (error) {
-    const failure = error instanceof Refusal && (phase === 'retained' || ['JOB_RECORD_SUBJECT_INVALID', 'JOB_OPTION_SET_DUPLICATE', 'JOB_RECORD_COLLECTION_EXTERNAL', 'JOB_RECORD_PARTS_LOCK_MISSING', 'JOB_DIRECTION_VERDICT_REQUIRED', 'REVIEW_ACT_RECORD_TARGET_INVALID', 'REVIEW_ACT_TARGET_MISMATCH', 'INTERVIEW_SIGNOFF_NOT_CLEAN', 'INTERVIEW_SIGNOFF_PLAN_REQUIRED', 'PLAN_STEP_PREDATES_ANSWER'].includes(error.code))
+    const failure = error instanceof Refusal && (phase === 'retained' || ['JOB_RECORD_SUBJECT_INVALID', 'JOB_OPTION_SET_DUPLICATE', 'JOB_RECORD_COLLECTION_EXTERNAL', 'JOB_RECORD_PARTS_LOCK_MISSING', 'PLAN_STEP_PREDATES_ANSWER'].includes(error.code))
       ? error
       : new Refusal('JOB_RECORD_INCOMPLETE', `project.json: ${error instanceof Refusal ? `${error.code}: ` : ''}${error instanceof Error ? error.message : String(error)}; restore the requested record and retained evidence, resolve check refusals and reconcile pending publications before publishing`);
     // Review returns only a safe producer token. Its retained root is private and may
@@ -955,7 +865,7 @@ export const readPublished: JobPublicationReader = async ({ root, record, result
     selector, plan: { steps: steps.map(step => ({ id: String(step.id), hash: stepHash(step) })) },
     parts: { enumeratorVersion: partsEnumerator.version, manifest: { path: manifestPath, sha256: jobHash(manifest) }, images },
     ...(selector.kind === 'rig' ? rigChestLandmarks(root, rig, packageFiles) : {}),
-    subjects, ...checkpointEvidenceContext(root, project, subjects, files),
+    subjects, ...checkpointEvidenceContext(root, project, files),
     partIds: (JSON.parse(manifest.toString('utf8')).parts as { name: string }[]).map(part => part.name), files, ...answered,
   };
 };
@@ -1001,7 +911,7 @@ function rigChestLandmarks(root: string, rig: number, packageFiles: Json[]): { c
   return { chestLandmarks: rows as unknown as PublishedChestLandmarks };
 }
 
-/** The same rig/post asks are used for writer preflight and the sealed publication. */
+/** The same rig/post verdict asks are used for writer preflight and the sealed publication. */
 export function livePublicationSubjects(
   root: string, project: JsonObject, selector: Exclude<JobSelector, { kind: 'draft' }>,
 ): JobPublishedContext['subjects'] {
@@ -1010,13 +920,9 @@ export function livePublicationSubjects(
   }
   const stage = effectiveStage(root, project);
   // Before rig-review the owner's approval could not be ingested, so the page omits that ask (#754).
-  const needsVerdict = rigVerdictIngestible(stage) && reviewVerdictSignable(project, selector.version, 'rig-review');
-  const planSteps = isObject(project.plan) ? asArray(project.plan.steps).length : 0;
-  return [
-    ...(needsVerdict ? [{ kind: 'review-verdict' as const, stage: 'rig-review' as const }] : []),
-    ...packageSignSubjects(project, stage, selector, planSteps)
-      .filter(subject => !(needsVerdict && subject.kind === 'signoff' && subject.stage === 'rig-review')),
-  ];
+  return rigVerdictIngestible(stage) && reviewVerdictSignable(project, selector.version, 'rig-review')
+    ? [{ kind: 'review-verdict', stage: 'rig-review' }]
+    : [];
 }
 
 export function publishedDraft(project: JsonObject, id: string): JsonObject {
@@ -1285,26 +1191,18 @@ function describeDraftPublication(root: string, project: JsonObject, id: string,
 } {
   // Validate the mandatory closure before looking for optional comparison evidence.
   const context = draftPublishedContext(root, project, id);
-  // Fresh approvals sign the stage during verdict ingestion. Preserve a separate
-  // signoff ask only for an approval already ingested by an earlier writer.
-  let legacyApproval = false;
-  try { recordedPartsVerdict(root, project, id); legacyApproval = true; } catch { /* No accepted legacy receipt. */ }
-  const signatures = packageSignSubjects(project, stage, context.selector!, context.plan?.steps.length ?? 0)
-    .filter(subject => subject.kind !== 'signoff' || subject.stage !== 'parts-review' || legacyApproval);
-  const separatePartsSignoff = signatures.some(subject => subject.kind === 'signoff' && subject.stage === 'parts-review');
-  const verdicts = separatePartsSignoff ? context.subjects.filter(subject => subject.kind !== 'parts-verdict') : context.subjects;
-  let subjects = [...verdicts, ...signatures];
+  let subjects = [...context.subjects];
   const errors: Finding[] = [];
   if (stage === 'parts-review') {
     checkDiffMap(root, { stage: 'parts-review', checkpoint: null, draft_id: id }, `signoffs[${asArray(project.signoffs).length}]`,
       resolve(root, context.parts!.manifest.path), errors, [], project);
     if (errors.length) {
       warnings.push(...errors);
-      subjects = subjects.filter(subject => subject.kind !== 'parts-verdict' && (subject.kind !== 'signoff' || subject.stage !== 'parts-review'));
+      subjects = subjects.filter(subject => subject.kind !== 'parts-verdict');
     }
   }
   const structure = stage === 'parts-review' ? partsStructureSnapshot(root, project, id) : undefined;
-  const missingStructure = structure && !structure.valid && verdicts.some(subject => subject.kind === 'parts-verdict')
+  const missingStructure = structure && !structure.valid && context.subjects.some(subject => subject.kind === 'parts-verdict')
     ? structure.path : undefined;
   if (stage !== 'parts-review' || missingStructure !== undefined) subjects = subjects.filter(subject => subject.kind !== 'parts-verdict');
   if (rigging) subjects.unshift({ kind: 'parts-verdict', draftId: id });
@@ -1312,7 +1210,7 @@ function describeDraftPublication(root: string, project: JsonObject, id: string,
     subjects.unshift({ kind: 'review-verdict', stage: 'rig-review' });
   }
   const files = [...context.files];
-  const checkpoints = checkpointEvidenceContext(root, project, subjects, files);
+  const checkpoints = checkpointEvidenceContext(root, project, files);
   const comparison = previousDraftContext(root, project, id, context.parts!.manifest, files, warnings);
   return { context: { ...context, subjects, files, ...checkpoints, ...comparison }, missingStructure, diffFinding: errors[0], rigging };
 }

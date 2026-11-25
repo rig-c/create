@@ -4,7 +4,8 @@
  * Feedback is never a gate: nothing here refuses a record for having none.
  */
 import { createHash } from 'node:crypto';
-import { closeSync, existsSync, openSync, readFileSync, rmSync, statSync } from 'node:fs';
+import { closeSync, openSync, rmSync } from 'node:fs';
+import { existsSync, readFileSync, statSync } from './check-reads.ts';
 import { isAbsolute, join, normalize, relative, resolve, sep } from 'node:path';
 
 import { asArray, checkProject, collectItems, isObject, loadCollection, type Finding, type Item } from './check.ts';

@@ -301,6 +301,13 @@ test.each([
     run.inputs[0] = { role: 'source', path: 'inside.png', sha256: sha(readFileSync(join(dir, PAINTING))) };
     write(dir, `${NEXT}/run.json`, JSON.stringify(run));
   }, 'RECORD_BUILT_FROM_INVALID'],
+  ['assemble input lies inside the parts output, with a byte-identical copy at the project root', (dir: string) => {
+    write(dir, `${NEXT}/inside.png`, readFileSync(join(dir, PAINTING)));
+    write(dir, 'inside.png', readFileSync(join(dir, PAINTING)));
+    const run = JSON.parse(readFileSync(join(dir, NEXT, 'run.json'), 'utf8')) as { inputs: { role: string; path: string; sha256: string }[] };
+    run.inputs[0] = { role: 'source', path: 'inside.png', sha256: sha(readFileSync(join(dir, PAINTING))) };
+    write(dir, `${NEXT}/run.json`, JSON.stringify(run));
+  }, 'RECORD_BUILT_FROM_INVALID'],
   ['run record missing', (dir: string) => rmSync(join(dir, NEXT, 'run.json')), 'RECORD_RUN_INVALID'],
   ['run record command is rig instead of assemble', (dir: string) => {
     const run = JSON.parse(readFileSync(join(dir, NEXT, 'run.json'), 'utf8')) as JsonObject;

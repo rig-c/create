@@ -176,20 +176,13 @@ function recordPartsInputs(
       : rawRoot;
 
     const candidates = fromCandidate === rootCandidate ? [fromCandidate] : [fromCandidate, rootCandidate];
-    let bound = false;
-    let rejected: { code: string; message: string } | undefined;
-    for (const candidate of candidates) {
-      if (!matchesHash(candidate, expectedSha256)) continue;
+    // The first candidate whose bytes match is the file assemble read; its policy refusal stands, with no fallback.
+    const candidate = candidates.find(c => matchesHash(c, expectedSha256));
+    if (candidate !== undefined) {
       const problem = policyRefusal(candidate, where);
-      if (!problem) {
-        if (!builtFrom.some(entry => entry.path === candidate)) builtFrom.push({ path: candidate, sha256: expectedSha256 });
-        bound = true;
-        break;
-      }
-      rejected ??= problem;
-    }
-    if (!bound) {
-      if (rejected) refuse(rejected.code, rejected.message);
+      if (problem) refuse(problem.code, problem.message);
+      if (!builtFrom.some(entry => entry.path === candidate)) builtFrom.push({ path: candidate, sha256: expectedSha256 });
+    } else {
       refuse(
         'RECORD_INPUT_CHANGED',
         `${where}: neither ${fromCandidate} (from ${from}) nor ${rootCandidate} (from project root) matches the sha256 assemble read; run rig-parts assemble from the project root on inputs inside the project and record again`,

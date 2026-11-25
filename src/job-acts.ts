@@ -1,5 +1,5 @@
 /** Writer routing for finalized acts. No event transport or automatic ingestion. */
-import type { ActV3, JobEventV3, JobOwnerHost, JobSelector, PendingAskV3, SourceV3 } from '@rig-c/review/job-host';
+import { JOB_COMMENT_ONLY_ACT_SCHEMA, type ActV3, type JobEventV3, type JobOwnerHost, type JobSelector, type PendingAskV3, type SourceV3 } from '@rig-c/review/job-host';
 import { isDeepStrictEqual } from 'node:util';
 import { recordOptionSets, type RecordPublicationResult } from './job-publication.ts';
 import { asArray, collectItems, collectSignoffs, isObject, loadCollection, type Finding } from './check.ts';
@@ -140,6 +140,14 @@ export function pendingJobActs(project: JsonObject, acts: readonly ActV3[], root
     let args: string[] | null = null;
     const preconditions: { command: string | null; act: string }[] = [];
     switch (act.kind) {
+      case 'comments': {
+        // act@10 answers no ask: it is actionable on its own, whatever asks are pending (#982).
+        const comments = act.schema === JOB_COMMENT_ONLY_ACT_SCHEMA ? act.value.comments.length : 0;
+        const carriers = act.schema === JOB_COMMENT_ONLY_ACT_SCHEMA ? (act.value.carriers ?? []).map(row => row.kind) : [];
+        subject = `${comments} comment(s)${carriers.length ? ` with ${carriers.join(', ')}` : ''}`;
+        args = ['comment', root];
+        break;
+      }
       case 'review-verdict': {
         const selector = act.source.selector as JobSelector | null;
         subject = act.value.stage;
@@ -347,6 +355,8 @@ export interface PendingTargetAsk {
 }
 
 function actMatchesAsk(act: ActV3, ask: PendingAskV3): boolean {
+  // A comment-only act has no askId and answers no ask; narrow by schema before reading askId.
+  if (act.schema === JOB_COMMENT_ONLY_ACT_SCHEMA) return false;
   const selector = sourceTargetInfo(ask.source).selector;
   if (ask.subject.kind === 'review-verdict' && selector?.kind === 'draft') {
     return act.kind === 'review-verdict' && act.publicationId === ask.publicationId && act.value.stage === ask.subject.stage

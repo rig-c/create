@@ -17,10 +17,13 @@ test('malformed act@8 refuses in raw and enveloped verdict decoding', () => {
 });
 
 test('other unsupported act schemas keep the generic refusal', () => {
-  for (const unsupported of ['rig-review/act@1', 'rig-review/act@10']) {
+  for (const unsupported of ['rig-review/act@1', 'rig-review/act@11']) {
     expect(() => decodeReviewAct(JSON.stringify({ ...act, schema: unsupported })))
       .toThrow(expect.objectContaining({ code: 'REVIEW_ACT_SCHEMA_UNSUPPORTED' }));
   }
+  // act@10 is a known schema now (#982), but only the comment writer reads it.
+  expect(() => decodeReviewAct(JSON.stringify({ ...act, schema: 'rig-review/act@10' })))
+    .toThrow(expect.objectContaining({ code: 'REVIEW_ACT_KIND_MISMATCH' }));
 });
 
 test('the synchronous verdict fetch surfaces malformed act@8 through the runtime', async () => {

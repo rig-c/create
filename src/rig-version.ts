@@ -1708,7 +1708,7 @@ export function rigVersionCommand(args: string[], now: number): { stdout: string
           refuse(error.code, `${error.message}; to register without carrying the draft verdict, run ${plain}`, error.exitCode);
         }
         version.verdicts = [carried.verdict];
-        version.evidence = [carried.evidence];
+        if (carried.evidence) version.evidence = [carried.evidence];
       }
     }
     // The record must pass the same check as every other writer's before it is renamed into place.

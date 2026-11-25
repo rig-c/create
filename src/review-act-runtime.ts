@@ -25,7 +25,7 @@ async function bustPublicationSeeds(query: BustPublicationQuery) {
 
 async function fetchAct(transport: ReviewActTransport) {
   const fetched = await fetchReviewAct(transport);
-  return { bytes: fetched.bytes, stillBytes: fetched.stillBytes };
+  return { bytes: fetched.bytes };
 }
 
 if (import.meta.main) {

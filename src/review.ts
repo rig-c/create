@@ -2,10 +2,10 @@ import { assertCorrectionApproval } from './correction-writers.ts';
 import { assertFigureMaskApproval } from './figure-mask.ts';
 /**
  * The two reviews and the hand-off between them (rig-c/create#8,
- * docs/PROJECT.md § Stages, § The rig review rests on a still frame,
+ * docs/PROJECT.md § Stages, § The rig review,
  * § The hand-off to post-production).
  *
- * The rig is accepted first, on a still frame with a fixed camera; post work
+ * The rig is accepted first. Post work
  * (camera, 2.5D depth, timing, composition) runs only on the rig version that
  * acceptance names. What is recorded where:
  *
@@ -13,7 +13,7 @@ import { assertFigureMaskApproval } from './figure-mask.ts';
  *   `review: "rig-review"` on that `versions[]` entry (kind `rig`). The
  *   `{ stage: "rig-review" }` sign-off moves the stage; the verdict names the
  *   version. Both are written in the same turn.
- * - **What the acceptance rested on** is a `kind: "still"` entry in that
+ * - **Historical still evidence** is a `kind: "still"` entry in that
  *   version's `evidence[]`: `path`, `sha256`, `camera: "fixed"`, `frame`.
  * - **Which rig the post work is on** is a post version's `rig_version`, and
  *   `rig-create handoff` is what post tooling asks before it runs.
@@ -272,14 +272,6 @@ export function checkReviews(ctx: ReviewCtx): void {
       const path = `${rig.path}.evidence[${m.index}]`;
       push('STILL_MALFORMED', path, `${path}: a still-frame record is { kind: "still", path, sha256, camera: "fixed", frame }; ${m.why}`);
     }
-    if (rig.accepted !== null && rig.stills.length === 0) {
-      const path = `${rig.path}.verdicts[${rig.accepted.verdict}]`;
-      push(
-        'RIG_ACCEPTED_WITHOUT_STILL',
-        path,
-        `${path}: rig v${rig.n} is accepted at rig-review, but its evidence[] has no still-frame record ({ kind: "still", path, sha256, camera: "fixed", frame }); the rig review rests on a still frame`,
-      );
-    }
   }
 
   for (const post of versions.posts) {
@@ -312,7 +304,7 @@ export interface Handoff {
   readonly rig_version: number;
   readonly pre_interview: boolean;
   readonly accepted: Acceptance;
-  readonly still: Still;
+  readonly still?: Still;
   readonly outputs_lost?: readonly { readonly version: number; readonly note: string; readonly source: string }[];
 }
 
@@ -352,7 +344,7 @@ export function handoff(projectDirArg: string, rig: number | null, now: number):
   if (latest !== null && latest.n !== accepted.n) {
     refuse(
       'RIG_VERSION_UNACCEPTED',
-      `${latest.path}: rig v${latest.n} was built after rig v${accepted.n} was accepted and has no rig-review acceptance of its own; review it on its still frame before post work runs`,
+      `${latest.path}: rig v${latest.n} was built after rig v${accepted.n} was accepted and has no rig-review acceptance of its own; review it before post work runs`,
     );
   }
   if (accepted.configLost !== undefined) {
@@ -362,9 +354,7 @@ export function handoff(projectDirArg: string, rig: number | null, now: number):
     refuse('PRE_INTERVIEW_OUTPUTS_LOST', `${accepted.path}.outputs_lost: ${accepted.outputsLost.note}; source: ${accepted.outputsLost.source}; build and accept a new rig with surviving frozen outputs before post work`);
   }
   const still = accepted.stills[0];
-  if (still === undefined) {
-    refuse('RIG_ACCEPTED_WITHOUT_STILL', `${accepted.path}: rig v${accepted.n} is accepted with no still-frame record in its evidence[]`);
-  }
+
   if (rig !== null && rig !== accepted.n) {
     const named = versions.rigs.find((r) => r.n === rig);
     if (named !== undefined && named.accepted !== null) {
@@ -375,15 +365,15 @@ export function handoff(projectDirArg: string, rig: number | null, now: number):
   assertFigureMaskApproval(dir, record, accepted.n);
   const losses = asArray(record.versions).flatMap((v) => isObject(v) && v.pre_interview === true && isObject(v.outputs_lost)
     ? [{ version: v.n as number, note: v.outputs_lost.note as string, source: v.outputs_lost.source as string }] : []);
-  return { ...(losses.length > 0 ? { outputs_lost: losses } : {}), ok: true, project_dir: dir, rig_version: accepted.n, pre_interview: accepted.preInterview, accepted: accepted.accepted, still };
+  return { ...(losses.length > 0 ? { outputs_lost: losses } : {}), ok: true, project_dir: dir, rig_version: accepted.n, pre_interview: accepted.preInterview, accepted: accepted.accepted, ...(still ? { still } : {}) };
 }
 
 export const HANDOFF_HELP = `handoff:
   [<project dir>]  the project folder (default: the current directory)
   --rig <n>        refuse unless rig version <n> is the one post work may run on
-  --json           print the hand-off as JSON (rig_version, accepted, still)
+  --json           print the hand-off as JSON (rig_version, accepted, optional historical still)
   Post-production tooling runs this first. Exit 0 prints the accepted rig version; exit 1 is a named refusal
-  (RIG_VERSION_UNACCEPTED, RIG_ACCEPTED_WITHOUT_STILL, POST_ON_UNACCEPTED_RIG, POST_ON_SUPERSEDED_RIG).`;
+  (RIG_VERSION_UNACCEPTED, POST_ON_UNACCEPTED_RIG, POST_ON_SUPERSEDED_RIG).`;
 
 export function handoffCommand(args: string[], now: number): { stdout: string; exit: number } {
   let json = false;
@@ -408,13 +398,14 @@ export function handoffCommand(args: string[], now: number): { stdout: string; e
   }
   const h = handoff(dir, rig, now);
   if (json) return { stdout: JSON.stringify(h, null, 2), exit: 0 };
+  const still = h.still;
   return {
     stdout: [
       `handoff: post work is on rig v${h.rig_version}${h.pre_interview ? ' (pre-interview)' : ''}`,
       `  accepted at rig-review by ${h.accepted.by} at ${h.accepted.at}: ${h.accepted.verbatim === null ? `record of the user: ${h.accepted.note}` : `"${h.accepted.verbatim}"`}`,
       ...(h.pre_interview ? [`  source: ${h.accepted.source}`] : []),
       ...(h.outputs_lost ?? []).map((loss) => `  v${loss.version} (pre-interview) outputs lost: ${loss.note}; source: ${loss.source}`),
-      `  still frame ${h.still.path} (sha256 ${h.still.sha256}, fixed camera, ${h.still.frame === 'setup' ? 'setup pose' : `${h.still.frame} s`})`,
+      ...(still ? [`  still frame ${still.path} (sha256 ${still.sha256}, fixed camera, ${still.frame === 'setup' ? 'setup pose' : `${still.frame} s`})`] : []),
     ].join('\n'),
     exit: 0,
   };

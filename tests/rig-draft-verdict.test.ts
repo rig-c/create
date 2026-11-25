@@ -2,13 +2,14 @@ import { afterEach, expect, test } from 'bun:test';
 import { randomUUID } from 'node:crypto';
 import { cpSync, existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { join } from 'node:path';
 import type { JobSubject } from '@rig-c/review/job-host';
 import { EXAMPLE_NOW, EXAMPLE_SOURCE_DATE_EPOCH } from '../scripts/example-time.ts';
 import { checkProject } from '../src/check.ts';
 import { draftRigCommand } from '../src/drafts.ts';
 import { jobHash, jobHostStateRoot, readAcknowledgedPublication, readWriterBinding } from '../src/job-outbox.ts';
 import { jobRuntimeExecArgv } from '../src/job-writer.ts';
+import { decodeReviewAct, draftReviewStillEvidence, isDraftReviewVerdict, reviewActFindings } from '../src/review-act.ts';
 import { nextProject } from '../src/next.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { staleRecordPlant, treeDigest } from './helpers.ts';
@@ -216,12 +217,12 @@ async function post(root: string, url: URL, verdict: 'approved' | 'changes-reque
   const rows = (JSON.parse(pending.stdout) as { acts: { actId: string; args: string[] | null }[] }).acts;
   expect(rows).toHaveLength(1);
   expect(rows[0]).toMatchObject({ actId: act.actId, args: ['review', root, '--draft', draftId, '--from-review', act.actId] });
-  return { binding, act, rawAct, png, args: rows[0]!.args! };
+  return { binding, act, rawAct, args: rows[0]!.args! };
 }
 
 async function submit(root: string, url: URL, verdict: 'approved' | 'changes-requested',
   extra?: (source: JsonObject) => JsonObject, timeout?: number) {
-  const { binding, act, rawAct, png, args } = await post(root, url, verdict, extra);
+  const { binding, act, rawAct, args } = await post(root, url, verdict, extra);
   const ingest = await cli(root, args, undefined, timeout);
   assertSuccess(ingest);
   const receipt = (read(root).review_acts as JsonObject[]).at(-1)!;
@@ -230,9 +231,13 @@ async function submit(root: string, url: URL, verdict: 'approved' | 'changes-req
   expect(receipt.bytes).toBe(rawAct);
   expect(jobHash(String(receipt.bytes))).toBe(receipt.sha256 as string);
   expect(JSON.parse(String(receipt.bytes))).toEqual(act);
-  const evidencePath = String((receipt.evidence as JsonObject).path);
-  expect(readFileSync(join(root, evidencePath))).toEqual(png);
-  expect(readFileSync(join(root, dirname(evidencePath), `${String(receipt.sha256)}.act.json`), 'utf8')).toBe(rawAct);
+  const decoded = decodeReviewAct(rawAct);
+  if (!isDraftReviewVerdict(decoded)) throw Error('expected draft verdict');
+  const historicalStill = draftReviewStillEvidence(decoded);
+  expect(historicalStill).toBeDefined();
+  expect(receipt).not.toHaveProperty('evidence');
+  expect(existsSync(join(root, historicalStill!.path))).toBe(false);
+  expect(readFileSync(join(root, `evidence/drafts/${draftId}/${String(receipt.sha256)}.act.json`), 'utf8')).toBe(rawAct);
   return receipt;
 }
 
@@ -255,6 +260,9 @@ test('#712 a rigging --draft asks for a rig verdict and ingests the exact commen
   const replay = await cli(root, actArgs);
   assertSuccess(replay);
   expect(readFileSync(join(root, 'project.json'))).toEqual(record);
+  const malformed = read(root);
+  (malformed.review_acts as JsonObject[]).at(-1)!.evidence = null;
+  expect(reviewActFindings(malformed).map(f => f.code)).toEqual(['REVIEW_ACT_LEDGER_INVALID']);
   const wrongDraft = await cli(root, ['review', root, '--draft', 'chain', '--from-review', String(receipt.actId)]);
   expect(wrongDraft.exit).toBe(1);
   expect(wrongDraft.stderr).toMatch(/\bREVIEW_ACT_KIND_MISMATCH:/);
@@ -319,9 +327,8 @@ test('#773 a draft ingest refused after its evidence write leaves the project tr
   writeFileSync(record, original);
   expect(treeDigest(root)).toEqual(before);
   assertSuccess(await cli(root, args));
-  // The still's directory is new, so the refused call was the one that had created it.
-  const still = String(((read(root).review_acts as JsonObject[]).at(-1)!.evidence as JsonObject).path);
-  expect(before.has(`${dirname(still)}/`)).toBe(false);
+  // The sidecar directory is new and was removed after the refused write.
+  expect(before.has(`evidence/drafts/${draftId}/`)).toBe(false);
 }, testTimeoutMs);
 
 async function register(root: string, variant: 'identical' | 'changed', n = 1, flags: string[] = []) {
@@ -343,11 +350,32 @@ async function register(root: string, variant: 'identical' | 'changed', n = 1, f
     '--at-source', 'producer/at-source.json', '--at-pointer', '/finished_at', '--citations', 'producer/citations.json', '--by', 'synthetic-registrant', ...flags]);
 }
 
-test.each(['identical', 'changed'] as const)('#712 registration with %s bytes determines whether the owner is asked again', async variant => {
+test.each(['identical', 'changed', 'historical still'] as const)('#712 registration preserves the reviewed bytes and evidence for %s', async mode => {
+  const variant = mode === 'changed' ? 'changed' : 'identical';
   const root = rigging();
   const opening = await open(root, draftId);
   expect(opening.lines).toContain('job: asked review-verdict rig-review');
   const approval = await submit(root, opening.url, 'approved');
+  let still: ReturnType<typeof draftReviewStillEvidence>;
+  if (mode === 'historical still') {
+    const project = read(root);
+    const receipt = (project.review_acts as JsonObject[]).at(-1)!;
+    const act = decodeReviewAct(String(receipt.bytes));
+    if (!isDraftReviewVerdict(act)) throw Error('expected draft verdict');
+    still = draftReviewStillEvidence(act)!;
+    receipt.evidence = still;
+    write(root, 'project.json', project);
+    const before = readFileSync(join(root, 'project.json'));
+    const args = ['review', root, '--draft', draftId, '--from-review', act.actId];
+    const destination = join(root, still.path);
+    writeFileSync(destination, 'changed pixels');
+    const refused = await cli(root, args);
+    expect(refused.exit).toBe(1);
+    expect(refused.stderr).toMatch(/\bREVIEW_ACT_STILL_INVALID:/);
+    writeFileSync(destination, readFileSync(join(root, 'producer/build/rectangle.png')));
+    assertSuccess(await cli(root, args));
+    expect(readFileSync(join(root, 'project.json'))).toEqual(before);
+  }
   if (variant === 'changed') {
     const before = readFileSync(join(root, 'project.json'));
     const refused = await register(root, variant);
@@ -376,10 +404,17 @@ test.each(['identical', 'changed'] as const)('#712 registration with %s bytes de
   const verdictAsks = ack?.subjects?.filter(item => item.kind === 'review-verdict');
   expect(version.verdicts).toEqual([expect.objectContaining({ review: subject.stage, verdict: 'accepted', verbatim,
     carried_from_draft: expect.objectContaining({ draft_id: draftId, job_id: approval.jobId, act_id: approval.actId }) })]);
+  expect(version.evidence).toEqual(still ? [still] : []);
   expect(registration.stdout).not.toContain('ask review-verdict rig-review');
   expect(registration.stdout).not.toContain('asked review-verdict rig-review');
   expect(verdictAsks).toEqual([]);
   const project = read(root);
+  if (still) {
+    writeFileSync(join(root, still.path), 'changed after carry');
+    expect(checkProject(root, project, { now: Date.now(), readOnly: true }).refusals).toContainEqual(
+      expect.objectContaining({ code: 'REVIEW_ACT_LEDGER_INVALID', path: 'versions[v1].verdicts[0]' }));
+    writeFileSync(join(root, still.path), readFileSync(join(root, 'producer/build/rectangle.png')));
+  }
   const verdict = ((project.versions as JsonObject[])[0]!.verdicts as JsonObject[])[0]!;
   (verdict.carried_from_draft as JsonObject).act_id = 'different-act';
   expect(checkProject(root, project, { now: Date.now(), readOnly: true }).refusals).toContainEqual(

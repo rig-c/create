@@ -297,7 +297,7 @@ Create cannot tell an agent driving a page opened for the owner's own id from
 the owner, so that act keeps the role mapping.
 The complete reviewer identity,
 authority, original words, time and source remain in the immutable act receipt.
-Verdict ingestion records its verdict and bound still. Signoff and stage advance require their own
+Verdict ingestion records the verdict and exact act JSON. Signoff and stage advance require their own
 separate writer invocations.
 
 ### Source checks and replay
@@ -324,15 +324,17 @@ comparison. It grants no exemption from the explicit source checks.
 The versioned record's `review_acts[]` stores `rig-create/review-act@1` receipts
 keyed by `(jobId, actId)`. Review verdicts retain the exact raw export bytes as
 `bytes`, their SHA-256, the version and verdict index, the pre-append
-version-entry hash and the exact still entries added by ingestion. Historical
-semantic-API receipts keep their original encoding. No act has a self-hash.
+version-entry hash. Historical semantic-API receipts keep their original
+encoding. No act has a self-hash.
 
-For rig act@3, `review --from-review <actId>` fetches raw act bytes and the
-PNG through the live job API with the consumer grant.
-The writer verifies the PNG hash, retains both files under `evidence/v<N>/`,
-and records the displayed still first in `evidence[]`. Numeric frames name
-the animation in `what`. Create never renders or reconstructs these pixels.
-A missing or mismatched PNG refuses `REVIEW_ACT_STILL_INVALID` before writing.
+`review --from-review <actId>` fetches the raw act JSON with the consumer
+grant. Rig verdict ingestion also retains it under `evidence/v<N>/` or
+`evidence/drafts/<id>/`.
+An act can carry a still identity, and Create leaves that metadata in the
+JSON without fetching its PNG. Historical numbered receipts retain their
+`added_evidence` array and corresponding still record. Historical draft
+receipts retain their still binding, including its digest check when replayed
+or carried into a registered rig.
 The result and receipt are validated with the checker, fsynced and atomically
 replaced together. Refusal preserves project.json bytes. `check` validates the
 receipt hash, immutable act and linked verdict, including words and authority.
@@ -340,7 +342,7 @@ Historical receipts are checked against retained evidence, independently of
 whether their sources are still current.
 
 An unchanged replay reports the existing verdict without rewriting the record.
-Replay discounts verdicts and exact still entries appended by ingestion after
+Replay discounts verdicts and exact historical still entries appended by ingestion after
 its recorded verdict index when comparing the pre-append version-entry hash. Other original version fields and
 prior verdicts remain covered. Source changes refuse `REVIEW_ACT_SOURCE_STALE`
 with the recorded verdict untouched. This implements create#182's C4 ruling

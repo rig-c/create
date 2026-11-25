@@ -119,7 +119,7 @@ export const PLAN_BOUND_SIGNOFF_STAGES: readonly string[] = ['plan-approved', 'r
 export function isRecordInterviewSignoff(act: SignoffAct): boolean {
   return act.schema === 'rig-review/act@4' && String(act.value.stage) === 'interview';
 }
-export interface FetchedReviewAct { act: ReviewVerdictAct; bytes: string; stillBytes?: string; bustConfig?: BustWorkingConfig }
+export interface FetchedReviewAct { act: ReviewVerdictAct; bytes: string; bustConfig?: BustWorkingConfig }
 
 /** The existing mesh writer consumes act@8's fields. The original act stays intact in the ledger. */
 export function meshReviewVerdict(act: ReviewVerdictAct): MeshReviewVerdictAct | undefined {
@@ -540,9 +540,8 @@ export interface BustPublicationQuery {
 }
 
 /** Synchronous writers use the same authenticated fetch/decoder through the private runtime. */
-export function fetchReviewActRuntime(transport: ReviewActTransport): { bytes: string; stillBytes?: string } {
-  const response = reviewActRuntime<{ bytes: string; stillBytes?: string }>(transport);
-  return { bytes: response.bytes, stillBytes: response.stillBytes };
+export function fetchReviewActRuntime(transport: ReviewActTransport): { bytes: string } {
+  return reviewActRuntime<{ bytes: string }>(transport);
 }
 
 export function fetchBustPublicationSeeds(root: string, act: ChestReviewVerdictAct): readonly JobPublishedChestLandmark[] {
@@ -599,7 +598,7 @@ export function retainedVersionVerdict(project: JsonObject, actId: string): (Fet
   return { ...match, bytes, act: decodeReviewAct(bytes) };
 }
 
-export async function fetchReviewAct(transport: ReviewActTransport, fetchAdapter: typeof fetch = fetch): Promise<{ act: DecodedReviewAct; bytes: string; stillBytes?: string }> {
+export async function fetchReviewAct(transport: ReviewActTransport, fetchAdapter: typeof fetch = fetch): Promise<{ act: DecodedReviewAct; bytes: string }> {
   const requestId = randomUUID();
   const request = JSON.stringify({ schema: 'rig-review/job-api@2', verb: 'fetch-act', jobId: transport.jobId, actId: transport.actId, requestId });
   async function read(accept: string): Promise<Response> {
@@ -620,11 +619,7 @@ export async function fetchReviewAct(transport: ReviewActTransport, fetchAdapter
   if (act.schema === JOB_CHEST_LANDMARKS_ACT_SCHEMA && !Buffer.from(bytes).equals(raw)) {
     failure('REVIEW_ACT_INVALID', 'chest act export cannot be retained byte-for-byte as UTF-8 JSON');
   }
-  const still = reviewActStill(act);
-  if (still === null) return { act, bytes };
-  const png = Buffer.from(await (await read('image/png')).arrayBuffer());
-  if (jobHash(png) !== still.sha256) failure('REVIEW_ACT_STILL_INVALID', 'exported still sha256 does not match');
-  return { act, bytes, stillBytes: png.toString('base64') };
+  return { act, bytes };
 }
 
 /** Exact #184 identity, discounting verdicts and exact evidence added after this receipt. */
@@ -820,7 +815,8 @@ export function reviewStillEvidence(base: string, still: JobRigStill) {
 }
 
 export function draftReviewStillEvidence(act: DraftReviewVerdictAct) {
-  return reviewStillEvidence(`evidence/drafts/${act.source.selector.id}`, reviewActStill(act)!);
+  const still = reviewActStill(act);
+  return still === null ? undefined : reviewStillEvidence(`evidence/drafts/${act.source.selector.id}`, still);
 }
 
 /** Review declares who a host was opened for; it does not authenticate who pressed the button. */
@@ -1113,11 +1109,12 @@ export function reviewActFindings(project: JsonObject, warnings?: Finding[], rou
         const id = act.source.selector.id;
         const by = retainedActBy(act, object(entry.verdict) ? entry.verdict.by : undefined, path, warnings);
         const draft = asArray(project.drafts).filter(object).filter(row => row.id === id);
+        const still = entry.evidence === undefined ? undefined : draftReviewStillEvidence(act);
         if (entry.kind !== 'review-verdict' || entry.draft_id !== id || draft.length !== 1 || entry.version !== undefined || entry.signoff !== undefined
           || asArray(project.signoffs).filter(object).some(row => row.source === `review act ${act.jobId}/${act.actId}`)
           || entry.version_hash !== jobHash(`${JSON.stringify(draft[0], null, 2)}\n`)
           || !isDeepStrictEqual(entry.verdict, reviewActVerdict(act, by)) || !file(entry.painting)
-          || !isDeepStrictEqual(entry.evidence, draftReviewStillEvidence(act))
+          || entry.evidence !== undefined && !isDeepStrictEqual(entry.evidence, still)
           || !isDeepStrictEqual(eligibleRigDraftModel(draft[0]), act.source.model)) {
           failure('REVIEW_ACT_LEDGER_INVALID', 'recorded draft verdict differs from its immutable act and reviewed draft');
         }
@@ -1158,7 +1155,8 @@ export function reviewActFindings(project: JsonObject, warnings?: Finding[], rou
           failure('REVIEW_ACT_LEDGER_INVALID', 'folded rig signature differs from its approved verdict');
         }
       }
-      const still = reviewActStill(act);
+      // Historical receipts recorded an array even when the still was deduplicated.
+      const still = entry.added_evidence === undefined ? null : reviewActStill(act);
       if (still !== null) {
         const expected = reviewStillEvidence(`evidence/v${entry.version}`, still);
         if (!object(version) || !Array.isArray(version.evidence) || !version.evidence.some(e => isDeepStrictEqual(e, expected))

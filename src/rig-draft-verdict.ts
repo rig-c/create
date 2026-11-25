@@ -104,19 +104,21 @@ function carriedVerdict(act: DraftReviewVerdictAct, inputs: string[], by: string
     carried_from_draft: { draft_id: act.source.selector.id, job_id: act.jobId, act_id: act.actId, config_inputs: inputs } };
 }
 
-function retainedStill(root: string, receipt: JsonObject, act: DraftReviewVerdictAct): JsonObject | undefined {
-  const evidence = draftReviewStillEvidence(act);
+function retainedDraftEvidence(root: string, receipt: JsonObject, act: DraftReviewVerdictAct): { evidence?: JsonObject } | undefined {
+  const base = `evidence/drafts/${act.source.selector.id}`;
   try {
-    if (isDeepStrictEqual(receipt.evidence, evidence)
-      && jobHash(publicationFile(root, evidence.path)) === evidence.sha256
-      && publicationFile(root, `${dirname(evidence.path)}/${String(receipt.sha256)}.act.json`).equals(Buffer.from(String(receipt.bytes)))) return evidence;
+    if (!publicationFile(root, `${base}/${String(receipt.sha256)}.act.json`).equals(Buffer.from(String(receipt.bytes)))) return;
+    if (receipt.evidence === undefined) return {};
+    const evidence = draftReviewStillEvidence(act);
+    if (evidence && isDeepStrictEqual(receipt.evidence, evidence)
+      && jobHash(publicationFile(root, evidence.path)) === evidence.sha256) return { evidence };
   } catch { /* Missing evidence cannot authorize a carried approval. */ }
 }
 
 /** Registration checks the exact byte copies it made, using each input's role or relative name. */
 export function carryRigDraftVerdict(
   root: string, project: JsonObject, version: JsonObject, configPath: string, copiedInputs: ReadonlyMap<string, string>, now: number,
-): { verdict: JsonObject; evidence: JsonObject } | undefined {
+): { verdict: JsonObject; evidence?: JsonObject } | undefined {
   const bySource = [...copiedInputs].map(([target, source]) => ({ target, relativePath: relative(dirname(configPath), source) }));
   for (const { receipt, act } of draftVerdicts(project, now)) {
     const draft = records(project.drafts).find(row => row.id === receipt.draft_id);
@@ -132,8 +134,8 @@ export function carryRigDraftVerdict(
     const inputs = mapped as string[];
     if (!sameRegisteredBytes(root, project, version, receipt, act, inputs)) continue;
     if (act.value.verdict !== 'approved' || !matchingDraftReceipt(project, receipt, act)) return undefined;
-    const evidence = retainedStill(root, receipt, act);
-    return evidence && { verdict: carriedVerdict(act, inputs, receiptBy(receipt, act)), evidence };
+    const retained = retainedDraftEvidence(root, receipt, act);
+    return retained && { verdict: carriedVerdict(act, inputs, receiptBy(receipt, act)), ...retained };
   }
 }
 
@@ -149,8 +151,9 @@ export function validCarriedRigDraftVerdict(root: string, project: JsonObject, v
     const act = decodeReviewAct(receipt.bytes);
     const inputs = provenance.config_inputs as string[];
     if (!isDraftReviewVerdict(act) || act.value.verdict !== 'approved') return false;
-    const evidence = retainedStill(root, receipt, act);
-    return evidence !== undefined && records(version.evidence).some(row => isDeepStrictEqual(row, evidence)) && matchingDraftReceipt(project, receipt, act)
+    const retained = retainedDraftEvidence(root, receipt, act);
+    return retained !== undefined && (!retained.evidence || records(version.evidence).some(row => isDeepStrictEqual(row, retained.evidence)))
+      && matchingDraftReceipt(project, receipt, act)
       && isDeepStrictEqual(verdict, carriedVerdict(act, inputs, receiptBy(receipt, act)))
       && sameRegisteredBytes(root, project, version, receipt, act, inputs);
   } catch { return false; }

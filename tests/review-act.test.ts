@@ -10,7 +10,7 @@ import { optionContext } from '../src/choices.ts';
 import { directionHash, objects } from '../src/direction.ts';
 import { acknowledgePublication, enqueuePublication, jobHash, JOB_BINDING_FILE, jobHostStateRoot, readAcknowledgedPublication, readWriterBinding, writePrivateJson, type WriterBinding } from '../src/job-outbox.ts';
 import { currentJobIdentity, partsEnumerator, prepareLiveManifest, readPublished, readRecordPublished } from '../src/job-publication.ts';
-import { assertReviewActSource, decodeReviewAct, decodeReviewResponse, fetchReviewAct, REVIEW_ACT_ACTOR_SINCE, reviewActFindings, reviewActTransport, reviewActVerbatim } from '../src/review-act.ts';
+import { assertReviewActSource, decodeReviewAct, decodeReviewResponse, fetchReviewAct, REVIEW_ACT_ACTOR_SINCE, reviewActFindings, reviewActTransport, reviewActVerbatim, reviewActVersionHash, reviewStillEvidence } from '../src/review-act.ts';
 import { directionPin, existingShapes, framedRigPin, HISTORICAL_DIRECTION_VALUE, TIME_ONLY_BASIS } from './comment-anchor-shapes.ts';
 import { pendingMeshDeltaRevision } from '../src/corrections.ts';
 import { commentCommand } from '../src/comment-act.ts';
@@ -820,10 +820,11 @@ test('#773 a version ingest refused after its evidence write leaves the project 
   expect(treeDigest(root)).toEqual(before);
   const ingested = await command(root, act.actId);
   expect({ exit: ingested.exit, stderr: ingested.stderr }).toEqual({ exit: 0, stderr: '' });
-  // The still is new, so the refused call had written it. Its directory is evidence/v1, which
-  // registration made; the draft test covers a refused call that made the directory too.
-  const still = String(((projectAt(root).versions as JsonObject[])[0]!.evidence as JsonObject[])[0]!.path);
-  expect([before.has(still), before.has(`${dirname(still)}/`)]).toEqual([false, true]);
+  // The immutable sidecar is new and its directory was made by registration.
+  const receipt = reviewVerdictReceipts(projectAt(root))[0]!;
+  const sidecar = `evidence/v1/${String(receipt.sha256)}.act.json`;
+  expect([before.has(sidecar), before.has('evidence/v1/')]).toEqual([false, true]);
+  expect(readFileSync(join(root, sidecar), 'utf8')).toBe(String(receipt.bytes));
 });
 
 const workingConfig = "working/owner's config.json";
@@ -1155,9 +1156,10 @@ for (const n of [1, 2] as const) {
       const replay = await command(root, String(fresh.actId), n);
       expect(replay.stderr).toBe(''); expect(replay.exit).toBe(0);
       expect(readFileSync(join(root, 'project.json'))).toEqual(bytes);
+      expect(receipt).not.toHaveProperty('added_evidence');
       if (n === 1) {
         const still = fresh.still as JsonObject;
-        expect(readFileSync(join(root, `evidence/v1/${String(still.path)}`))).toEqual(png!);
+        expect(existsSync(join(root, `evidence/v1/${String(still.path)}`))).toBe(false);
       }
       const stage = n === 1 ? 'rig-review' : 'direction-review';
       const signoff: JsonObject = {
@@ -1238,26 +1240,14 @@ for (const invalid of ['words', 'question-anchor', 'blank', 'too-long'] as const
   });
 }
 
-test.each(['missing', 'mismatch'])('API act refuses a %s PNG without changing project bytes', async failure => {
-  const { root, act } = await published();
-  const server = fetchAdapter(root, act, JSON.stringify(act), failure === 'mismatch' ? Buffer.from('wrong pixels') : undefined);
-  try {
-    const before = readFileSync(join(root, 'project.json'));
-    const result = await command(root, act.actId);
-    expect(result.exit).toBe(1);
-    expect(result.stderr).toContain(failure === 'missing' ? 'REVIEW_ACT_FETCH_REFUSED:' : 'REVIEW_ACT_STILL_INVALID:');
-    expect(readFileSync(join(root, 'project.json'))).toEqual(before);
-  } finally { server.stop(true); }
-});
-
-test.each(['rig-review/act@3', JOB_COMMENTS_ACT_SCHEMA] as const)('API retains exact %s bytes and PNG and binds both hashes', async schema => {
+test.each(['rig-review/act@3', JOB_COMMENTS_ACT_SCHEMA] as const)('API retains exact %s bytes with no PNG export', async schema => {
   const { root, act } = await published();
   if (act.schema !== JOB_COMMENTS_ACT_SCHEMA || !act.still) throw Error('expected comments rig still');
   const exported = schema === JOB_COMMENTS_ACT_SCHEMA ? act
     : { ...act, schema, value: { stage: 'rig-review', verdict: 'approved', words: '  Synthetic historical approval.\r\n' } };
   const raw = `${JSON.stringify(exported, null, 3)}\n`;
-  const png = readFileSync(join(root, 'evidence/setup.png'));
-  const server = fetchAdapter(root, act, raw, png);
+  const before = (projectAt(root).versions as JsonObject[])[0]!.evidence;
+  const server = fetchAdapter(root, act, raw);
   try {
     const result = await command(root, act.actId);
     expect(result.exit).toBe(0);
@@ -1266,27 +1256,56 @@ test.each(['rig-review/act@3', JOB_COMMENTS_ACT_SCHEMA] as const)('API retains e
     expect(receipt.bytes).toBe(raw);
     expect(receipt.sha256).toBe(jobHash(raw));
     expect(readFileSync(join(root, `evidence/v1/${jobHash(raw)}.act.json`), 'utf8')).toBe(raw);
-    expect(readFileSync(join(root, `evidence/v1/${act.still.path}`))).toEqual(png);
+    expect(existsSync(join(root, `evidence/v1/${act.still.path}`))).toBe(false);
+    expect(receipt).not.toHaveProperty('added_evidence');
+    const version = (project.versions as JsonObject[])[0]!;
+    expect(version.evidence).toEqual(before);
+    expect((version.verdicts as JsonObject[]).at(-1)).toMatchObject({ verdict: 'accepted', review: 'rig-review' });
     const diagnostics = checkProject(root, project);
     expect(diagnostics.refusals).toEqual([]);
     expect(diagnostics.warnings).toEqual([]);
   } finally { server.stop(true); }
 });
 
-test('manual accepted rig verdict without a still refuses and leaves project bytes unchanged', async () => {
+test('manual accepted rig verdict records without a still', async () => {
   const { root } = await published();
   const project = projectAt(root);
-  const version = (project.versions as JsonObject[])[0];
+  const version = (project.versions as JsonObject[])[0]!;
   version.evidence = (version.evidence as JsonObject[]).filter(e => e.kind !== 'still');
   version.verdicts = [];
   putProject(root, project);
-  const before = readFileSync(join(root, 'project.json'));
-  expect(() => reviewCommand(['1', root, '--verdict', 'accepted', '--review', 'rig-review', '--by', 'user',
-    '--verbatim', 'Synthetic approval', '--source', 'synthetic review']))
-    .toThrow(expect.objectContaining({ code: 'RIG_ACCEPTED_WITHOUT_STILL' }));
-  expect(readFileSync(join(root, 'project.json'))).toEqual(before);
+  reviewCommand(['1', root, '--verdict', 'accepted', '--review', 'rig-review', '--by', 'user',
+    '--verbatim', 'Synthetic approval', '--source', 'synthetic review']);
+  expect((projectAt(root).versions as JsonObject[])[0]?.verdicts).toEqual([
+    expect.objectContaining({ verdict: 'accepted', review: 'rig-review' }),
+  ]);
 });
 
+test.each(['added', 'deduplicated'] as const)('historical numbered verdict replays with its %s still', async mode => {
+  const { root, act } = await published();
+  if (act.schema !== JOB_COMMENTS_ACT_SCHEMA || !act.still) throw Error('expected comments rig still');
+  const raw = JSON.stringify(act);
+  const server = fetchAdapter(root, act, raw);
+  try {
+    expect((await command(root, act.actId)).exit).toBe(0);
+    const project = projectAt(root);
+    const receipt = reviewVerdictReceipts(project)[0]!;
+    const version = (project.versions as JsonObject[])[0]!;
+    const still = reviewStillEvidence('evidence/v1', act.still);
+    // The legacy dedup case had the identical still before this verdict.
+    version.evidence = [still, ...(version.evidence as JsonObject[])];
+    receipt.added_evidence = mode === 'added' ? [still] : [];
+    if (mode === 'deduplicated') receipt.version_hash = reviewActVersionHash(project, decodeReviewAct(raw), 0);
+    writeFileSync(join(root, still.path), readFileSync(join(root, 'evidence/setup.png')));
+    putProject(root, project);
+    expect(reviewActFindings(project)).toEqual([]);
+    const before = readFileSync(join(root, 'project.json'));
+    expect((await command(root, act.actId)).exit).toBe(0);
+    expect(readFileSync(join(root, 'project.json'))).toEqual(before);
+    version.evidence = [];
+    expect(reviewActFindings(project).map(f => f.code)).toEqual(['REVIEW_ACT_LEDGER_INVALID']);
+  } finally { server.stop(true); }
+});
 
 test('removed file route refuses by name before opening a file and preserves project bytes', async () => {
   const { root } = await published();

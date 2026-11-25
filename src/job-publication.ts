@@ -150,7 +150,7 @@ export function optionPublicationRemedy(root: string, project: JsonObject, item:
     const ask = registered ? `publish the current registered set with ${publish}`
       : `register a fresh set with rig-create interview-options ${question} ${dir} --file '<option-set.json>', then run ${publish}`;
     if (stage !== 'direction-review') return ask;
-    const answer = `rig-create interview-answer ${question} ${dir} --from-review '<pick-act>'`;
+    const answer = `rig-create interview-answer ${question} ${dir} --set '<path>' --sha256 '<sha>' --by '<owner>' --pick '<ask>=<option>' --owner-chat '<words file>' --said-at '<ISO>' --relayed-by '<operator>'`;
     const amend = `rig-create amend post-interview ${dir} --kind interview-answer --target ${question} --change '<project-relative change>' --by '<owner>' --verbatim-file '<words file>'`;
     return `${ask}. On this direction bounce, record the owner's new pick with ${answer}, then record the owner's amendment with ${amend}, replan the affected steps and re-sign post-interview`;
   }
@@ -536,8 +536,7 @@ export function readRecordPublished({ root, record, result, phase, parts: sealed
     if (!publicationFile(root, record.path).equals(bytes)) throw Error('project.json changed while reading its closure');
     const files = [...seals].sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0).map(([path, sha256]) => ({ path, sha256 }));
     if (result.kind === 'option-set') {
-      return { label, parts, inputs, files, plan: null,
-        subjects: sets.map(({ questionId, setId }) => ({ kind: 'interview-picks', questionId, setId })) };
+      return { label, parts, inputs, files, plan: null, subjects: [] };
     }
     const evidence = checkpointEvidenceContext(root, project, files);
     return { label, parts, inputs, files, ...evidence, ...(planPicture ? { planPicture } : {}),

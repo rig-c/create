@@ -2465,8 +2465,9 @@ browserless session PUT. Producer Apply was outside this inventory. The inventor
 
 ### Recording interview picks from a standing job
 
-Use `interview-answer <question> [<project>] --from-review <actId>` after the
-human finalizes an `interview-picks` act in the standing Review job. The writer
+Fresh interview questions are asked in chat and recorded with
+`interview-answer --owner-chat`. Use `interview-answer <question> [<project>] --from-review <actId>`
+for a stored `interview-picks` act in the standing Review job. The writer
 fetches through its private sibling capability, binds the displayed option set
 by ID and SHA-256, and retains the immutable API act bytes in `review_acts`.
 An identical act can be replayed without adding a second answer. A changed act
@@ -2485,11 +2486,10 @@ identity the inventory phase returned. The optional second argument is the check
 instant in epoch milliseconds, defaulting to the current clock.
 
 The return value has exactly `{label, parts, inputs, files, plan, subjects}`. An
-option context has `plan: null` and exactly the requested
-`{kind: 'interview-picks', questionId, setId}` subject. A plan context has
-ordered `{id, hash}` step identities and eligible
-`{kind: 'checkpoint', checkpointId}` or `{kind: 'signoff', stage}` subjects.
-Subject key order follows these declarations. Identifiers must fit the
+option context has `plan: null` and `subjects: []` (publishing the option set
+and its images for viewing and comments without asking for a pick act). A plan
+context has ordered `{id, hash}` step identities and `subjects: []`.
+Identifiers must fit the
 review record-id domain of 1–128 ASCII letters, digits, dots, underscores
 and hyphens, starting with a letter or digit. The reader identity is
 `rig-create/publication-reader/2`. Create opens new hosts in
@@ -2715,14 +2715,17 @@ the project's next moves and whose they are from `project.json`:
 - **Role ownership.** Every move names `role`:
   - `agent`: a complete, runnable `rig-create` command the agent may run now.
   - `producer`: a command of a pinned package (`rig-parts`, `rigc`).
-  - `human`: a person's act collected through the review tool (`review_act`),
-    with `command: null` and never a `--by user` writer.
+  - `human`: a person's act — either a verdict collected through the review tool
+    (`review_act`, `command: null`) or an owner-chat question/relay step
+    (`--owner-chat`, never a bare `--by user` writer).
 - **Host and ingest human acts.** Start the first `job open` in the background
   and share its private URL once. Later opens with a question, group of stage
   questions, plan, draft or rig selector publish into the running host and exit.
-  For a stage question loop, `next` shows `job open --questions`, the sets the
-  owner answers on one page, and the batch ingest after all acts arrive.
-  For a single act, run
+  For pending interview option sets, `next` states that the owner is asked in
+  chat, prints the `interview-answer --owner-chat` relay command, and offers an
+  optional `job open --question` (or `--questions`) command to show the option
+  images in Review without opening a Review ask.
+  For a Review verdict act, run
   `rig-create job acts --wait --json` in the background and
   follow the matching act's preconditions, including the structure snapshot
   guidance for legacy parts-review sign-off. Fill the reviewer and exported act
@@ -2780,7 +2783,7 @@ the project's next moves and whose they are from `project.json`:
       "command": "<complete runnable command or null>",
       "act": "<description of the move or review-tool act>",
       "review_act": {
-        "kind": "parts-verdict|interview-picks|review-verdict|signoff|signoff-checkpoint",
+        "kind": "parts-verdict|review-verdict|signoff|signoff-checkpoint",
         "stage": "<stage>"
       },
       "lapse": {
@@ -2899,7 +2902,7 @@ clip selector or Create scene record. `scene write` is not part of this route.
 Existing direction@1 and @2 documents and publications retain their contracts.
 No new SINCE applies: these rules apply only to direction@3.
 
-Record `post_composition.value.compose` through its Review choice (or resolved
+Record `post_composition.value.compose` through its interview choice (or resolved
 delegation), and `post_timing.value` with `seconds` and `loop: true`. The closed
 `value.compose` shape `{canvas,plates,order,character,idle_tracks}` supplies
 `canvas:{width,height}`, named `plates:{name,image,at,opaque_backdrop?}[]`,

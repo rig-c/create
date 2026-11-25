@@ -1,5 +1,6 @@
 /** Public CLI -> authenticated Review HTTP API -> CLI ingest, using synthetic records only. */
 import { afterEach, expect, test } from 'bun:test';
+import { Database } from 'bun:sqlite';
 import { randomUUID } from 'node:crypto';
 import { appendFileSync, cpSync, existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -7,7 +8,7 @@ import { collectItems, type CheckReport } from '../src/check.ts';
 import { interviewAnswerCommand } from '../src/choice-writers.ts';
 import { Refusal } from '../src/refusal.ts';
 import { loadedPartsIdentity } from '../src/job-publication.ts';
-import { JOB_COMMENTS_ACT_SCHEMA, startJobHost, type JobHostOptions } from '@rig-c/review/job-host';
+import { JOB_COMMENTS_ACT_SCHEMA, parseCommentsAct, startJobHost, type JobHostOptions } from '@rig-c/review/job-host';
 import { openCreateJob } from '../src/job-host.ts';
 import reviewPackage from '@rig-c/review/package.json';
 import corePackage from '@rig-c/core/package.json';
@@ -301,47 +302,154 @@ test('draft, question, then draft publish through the same live owner URL', asyn
   const advanced = await cli(root, ['advance', 'rigging-interview', root]);
   expect(advanced.exit, advanced.stderr).toBe(0);
   const set = await registerReask(root, 'motion', 'switch-motion');
-  await registerReask(root, 'bones', 'switch-bones');
+  const bonesSet = await registerReask(root, 'bones', 'switch-bones');
   const question = await reopen(['--question', 'motion']);
   expect(question.exit, question.stderr).toBe(0);
   expect(question.stdout.trim().split('\n')[0]).toBe(draft.url.href);
-  const owner = await page(root, draft.url, 1);
-  expect(question.stdout.trimEnd().split('\n')).toContain(`job: option-set motion/switch-motion published (publication ${owner.head.publicationId})`);
-  expect(owner.asks.map(ask => ask.subject)).toEqual([{ kind: 'interview-picks', questionId: 'motion', setId: 'switch-motion' }]);
+  const owner = await publication(root, draft.url, 0);
+  expect(question.stdout.trimEnd().split('\n')).toEqual([
+    draft.url.href,
+    `job: option-set motion/switch-motion published (publication ${owner.head.publicationId})`,
+  ]);
+  expect(owner.asks).toEqual([]);
 
-  const before = bytes(root);
-  const refusesSwitch = async () => {
-    for (const flags of [['--question', 'bones'], draftArgs]) {
-      const refused = await reopen(flags);
-      expect(refused.exit).toBe(1);
-      expect(refused.stdout).toBe('');
-      expect(refused.stderr).toMatch(/^JOB_ASK_PENDING: /);
-      expect(refused.stderr).toContain('interview-picks motion/switch-motion on option-set motion/switch-motion');
-    }
-    expect(bytes(root)).toEqual(before);
-    expect(readFileSync(bindingFile)).toEqual(binding);
-    expect(pendingPublications(root)).toEqual([]);
-  };
-  await refusesSwitch();
-  const selections = arr(set.asks).map(raw => {
-    const ask = obj(raw);
-    return { itemId: ask.id, optionId: obj(arr(ask.options)[0]).id, otherText: null };
-  });
-  const act = await owner.act('interview-picks', 'interview-picks', { questionId: 'motion', selections, note: WORDS });
-  await refusesSwitch();
-  const ingested = await cli(root, ['interview-answer', 'motion', root, '--from-review', String(act.actId)]);
-  expect(ingested.exit, ingested.stderr).toBe(0);
+  // Option-set publications open no interview-picks asks, so switching to another set or back to the draft reuses the URL.
+  const secondQuestion = await reopen(['--question', 'bones']);
+  expect(secondQuestion.exit, secondQuestion.stderr).toBe(0);
+  expect(secondQuestion.stdout.trim().split('\n')[0]).toBe(draft.url.href);
+  const secondOwner = await publication(root, draft.url, 0);
+  expect(secondOwner.asks).toEqual([]);
+
+  const wordsFile = join(root, 'owner-picks.txt');
+  writeFileSync(wordsFile, WORDS);
+  for (const [questionId, currentSet] of [['motion', set], ['bones', bonesSet]] as const) {
+    const setPath = `evidence/interview/${String(currentSet.id)}.json`;
+    const picks = arr(currentSet.asks).flatMap(raw => {
+      const ask = obj(raw);
+      return ['--pick', `${String(ask.id)}=${String(obj(arr(ask.options)[0]).id)}`];
+    });
+    const answered = await cli(root, [
+      'interview-answer', questionId, root,
+      '--set', setPath,
+      '--sha256', jobHash(readFileSync(join(root, setPath))),
+      '--by', 'synthetic-owner',
+      '--owner-chat', wordsFile,
+      '--said-at', new Date(Date.now() - 1_000).toISOString(),
+      '--relayed-by', 'synthetic-operator',
+      ...picks,
+    ]);
+    expect(answered.exit, answered.stderr).toBe(0);
+  }
 
   const back = await reopen(draftArgs);
   expect(back.exit, back.stderr).toBe(0);
   expect(back.stdout.trim().split('\n')[0]).toBe(draft.url.href);
   const restored = await publication(root, draft.url, 0);
   expect(back.stdout.trimEnd().split('\n')).toContain(`job: draft ${draftId} published (publication ${restored.head.publicationId})`);
-  expect(restored.head.publicationId).not.toBe(owner.head.publicationId);
+  expect(restored.head.publicationId).not.toBe(secondOwner.head.publicationId);
   expect(obj(restored.head.source).selector).toEqual(obj(initial.head.source).selector);
   expect(restored.asks.map(ask => ask.subject)).toEqual([]);
   expect(readFileSync(bindingFile)).toEqual(binding);
 }, 60_000);
+
+interface StoredLegacyAsk {
+  askId: string;
+  publicationId: string;
+  subject: { kind: string; questionId?: string; setId?: string };
+  source: Record<string, unknown>;
+  status: string;
+}
+
+interface StoredLegacyJobDoc {
+  head: string | null;
+  generation: number;
+  reviewer: { id: string; role: string };
+  publications: Record<string, { publication: JsonObject & { source: Record<string, unknown> }; retained: { subjects: unknown[]; source: Record<string, unknown> } }>;
+  asks: Record<string, StoredLegacyAsk>;
+  acts: Record<string, unknown>;
+  events: Record<string, unknown>[];
+}
+
+function seedLegacyPicksPage(root: string) {
+  const binding = readWriterBinding(root)!;
+  const dbPath = join(binding.identity.stateDir, 'jobs.sqlite');
+  const updateJob = <T>(fn: (data: StoredLegacyJobDoc) => T): T => {
+    const db = new Database(dbPath);
+    try {
+      const row = db.query<{ revision: number; document: string }, [string]>(
+        'SELECT revision, document FROM jobs WHERE job_id = ?',
+      ).get(binding.jobId)!;
+      const data = JSON.parse(row.document) as StoredLegacyJobDoc;
+      const out = fn(data);
+      db.query('UPDATE jobs SET revision = ?, document = ? WHERE job_id = ?')
+        .run(row.revision + 1, JSON.stringify(data), binding.jobId);
+      return out;
+    } finally {
+      db.close();
+    }
+  };
+  const { head, asks } = updateJob(data => {
+    const publicationId = String(data.head);
+    const stored = data.publications[publicationId]!;
+    const selection = stored.retained.source.selection as { questionId: string; setId: string; sets?: { questionId: string; setId: string }[] };
+    const sets = selection.sets ?? [{ questionId: selection.questionId, setId: selection.setId }];
+    const subjects = sets.map(set => ({ kind: 'interview-picks' as const, questionId: set.questionId, setId: set.setId }));
+    const ackDir = join(jobPrivateRoot(root), 'acknowledged-publications');
+    for (const name of readdirSync(ackDir)) {
+      const ackPath = join(ackDir, name);
+      const ack = JSON.parse(readFileSync(ackPath, 'utf8')) as JsonObject;
+      if (ack.publicationId === publicationId) {
+        writeFileSync(ackPath, `${JSON.stringify({ ...ack, subjects }, null, 2)}\n`, { mode: 0o600 });
+      }
+    }
+    const createdAsks: JsonObject[] = [];
+    for (const subject of subjects) {
+      data.generation++;
+      const askId = randomUUID();
+      const ask = { askId, publicationId, subject, source: structuredClone(stored.retained.source), status: 'pending' };
+      data.asks[askId] = ask;
+      data.events.push({ type: 'pending', ask: structuredClone(ask), cursor: randomUUID(), jobId: binding.jobId, generation: data.generation });
+      createdAsks.push(ask as unknown as JsonObject);
+    }
+    return { head: stored.publication as JsonObject, asks: createdAsks };
+  });
+  return {
+    head,
+    asks,
+    act: async (_subject: string, _kind: string, value: { questionId: string; selections: { itemId: unknown; optionId: unknown; otherText: string | null }[]; note: string }): Promise<JsonObject> => {
+      return updateJob(data => {
+        const publicationId = String(head.publicationId);
+        const stored = data.publications[publicationId]!;
+        const ask = Object.values(data.asks).find(
+          entry => entry.publicationId === publicationId && entry.subject.kind === 'interview-picks' && entry.subject.questionId === value.questionId,
+        )!;
+        ask.status = 'answered';
+        const actId = randomUUID();
+        const act = parseCommentsAct({
+          schema: JOB_COMMENTS_ACT_SCHEMA,
+          actId,
+          jobId: binding.jobId,
+          askId: ask.askId,
+          publicationId,
+          authority: { actor: 'human', channel: 'review-ui', reviewer: { ...data.reviewer } },
+          at: new Date().toISOString(),
+          kind: 'interview-picks',
+          source: structuredClone(stored.retained.source),
+          value: {
+            questionId: value.questionId,
+            selections: value.selections.map(row => ({ itemId: String(row.itemId), optionId: String(row.optionId), otherText: row.otherText })),
+            note: value.note,
+            comments: [],
+          },
+        }) as unknown as JsonObject;
+        data.generation++;
+        data.acts[actId] = act;
+        data.events.push({ type: 'act', act: structuredClone(act), cursor: randomUUID(), jobId: binding.jobId, generation: data.generation });
+        return act;
+      });
+    },
+  };
+}
 
 test('record question public path, API@2 fetch, retry, stale source and wrong subject', async () => {
   const root = synthetic('rigging-interview', false, 'ko');
@@ -353,8 +461,9 @@ test('record question public path, API@2 fetch, retry, stale source and wrong su
     option.effect = '24';
   });
   const opened = await open(root, ['--question', 'motion']);
-  const first = await publication(root, opened.url, 1);
-  expect(opened.lines).toEqual([`job: option-set motion/pending-motion published (publication ${first.head.publicationId})`, 'job: asked interview-picks motion/pending-motion']);
+  const first = await publication(root, opened.url, 0);
+  expect(opened.lines).toEqual([`job: option-set motion/pending-motion published (publication ${first.head.publicationId})`]);
+  expect(first.asks).toEqual([]);
   const before = readFileSync(join(root, 'project.json'));
   const again = await cli(root, ['job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner', '--question', 'motion']);
   expect(again.exit, again.stderr).toBe(0);
@@ -372,7 +481,7 @@ test('record question public path, API@2 fetch, retry, stale source and wrong su
   expect(reconciled.exit, reconciled.stderr).toBe(0);
   expect(pendingPublications(root)).toEqual([]);
   expect(bytes(root)).toEqual(before);
-  const owner = await page(root, opened.url, 1);
+  const owner = seedLegacyPicksPage(root);
   const selections = (set.asks as JsonObject[]).map(ask => ({ itemId: ask.id, optionId: obj((ask.options as JsonObject[])[0]).id, otherText: null }));
   const otherWords = '  Exact Other words.\n끝  ';
   const otherSelections = selections.map((row, index) => index === 0 ? { ...row, optionId: 'other', otherText: otherWords } : row);
@@ -398,7 +507,7 @@ test('record question public path, API@2 fetch, retry, stale source and wrong su
   await unchanged(root, ['interview-answer', 'motion', root, '--from-review', String(act.actId)], 'REVIEW_ACT_SOURCE_STALE');
   const republished = await open(root, ['--question', 'motion']);
   expect(republished.url.href).toBe(opened.url.href);
-  const latest = await page(root, republished.url, 1);
+  const latest = seedLegacyPicksPage(root);
   const kept = await latest.act('interview-picks', 'interview-picks', { questionId: 'motion', selections: otherSelections, note: WORDS });
   expect(kept.actId).not.toBe(act.actId);
   const words = join(root, 'withdraw-words.txt');
@@ -421,7 +530,7 @@ test('record question public path, API@2 fetch, retry, stale source and wrong su
   expect((obj(answer.choice).picks as JsonObject[]).map(pick => pick.ask)).toEqual(otherSelections.map(row => row.itemId));
   expect(obj((obj(answer.choice).picks as JsonObject[])[0]).other_text).toBe(otherWords);
   expect(obj(answer.choice).note).toBe(WORDS);
-  // Unresolved Other needs an explicit fresh pick. Register/refresh through the CLI.
+  // Unresolved Other needs an explicit fresh pick. Register/refresh through the CLI and relay owner chat.
   set.id = 'resolved-motion';
   stampOptionSet(root, read(root), set);
   const resolved = 'evidence/interview/resolved-motion.json';
@@ -429,17 +538,29 @@ test('record question public path, API@2 fetch, retry, stale source and wrong su
   const refreshed = await cli(root, ['interview-options', 'motion', root, '--file', resolved]);
   expect(refreshed.exit, refreshed.stderr).toBe(0);
   const current = await open(root, ['--question', 'motion']);
-  const resolvedOwner = await page(root, current.url, 1);
-  expect(current.lines).toContain(`job: option-set motion/resolved-motion published (publication ${resolvedOwner.head.publicationId})`);
-  const resolvedAct = await resolvedOwner.act('interview-picks', 'interview-picks', { questionId: 'motion', selections, note: WORDS });
-  const ingested = await cli(root, ['interview-answer', 'motion', root, '--from-review', String(resolvedAct.actId)]);
+  const resolvedShown = await publication(root, current.url, 0);
+  expect(current.lines).toContain(`job: option-set motion/resolved-motion published (publication ${resolvedShown.head.publicationId})`);
+  expect(resolvedShown.asks).toEqual([]);
+  const resolvedWords = join(root, 'resolved-words.txt');
+  writeFileSync(resolvedWords, WORDS);
+  const resolvedPicks = selections.flatMap(row => ['--pick', `${String(row.itemId)}=${String(row.optionId)}`]);
+  const ingested = await cli(root, [
+    'interview-answer', 'motion', root,
+    '--set', resolved,
+    '--sha256', jobHash(readFileSync(join(root, resolved))),
+    '--by', 'synthetic-owner',
+    '--owner-chat', resolvedWords,
+    '--said-at', new Date(Date.now() - 500).toISOString(),
+    '--relayed-by', 'synthetic-operator',
+    ...resolvedPicks,
+  ]);
   expect(ingested.exit, ingested.stderr).toBe(0);
   const resolvedAnswer = collectItems(read(root), { collection: null }).find(item => item.id === 'motion')!.raw;
   const resolvedPick = obj(arr(obj(obj(resolvedAnswer).choice).picks)[0]);
   expect(resolvedPick.shown).toEqual({ label: 'Spine', effect: '24' });
   await reviseAfterAnswer(root, 'motion', '기록된 선택에 기존 모션 계획이 맞는지 확인했어요.');
   await checked(root);
-}, 30_000);
+}, 60_000);
 
 test('exclusive record selectors and missing pending question refuse before host writes', async () => {
   const root = synthetic('rigging-interview');
@@ -493,11 +614,11 @@ test.each([true, false])('#969 post answer remedy with a live direction bounce =
   const path = /project\.json\.interview\.post\.items\[camera_depth\]\.pending_options/;
   const remedies = bounced ? [
     /rig-create interview-options camera_depth .* --file/,
-    /rig-create job open .* --question camera_depth.*rig-create interview-answer camera_depth .* --from-review .*rig-create amend post-interview .* --kind interview-answer --target camera_depth/,
+    /rig-create job open .* --question camera_depth.*rig-create interview-answer camera_depth .* --owner-chat .*rig-create amend post-interview .* --kind interview-answer --target camera_depth/,
     /replan .* re-sign post-interview/,
   ] : [/rig-create interview --check .* --json/, /rig-create interview-answer camera_depth .* --owner-chat/];
   await unchanged(root, ['job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner', '--question', 'camera_depth'],
-    'JOB_RECORD_SUBJECT_INVALID', [path, ...remedies], bounced ? ['--owner-chat'] : ['rig-create job open', 'rig-create amend']);
+    'JOB_RECORD_SUBJECT_INVALID', [path, ...remedies], bounced ? ['--from-review'] : ['rig-create job open', 'rig-create amend']);
   expect(readWriterBinding(root)).toBeNull();
 }, 15_000);
 
@@ -526,10 +647,21 @@ test.each(['rigging-interview', 'post-interview'])('first unanswered %s question
   expect(afterCodes).toEqual(beforeCodes);
   expect(afterCheck.exit).toBe(beforeCheck.exit);
   receipt({ control: 'ordinary-check-parity-before-after-record-publication', stage, beforeCodes, afterCodes, beforeExit: beforeCheck.exit, afterExit: afterCheck.exit });
-  const owner = await page(root, opened.url, 1);
-  const selections = (set.asks as JsonObject[]).map(ask => ({ itemId: ask.id, optionId: obj((ask.options as JsonObject[])[0]).id, otherText: null }));
-  const act = await owner.act('interview-picks', 'interview-picks', { questionId: question, selections, note: WORDS });
-  const ingested = await cli(root, ['interview-answer', question, root, '--from-review', String(act.actId)]);
+  const shown = await publication(root, opened.url, 0);
+  expect(shown.asks).toEqual([]);
+  const wordsFile = join(root, 'first-pending-words.txt');
+  writeFileSync(wordsFile, WORDS);
+  const picks = (set.asks as JsonObject[]).flatMap(ask => ['--pick', `${String(ask.id)}=${String(obj((ask.options as JsonObject[])[0]).id)}`]);
+  const ingested = await cli(root, [
+    'interview-answer', question, root,
+    '--set', path,
+    '--sha256', jobHash(readFileSync(join(root, path))),
+    '--by', 'synthetic-owner',
+    '--owner-chat', wordsFile,
+    '--said-at', new Date(Date.now() - 1_000).toISOString(),
+    '--relayed-by', 'synthetic-operator',
+    ...picks,
+  ]);
   expect(ingested.exit, ingested.stderr).toBe(0);
   const step = stage === 'rigging-interview' ? 'motion' : 'camera';
   await reviseAfterAnswer(root, step, `The ${step} definition still fits the recorded synthetic choice.`);
@@ -562,10 +694,8 @@ test('post-interview --questions opens two pending sets on the same rig', async 
   }
 
   const { url } = await open(root, ['--questions']);
-  const { head, asks, base, headers } = await publication(root, url);
-  expect(asks.map(ask => ask.subject)).toEqual(sets.map(set => ({
-    kind: 'interview-picks', questionId: set.question, setId: set.id,
-  })));
+  const { head, asks, base, headers } = await publication(root, url, 0);
+  expect(asks).toEqual([]);
   const response = await fetch(`${base}publications/${head.publicationId}`, { headers });
   expect(response.status).toBe(200);
   const display = await response.json() as { ok: boolean; value: unknown };
@@ -709,7 +839,9 @@ test('legacy post-only adoption reaches all three owner picks and the post move'
     const commands = arr(obj(JSON.parse(next.stdout)).moves).map(move => obj(move).command);
     const flags = id === undefined ? [selector] : [selector, id];
     expect(commands).toContain(`rig-create job open ${root} ${flags.join(' ')} --reviewer '<reviewer>' --role owner`);
-    expect(commands).toContain(`rig-create job acts ${root} --json --wait`);
+    expect(commands).not.toContain(`rig-create job acts ${root} --json --wait`);
+    expect(commands.some(cmd => typeof cmd === 'string' && cmd.includes('--from-review'))).toBe(false);
+    expect(commands.some(cmd => typeof cmd === 'string' && cmd.includes('--owner-chat'))).toBe(true);
     expect(commands).not.toContain(`rig-create job close ${root}`);
     if (!ownerUrl) {
       ownerUrl = (await open(root, flags)).url;
@@ -722,6 +854,8 @@ test('legacy post-only adoption reaches all three owner picks and the post move'
     }
     return ownerUrl;
   };
+  const answerWordsFile = join(root, 'post-picks-words.txt');
+  writeFileSync(answerWordsFile, WORDS);
   // Open on the first question and keep the same owner URL through the plan signoff.
   for (const question of ['camera_depth', 'post_timing', 'post_composition']) {
     const set = JSON.parse(readFileSync(join(import.meta.dir, '../templates/example-interview-options/example-' + question.replaceAll('_', '-') + '.json'), 'utf8')) as JsonObject;
@@ -732,12 +866,20 @@ test('legacy post-only adoption reaches all three owner picks and the post move'
     writeFileSync(join(root, path), JSON.stringify(set, null, 2) + '\n');
     const registered = await cli(root, ['interview-options', question, root, '--file', path]);
     expect(registered.exit, registered.stderr).toBe(0);
-    const owner = await page(root, await publishNext('--question', question), 1);
-    const selections = (set.asks as JsonObject[]).map(ask => ({ itemId: ask.id, optionId: obj((ask.options as JsonObject[])[0]).id, otherText: null }));
-    const act = await owner.act('interview-picks', 'interview-picks', { questionId: question, selections, note: WORDS });
-    const acts = await cli(root, ['job', 'acts', root]);
-    expect(acts.exit, acts.stderr).toBe(0);
-    const answer = await cli(root, ['interview-answer', question, root, '--from-review', String(act.actId)]);
+    const url = await publishNext('--question', question);
+    const shown = await publication(root, url, 0);
+    expect(shown.asks).toEqual([]);
+    const picks = (set.asks as JsonObject[]).flatMap(ask => ['--pick', `${String(ask.id)}=${String(obj((ask.options as JsonObject[])[0]).id)}`]);
+    const answer = await cli(root, [
+      'interview-answer', question, root,
+      '--set', path,
+      '--sha256', jobHash(readFileSync(join(root, path))),
+      '--by', 'synthetic-owner',
+      '--owner-chat', answerWordsFile,
+      '--said-at', new Date(Date.now() - 1_000).toISOString(),
+      '--relayed-by', 'synthetic-operator',
+      ...picks,
+    ]);
     expect(answer.exit, answer.stderr).toBe(0);
   }
   const wordsFile = join(root, 'post-approval.txt');

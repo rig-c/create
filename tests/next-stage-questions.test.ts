@@ -35,37 +35,40 @@ test('#558 next groups the pending stage sets and retains one owner-chat route p
   const open = moves.filter(move => move.command?.startsWith('rig-create job open '));
   const acts = moves.filter(move => move.command?.startsWith('rig-create job acts '));
   const ingest = moves.filter(move => move.command?.includes('--from-review'));
-  const picks = moves.filter(move => move.review_act?.kind === 'interview-picks');
+  const prompts = moves.filter(move => move.role === 'human' && move.command === null);
   const chats = moves.filter(move => move.command?.includes('--owner-chat'));
   expect(open.map(move => move.command)).toEqual([`rig-create job open ${dir} --questions --reviewer '<reviewer>' --role owner`]);
-  expect(open[0]!.act).toContain('rigging-interview question loop');
-  expect(picks.map(move => move.review_act?.question_id)).toEqual(['bones', 'meshes']);
-  expect(picks.map(move => move.review_act?.option_set_id)).toEqual(['chain-bones', 'chain-meshes']);
-  expect(acts.map(move => move.command)).toEqual([`rig-create job acts ${dir} --json --wait`]);
-  expect(ingest.map(move => move.command)).toEqual([
-    `rig-create interview-answer --batch ${dir} --from-review '<actId for bones>' --from-review '<actId for meshes>'`,
+  expect(open[0]!.act).toContain('optional: publish the pending sets for bones, meshes on one Review page to show their images for looking and commenting');
+  expect(acts).toEqual([]);
+  expect(ingest).toEqual([]);
+  expect(moves.some(move => move.review_act !== undefined)).toBe(false);
+  expect(prompts.map(move => move.act)).toEqual([
+    'ask the owner in chat for interview.waypoints[bones] (option set chain-bones), then relay the answer with interview-answer --owner-chat',
+    'ask the owner in chat for interview.waypoints[meshes] (option set chain-meshes), then relay the answer with interview-answer --owner-chat',
   ]);
-  expect(ingest[0]!.act).toContain('If partial ingest or owner chat changes project.json, refresh the exact remaining sets');
-  expect(ingest[0]!.act).toContain('Unrelated asks still block publication with JOB_ASK_PENDING');
-  expect(acts[0]!.act).toContain('--wait keeps waiting until every set has submitted');
-  expect(moves.indexOf(open[0]!)).toBeLessThan(moves.indexOf(picks[0]!));
-  expect(moves.indexOf(picks[1]!)).toBeLessThan(moves.indexOf(acts[0]!));
-  expect(moves.indexOf(acts[0]!)).toBeLessThan(moves.indexOf(ingest[0]!));
   expect(chats).toHaveLength(2);
   for (const [index, question] of ['bones', 'meshes'].entries()) {
     expect(chats[index]!.role).toBe('human');
     expect(chats[index]!.command).toStartWith(`rig-create interview-answer ${question} ${dir} --set evidence/interview/${question}.json --sha256 `);
     expect(chats[index]!.command).toContain('--pick');
-    expect(chats[index]!.act).toContain('refresh the remaining sets before asking the owner to submit in Review');
+    expect(chats[index]!.act).toBe(`relay the owner chat answer for ${question} and explicit option ids from the displayed set`);
   }
+  expect(moves.indexOf(prompts[0]!)).toBeLessThan(moves.indexOf(chats[0]!));
+  expect(moves.indexOf(chats[0]!)).toBeLessThan(moves.indexOf(prompts[1]!));
+  expect(moves.indexOf(chats[1]!)).toBeLessThan(moves.indexOf(open[0]!));
   expect(moves.some(move => move.command?.startsWith('rig-create interview-options constraints '))).toBe(true);
 });
 
-test('#558 next retains the single-set Review command chain for one pending set', () => {
+test('#558 next emits the chat question step, owner-chat relay, and optional Review display for one pending set', () => {
   const { dir, moves } = riggingQuestions(false);
+  const prompts = moves.filter(move => move.role === 'human' && move.command === null);
+  const chats = moves.filter(move => move.command?.includes('--owner-chat'));
+  expect(prompts.map(move => move.act)).toEqual([
+    'ask the owner in chat for interview.waypoints[bones] (option set chain-bones), then relay the answer with interview-answer --owner-chat',
+  ]);
+  expect(chats).toHaveLength(1);
+  expect(chats[0]!.command).toStartWith(`rig-create interview-answer bones ${dir} --set evidence/interview/bones.json --sha256 `);
   expect(moves.flatMap(move => move.command && (move.command.startsWith('rig-create job ') || move.command.includes('--from-review')) ? [move.command] : [])).toEqual([
     `rig-create job open ${dir} --question bones --reviewer '<reviewer>' --role owner`,
-    `rig-create job acts ${dir} --json --wait`,
-    `rig-create interview-answer bones ${dir} --from-review '<actId>'`,
   ]);
 });

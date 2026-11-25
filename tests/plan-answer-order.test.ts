@@ -231,10 +231,15 @@ test('#561 stale steps block approval while the post interview continues', () =>
 
   expect(run('interview-options', 'post_timing', '--file', String(timingSet.path))).toMatchObject({ code: 0, stderr: '' });
   const pending = readNext();
-  expect(pending.moves).toContainEqual(expect.objectContaining({ review_act: expect.objectContaining({
-    kind: 'interview-picks', question_id: 'post_timing',
-  }) }));
+  expect(pending.moves).toContainEqual(expect.objectContaining({
+    role: 'human',
+    field: 'interview.post.items[post_timing].pending_options',
+    command: null,
+    act: expect.stringContaining('ask the owner in chat for interview.post.items[post_timing]'),
+  }));
+  expect(pending.moves.some(move => move.command?.startsWith('rig-create interview-answer post_timing ') && move.command.includes('--owner-chat'))).toBe(true);
   expect(pending.moves.some(move => move.command?.includes('--question post_timing'))).toBe(true);
+  expect(pending.moves.some(move => move.command?.includes('--from-review'))).toBe(false);
   assertNoApproval(pending);
 
   expect(choose('post_timing', timingSet, 'auto')).toMatchObject({ code: 0, stderr: '' });

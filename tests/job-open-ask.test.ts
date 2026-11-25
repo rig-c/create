@@ -297,11 +297,65 @@ test.each(['record', 'draft'] as const)('#827 reconcile drains a pending plan an
   } finally { host.stop(); }
 }, 45_000);
 
-test('#827 an older mixed outbox preserves the interview ask opened by the record', async () => {
+test('#827 a mixed outbox reconciles an option-set without asks and still preserves a legacy interview ask', async () => {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'create-job-open-ask-')));
   roots.push(root);
   cpSync(join(import.meta.dir, '../templates/example-chain/checkpoints/2-rigging-answers'), root, { recursive: true });
-  const host = await openCreateJob(root, { id: 'synthetic-owner', role: 'owner' }, Date.now());
+  const now = Date.now();
+  const host = await openCreateJob(root, { id: 'synthetic-owner', role: 'owner' }, now);
+  try {
+    const binding = readWriterBinding(root)!;
+    const file = join(root, 'project.json');
+    const before = readFileSync(file);
+    const record = { kind: 'option-set', questionId: 'bones', setId: 'chain-bones' } as const;
+    const legacySubject = { kind: 'interview-picks' as const, questionId: 'bones', setId: 'chain-bones' };
+    const draft = draftPublicationResult('chain');
+    enqueuePublication(root, binding, record);
+    enqueuePublication(root, binding, draft);
+
+    // 1. If an earlier host state holds a legacy interview ask on the published record, the queued draft stops with JOB_ASK_PENDING.
+    let seededLegacyAsk = false;
+    const publishWithLegacyAsk = async (entry: Parameters<typeof publishPending>[0]) => {
+      const outcomes = await publishPending(entry, undefined, undefined, async () => ({ ...host, reused: true, stop: () => {} }));
+      if (!seededLegacyAsk && isRecordResult(entry.result)) {
+        seededLegacyAsk = true;
+        const session = host.session as unknown as {
+          jobId: string;
+          store: { update(jobId: string, rev: null, fn: (row: { data: { generation: number; publications: Record<string, { retained: { source: unknown } }>; asks: Record<string, unknown> } }) => { data: unknown }): unknown };
+          event(data: unknown, value: object): unknown;
+        };
+        const publicationId = host.session.status().publication!.publicationId;
+        session.store.update(session.jobId, null, ({ data }) => {
+          data.generation++;
+          const askId = randomUUID();
+          const ask = { askId, publicationId, subject: legacySubject, source: data.publications[publicationId]!.retained.source, status: 'pending' };
+          data.asks[askId] = ask;
+          session.event(data, { type: 'pending', ask });
+          return { data };
+        });
+      }
+      return outcomes;
+    };
+
+    for (let attempt = 0; attempt < 2; attempt++) {
+      await expect(reconcileCreateJob(root, publishWithLegacyAsk)).rejects.toMatchObject({
+        code: 'JOB_PUBLISH_PENDING',
+        message: expect.stringContaining('JOB_ASK_PENDING'),
+      });
+      expect(pendingPublications(root)).toMatchObject([{ result: draft, phase: 'pending', failure: { code: 'JOB_ASK_PENDING' } }]);
+      expect(readFileSync(file)).toEqual(before);
+      const status = host.session.status();
+      expect(readAcknowledgedPublication(root, binding.jobId, status.publication!.publicationId)?.result).toEqual(record);
+      expect(status.pending.map(ask => ask.subject)).toEqual([legacySubject]);
+    }
+
+    expect(await cli(root, ['job', 'close', root, '--retire-refused'])).toEqual({ exit: 0, stdout: 'job: closed\n', stderr: '' });
+    expect(pendingPublications(root)).toEqual([]);
+    expect(readFileSync(file)).toEqual(before);
+  } finally { host.stop(); }
+
+  // 2. A fresh mixed outbox opens no interview ask on the option-set and reconciles both entries cleanly.
+  const freshHost = await openCreateJob(root, { id: 'synthetic-owner', role: 'owner' }, now + 1_000);
   try {
     const binding = readWriterBinding(root)!;
     const file = join(root, 'project.json');
@@ -311,20 +365,11 @@ test('#827 an older mixed outbox preserves the interview ask opened by the recor
     enqueuePublication(root, binding, record);
     enqueuePublication(root, binding, draft);
 
-    for (let attempt = 0; attempt < 2; attempt++) {
-      const reconciled = await cli(root, ['job', 'reconcile', root]);
-      expect(reconciled).toMatchObject({ exit: 1, stderr: expect.stringMatching(/^JOB_PUBLISH_PENDING:.*JOB_ASK_PENDING/) });
-      expect(pendingPublications(root)).toMatchObject([{ result: draft, phase: 'pending', failure: { code: 'JOB_ASK_PENDING' } }]);
-      expect(readFileSync(file)).toEqual(before);
-      const status = host.session.status();
-      expect(readAcknowledgedPublication(root, binding.jobId, status.publication!.publicationId)?.result).toEqual(record);
-      expect(status.pending.map(ask => ask.subject)).toEqual([{ kind: 'interview-picks', questionId: 'bones', setId: 'chain-bones' }]);
-    }
-
-    expect(await cli(root, ['job', 'close', root, '--retire-refused'])).toEqual({ exit: 0, stdout: 'job: closed\n', stderr: '' });
+    const reconciled = await cli(root, ['job', 'reconcile', root]);
+    expect(reconciled).toEqual({ exit: 0, stdout: 'job: reconciled 2 publication(s)\n', stderr: '' });
     expect(pendingPublications(root)).toEqual([]);
     expect(readFileSync(file)).toEqual(before);
-  } finally { host.stop(); }
+  } finally { freshHost.stop(); }
 }, 25_000);
 
 function spawnJobOpen(root: string, options: string[], projectPath = root) {

@@ -90,7 +90,7 @@ test('pending option-set publishes exact inputs and merges identical references 
   expect(checkProject(root, undefined, { now: TEST_NOW, readOnly: true }).refusals).toEqual([]);
   const before = snapshot(root);
   const context = readRecordPublished(request(root), TEST_NOW);
-  expect(context.subjects).toEqual([{ kind: 'interview-picks', questionId: 'reference', setId: 'pending-reference' }]);
+  expect(context.subjects).toEqual([]);
   expect(Object.keys(context).sort()).toEqual(['files', 'inputs', 'label', 'parts', 'plan', 'subjects']);
   expect(context.files.map(file => file.path)).toEqual(context.files.map(file => file.path).sort());
   expect(new Set(context.files.map(file => file.path)).size).toBe(context.files.length);
@@ -142,7 +142,7 @@ test.each([[-1, false], [0, true]] as const)(
     expect(report.refusals.map(finding => finding.code)).not.toContain('INTERVIEW_OPTIONS_STALE');
     expect(report.warnings).toEqual([]);
     const publication = readRecordPublished(request(root), now);
-    expect(publication.subjects).toEqual([{ kind: 'interview-picks', questionId: 'reference', setId: 'pending-reference' }]);
+    expect(publication.subjects).toEqual([]);
     expect(publication.files).toContainEqual(bind(path));
   },
 );
@@ -157,8 +157,7 @@ test('option-set publication leaves silent questions open in the initial intervi
   expect(report.effective_stage).toBe('interview');
   expect(report.refusals.map(({ code, path }) => ({ code, path })))
     .toContainEqual({ code: 'INTERVIEW_INCOMPLETE', path: item.path });
-  expect(readRecordPublished(request(root), TEST_NOW).subjects)
-    .toEqual([{ kind: 'interview-picks', questionId: 'reference', setId: 'pending-reference' }]);
+  expect(readRecordPublished(request(root), TEST_NOW).subjects).toEqual([]);
 });
 
 test.each(['record', 'input', 'options'])('changed %s bytes refuse without writing the record', source => {
@@ -375,7 +374,7 @@ test.each(['rigging-interview', 'post-interview'])('%s pending options seal reta
     result: { kind: 'option-set' as const, questionId, setId: set.id } };
   const before = snapshot(root);
   const context = readRecordPublished(input, TEST_NOW);
-  expect(context.subjects).toEqual([{ kind: 'interview-picks', questionId, setId: set.id }]);
+  expect(context.subjects).toEqual([]);
   expect(context.files).toContainEqual({ path, sha256: jobHash(readFileSync(join(root, path))) });
   expect(snapshot(root)).toEqual(before);
   const evidence = stage === 'rigging-interview' ? set.context.structure : set.context.scene ?? set.context.config;
@@ -519,7 +518,7 @@ test('input order stays in project order while unique file rows remain sorted', 
   expect(context.inputs).toEqual(project.inputs.map(({ path, sha256 }: { path: string; sha256: string }) => ({ path, sha256 })));
   expect(context.files.map(file => file.path)).toEqual(context.files.map(file => file.path).sort());
   expect(new Set(context.files.map(file => file.path)).size).toBe(context.files.length);
-  expect(Object.keys(context.subjects[0]!)).toEqual(['kind', 'questionId', 'setId']);
+  expect(context.subjects).toEqual([]);
 });
 
 /** The host's own parts identity, read independently from create's install and lockfile. */
@@ -856,7 +855,7 @@ test.each(recordAsks)('%s: every retained input refuses on tamper; excluded draf
       }
       expect((await api('ask', { publicationId, subject })).ok).toBe(true);
     } else {
-      expect(input.result).toEqual({ kind: 'plan' });
+      expect(['plan', 'option-set']).toContain(input.result.kind);
       expect(context.subjects).toEqual([]);
     }
   } finally { host.stop(); rmSync(identity.stateDir, { recursive: true, force: true }); }

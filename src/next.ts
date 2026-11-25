@@ -128,7 +128,7 @@ export interface NextCollectionReport {
 }
 
 export interface NextReviewAct {
-  kind: 'parts-verdict' | 'interview-picks' | 'review-verdict' | 'signoff' | 'signoff-checkpoint';
+  kind: 'parts-verdict' | 'review-verdict' | 'signoff' | 'signoff-checkpoint';
   stage: string;
   draft_id?: string;
   question_id?: string;
@@ -250,7 +250,7 @@ function isOpenInterviewTodo(finding: Finding, effectiveStage: string): boolean 
     && (finding.code === 'INTERVIEW_INCOMPLETE' || finding.code === 'INTERVIEW_CHOICE_REQUIRED');
 }
 
-const SCENE_OTHER_FOLLOW_UP = 'use the recorded Other words to draft concrete scene options with fragment.scene. Write each label and effect as one plain 해요체 sentence. Register the new set for a Review pick, then cite that pick in scene write';
+const SCENE_OTHER_FOLLOW_UP = 'use the recorded Other words to draft concrete scene options with fragment.scene. Write each label and effect as one plain 해요체 sentence. Register the new set for an owner pick, then cite that pick in scene write';
 
 function delegatedAsks(dir: string, item: Item): string[] {
   const answer = item.state.state === 'user' || item.state.state === 'delegated' ? item.state.answer : null;
@@ -526,9 +526,15 @@ function ownerChatSignoffCommand(dir: string, project: JsonObject, act: NextRevi
   return `rig-create ${writer} ${shellWord(dir)}${version} ${OWNER_CHAT_COMMAND_FLAGS}`;
 }
 
-function ownerChatPickMove(dir: string, project: JsonObject, move: NextMove): NextMove[] {
-  const question = move.review_act?.question_id;
-  if (!question) return [];
+interface PendingQuestionMove {
+  stage: string;
+  questionId: string;
+  optionSetId: string;
+}
+
+const pendingQuestionMoves = new WeakMap<NextMove, PendingQuestionMove>();
+
+function ownerChatPickMove(dir: string, project: JsonObject, move: NextMove, question: string): NextMove[] {
   const item = collectItems(project, { collection: loadCollection(dir) }).find(item => item.id === question);
   const binding = item?.record.pending_options;
   if (!isObject(binding) || typeof binding.path !== 'string' || typeof binding.sha256 !== 'string') return [];
@@ -538,7 +544,7 @@ function ownerChatPickMove(dir: string, project: JsonObject, move: NextMove): Ne
     return [{
       ...move,
       command: `rig-create interview-answer ${shellWord(question)} ${shellWord(dir)} --set ${shellWord(binding.path)} --sha256 ${shellWord(binding.sha256)} ${OWNER_CHAT_COMMAND_FLAGS}${picks}`,
-      act: `${move.act}; or relay the owner chat answer and explicit option ids from the displayed set`,
+      act: `relay the owner chat answer for ${question} and explicit option ids from the displayed set`,
       review_act: undefined,
     }];
   } catch { /* The check's named option-file refusal supplies the repair route. */ }
@@ -546,6 +552,21 @@ function ownerChatPickMove(dir: string, project: JsonObject, move: NextMove): Ne
 }
 
 const OPEN_REVIEW_HOST = 'run the first open in the background and share its URL once; later opens publish into the running host and exit';
+
+function questionCommands(dir: string, project: JsonObject, move: NextMove, meta: PendingQuestionMove): NextMove[] {
+  const root = shellWord(dir);
+  return [
+    move,
+    ...ownerChatPickMove(dir, project, move, meta.questionId),
+    {
+      role: 'agent',
+      field: move.field,
+      awaits: move.awaits,
+      command: `rig-create job open ${root} --question ${shellWord(meta.questionId)} --reviewer '<reviewer>' --role owner`,
+      act: `optional: publish option set ${meta.optionSetId} to Review to show its images for looking and commenting; ${OPEN_REVIEW_HOST}`,
+    },
+  ];
+}
 
 /** The person acts in Review; the agent only hosts and ingests its exported act. */
 function reviewCommands(dir: string, project: JsonObject, move: NextMove): NextMove[] {
@@ -569,10 +590,7 @@ function reviewCommands(dir: string, project: JsonObject, move: NextMove): NextM
   if (act.kind === 'signoff-checkpoint') return [move];
   let selector: string;
   let writer: string;
-  if (act.kind === 'interview-picks' && act.question_id) {
-    selector = `--question ${shellWord(act.question_id)}`;
-    writer = `interview-answer ${shellWord(act.question_id)}`;
-  } else if (act.kind === 'parts-verdict' && act.draft_id) {
+  if (act.kind === 'parts-verdict' && act.draft_id) {
     selector = `--draft ${shellWord(act.draft_id)}`;
     writer = 'parts-review';
   } else if (act.kind === 'review-verdict' && act.stage === 'rig-review' && act.draft_id) {
@@ -587,11 +605,8 @@ function reviewCommands(dir: string, project: JsonObject, move: NextMove): NextM
     role: 'agent', field: move.field, awaits: move.awaits, command, act: description,
   });
   const root = shellWord(dir);
-  const chatMoves = act.kind === 'interview-picks' ? ownerChatPickMove(dir, project, move) : [];
-  const publish = `publish this Review page; ${OPEN_REVIEW_HOST}`
-    + (act.kind === 'interview-picks' ? '; one question at a time: publish it, wait with job acts --json --wait, ingest, then publish the next question' : '');
+  const publish = `publish this Review page; ${OPEN_REVIEW_HOST}`;
   return [
-    ...chatMoves,
     agent(`rig-create job open ${root} ${selector} --reviewer '<reviewer>' --role owner`, publish),
     move,
     agent(`rig-create job acts ${root} --json --wait`, `wait in the background for the person to submit in Review, then use the matching actId below${act.kind === 'parts-verdict' ? '; approval also records the prepared parts-review signature' : ''}`),
@@ -599,31 +614,23 @@ function reviewCommands(dir: string, project: JsonObject, move: NextMove): NextM
   ];
 }
 
-function stageQuestionCommands(dir: string, project: JsonObject, stage: string, questions: NextMove[]): NextMove[] {
+function stageQuestionCommands(dir: string, project: JsonObject, questions: { move: NextMove; meta: PendingQuestionMove }[]): NextMove[] {
   const root = shellWord(dir);
-  const questionIds = questions.map(move => move.review_act!.question_id);
-  const names = questionIds.join(', ');
-  const awaits = questions.map(move => move.awaits).join(', ');
-  const actArgs = questionIds.map(id => `--from-review ${shellWord(`<actId for ${id}>`)}`).join(' ');
-  const agent = (command: string, act: string): NextMove => ({ role: 'agent', field: 'interview', awaits, command, act });
+  const names = questions.map(({ meta }) => meta.questionId).join(', ');
+  const awaits = questions.map(({ move }) => move.awaits).join(', ');
   return [
-    agent(`rig-create job open ${root} --questions --reviewer '<reviewer>' --role owner`,
-      `${stage} question loop: publish the pending sets for ${names} on one Review page; ${OPEN_REVIEW_HOST}`),
-    ...questions,
-    agent(`rig-create job acts ${root} --json --wait`,
-      `wait in the background and collect one finalized actId for each question (${names}) from this publication; while only some have arrived, job acts reports waiting for n/K sets with no ingest command and --wait keeps waiting until every set has submitted`),
-    agent(`rig-create interview-answer --batch ${root} ${actArgs}`,
-      'ingest every finalized act from this page in a single write after the whole group has submitted. '
-      + 'If partial ingest or owner chat changes project.json, refresh the exact remaining sets with job open and one --question per set before the owner can submit. '
-      + 'Include every unresolved question from this page. Unrelated asks still block publication with JOB_ASK_PENDING'),
-    ...questions.flatMap(move => ownerChatPickMove(dir, project, move).map(chat => ({
-      ...chat,
-      act: `${chat.act}. If the page is already open, refresh the remaining sets before asking the owner to submit in Review`,
-    }))),
+    ...questions.flatMap(({ move, meta }) => [move, ...ownerChatPickMove(dir, project, move, meta.questionId)]),
+    {
+      role: 'agent',
+      field: 'interview',
+      awaits,
+      command: `rig-create job open ${root} --questions --reviewer '<reviewer>' --role owner`,
+      act: `optional: publish the pending sets for ${names} on one Review page to show their images for looking and commenting; ${OPEN_REVIEW_HOST}`,
+    },
   ];
 }
 
-function interviewQuestionMoves(dir: string, stageItems: Item[], effectiveStage: string, jobId?: string): NextMove[] {
+function interviewQuestionMoves(dir: string, stageItems: Item[], effectiveStage: string): NextMove[] {
   const moves: NextMove[] = [];
   for (const item of stageItems) {
     const answerField = item.path;
@@ -640,24 +647,19 @@ function interviewQuestionMoves(dir: string, stageItems: Item[], effectiveStage:
             optSetId = pendingOpts.path;
           }
         }
-        moves.push({
+        const move: NextMove = {
           role: 'human',
           field: pendingInterviewOptionsPath(item),
           awaits: answerField,
           command: null,
-          act: `review-tool act interview-picks for ${questionPath} (option set ${optSetId})`,
-          review_act: {
-            kind: 'interview-picks',
-            stage: effectiveStage,
-            question_id: item.id,
-            option_set_id: optSetId,
-            ...(jobId ? { job_id: jobId } : {}),
-          },
-        });
+          act: `ask the owner in chat for ${questionPath} (option set ${optSetId}), then relay the answer with interview-answer --owner-chat`,
+        };
+        pendingQuestionMoves.set(move, { stage: effectiveStage, questionId: item.id, optionSetId: optSetId });
+        moves.push(move);
       } else if (hasPendingOther(item)) {
         const followUp = item.id === 'post_composition'
           ? SCENE_OTHER_FOLLOW_UP
-          : `redraft the option-set file for ${item.id} with a tailored value option and register it for a Review pick, or re-answer with --other-fragment`;
+          : `redraft the option-set file for ${item.id} with a tailored value option and register it for an owner pick, or re-answer with --other-fragment`;
         moves.push({
           role: 'agent',
           field: answerField,
@@ -672,7 +674,7 @@ function interviewQuestionMoves(dir: string, stageItems: Item[], effectiveStage:
           field: answerField,
           awaits: answerField,
           command: optionCommand(item.id, dir),
-          act: `draft an option-set file for ${item.id}, then register it for a Review pick`,
+          act: `draft an option-set file for ${item.id}, then register it for an owner pick`,
           unanswered_by_record: pendingInterviewOptionsPath(item),
         });
       }
@@ -751,12 +753,20 @@ function interviewPlanMoves(dir: string, project: JsonObject, stageItems: Item[]
 }
 
 function runnableNextMoves(dir: string, project: JsonObject, effectiveStage: string, moves: NextMove[]): NextMove[] {
-  const stageQuestions = moves.filter(move => move.role === 'human' && !move.unanswered_by_record
-    && move.review_act?.kind === 'interview-picks' && move.review_act.stage === effectiveStage);
-  const groupedQuestions = stageQuestions.length > 1 ? new Set(stageQuestions) : null;
+  const stageQuestions = moves.flatMap(move => {
+    const meta = pendingQuestionMoves.get(move);
+    return meta && meta.stage === effectiveStage && !move.unanswered_by_record ? [{ move, meta }] : [];
+  });
+  const groupedQuestions = stageQuestions.length > 1 ? new Set(stageQuestions.map(entry => entry.move)) : null;
   return moves.flatMap(move => {
     if (groupedQuestions?.has(move)) {
-      return move === stageQuestions[0] ? stageQuestionCommands(dir, project, effectiveStage, stageQuestions) : [];
+      return move === stageQuestions[0]!.move ? stageQuestionCommands(dir, project, stageQuestions) : [];
+    }
+    const questionMeta = pendingQuestionMoves.get(move);
+    if (questionMeta) {
+      return questionMeta.stage === effectiveStage && !move.unanswered_by_record
+        ? questionCommands(dir, project, move, questionMeta)
+        : [move];
     }
     if (move.review_act && move.review_act.stage !== effectiveStage) return [move];
     if (move.review_act?.stage === 'direction-review' && move.review_act.kind === 'signoff'
@@ -1567,7 +1577,7 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
     const interviewCanContinue = holes.length === 0 && blockingRefusals.every(r => r.code === 'PLAN_STEP_PREDATES_ANSWER')
       && stage !== PAUSED_STAGE && isOpenInterviewStage(effectiveStage);
     const stepPlans = stepPlanQuestions(dir, project, stageItems);
-    const questions = interviewCanContinue ? [...stepPlans.moves, ...interviewQuestionMoves(dir, stepPlans.questionItems, effectiveStage, jobId)] : [];
+    const questions = interviewCanContinue ? [...stepPlans.moves, ...interviewQuestionMoves(dir, stepPlans.questionItems, effectiveStage)] : [];
     const plan = interviewCanContinue ? interviewPlanMoves(dir, project, stageItems, effectiveStage, steps) : undefined;
     const awaits = [...moves, ...questions].map(move => move.awaits);
     if (plan?.missingPlanIds.length) awaits.push('plan.steps');
@@ -1710,7 +1720,7 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
       if (kind === 'post') {
         if (effectiveStage === 'direction-review' && optionPublicationStage(project, effectiveStage, now) === 'post-interview') {
           const pendingPostItems = allItems.filter(item => item.kind === 'post' && pendingInterviewOptions(item));
-          const questions = interviewQuestionMoves(dir, pendingPostItems, effectiveStage, jobId);
+          const questions = interviewQuestionMoves(dir, pendingPostItems, effectiveStage);
           if (questions.length > 0) {
             for (const question of questions) addAwait(question.awaits);
             moves.push(...questions);
@@ -1966,7 +1976,7 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
     });
   } else if (isOpenInterviewStage(effectiveStage)) {
     const stepPlans = stepPlanQuestions(dir, project, stageItems);
-    for (const move of [...stepPlans.moves, ...interviewQuestionMoves(dir, stepPlans.questionItems, effectiveStage, jobId)]) {
+    for (const move of [...stepPlans.moves, ...interviewQuestionMoves(dir, stepPlans.questionItems, effectiveStage)]) {
       addAwait(move.awaits);
       moves.push(move);
     }

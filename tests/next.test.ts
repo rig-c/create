@@ -220,21 +220,18 @@ describe('Frozen Bar 1 — The chain is the answer key (example-chain checkpoint
           ['INTERVIEW_INCOMPLETE', 'interview.waypoints[assemble].guide'],
         ]);
         // Disagreement 1: interview.framing[0] (rig_type) has pending_options in project.json,
-        // so its move is human review-tool act interview-picks (not interview-answer --by user).
+        // so its moves are the human chat question step, owner-chat relay, and optional Review display.
         const interview = project.interview as { framing: Record<string, unknown>[]; waypoints: Record<string, unknown>[] };
         expect(interview.framing[0]?.pending_options).toBeDefined();
+        expect(chatMoves.map(m => m.field)).toEqual(['interview.framing[rig_type].pending_options']);
         expect(report.moves[0]).toMatchObject({
           role: 'human',
           field: 'interview.framing[rig_type].pending_options',
           awaits: 'interview.framing[rig_type].answer',
           command: null,
-          review_act: {
-            kind: 'interview-picks',
-            stage: 'interview',
-            question_id: 'rig_type',
-            option_set_id: 'chain-rig_type',
-          },
+          act: expect.stringContaining('ask the owner in chat for interview.framing[rig_type] (option set chain-rig_type)'),
         });
+        expect(report.moves[0]?.review_act).toBeUndefined();
         // Disagreement 2: reference, seethrough, assemble have no pending_options in project.json,
         // and plan.steps is [], so next names those missing fields in unanswered_by_record instead of guessing.
         expect(interview.framing[1]?.pending_options).toBeUndefined();
@@ -280,18 +277,15 @@ describe('Frozen Bar 1 — The chain is the answer key (example-chain checkpoint
           ['INTERVIEW_INCOMPLETE', 'interview.waypoints[motion].guide'],
         ]);
         // bones has pending_options in project.json; meshes, constraints, motion do not.
+        expect(chatMoves.map(m => m.field)).toEqual(['interview.waypoints[bones].pending_options']);
         expect(report.moves[0]).toMatchObject({
           role: 'human',
           field: 'interview.waypoints[bones].pending_options',
           awaits: 'interview.waypoints[bones].guide',
           command: null,
-          review_act: {
-            kind: 'interview-picks',
-            stage: 'rigging-interview',
-            question_id: 'bones',
-            option_set_id: 'chain-bones',
-          },
+          act: expect.stringContaining('ask the owner in chat for interview.waypoints[bones] (option set chain-bones)'),
         });
+        expect(report.moves[0]?.review_act).toBeUndefined();
         expect(report.moves[1]?.unanswered_by_record).toBe('interview.waypoints[meshes].pending_options');
         expect(report.moves[2]?.unanswered_by_record).toBe('interview.waypoints[constraints].pending_options');
         expect(report.moves[3]?.unanswered_by_record).toBe('interview.waypoints[turn].pending_options');

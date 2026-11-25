@@ -13,12 +13,14 @@
    `job open` selector or a bound writer. Repeat the project, reviewer and role
    on each open. A reused open publishes and exits while the original host
    keeps serving. Have the owner leave the page open for live updates.
-4. After publishing, run `rig-create job acts --wait` in the background.
-5. For a grouped question page, collect every act from that publication and
-   ingest the batch together. For a single act, use its printed
-   `--from-review` command. Ingest the current owner asks before sending a
-   new target. Run `advance` if the stage requires it, then publish the next
-   ask into the same host.
+4. After publishing a verdict ask, run `rig-create job acts --wait` in the background.
+5. Ingest the verdict with its printed `--from-review` command (for a legacy
+   grouped question page with stored acts, collect every act from that
+   publication and ingest the batch together). Ingest the current owner asks
+   before sending a new target. Run `advance` if the stage requires it, then
+   publish the next target into the same host. Option-set and plan publications
+   carry `subjects: []` for viewing and comments; interview answers and stage
+   sign-offs are asked in chat and relayed with `--owner-chat`.
 6. Use `job close` at the end, for an explicit act discard, or to retire the
    host across a [pin or hook bump](JOB-RETIREMENT.md). If the process stops
    while the job is active, run `job open` again in the background using the
@@ -276,7 +278,7 @@ The shared reader checks `rig-review/job-api@2` for semantic API responses,
 `rig-review/act@2` for historical acts and `rig-review/act@3` for rig stills, and the
 act's Parts enumerator version against `>=2.25.0 <4.0.0`. API@1 and act@1 are
 refused without migration. Rig/post `review-verdict` and draft `parts-verdict` use their respective writers.
-Interview picks use `interview-answer --from-review`. A passed `checkpoint` act is recorded by
+Interview answers are asked in chat and relayed with `interview-answer --owner-chat`; stored `interview-picks` acts still ingest through `interview-answer --from-review`. A passed `checkpoint` act is recorded by
 `signoff <stage> --checkpoint <id> --from-review <actId>`: the act's `planStepId` must be `<id>`, an
 enabled checkpoint `--checkpoint` accepts in that stage, and its displayed plan must be the current
 one. The sign-off takes `by`, `at` and the words from the act and names it in `source`; a `fail`
@@ -419,9 +421,11 @@ Review uses the option set's question ID as the heading and the authored
 `asks[].prompt` as the question wording.
 
 Every publication create acknowledges is followed, in the same process, by an
-ask for each subject it declares. Review's `next` response advertises
-`capabilities.askBatch: true` for the host. Create batches only record
-publications (option sets and plans), with up to 64 subjects per call.
+ask for each subject it declares. Fresh option-set and plan record publications
+declare `subjects: []` (showing the set, images or plan for viewing and
+comments without opening an ask). Review's `next` response advertises
+`capabilities.askBatch: true` for the host; Create batches any declared record
+subjects, with up to 64 subjects per call.
 A `draft`, `rig` or `post` selector publication uses one ask per subject,
 including when the host advertises the capability. That covers `draft-rig`, `rig-version`,
 `direction write`, `advance rig-review|direction-review`, `job reconcile`
@@ -449,37 +453,24 @@ Review's code. Run `job open` to retry the ask.
 | `interview` | record plan, using release-pinned Review 4.21.0 with the interview carrier ([Review #803](https://github.com/rig-c/review/pull/803), issue #800) | `job open --plan` after `interview --check` passes and the displayed plan has steps; ingest `signoff interview --from-review <actId>`, then `advance plan-approved` |
 
 Use `job open --questions` to publish the effective interview stage's
-registered pending sets on one Review page. The owner submits one act per
-set. Run `job acts <dir> --json --wait` and collect one finalized act ID for
-each set on that page before ingesting them together. While only some sets
-have submitted, `job acts` lists their acts as waiting for n/K sets with no
-ingest command, and `--wait` keeps waiting (within its timeout) until every
-set has an act. Then it prints the one `--batch` command. The acts all bind
-the same displayed project bytes, so ingesting any of them first would leave
-the rest stale.
-
-```sh
-rig-create job open <dir> --questions --reviewer <id> --role owner
-rig-create job acts <dir> --json --wait
-rig-create interview-answer --batch <dir> --from-review <actId-1> --from-review <actId-2> ...
-```
-
-Use `job open --question <id>` for a single set and ingest the resulting act
-with `interview-answer <id> <dir> --from-review <actId>`. Finish the current
-asks before opening a different target or it refuses `JOB_ASK_PENDING`.
-When the current post has a live changes-requested verdict, both question
-selectors can publish pending `post-interview` sets during active `direction-review`.
-`next` lists the owner picks before it offers the replacement post write.
-As an alternative to publishing, relay owner chat separately for each set
-with the displayed set hash and explicit option IDs.
-
-Review checks the exact displayed `project.json` bytes when the owner
-submits. If a partial ingest or owner-chat write changes those bytes, open a
-fresh publication in the same host before the owner submits any remaining
-answers. Use one `--question <id>` per remaining question and retain its exact
-option set. Include every unresolved ask that needs refreshing. Unrelated
-open asks and finalized acts awaiting ingest still block replacement with
+registered pending sets on one Review page, or `job open --question <id>` for a
+single set. Option-set publications carry `subjects: []`: Review shows the
+option sets and their images for looking and commenting, while the owner is
+asked in chat and each answer is relayed with `interview-answer --owner-chat`
+using the displayed set hash and explicit option IDs. When the current post has
+a live changes-requested verdict, both question selectors can publish pending
+`post-interview` sets during active `direction-review`, and `next` lists the
+owner-chat picks before it offers the replacement post write. Unrelated open
+asks and finalized acts awaiting ingest still block replacement with
 `JOB_ASK_PENDING`.
+
+For an already-open legacy question page with stored `interview-picks` acts,
+`job acts` lists partial arrivals as waiting for n/K sets with no ingest
+command, and `--wait` keeps waiting until every set has an act before printing
+the one `interview-answer --batch` command; a single stored act ingests with
+`interview-answer <id> <dir> --from-review <actId>`. Review checks the exact
+displayed `project.json` bytes on stored acts, so a partial ingest or owner-chat
+write makes remaining un-ingested acts stale unless withdrawn or refreshed.
 
 `interview-answer --from-review` reads picks at `rig-review/act@2` (package),
 `rig-review/act@4` (record) and `rig-review/act@6`, which adds the owner's

@@ -22,16 +22,15 @@ Read this before choosing work. It ranks every issue in this repository.
    blocks, and follow it until it lands. Don't work around the gap here.
 3. **Agents route verdict acts through the review tool.** Parts, rig and
    direction verdicts remain review-tool acts. Stage signoffs and interview
-   answers may also relay owner chat through the existing writers with
+   answers relay owner chat through the existing writers with
    `--owner-chat <words file> --said-at <ISO date> --relayed-by <operator>`
    and the owner's `--by`. Interview picks still bind the displayed set and
    option ids; verdict-bearing signoffs need the current accepted live verdict.
-   Shared context images do not remove an interview question from this route.
+   Shared context images and option images shown in Review do not remove an
+   interview question from this route.
    Typing a pick or signoff into a record without the owner's recorded words,
    or moving a stage by hand, remains a bypass: record a finding and file an
    issue; it never counts as done even when `check` passes.
-   If options ever carry their own images, those sets leave the chat path;
-   that requires a new Review contract outside this change. (2026-11-15)
 
    Direct owner instructions provide authority. Record the operator,
    reason file and owner's exact words through `plan checkpoint-withdraw` or

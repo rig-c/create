@@ -13,6 +13,7 @@ import {
 } from '@rig-c/review/job-host';
 import { EXAMPLE_NOW } from '../scripts/example-time.ts';
 import { checkProject } from '../src/check.ts';
+import { interviewAnswerCommand } from '../src/choice-writers.ts';
 import { diffClassesCommand } from '../src/diff-classes.ts';
 import { interviewCommand } from '../src/interview.ts';
 import { agentCall, readHostActsAndAsks } from '../src/job-acts.ts';
@@ -63,11 +64,32 @@ function copyCheckpoint(checkpoint: string, edit?: (project: JsonObject) => void
 }
 
 function isRetiredAskKind(kind: string): boolean {
-  return kind === 'signoff' || kind === 'checkpoint' || kind === 'reopen';
+  return kind === 'signoff' || kind === 'checkpoint' || kind === 'reopen' || kind === 'interview-picks';
 }
 
 test('publication carries no ask of any retired kind', async () => {
   const now = Math.max(EXAMPLE_NOW, Date.now());
+
+  // 0. Option-set publications carry the set and context images for looking and commenting, with no interview-picks ask.
+  const optionsRoot = copyCheckpoint('0a-interview-options');
+  const optionsPublished = readRecordPublished({
+    root: optionsRoot,
+    record: { path: 'project.json', sha256: jobHash(readFileSync(join(optionsRoot, 'project.json'))) },
+    result: { kind: 'option-set', questionId: 'rig_type', setId: 'chain-rig_type' },
+    phase: 'inventory',
+  }, now);
+  expect(optionsPublished.subjects).toEqual([]);
+  expect(optionsPublished.files.map(f => f.path)).toContain('evidence/interview/rig_type.json');
+  expect(optionsPublished.files.map(f => f.path)).toContain('inputs/painting.png');
+  const optionsHost = await openCreateJob(optionsRoot, reviewer, now, undefined, true);
+  hosts.push(optionsHost);
+  const optionsLines = await openRecordPublication(optionsRoot, optionsHost, 'rig_type', false, now);
+  expect(optionsLines).toHaveLength(1);
+  expect(optionsLines[0]).toMatch(/^job: option-set rig_type\/chain-rig_type published \(publication .+\)$/);
+  expect((await readHostActsAndAsks(optionsHost)).asks).toEqual([]);
+  const optionsNext = nextProject(optionsRoot, now);
+  expect(optionsNext.moves.some(m => m.command?.includes('--owner-chat'))).toBe(true);
+  expect(optionsNext.moves.some(m => m.command?.includes('--from-review') || m.command?.startsWith('rig-create job acts '))).toBe(false);
 
   // 1. Interview and plan-approved record publications carry no signoff or plan-approval asks.
   const interviewRoot = copyCheckpoint('0b-plan-pending', project => {
@@ -340,6 +362,98 @@ test('a stored sign-off act from before still ingests', async () => {
   expect(readFileSync(join(rigRoot, 'project.json'))).toEqual(signedRigBytes);
   expect(reviewActFindings(read(rigRoot))).toEqual([]);
   expect(checkProject(rigRoot, undefined, { now: now + 2000 }).refusals).toEqual([]);
+}, 30_000);
+
+test('a stored interview-picks act from before still ingests', async () => {
+  const now = Math.max(EXAMPLE_NOW, Date.now());
+  const picksRoot = copyCheckpoint('0a-interview-options');
+  const legacyPicksSubject = { kind: 'interview-picks' as const, questionId: 'rig_type', setId: 'chain-rig_type' };
+  const picksHost = await openCreateJob(picksRoot, reviewer, now, options => startJobHost({
+    ...options,
+    readRecordPublished: ((request: RecordPublicationRequest) => {
+      const context = readRecordPublished(request, now);
+      return context.plan !== null ? context : { ...context, subjects: [legacyPicksSubject] };
+    }) as typeof readRecordPublished,
+  }), true);
+  hosts.push(picksHost);
+  const picksResult = { kind: 'option-set' as const, questionId: 'rig_type', setId: 'chain-rig_type' };
+  enqueuePublication(picksRoot, readWriterBinding(picksRoot)!, picksResult);
+  await reconcileCreateJob(picksRoot, async entry => {
+    const requestId = randomUUID();
+    const reply = await agentCall(picksHost, {
+      verb: 'publish',
+      requestId,
+      idempotencyKey: requestId,
+      expectedGeneration: 0,
+      result: picksResult,
+      freeze: { kind: 'producer-held', holdId: entry.id, record: { path: 'project.json', sha256: entry.recordHash } },
+    });
+    expect(reply.ok).toBe(true);
+    const { publication, generation } = picksHost.session.status();
+    acknowledgePublication(entry, publication!.publicationId, generation, requestId, [legacyPicksSubject]);
+  });
+
+  const picksSession = picksHost.session as unknown as {
+    jobId: string;
+    store: { update(jobId: string, rev: null, fn: (row: { data: { generation: number; reviewer: { id: string; role: string }; publications: Record<string, { retained: { source: unknown } }>; asks: Record<string, unknown>; acts: Record<string, unknown> } }) => { data: unknown }): unknown };
+    event(data: unknown, value: object): unknown;
+  };
+  const picksPubId = picksHost.session.status().publication!.publicationId;
+  let picksActId = '';
+  picksSession.store.update(picksSession.jobId, null, ({ data }) => {
+    data.generation++;
+    const askId = randomUUID();
+    const source = data.publications[picksPubId]!.retained.source;
+    const ask = { askId, publicationId: picksPubId, subject: legacyPicksSubject, source, status: 'answered' };
+    data.asks[askId] = ask;
+    picksSession.event(data, { type: 'pending', ask: { ...ask, status: 'pending' } });
+    picksActId = randomUUID();
+    const act = parseCommentsAct({
+      schema: JOB_COMMENTS_ACT_SCHEMA,
+      actId: picksActId,
+      jobId: picksSession.jobId,
+      askId,
+      publicationId: picksPubId,
+      authority: { actor: 'human', channel: 'review-ui', reviewer: { ...data.reviewer } },
+      at: new Date(now).toISOString(),
+      kind: 'interview-picks',
+      source,
+      value: {
+        questionId: 'rig_type',
+        selections: [{ itemId: 'rig_type', optionId: 'keep', otherText: null }],
+        note: 'Keep the synthetic rig type.',
+        comments: [{ text: 'Pin on the synthetic rig type.' }],
+      },
+    });
+    data.generation++;
+    data.acts[picksActId] = act;
+    picksSession.event(data, { type: 'act', act });
+    return { data };
+  });
+
+  const picksBinding = readWriterBinding(picksRoot)!;
+  const fetchedPicks = await fetchReviewAct({
+    origin: picksBinding.origin,
+    jobId: picksBinding.jobId,
+    actId: picksActId,
+    fetchCapability: picksBinding.fetchCapability,
+    kind: 'interview-picks',
+  });
+  expect(JSON.parse(fetchedPicks.bytes)).toMatchObject({ schema: JOB_COMMENTS_ACT_SCHEMA, kind: 'interview-picks', actId: picksActId });
+  const answered = interviewAnswerCommand(['rig_type', picksRoot, '--from-review', picksActId], now + 1000, { fetch: () => fetchedPicks });
+  const savedBytes = readFileSync(join(picksRoot, 'project.json'));
+  expect(JSON.parse(answered)).toMatchObject({
+    by: 'user',
+    source: 'review questionnaire',
+  });
+  expect(arr(read(picksRoot).review_acts).at(-1)).toMatchObject({
+    kind: 'interview-picks',
+    jobId: picksBinding.jobId,
+    actId: picksActId,
+  });
+  expect(interviewAnswerCommand(['rig_type', picksRoot, '--from-review', picksActId], now + 2000, { fetch: () => fetchedPicks })).toBe(answered);
+  expect(readFileSync(join(picksRoot, 'project.json'))).toEqual(savedBytes);
+  expect(reviewActFindings(read(picksRoot))).toEqual([]);
 }, 30_000);
 
 test('a plan replace under a signed plan no longer refuses', () => {

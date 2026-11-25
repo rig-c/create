@@ -90,13 +90,13 @@ test('public composed example replaces and re-signs a completed composition step
       set: { path: 'evidence/interview/post_composition-002.json' },
       picks: [{ ask: 'post_composition', option_id: 'all-still' }],
     });
-    expect(composition.guide).toMatchObject({ by: 'user', source: 'review questionnaire' });
-    const pickReceipt = record.review_acts.find(({ kind, question }: JsonObject) => kind === 'interview-picks' && question === 'post_composition');
-    expect(pickReceipt).toBeDefined();
-    expect(JSON.parse(pickReceipt.bytes)).toMatchObject({
-      kind: 'interview-picks', at: composition.guide.at,
-      authority: { reviewer: { id: 'synthetic-owner', role: 'owner' } },
+    expect(composition.guide).toMatchObject({
+      by: 'synthetic-owner',
+      source: 'owner chat, relayed',
+      owner_words: 'Keep both plates still.\n',
+      relayed_by: 'agent',
     });
+    expect(record.review_acts.some(({ kind }: JsonObject) => kind === 'interview-picks')).toBe(false);
 
     const [amendment] = record.amendments.filter(({ target }: { target: { id: string } }) => target.id === 'post_composition');
     expect(amendment).toMatchObject({

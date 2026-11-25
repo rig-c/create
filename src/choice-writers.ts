@@ -14,6 +14,7 @@ import { WAYPOINT_ASKS } from './waypoints.ts';
 import { collectReopens, liveSignoff } from './reopen.ts';
 import { readProject } from './feedback.ts';
 import { readVerbatim } from './record-input.ts';
+import { assertTurnBody } from './rig-version.ts';
 import { refuse, USAGE_EXIT } from './refusal.ts';
 import { baselineOf, findingKey, newFindings, stoppedEarly } from './refusal-baseline.ts';
 import { CHOICE_ORDER_SPEC, CHOICE_SPEC, ChoiceError, assembleFragments, choiceAdoption, choiceVerbatim, literalFile, optionFile, refusalBaseline, selection, sha256, validateChoice, validateContext, validateSet } from './choices.ts';
@@ -404,7 +405,7 @@ export function interviewAnswerCommand(args: string[], now: number, hooks: Inter
     }
     if (drafts.length) {
       const next = structuredClone(project);
-      for (const draft of drafts) applyInterviewAnswer(dir, next, draft);
+      for (const draft of drafts) { assertTurnBody(draft.item.id, draft.answer, draft.item.path); applyInterviewAnswer(dir, next, draft); }
       save(file,dir,project,next,now,[],drafts.map(draft => ({ id: draft.item.id, correction: draft.correction })),original);
     }
     if (actIds.length) progress?.(drafts.length ? 'Review interview answer recorded' : 'Review interview answer already recorded');
@@ -469,6 +470,7 @@ export function interviewDecisionCommand(args: string[], now: number): string { 
     const pending = isObject(item.raw.agent_decision) && equal(Object.keys(item.raw.agent_decision),['covers']);
     const baseline = pending ? refusalBaseline(item.raw) : [];
     item.raw.agent_decision = {by:opts.one['--by'],at:new Date(now).toISOString(),reasoning:readText(opts.one['--reasoning-file']),covers:result.autos.join(','),fragments,value:assembleFragments(String((set.assembly as JsonObject).rule),fragments.map(f=>f.fragment))};
+    assertTurnBody(item.id,{agent_decision:item.raw.agent_decision},item.path);
     validateChoice(dir,next,item,item.raw); save(file,dir,project,next,now,baseline,[{id:item.id,correction:false}]); return JSON.stringify(item.raw.agent_decision);
   } finally { release(); }
 }); }

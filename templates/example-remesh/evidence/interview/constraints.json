@@ -4,15 +4,15 @@
   "question": "constraints",
   "stage": "rigging-interview",
   "drafted_by": "agent",
-  "drafted_at": "2026-11-24T00:00:41.000Z",
+  "drafted_at": "2026-11-25T00:00:41.000Z",
   "context": {
     "kind": "parts",
     "accepted_parts": {
-      "signoff_at": "2026-11-24T00:00:33.000Z",
+      "signoff_at": "2026-11-25T00:00:33.000Z",
       "evidence": {
         "kind": "parts-verdict",
-        "path": "evidence/review-reads/d6964579af3968252caa2339456d59419703423f6df66e34de36e97a920d33d7.json",
-        "sha256": "d6964579af3968252caa2339456d59419703423f6df66e34de36e97a920d33d7",
+        "path": "evidence/review-reads/101c9de8d7ba40fa4e7cae960ca4f6809e2c6e3301a6408e1783002d738a89be.json",
+        "sha256": "101c9de8d7ba40fa4e7cae960ca4f6809e2c6e3301a6408e1783002d738a89be",
         "spec": "rig-create/parts-verdict-cli@1"
       }
     },

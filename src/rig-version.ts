@@ -1773,32 +1773,57 @@ function depthAnswer(project: JsonObject, collection: JsonObject | null = null):
   };
 }
 
-/** Validate `body` on the `turn` guide value, delegated decision, and additions: only `body: true` with `mode: "depth"` is valid. */
+/** Records dated from this day refuse an invalid turn `body`; earlier records WARN (#1000, #1003). */
+export const TURN_BODY_SINCE = '2026-11-25T00:00:00Z';
+
+/** Invalid `body` findings on one `turn` answer, each with the `at` of the record that carries it. */
+export function turnBodyFindings(answer: JsonObject, itemPath: string): { finding: Finding; at: Json | undefined }[] {
+  const candidates: { value: Json | undefined; path: string; at: Json | undefined }[] = [];
+  if ('value' in answer) candidates.push({ value: answer.value, path: `${itemPath}.value`, at: answer.at });
+  if (isObject(answer.agent_decision) && 'value' in answer.agent_decision) {
+    candidates.push({ value: answer.agent_decision.value, path: `${itemPath}.agent_decision.value`, at: answer.agent_decision.at });
+  }
+  asArray(answer.additions).forEach((add, i) => {
+    if (isObject(add) && 'value' in add) candidates.push({ value: add.value, path: `${itemPath}.additions[${i}].value`, at: 'at' in add ? add.at : answer.at });
+  });
+  const findings: { finding: Finding; at: Json | undefined }[] = [];
+  for (const { value, path, at } of candidates) {
+    if (!isObject(value) || !('body' in value)) continue;
+    if (value.body === true && value.mode === 'depth') continue;
+    const bodyPath = `${path}.body`;
+    findings.push({ at, finding: {
+      code: 'TURN_BODY_VALUE_INVALID',
+      path: bodyPath,
+      message: `${bodyPath}: turn value accepts body only as true together with mode "depth" (got body ${JSON.stringify(value.body ?? null)} with mode ${JSON.stringify(value.mode ?? null)}); record { "mode": "depth", "body": true } for head and body, { "mode": "depth" } for head-only, or { "mode": "fixed" } for a fixed view`,
+    } });
+  }
+  return findings;
+}
+
+/** Writers refuse an invalid turn `body` they are about to record, whatever the clock: a new write is always current. */
+export function assertTurnBody(itemId: string, answer: JsonObject, itemPath: string): void {
+  if (itemId !== 'turn') return;
+  const first = turnBodyFindings(answer, itemPath)[0];
+  if (first) refuse(first.finding.code, first.finding.message);
+}
+
+/**
+ * Validate `body` on the `turn` guide value, delegated decision, and additions: only `body: true` with `mode: "depth"` is valid.
+ * Each value is dated by its own record (`at` of the answer, the agent decision, or the addition, falling back to the answer's).
+ * From TURN_BODY_SINCE, or with no readable date, the finding refuses; earlier records WARN with the same code.
+ */
 export function checkTurnValue(ctx: Ctx): void {
   const item = itemFor(ctx, 'turn');
   if (item === undefined) return;
-  const candidates: { value: Json | undefined; path: string }[] = [];
   const answer = item.state.state === 'user' || item.state.state === 'delegated'
     ? item.state.answer
     : isObject(item.raw) ? item.raw : null;
-  if (answer !== null) {
-    if ('value' in answer) candidates.push({ value: answer.value, path: `${item.path}.value` });
-    if (isObject(answer.agent_decision) && 'value' in answer.agent_decision) {
-      candidates.push({ value: answer.agent_decision.value, path: `${item.path}.agent_decision.value` });
-    }
-    asArray(answer.additions).forEach((add, i) => {
-      if (isObject(add) && 'value' in add) candidates.push({ value: add.value, path: `${item.path}.additions[${i}].value` });
-    });
-  }
-  for (const { value, path } of candidates) {
-    if (!isObject(value) || !('body' in value)) continue;
-    if (value.body === true && value.mode === 'depth') continue;
-    const at = `${path}.body`;
-    ctx.refusals.push({
-      code: 'TURN_BODY_VALUE_INVALID',
-      path: at,
-      message: `${at}: turn value accepts body only as true together with mode "depth" (got body ${JSON.stringify(value.body ?? null)} with mode ${JSON.stringify(value.mode ?? null)}); record { "mode": "depth", "body": true } for head and body, { "mode": "depth" } for head-only, or { "mode": "fixed" } for a fixed view`,
-    });
+  if (answer === null) return;
+  for (const { finding, at } of turnBodyFindings(answer, item.path)) {
+    const time = typeof at === 'string' ? Date.parse(at) : NaN;
+    if (Number.isFinite(time) && time < Date.parse(TURN_BODY_SINCE)) {
+      ctx.warnings.push({ ...finding, message: `${finding.message}; record dated ${String(at)} predates ${TURN_BODY_SINCE}, so preserve it and record a valid turn value with the next answer or decision` });
+    } else ctx.refusals.push(finding);
   }
 }
 

@@ -535,24 +535,30 @@ const OPEN_REVIEW_HOST = 'run the first open in the background and share its URL
 function reviewCommands(dir: string, project: JsonObject, move: NextMove): NextMove[] {
   const act = move.review_act;
   if (move.role !== 'human' || move.unanswered_by_record || move.field === 'pauses' || !act) return [move];
+  if (act.kind === 'signoff') {
+    let writer: string | undefined;
+    if (['interview', 'plan-approved', 'rigging-interview', 'post-interview', 'direction-review'].includes(act.stage)) {
+      writer = `signoff ${act.stage}`;
+    } else if (act.stage === 'parts-review' && act.draft_id) {
+      const structure = partsStructureSnapshot(dir, project, act.draft_id);
+      writer = `signoff parts-review --draft ${shellWord(act.draft_id)} --structure-file ${shellWord(structure.path)}`;
+    } else if (act.stage === 'rig-review' && act.version_id) {
+      writer = 'signoff rig-review';
+    }
+    const chatSignoff = writer ? ownerChatSignoffCommand(dir, project, act, writer) : undefined;
+    return chatSignoff
+      ? [{ ...move, command: chatSignoff, act: `${move.act}; or relay the owner chat signoff with exact words, owner date and relay identity`, review_act: undefined }, move]
+      : [move];
+  }
+  if (act.kind === 'signoff-checkpoint') return [move];
   let selector: string;
   let writer: string;
   if (act.kind === 'interview-picks' && act.question_id) {
     selector = `--question ${shellWord(act.question_id)}`;
     writer = `interview-answer ${shellWord(act.question_id)}`;
-  } else if (act.kind === 'signoff' && ['interview', 'plan-approved', 'rigging-interview', 'post-interview', 'direction-review'].includes(act.stage)) {
-    selector = '--plan';
-    writer = `signoff ${act.stage}`;
   } else if (act.kind === 'parts-verdict' && act.draft_id) {
     selector = `--draft ${shellWord(act.draft_id)}`;
     writer = 'parts-review';
-  } else if (act.kind === 'signoff' && act.stage === 'parts-review' && act.draft_id) {
-    selector = `--draft ${shellWord(act.draft_id)}`;
-    const structure = partsStructureSnapshot(dir, project, act.draft_id);
-    writer = `signoff parts-review --draft ${shellWord(act.draft_id)} --structure-file ${shellWord(structure.path)}`;
-  } else if (act.kind === 'signoff' && act.stage === 'rig-review' && act.version_id) {
-    selector = `--rig ${shellWord(act.version_id.slice(1))}`;
-    writer = 'signoff rig-review';
   } else if (act.kind === 'review-verdict' && act.stage === 'rig-review' && act.draft_id) {
     selector = `--draft ${shellWord(act.draft_id)}`;
     writer = `review --draft ${shellWord(act.draft_id)}`;
@@ -565,18 +571,14 @@ function reviewCommands(dir: string, project: JsonObject, move: NextMove): NextM
     role: 'agent', field: move.field, awaits: move.awaits, command, act: description,
   });
   const root = shellWord(dir);
-  const chatSignoff = ownerChatSignoffCommand(dir, project, act, writer);
-  let chatMoves: NextMove[] = [];
-  if (chatSignoff) {
-    chatMoves = [{ ...move, command: chatSignoff, act: `${move.act}; or relay the owner chat signoff with exact words, owner date and relay identity`, review_act: undefined }];
-  } else if (act.kind === 'interview-picks') chatMoves = ownerChatPickMove(dir, project, move);
+  const chatMoves = act.kind === 'interview-picks' ? ownerChatPickMove(dir, project, move) : [];
   const publish = `publish this Review page; ${OPEN_REVIEW_HOST}`
     + (act.kind === 'interview-picks' ? '; one question at a time: publish it, wait with job acts --json --wait, ingest, then publish the next question' : '');
   return [
     ...chatMoves,
     agent(`rig-create job open ${root} ${selector} --reviewer '<reviewer>' --role owner`, publish),
     move,
-    agent(`rig-create job acts ${root} --json --wait`, `wait in the background for the person to submit in Review, then use the matching actId below${act.kind === 'parts-verdict' ? '; approval also records the prepared parts-review signature' : act.stage === 'parts-review' ? '; run its reported legacy signoff preconditions before ingestion' : ''}`),
+    agent(`rig-create job acts ${root} --json --wait`, `wait in the background for the person to submit in Review, then use the matching actId below${act.kind === 'parts-verdict' ? '; approval also records the prepared parts-review signature' : ''}`),
     agent(`rig-create ${writer} ${root} --from-review '<actId>'`, 'ingest the matching exported Review act; never supply the human answer or words'),
   ];
 }
@@ -1995,9 +1997,7 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
             ? `review-tool act signoff for stage ${effectiveStage} (unanswered by record: ${pendingOtherFields.join(', ')} has pending Other; resolve INTERVIEW_CHOICE_REQUIRED before approval)`
             : undecidedFields.length > 0
               ? `review-tool act signoff for stage ${effectiveStage} (unanswered by record: ${undecidedFields.join(', ')} requires agent decision before approval)`
-              : effectiveStage === 'interview'
-                ? 'review-tool act signoff for stage interview on the record page with job open --plan; ingest signoff interview --from-review <actId>, then advance plan-approved'
-                : `review-tool act signoff for stage ${effectiveStage}`,
+              : `review-tool act signoff for stage ${effectiveStage}`,
         review_act: {
           kind: 'signoff',
           stage: effectiveStage,
@@ -2474,7 +2474,7 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
             field: `versions[v${postN}].verdicts`,
             awaits: verdictAwait,
             command: null,
-            act: `review-tool act review-verdict for versions[v${postN}] (direction-review) on the post page: job open --rig ${postN}; ingest with review ${postN} --from-review <actId>; then request record-page sign-off with job open --plan`,
+            act: `review-tool act review-verdict for versions[v${postN}] (direction-review) on the post page: job open --rig ${postN}; ingest with review ${postN} --from-review <actId>`,
             review_act: {
               kind: 'review-verdict',
               stage: 'direction-review',
@@ -2496,8 +2496,8 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
           command: null,
           act:
             postN === null
-              ? `after recording the current post and accepted direction verdict, request review-tool act signoff for direction-review on the record page with job open --plan (unanswered by record: ${missingScene ? 'scenes[n=1] and ' : ''}versions[n=${nextPostN}] are not recorded in project.json)`
-              : `after ingesting the accepted direction-review verdict for v${postN}, request review-tool act signoff on the record page with job open --plan, ingest signoff direction-review --from-review <actId>, then advance accepted`,
+              ? `after recording the current post and accepted direction verdict, review-tool act signoff for direction-review (unanswered by record: ${missingScene ? 'scenes[n=1] and ' : ''}versions[n=${nextPostN}] are not recorded in project.json)`
+              : `after ingesting the accepted direction-review verdict for v${postN}, record signoff for stage direction-review, then advance accepted`,
           review_act: {
             kind: 'signoff',
             stage: 'direction-review',

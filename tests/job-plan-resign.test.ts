@@ -23,15 +23,13 @@ function readJson(path: string): JsonObject {
   return JSON.parse(readFileSync(path, 'utf8')) as JsonObject;
 }
 
-async function commitOwnerAct(host: JobOwnerHost, kind: 'review-verdict' | 'signoff', value: object, picture?: Buffer) {
+async function commitOwnerAct(host: JobOwnerHost, kind: 'review-verdict', value: object, picture?: Buffer) {
   const { publication, generation } = host.session.status();
   if (!publication) throw Error('Review has no publication');
   const { publicationId, instanceKey, source: { sourceHash } } = publication;
   const { head, asks } = await readHostActsAndAsks(host);
   expect(head).toBe(publicationId);
-  const subject = kind === 'review-verdict'
-    ? { kind, stage: 'rig-review' } as const
-    : { kind, stage: 'rigging-interview' } as const;
+  const subject = { kind, stage: 'rig-review' } as const;
   const matches = asks.filter(ask => ask.subject.kind === subject.kind && ask.subject.stage === subject.stage);
   expect(matches.map(ask => ask.subject)).toEqual([subject]);
   const { askId } = matches[0]!;
@@ -147,14 +145,16 @@ test('#820 a routed motion comment can be re-signed in Review and cited by the n
     try {
       expect(host.reused).toBe(true);
       expect(pendingPublications(f.root)).toEqual([]);
-      expect(host.session.status().publication?.source).toMatchObject({ projectHash: jobHash(f.bytes()) });
+      expect(host.session.status().publication?.source).toMatchObject({ projectHash: jobHash(f.bytes()), subjects: [] });
       expect(f.additions()).toEqual(addition);
 
-      const act = await commitOwnerAct(host, 'signoff', { stage: 'rigging-interview', decision: 'approved', words: approval });
-      f.afterAct(act.at);
-      await f.success('signoff', 'rigging-interview', f.root, '--from-review', act.actId);
-      expect(arr(f.load().signoffs).at(-1)).toMatchObject({ stage: 'rigging-interview', by: 'user', verbatim: approval,
-        source: `review act ${act.jobId}/${act.actId}`, answer_hashes: { motion: expect.any(String) } });
+      const wordsFile = join(f.root, 'resign-approval.txt');
+      writeFileSync(wordsFile, approval);
+      const saidAt = new Date(f.now() - 500).toISOString();
+      await f.success('signoff', 'rigging-interview', f.root, '--by', reviewer.id,
+        '--owner-chat', wordsFile, '--said-at', saidAt, '--relayed-by', 'synthetic-operator');
+      expect(arr(f.load().signoffs).at(-1)).toMatchObject({ stage: 'rigging-interview', by: reviewer.id, verbatim: approval,
+        source: 'owner chat, relayed', answer_hashes: { motion: expect.any(String) } });
       expect((await f.inspect(0)).refusals).toEqual([]);
       expect(f.additions()).toEqual(addition);
 

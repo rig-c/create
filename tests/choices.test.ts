@@ -655,10 +655,10 @@ test.each([true, false])('#701 source plan with all picks = %s', allPicked => {
   if (!allPicked) {
     expect(code(() => signoffCommand(['interview', dir, '--from-picks']))).toBe('SIGNOFF_PICKS_REQUIRED');
     expect(readFileSync(record)).toEqual(before);
-    expect(next().moves.some(move => move.act.includes('job open --plan'))).toBe(true);
+    expect(next().moves.some(move => move.act.includes('job open --plan'))).toBe(false);
     const publication = readRecordPublished({ root: dir, record: { path: 'project.json', sha256: jobHash(before) },
       result: { kind: 'plan' }, phase: 'inventory' }, testClock.now()) as RecordPlanContext;
-    expect(publication.subjects).toEqual([{ kind: 'signoff', stage: 'interview' }]);
+    expect(publication.subjects).toEqual([]);
     expect(checkProject(dir).refusals).toEqual([]);
     expect(checkProject(dir).warnings).toEqual([]);
     return;

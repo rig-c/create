@@ -335,11 +335,11 @@ test('draft, question, then draft publish through the same live owner URL', asyn
   const back = await reopen(draftArgs);
   expect(back.exit, back.stderr).toBe(0);
   expect(back.stdout.trim().split('\n')[0]).toBe(draft.url.href);
-  const restored = await publication(root, draft.url, 1);
+  const restored = await publication(root, draft.url, 0);
   expect(back.stdout.trimEnd().split('\n')).toContain(`job: draft ${draftId} published (publication ${restored.head.publicationId})`);
   expect(restored.head.publicationId).not.toBe(owner.head.publicationId);
   expect(obj(restored.head.source).selector).toEqual(obj(initial.head.source).selector);
-  expect(restored.asks.map(ask => ask.subject)).toEqual([{ kind: 'signoff', stage: 'rigging-interview' }]);
+  expect(restored.asks.map(ask => ask.subject)).toEqual([]);
   expect(readFileSync(bindingFile)).toEqual(binding);
 }, 60_000);
 
@@ -438,38 +438,6 @@ test('record question public path, API@2 fetch, retry, stale source and wrong su
   const resolvedPick = obj(arr(obj(obj(resolvedAnswer).choice).picks)[0]);
   expect(resolvedPick.shown).toEqual({ label: 'Spine', effect: '24' });
   await reviseAfterAnswer(root, 'motion', '기록된 선택에 기존 모션 계획이 맞는지 확인했어요.');
-  await checked(root);
-}, 30_000);
-
-test.each(['rigging-interview', 'post-interview', 'parts'])('record %s plan public path and immutable retry', async stage => {
-  const root = synthetic(stage);
-  const opened = await open(root, ['--plan']);
-  const owner = await page(root, opened.url, 1);
-  const checkpoint = stage === 'parts';
-  const act = await owner.act(checkpoint ? 'checkpoint' : 'signoff', checkpoint ? 'checkpoint' : 'signoff', checkpoint
-    ? { checkpointId: 'assemble', outcome: 'pass', words: WORDS }
-    : { stage, decision: 'approved', words: WORDS });
-  expect(act.schema).toBe('rig-review/act@4');
-  const before = readFileSync(join(root, 'project.json'));
-  const args = ['signoff', stage, root, ...(checkpoint ? ['--checkpoint', 'assemble'] : []), '--from-review', String(act.actId)];
-  if (!checkpoint) {
-    writeFileSync(join(root, 'project.json'), Buffer.concat([before, Buffer.from(' ')]));
-    await unchanged(root, args, 'REVIEW_ACT_SOURCE_STALE');
-    writeFileSync(join(root, 'project.json'), before);
-  }
-  const result = await cli(root, args);
-  expect(result.exit, result.stderr).toBe(0);
-  const saved = readFileSync(join(root, 'project.json'));
-  expect(saved).not.toEqual(before);
-  expect(read(root).stage).toBe(stage);
-  const retry = await cli(root, args);
-  expect(retry.exit, retry.stderr).toBe(0);
-  expect(readFileSync(join(root, 'project.json'))).toEqual(saved);
-  expect((read(root).signoffs as JsonObject[]).at(-1)!.verbatim).toBe(WORDS);
-  if (!checkpoint) {
-    const advanced = await cli(root, ['advance', stage === 'rigging-interview' ? 'rigging' : 'post', root]);
-    expect(advanced.exit, advanced.stderr).toBe(0);
-  }
   await checked(root);
 }, 30_000);
 
@@ -669,9 +637,8 @@ test('record selectors refuse a legacy package-only host byte-identically with t
     legacy.stop();
   }
   const record = await open(root, ['--plan']);
-  expect(record.lines).toContain(
-    'job: asked signoff rigging-interview',
-  );
+  expect(record.lines).toHaveLength(1);
+  expect(record.lines[0]).toMatch(/^job: plan published \(publication .+\)$/);
 }, 20_000);
 
 
@@ -773,9 +740,10 @@ test('legacy post-only adoption reaches all three owner picks and the post move'
     const answer = await cli(root, ['interview-answer', question, root, '--from-review', String(act.actId)]);
     expect(answer.exit, answer.stderr).toBe(0);
   }
-  const owner = await page(root, await publishNext('--plan'), 1);
-  const act = await owner.act('signoff', 'signoff', { stage: 'post-interview', decision: 'approved', words: WORDS });
-  const signed = await cli(root, ['signoff', 'post-interview', root, '--from-review', String(act.actId)]);
+  const wordsFile = join(root, 'post-approval.txt');
+  writeFileSync(wordsFile, WORDS);
+  const signed = await cli(root, ['signoff', 'post-interview', root, '--by', 'synthetic-owner',
+    '--owner-chat', wordsFile, '--said-at', new Date(Date.now() - 1000).toISOString(), '--relayed-by', 'synthetic-operator']);
   expect(signed.exit, signed.stderr).toBe(0);
   const next = await cli(root, ['next', root]);
   expect(next.exit, next.stderr).toBe(0);

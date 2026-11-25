@@ -41,7 +41,7 @@ test('#665 a post-stage plan publication names the live post picture as a files 
   const context = readRecordPublished(planRequest(root), TEST_NOW);
   expect(context.planPicture).toEqual({ path: STILL_PATH, sha256: jobHash(STILL) });
   expect(context.files).toContainEqual(context.planPicture!);
-  expect(context.subjects).toEqual([{ kind: 'signoff', stage: 'direction-review' }]);
+  expect(context.subjects).toEqual([]);
 
   const info = statSync(root);
   const request = planRequest(root);

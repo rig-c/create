@@ -681,15 +681,12 @@ function checkPlan(ctx: Ctx, replaced: JsonObject[], now: number): void {
       continue;
     }
     const checkpoint = classify(record.checkpoint, { collection: null });
-    if (signed(approving, approvedBy)) {
-      if (checkpoint.state === 'silent') {
-        ctx.refusals.push({ code: 'CHECKPOINT_UNANSWERED', path: `${path}.checkpoint`, message: `${path}.checkpoint is null, yet ${approvedBy} is signed; the user sets each step's checkpoint (or delegates it) before signing` });
-      } else if (
-        checkpoint.state === 'delegated' &&
-        (!checkpoint.decided || typeof (checkpoint.answer.agent_decision as JsonObject).value !== 'boolean')
-      ) {
-        ctx.refusals.push({ code: 'DELEGATION_UNDECIDED', path: `${path}.checkpoint`, message: `${path}.checkpoint: delegated, but agent_decision has no boolean value and reasoning, and ${approvedBy} is signed` });
-      }
+    if (
+      signed(approving, approvedBy) &&
+      checkpoint.state === 'delegated' &&
+      (!checkpoint.decided || typeof (checkpoint.answer.agent_decision as JsonObject).value !== 'boolean')
+    ) {
+      ctx.refusals.push({ code: 'DELEGATION_UNDECIDED', path: `${path}.checkpoint`, message: `${path}.checkpoint: delegated, but agent_decision has no boolean value and reasoning, and ${approvedBy} is signed` });
     }
     if (checkpoint.state === 'malformed') {
       ctx.refusals.push({ code: 'ANSWER_MALFORMED', path: `${path}.checkpoint`, message: `${path}.checkpoint: ${checkpoint.why}` });

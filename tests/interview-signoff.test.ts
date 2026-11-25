@@ -7,7 +7,6 @@ import { checkProject } from '../src/check.ts';
 import { interviewCommand } from '../src/interview.ts';
 import { currentJobIdentity, readRecordPublished, type RecordPlanContext } from '../src/job-publication.ts';
 import { JOB_BINDING_FILE, jobHash, jobPrivateRoot, writePrivateJson } from '../src/job-outbox.ts';
-import { nextProject } from '../src/next.ts';
 import { pauseCommand } from '../src/pause.ts';
 import { reviewActFindings } from '../src/review-act.ts';
 import { assertInterviewRecordSignable } from '../src/signable.ts';
@@ -45,45 +44,6 @@ afterEach(() => {
   }
 });
 
-test('#475 clean interview declares the record signoff without changing bytes or approving plan steps', () => {
-  const root = cleanInterview();
-  const checked = interviewCommand(['--check', root, '--json'], TEST_NOW);
-  expect(checked.exit).toBe(0);
-  const before = bytes(root);
-  const context = publication(root);
-  expect(context.subjects).toEqual([{ kind: 'signoff', stage: 'interview' }]);
-  expect(context.plan.steps.length).toBeGreaterThan(0);
-  expect(bytes(root)).toEqual(before);
-  const nextReport = nextProject(root, TEST_NOW);
-  const move = nextReport.moves.find(move => move.review_act?.stage === 'interview' && move.review_act.kind === 'signoff');
-  expect(move?.act).toContain('signoff interview --from-review <actId>');
-  expect(move).toMatchObject({ command: null, act: expect.stringContaining('job open --plan') });
-});
-
-test.each(['empty', 'absent'])('#475 %s plan refuses by code without writing and next still awaits plan.steps', state => {
-  const root = cleanInterview();
-  const project = read(root);
-  if (state === 'empty') (project.plan as JsonObject).steps = [];
-  else delete project.plan;
-  save(root, project);
-  unchanged(root, 'INTERVIEW_SIGNOFF_PLAN_REQUIRED', () => publication(root));
-  const next = nextProject(root, TEST_NOW);
-  expect(next.awaits).toContain('plan.steps');
-  expect(next.moves.find(move => move.review_act?.stage === 'interview' && move.review_act.kind === 'signoff')).toMatchObject({
-    command: null, unanswered_by_record: 'plan.steps', act: expect.stringContaining('plan.steps is empty'),
-  });
-});
-
-test('#475 full interview check refusal blocks publication byte-identically, including pre-interview history', () => {
-  const root = cleanInterview();
-  const project = read(root);
-  project.versions = [{ n: 1, config_lost: { note: '', source: '' } }];
-  save(root, project);
-  const checked = JSON.parse(interviewCommand(['--check', root, '--json'], TEST_NOW).stdout);
-  expect(checked.refusals.map((f: { code: string }) => f.code)).toContain('PRE_INTERVIEW_CONFIG_LOST_MALFORMED');
-  unchanged(root, 'INTERVIEW_SIGNOFF_NOT_CLEAN', () => publication(root));
-});
-
 test('#475 paused effective interview keeps its earlier publication subjects and bytes', () => {
   const root = cleanInterview();
   const words = join(root, 'pause.txt'); writeFileSync(words, 'Pause the synthetic interview.');
@@ -117,7 +77,11 @@ async function actFor(root: string, context: RecordPlanContext): Promise<JsonObj
   const retained = await prepareJobRecordSource({ root: { path: root, dev: info.dev, ino: info.ino },
     stateRoot: join(root, '.synthetic-snapshots'), fingerprint: 'synthetic',
     request: { freeze: { kind: 'producer-held', holdId: 'synthetic-hold', record }, result: { kind: 'plan' } },
-    readRecordPublished: (() => ({ ...context, files: context.files.map(file => file.path === 'project.json' ? record : file) })) as unknown as NonNullable<Parameters<typeof prepareJobRecordSource>[0]['readRecordPublished']>,
+    readRecordPublished: (() => ({
+      ...context,
+      subjects: [{ kind: 'signoff', stage: 'interview' }],
+      files: context.files.map(file => file.path === 'project.json' ? record : file),
+    })) as unknown as NonNullable<Parameters<typeof prepareJobRecordSource>[0]['readRecordPublished']>,
   });
   return { schema: 'rig-review/act@4', kind: 'signoff', jobId, actId: 'synthetic-act', askId: 'synthetic-ask', publicationId: 'synthetic-publication',
     at: new Date(TEST_NOW).toISOString(), authority: { actor: 'human', channel: 'review-ui', reviewer: { id: 'synthetic-owner', role: 'owner' } },

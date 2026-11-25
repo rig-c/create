@@ -58,19 +58,21 @@ test('#467 next routes direction verdict ingest to record-page sign-off', () => 
   const pendingSignoff = before.moves.find(move => move.review_act?.kind === 'signoff' && move.review_act.stage === 'direction-review');
   expect(pendingSignoff).toBeDefined();
   expect(pendingSignoff?.act).toContain('after ingesting the accepted direction-review verdict for v2');
-  expect(pendingSignoff?.act).toContain('job open --plan');
+  expect(pendingSignoff?.act).not.toContain('job open --plan');
 
   post.verdicts = accepted!;
   writeFileSync(file, `${JSON.stringify(project, null, 2)}\n`);
   const after = nextProject(dir, CHAIN_NOW);
   expect(after.refusals).toEqual([]);
   expect(after.moves.some(move => move.review_act?.kind === 'review-verdict' && move.review_act.stage === 'direction-review')).toBe(false);
+  expect(after.moves.some(move => move.command?.includes('--plan'))).toBe(false);
+  expect(after.moves.some(move => move.command?.includes('signoff direction-review') && move.command.includes('--owner-chat'))).toBe(true);
   const blockedSignoff = after.moves.find(move => move.review_act?.kind === 'signoff' && move.review_act.stage === 'direction-review');
   expect(blockedSignoff).toBeDefined();
-  expect(blockedSignoff?.act).toContain('ingest signoff direction-review --from-review <actId>, then advance accepted');
+  expect(blockedSignoff?.act).not.toContain('job open --plan');
   expect(blockedSignoff).toMatchObject({
     command: null,
-    act: expect.stringContaining('record page with job open --plan'),
+    act: expect.stringContaining('record signoff for stage direction-review, then advance accepted'),
     review_act: { kind: 'signoff', stage: 'direction-review', version_id: 'v2' },
   });
 });
@@ -1462,17 +1464,15 @@ test('#478 answered rigging guides request plan steps before the publishable sig
   }
   const after = nextProject(dir, CHAIN_NOW);
   expect(after.refusals).toEqual([]);
-  expect(after.moves).toHaveLength(5);
+  expect(after.moves).toHaveLength(2);
   expect(after.moves[0]!.command).toContain('--owner-chat');
-  expect(after.moves[2]).toMatchObject({ role: 'human', review_act: { kind: 'signoff', stage: 'rigging-interview' } });
-  expect(after.moves[2]!.unanswered_by_record).toBeUndefined();
+  expect(after.moves[1]).toMatchObject({ role: 'human', review_act: { kind: 'signoff', stage: 'rigging-interview' } });
+  expect(after.moves[1]!.unanswered_by_record).toBeUndefined();
   expect(after.awaits).toEqual(['signoffs[stage=rigging-interview]']);
   const context = readRecordPublished({ root: dir,
     record: { path: 'project.json', sha256: sha256(readFileSync(join(dir, 'project.json'))) },
     result: { kind: 'plan' }, phase: 'inventory' }, CHAIN_NOW);
-  expect(context.subjects).toEqual([
-    { kind: 'signoff', stage: 'rigging-interview' },
-  ]);
+  expect(context.subjects).toEqual([]);
 });
 
 
@@ -3072,7 +3072,8 @@ test('#656 after a reopen to rigging-interview with a lapsed post-interview sign
   });
 
   const rigMoves = report.moves.filter(m => m.awaits === 'signoffs[stage=rigging-interview]');
-  expect(rigMoves.some(m => m.role === 'agent' && m.command?.includes('job open') && m.command.includes('--plan'))).toBe(true);
+  expect(rigMoves.some(m => m.command?.includes('--plan'))).toBe(false);
+  expect(rigMoves.some(m => m.role === 'human' && m.command?.includes('signoff rigging-interview') && m.command.includes('--owner-chat'))).toBe(true);
 });
 
 test.each([

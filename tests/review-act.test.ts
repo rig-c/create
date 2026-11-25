@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { cpSync, existsSync, linkSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { JOB_CHEST_LANDMARKS_ACT_SCHEMA, JOB_COMMENT_ONLY_ACT_SCHEMA, JOB_COMMENTS_ACT_SCHEMA, projectComments, startJobHost, type JobComment, type JobOwnerHost, type JobVerdict } from '@rig-c/review/job-host';
+import { JOB_CHEST_LANDMARKS_ACT_SCHEMA, JOB_COMMENT_ONLY_ACT_SCHEMA, JOB_COMMENTS_ACT_SCHEMA, parseCommentsAct, projectComments, startJobHost, type JobComment, type JobOwnerHost, type JobVerdict } from '@rig-c/review/job-host';
 import { collectItems, type Finding } from '../src/check.ts';
 import { main } from '../src/cli.ts';
 import { optionContext } from '../src/choices.ts';
@@ -25,7 +25,6 @@ import { advanceCommand, checkProject, directionCommand, inputCommand, planComma
 import { composeFixture, composeRunFixture } from './direction-compose-fixture.ts';
 import { plantLegacyReopen, fixture } from './fixtures.ts';
 import { clockedCli, staleRecordPlant, treeDigest } from './helpers.ts';
-import { legacyRigPublicationCli } from './legacy-rig-publication.ts';
 import { meshEdits } from './mesh-edit-fixture.ts';
 import { EXAMPLE_NOW, EXAMPLE_REOPEN_AT } from '../scripts/example-time.ts';
 
@@ -81,9 +80,10 @@ async function published(checkpoint = '3-rig-review', n = 1, role: 'owner' | 'de
     ...(attachable === 'record-and-package' ? { publicationMode: attachable } : {}) }, root);
   let reader = existing?.reader ?? readPublished;
   if (legacySubjects) {
-    const runtime = temporary('create-act-legacy-');
-    legacyRigPublicationCli(runtime);
-    reader = (await import(join(runtime, 'src/job-publication.ts'))).readPublished;
+    reader = async input => {
+      const context = await readPublished(input);
+      return { ...context, subjects: [...context.subjects, { kind: 'signoff' as const, stage: 'rig-review' as const }] };
+    };
   }
   let writerGrant: Pick<WriterBinding, 'jobId' | 'origin' | 'fetchCapability'> | undefined;
   const host = await startJobHost({ ...identity, partsEnumerator, readPublished: reader,
@@ -293,26 +293,44 @@ test('#888 signoff rig-review and handoff require acceptance of the latest live 
   expect(handoff.after.equals(handoff.before)).toBe(true);
 }, 180_000);
 
+function seedStoredPackageSignoff(host: JobOwnerHost, publicationId: string, words: string): { actId: string; at: string } {
+  const session = host.session as unknown as {
+    jobId: string;
+    store: { update(jobId: string, rev: null, fn: (row: { data: { generation: number; reviewer: { id: string; role: string }; publications: Record<string, { retained: { source: unknown } }>; asks: Record<string, unknown>; acts: Record<string, unknown> } }) => { data: unknown }): unknown };
+    event(data: unknown, value: object): unknown;
+  };
+  let stored!: { actId: string; at: string };
+  session.store.update(session.jobId, null, ({ data }) => {
+    data.generation++;
+    const askId = randomUUID();
+    const source = data.publications[publicationId]!.retained.source;
+    const ask = { askId, publicationId, subject: { kind: 'signoff', stage: 'rig-review' }, source, status: 'answered' };
+    data.asks[askId] = ask;
+    session.event(data, { type: 'pending', ask: { ...ask, status: 'pending' } });
+    const at = new Date().toISOString();
+    const actId = randomUUID();
+    const act = parseCommentsAct({
+      schema: JOB_COMMENTS_ACT_SCHEMA, actId, jobId: session.jobId, askId, publicationId,
+      authority: { actor: 'human', channel: 'review-ui', reviewer: { ...data.reviewer } },
+      at, kind: 'signoff', source, value: { stage: 'rig-review', decision: 'approved', comments: [{ text: words }] },
+    });
+    data.generation++;
+    data.acts[actId] = act;
+    session.event(data, { type: 'act', act });
+    stored = { actId, at };
+    return { data };
+  });
+  return stored;
+}
+
 async function preparePublishedRigSignoff(view: Awaited<ReturnType<typeof published>>) {
-  const { root, host, agent, uiRequest, publication } = view;
-  const ask = await agent('ask', { publicationId: publication.publicationId, subject: { kind: 'signoff', stage: 'rig-review' } });
-  const displayed = await host.ports.ackDisplayed(host.session.jobId, uiRequest('displayed', {
-    publicationId: publication.publicationId, pageId: 'reopened-sign-page', sourceHash: (publication.source as JsonObject).sourceHash,
-  }));
-  expect(displayed.ok).toBe(true);
-  if (!displayed.ok) throw Error(displayed.error.code);
-  const signed = await host.ports.commitUIAct(host.session.jobId, uiRequest('acts', {
-    publicationId: publication.publicationId, askId: ask.askId, pageId: 'reopened-sign-page', displayedNonce: displayed.value.displayedNonce,
-    expectedGeneration: host.session.status().generation, submissionId: randomUUID(), kind: 'signoff',
-    value: { stage: 'rig-review', decision: 'approved', words: 'Sign the displayed synthetic rig.' },
-  }));
-  expect(signed.ok).toBe(true);
-  if (!signed.ok) throw Error(signed.error.code);
-  testClock.set(Math.max(testClock.now(), Date.parse(signed.value.at)));
+  const { root, host, publication } = view;
+  const signed = seedStoredPackageSignoff(host, String(publication.publicationId), 'Sign the displayed synthetic rig.');
+  testClock.set(Math.max(testClock.now(), Date.parse(signed.at)));
   // Finalize against the displayed record now; ingest only after its verdict is recorded.
   return async () => {
     const child = Bun.spawn([process.execPath, ...clockedCli(), 'signoff', 'rig-review', root,
-      '--from-review', signed.value.actId, '--json'], { stdout: 'pipe', stderr: 'pipe' });
+      '--from-review', signed.actId, '--json'], { stdout: 'pipe', stderr: 'pipe' });
     const [stdout, stderr, exit] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
     return { stdout, stderr, exit };
   };
@@ -1283,21 +1301,13 @@ test('removed file route refuses by name before opening a file and preserves pro
 
 
 test('g2 publication verdict and signoff ingest through the writers and check', async () => {
-  const { root, act, agent, uiRequest, publication, host } = await published('3-rig-review', 1, 'owner', 'Approved.', 'approved', 2, true);
+  const { root, act, publication, host } = await published('3-rig-review', 1, 'owner', 'Approved.', 'approved', 2, true);
   expect(act.source.package).toEqual({ id: 'create-v1', revision: 'v1-g2' });
-  const ask = await agent('ask', { publicationId: publication.publicationId, subject: { kind: 'signoff', stage: 'rig-review' } });
-  const displayed = await host.ports.ackDisplayed(host.session.jobId, uiRequest('displayed', { publicationId: publication.publicationId, pageId: 'sign-page', sourceHash: (publication.source as JsonObject).sourceHash }));
-  if (!displayed.ok) throw Error(displayed.error.code);
-  const signed = await host.ports.commitUIAct(host.session.jobId, uiRequest('acts', {
-    publicationId: publication.publicationId, askId: ask.askId, pageId: 'sign-page', displayedNonce: displayed.value.displayedNonce,
-    expectedGeneration: host.session.status().generation, submissionId: 'sign-submission', kind: 'signoff', value: { stage: 'rig-review', decision: 'approved', words: 'Sign this rig.' },
-  }));
-  expect(signed.ok).toBe(true);
-  if (!signed.ok) throw Error(signed.error.code);
-  testClock.set(Math.max(testClock.now(), Date.parse(signed.value.at)));
+  const signed = seedStoredPackageSignoff(host, String(publication.publicationId), 'Sign this rig.');
+  testClock.set(Math.max(testClock.now(), Date.parse(signed.at)));
   const verdict = await command(root, act.actId);
   expect(verdict.stderr).toBe(''); expect(verdict.exit).toBe(0);
-  const child = Bun.spawn([process.execPath, ...clockedCli(), 'signoff', 'rig-review', root, '--from-review', signed.value.actId], { stdout: 'pipe', stderr: 'pipe' });
+  const child = Bun.spawn([process.execPath, ...clockedCli(), 'signoff', 'rig-review', root, '--from-review', signed.actId], { stdout: 'pipe', stderr: 'pipe' });
   const [stderr, exit] = await Promise.all([new Response(child.stderr).text(), child.exited]);
   expect(stderr).toBe(''); expect(exit).toBe(0);
   expect(advanceCommand(['post-interview', root]).exit).toBe(0);

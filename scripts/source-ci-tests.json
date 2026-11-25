@@ -111,11 +111,6 @@
   },
   {
     "file": "tests/sign-subjects.test.ts",
-    "name": "a draft published at an enabled parts checkpoint carries it, and the passed act is the checkpoint sign-off",
-    "reason": "Exercises published Review behavior under sibling source resolution"
-  },
-  {
-    "file": "tests/sign-subjects.test.ts",
     "name": "an act for a subject create did not declare refuses by name and leaves the record byte-identical",
     "reason": "Exercises published Review behavior under sibling source resolution"
   },
@@ -155,11 +150,6 @@
     "reason": "Exercises published Review behavior under sibling source resolution"
   },
   {
-    "file": "tests/job-refresh.test.ts",
-    "name": "legacy approved unsigned parts refresh preserves JOB_RECORD_MOVED and the separate signoff route",
-    "reason": "Exercises published Review behavior under sibling source resolution"
-  },
-  {
     "file": "tests/pins.test.ts",
     "name": "CLI job open, draft-rig publish, reconcile, and close succeed on a synthetic project in linked source condition",
     "reason": "Exercises published Review behavior under sibling source resolution"
@@ -188,11 +178,6 @@
   {
     "file": "tests/interview-signoff.test.ts",
     "name": "#475 record interview ingest rejects wrong stage stale source and unclean records without writing",
-    "reason": "Exercises release-pinned Review record interview sign-off under sibling source resolution."
-  },
-  {
-    "file": "tests/job-refresh.test.ts",
-    "name": "#475 source-linked clean interview record signoff ingests advances and offers plan-approved",
     "reason": "Exercises release-pinned Review record interview sign-off under sibling source resolution."
   },
   {
@@ -259,10 +244,5 @@
     "file": "tests/job-acts.test.ts",
     "name": "#698 wait wakes on a finalized pick and reuses the strict attach without timer re-listing",
     "reason": "Exercises the host-bound waiter against the pinned Review source"
-  },
-  {
-    "file": "tests/direction-review-publication.test.ts",
-    "name": "#881 Review retains the direction summary without changing record source identity",
-    "reason": "Requires the display-only direction projection from Review #1111"
   }
 ]

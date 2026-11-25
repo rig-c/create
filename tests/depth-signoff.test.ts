@@ -5,13 +5,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { checkProject } from '../src/check.ts';
 import { interviewCommand } from '../src/interview.ts';
-import { requestedRecordResult } from '../src/job-host.ts';
 import { currentJobIdentity, readRecordPublished, type RecordPlanContext } from '../src/job-publication.ts';
 import { JOB_BINDING_FILE, jobHash, jobPrivateRoot, writePrivateJson } from '../src/job-outbox.ts';
 import { nextProject } from '../src/next.ts';
 import { OWN_NODE_MODULES } from '../src/parts-sections.ts';
 import { planCommand } from '../src/plan-writers.ts';
-import { Refusal } from '../src/refusal.ts';
 import { signoffCommand } from '../src/signoff.ts';
 import { stageIndex } from '../src/stages.ts';
 import { stepHash } from '../src/step-hash.ts';
@@ -68,9 +66,13 @@ async function actFor(root: string, bypass?: RecordPlanContext): Promise<JsonObj
     stateRoot: join(root, '.synthetic-snapshots'), fingerprint: 'synthetic',
     request: { freeze: { kind: 'producer-held', holdId: 'synthetic-hold', record }, result: { kind: 'plan' } },
     readRecordPublished: bypass ? (() => ({ ...bypass,
+      subjects: [{ kind: 'signoff', stage: 'rigging-interview' }],
       plan: { steps: arr(obj(project.plan).steps).map(obj).map(step => ({ id: String(step.id), hash: stepHash(step) })) },
       files: bypass.files.map(file => file.path === 'project.json' ? record : file) })) as unknown as NonNullable<Parameters<typeof prepareJobRecordSource>[0]['readRecordPublished']>
-      : ((input: Parameters<typeof readRecordPublished>[0]) => readRecordPublished(input, now)) as typeof readRecordPublished,
+      : ((input: Parameters<typeof readRecordPublished>[0]) => ({
+          ...readRecordPublished(input, now),
+          subjects: [{ kind: 'signoff' as const, stage: 'rigging-interview' as const }],
+        })) as unknown as NonNullable<Parameters<typeof prepareJobRecordSource>[0]['readRecordPublished']>,
   });
   return { schema: 'rig-review/act@4', kind: 'signoff', jobId, actId: 'synthetic-act', askId: 'synthetic-ask', publicationId: 'synthetic-publication',
     at: new Date(now).toISOString(), authority: { actor: 'human', channel: 'review-ui', reviewer: { id: 'synthetic-owner', role: 'owner' } },
@@ -95,8 +97,13 @@ test('#562 depth after bones refuses before signoff and next gives the reorder m
   expect(next.refusals.map(finding => finding.code)).toEqual(['RIG_DEPTH_PLAN_MISSING']);
   expect(next.moves).toContainEqual(expect.objectContaining({ act: expect.stringContaining('plan revise turn --order <before the first rigging step>') }));
   expect(next.moves.some(move => move.review_act?.kind === 'signoff')).toBe(false);
-  refusesUnchanged(root, 'JOB_RECORD_INCOMPLETE', () => requestedRecordResult(root, undefined, true, now));
-  try { publication(root); } catch (error) { expect((error as Refusal).message).toContain('RIG_DEPTH_PLAN_MISSING'); }
+  const words = join(root, 'approval.txt');
+  writeFileSync(words, 'Approve the synthetic plan.');
+  const before = bytes(root);
+  expect(() => signoffCommand(['rigging-interview', root, '--by', 'user', '--verbatim-file', words], now))
+    .toThrow(expect.objectContaining({ code: 'RIG_DEPTH_PLAN_MISSING' }));
+  // Ignore the scratch words file outside project.json: project.json itself stays byte-identical.
+  expect(bytes(root)).toEqual(before);
 });
 
 test('#562 missing depth step gives the add move', () => {
@@ -110,7 +117,7 @@ test('#562 old depth answers retain HEAD_TURN_SINCE WARN and may publish', () =>
   const report = checkProject(root, undefined, { now });
   expect(report.refusals).toEqual([]);
   expect(report.warnings.map(finding => finding.code)).toContain('RIG_DEPTH_PLAN_MISSING');
-  expect(publication(root).subjects).toContainEqual({ kind: 'signoff', stage: 'rigging-interview' });
+  expect(publication(root).subjects).toEqual([]);
 });
 
 test('#562 reordered depth plan publishes and fully ingests while retaining array-bound identities', async () => {

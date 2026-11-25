@@ -28,7 +28,6 @@ export const PLAN_HELP = `plan add|revise|remove|replace <id> [<project dir>] --
   Write --does, --produces, --bar and --reason in the owner's declared language.
   Add and revise stamp the current step's drafted_at. Revise/remove/replace retain the full previous step in plan.replaced[].
   Any step may be revised, removed or replaced, signed or completed; no amendment is required.
-  Under a signed plan, a new or replaced step starts with checkpoint null and needs the owner's checkpoint answer (CHECKPOINT_UNANSWERED).
   Dates follow approval ownership: parts/legacy rig update drafted_at and drafted_by,
   production rigging updates rigging_drafted_at, and post preserves plan dates.
   Each candidate passes check's refusal delta before writing.

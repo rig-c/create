@@ -6,6 +6,8 @@ import { checkpointEnabled, checkpointRequired, completedPlanStepNeedsAmendment,
 import { createHash } from 'node:crypto';
 import { existsSync, lstatSync, readdirSync, readFileSync, realpathSync } from './check-reads.ts';
 import { isDeepStrictEqual } from 'node:util';
+import { COMPOSE_CHECK_PATH, COMPOSE_RUN_PATH, CURRENT_DIRECTION_PATH } from './current-direction.ts';
+import { CURRENT_RIG_MODEL, currentFileBinding } from './current.ts';
 import { eligibleRigDraftModel, optionPublicationStage, publicationFile, riggingDraftPartsChange } from './job-publication.ts';
 import { latestRigDraftVerdict } from './rig-draft-verdict.ts';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
@@ -2348,6 +2350,18 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
       currentScene,
       missingScene,
     } = directionReviewPostState(dir, project, now);
+    const currentRig = currentFileBinding(project, 'rig', CURRENT_RIG_MODEL);
+    if (currentRig && existsSync(join(dir, 'outputs/motion.next/frames.json'))) {
+      moves.push({ role: 'agent', field: 'current.motion', awaits: 'current.motion',
+        command: `rig-create record motion ${shellWord(dir)} --from outputs/motion.next`,
+        act: 'record the rendered current motion' });
+    }
+    if (postN !== null && currentRig && existsSync(join(dir, CURRENT_DIRECTION_PATH))
+      && [COMPOSE_RUN_PATH, COMPOSE_CHECK_PATH].every(path => existsSync(join(dir, 'outputs/direction.next', path)))) {
+      moves.push({ role: 'agent', field: 'current.direction', awaits: 'current.direction',
+        command: `rig-create record direction ${shellWord(dir)} --from outputs/direction.next --direction ${CURRENT_DIRECTION_PATH}`,
+        act: 'record the staged green compose output as current direction' });
+    }
     const addPostAuthoringMove = (): void => {
       if (postReady) return;
       const rig = latestAccepted(parsedVersions) ?? parsedVersions.rigs.filter(r => r.live).at(-1);

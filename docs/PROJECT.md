@@ -659,6 +659,57 @@ the post version's `rig_version` holds. It reads the record and writes nothing.
 collection, for example), the sign-off of `post-interview` says so and the
 project moves from there to `accepted`.
 
+### Recording current motion and direction
+
+From the project root, render the recorded current rig into
+`outputs/motion.next` and record the result:
+
+```text
+rig-create record motion --from outputs/motion.next
+```
+
+Author `specs/direction/compose-scene.json` as a Parts `spine-parts-scene/1`
+with one character, named plates and an explicit idle animation. The
+character build and plate image paths are relative to the Parts scene.
+Use the recorded rig's producer bytes or an exact in-project staging copy,
+and register the plate bytes as inputs or through the prepared-input chain.
+
+Put exactly `{take:{duration,loop:true},citations:{camera,timing,composition}}`
+in `specs/direction/intent.json`. Duration must be positive and finite and
+match the current looping `post_timing` answer, the Parts scene's idle and
+the common track end when tracks are present. Cite the current
+`post_composition` choice or decided delegation and copy its canvas, plates,
+order, character placement and idle tracks into the Parts scene. Citations
+use `camera_depth`, `post_timing` and `post_composition` respectively as both
+`guide` and the sole entry in `asks`, with an exact `quote` or
+`delegated:true`. The camera and timing steps need live post-interview
+approval with matching step hashes.
+
+```text
+rig-create scene write . --compose-scene specs/direction/compose-scene.json
+rig-create direction write . --file specs/direction/intent.json
+rig-parts compose --scene specs/direction/compose-scene.json --out outputs/direction.next
+rig-create record direction --from outputs/direction.next --direction specs/direction/direction.json
+```
+
+`scene write` seals the current rig model, idle frame manifest, motion
+output-set hash and Parts scene in `specs/direction/scene.json`
+(`rig-create/scene@2`). `direction write` writes
+`specs/direction/direction.json` (`rig-create/direction@4`) with the rig and
+scene bindings, take and citations. `record direction` validates the staged
+compose evidence and binds the producer's `compose-run.json` and
+`check/check.json` in `current.direction`. Its `built_from` retains the
+`outputs/motion` output-set hash, so changing a frame PNG makes direction
+stale even if `frames.json` stays the same.
+
+Each unnumbered spec writer commits only its own generated spec. Any unrelated
+staged `project.json` bytes stay staged.
+
+Run `rig-create interview --check <dir> --json` at `post` to verify the current
+record shapes and input hashes. Continue using the numbered scene and
+direction writers and their prerequisites for `direction-review`. Existing
+numbered posts still open and check through their retained version bindings.
+
 ### Split approval is a plan checkpoint
 
 The split — which parts the painting becomes — is the decision most often sent
@@ -2682,6 +2733,13 @@ the project's next moves and whose they are from `project.json`:
   `unanswered_by_record` retain their missing-field guidance.
 - **Scene writing does not plan work.** `scene write` adds no plan step.
   Author the post plan steps through `plan add` before post-interview sign-off.
+- **Motion and direction.** `next` retains the numbered scene and direction
+  moves and their prerequisites for `direction-review`. At `post` or
+  `direction-review`, a current rig model binding and staged
+  `outputs/motion.next/frames.json` allow a `record motion` move. For
+  `record direction`, `next` looks for the current rig model binding, a
+  numbered post, the current direction spec and both staged compose receipts
+  in `outputs/direction.next`.
 - **Refusals come first.** When `check` reports refusals (or publication holes),
   `next` lists each in `refusals[]` with its `CHECKS.md` remedy (`fix`) before
   any forward move. A project with a blocking refusal has `moves: []` and

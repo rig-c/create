@@ -5,6 +5,9 @@ projects are #986. This document changes no code. Every fact names a
 `file:line` at origin/main `fa4c48b5`. A design choice is marked **Choice**
 with one line of reason. Anything not measured is marked **unknown**.
 
+#1018 adds current motion and direction alongside the numbered workflow.
+See §8 for its post-stage acceptance boundary and the later switch.
+
 Two pilots are measured below. **Pilot A** has 22 `outputs/v<N>/` folders.
 **Pilot B** was restarted once and kept its earlier folders on disk. Sizes are
 `du -sk` in KB unless they say MB; MB figures come from hashing every file
@@ -100,33 +103,33 @@ is fixed by hand.
 One writer per kind records the current output:
 
 ```text
-rig-create record parts     [<dir>] --from <producer out>
+rig-create record parts     [<dir>] --from <producer out> --config <rig config>
 rig-create record rig       [<dir>] --from <producer out> --config specs/rig/config.json
 rig-create record motion    [<dir>] --from <render out>
 rig-create record direction [<dir>] --from <compose out> --direction specs/direction/direction.json
 ```
 
-**Choice:** one `record <kind>` family. Reason: it replaces `rig-version <n>`,
-`draft-rig <id>`, `review-package <n>` and the numbered `direction write <n>`.
-Those four differ only in which copy they make.
+**Choice:** one `record <kind>` family for the final design. It replaces the
+copies made by `rig-version <n>`, `draft-rig <id>`, `review-package <n>` and
+numbered `direction write <n>`.
 
 What the writer does, in order:
 
 1. The producer writes into a folder inside the project, normally
    `outputs/<kind>.next/`, so no copy is needed.
-2. The writer reads the producer's run record (`rig-run/1`, `rigc-run/1`, or
-   the assemble run; `src/run-record.ts:12-22`) and check report. It takes
-   `built_from` from them: `config` for `rig-run/1`, `inputs[]` for
-   `rigc-run/1`. It adds the spec paths the operator names. Create reads these
-   reports and never re-derives them (AGENTS.md invariant 1).
+2. The writer reads the producer evidence for the kind and binds the input
+   hashes in `built_from` along with the spec paths the operator names.
+   Direction binds the producer's actual compose run and check report.
+   Create reads producer evidence without re-deriving it (AGENTS.md invariant 1).
 3. It validates the candidate record with the check function. A refusal leaves
    `project.json` and `outputs/<kind>/` byte-identical (invariant 6).
-4. It renames `outputs/<kind>/` to a temporary name, then renames
-   `outputs/<kind>.next/` into place, then deletes the old tree. Tracked files
-   of the old tree are still in git. The renames are on one filesystem.
+4. For a staged replacement, it renames `outputs/<kind>/` to a temporary
+   name and renames `outputs/<kind>.next/` into place on the same filesystem.
    **Choice:** rename, never copy. Reason: copies are the cost this card
    removes (§7).
-5. It writes `current.<kind>` in `project.json` and commits (§4.2).
+5. It writes `current.<kind>` in `project.json` and deletes the old tree
+   after a successful write. In #1018, `record motion` and `record direction`
+   then attempt a scoped commit (§4.2).
 
 Record shape:
 
@@ -138,10 +141,19 @@ Record shape:
                  "run": { "path": "outputs/parts/run.json", "sha256": "…" },
                  "report": { "path": "…", "sha256": "…" } },
   "rig":       { "…": "same shape" },
-  "motion":    { "…": "same shape" },
+  "motion":    { "…": "see motion shape below" },
   "direction": { "…": "same shape" }
 }
 ```
+
+For motion records carrying `rebuild`, `report` is optional, `run` is required
+when `rebuild.recorded` is true and absent when false, both bindings must match
+`files[]` by path and SHA-256 when present, motion runs use only `rigc-run/2`,
+and a render from the pinned renderer has `{ recorded: false, note }` and
+yields WARN `REBUILD_ARGS_UNRECORDED`.
+
+`record motion` always writes `rebuild`; it writes no report. The checker also
+accepts the earlier motion shape with both `run` and `report` and no `rebuild`.
 
 `current.<kind>` replaces `versions[]` (`docs/PROJECT.md:964-1003`; template
 `templates/project.json:204`) and `drafts[]` (`src/drafts.ts:499`).
@@ -183,7 +195,7 @@ inputs/painting ─┬─> see-through layers, depth maps, figure mask      (mod
                         ├─> structure snapshot, diff report               (src/structure-snapshot.ts:31; src/diff-map.ts:151)
 specs/rig/config ───────┤
                         └─> outputs/rig  (rig-run/1 binds config, src/run-record.ts:18; parts via --parts)
-                               └─> outputs/motion  (rigc-run/1 inputs: rig, motion, manifest, cuts, src/run-record.ts:14-15)
+                               └─> outputs/motion  (render of the current rig and motion spec, §1.3)
 specs/motion ──────────────────┘     │
 specs/direction/scene  binds rig model and idle frames by hash  (src/direction.ts:66-74, :210-216)
                                      └─> specs/direction/direction (binds scene; src/direction.ts:216-221)
@@ -371,10 +383,10 @@ after `git gc`.
 | `outputs/direction/` (compose tree) | Pilot A: 109,052 KB (one post) | **Deterministic in its product, measured.** 145 of 147 files match run to run and against the recorded tree. The other two are `check/build/run.json` (times) and `check/check.json` reason text that carries the absolute `--out` path. The rebuild needs the character build root, which today sits in ignored `derived/rig/…`; it rebuilds from tracked files once `outputs/rig/` holds that root |
 
 Measured in #985 slice 1: each output built twice on clones from one commit,
-with no model or GPU run. Nothing moves to the tracked class. Two rebuild inputs
-are in no run record today: the check's and the idle render's arguments. The
-`record` writer stores them with `built_from` (§1.3) before these outputs leave
-git.
+with no model or GPU run. Nothing moves to the tracked class. The measured run
+records omitted the check and idle render arguments. When a producer records
+the arguments, `rebuild` binds them. A render from the pinned renderer yields
+the motion warning in §1.3.
 
 **"Same output" ignores run records.** A run record is a file named `run.json`
 or any `*-run.json` (the producers' own rule; for example core's
@@ -394,7 +406,7 @@ field would mark every rebuild stale.
 
 ### 4.2 Create commits by itself
 
-Today Create commits only at `init` (`src/init.ts:214-227`) and in collections
+At the design baseline, Create committed at `init` (`src/init.ts:214-227`) and in collections
 (`src/collection.ts:101-106`, `:169-170`). Every other commit in the pilots was
 made by agents: 120–143 commits per large pilot (inventory F2f).
 
@@ -408,18 +420,27 @@ green. Green means three things:
 The writer never asks. Reason: the HQ bar, and that the comment and act bindings (§3.2
 rows 13, 19) need the published bytes to be in history.
 
-Writers that commit:
+Commit scopes in the final design:
 
 | Writer | Commits |
 | --- | --- |
 | `record parts`, `record rig`, `record motion`, `record direction` | `project.json`, the tracked files of that kind, `.gitignore` when first rewritten |
 | `input add` | `project.json`, the new input |
-| spec writers: `scene write`, `direction write` (unnumbered), the step-plan writer (#983) | `project.json`, the spec file |
+| `scene write`, `direction write` (unnumbered) | each writer's generated spec |
+| step-plan writer (#983) | `project.json`, the step-plan spec |
 | `job open` / publish | `project.json` and every tracked file in the publication closure, before publishing |
 | comment ingest (#982) | `project.json`, `evidence/comments/*` |
 | `ledger add` / `retire`, `derived add`, correction writers, `owner-language set`, `packages upgrade` | `project.json` and the files each writes |
 
-How it commits:
+In #1018, `record motion` and `record direction` attempt a commit of
+`project.json` and already tracked paths within their output trees. The
+unnumbered scene and direction writers save the generated spec, then attempt
+a commit scoped to that spec alone. Unrelated staged `project.json` bytes
+stay staged. The Parts scene and direction intent are separate authored
+inputs outside those commit pathspecs. Commit warnings go to stderr after
+the save, with exit 0. See `src/project-step-commit.ts`.
+
+Commit rules for the final design:
 
 - Pathspec only: `git commit --only -- <paths>`. It never uses `git add -A` or
   touches other staged work. The pattern is `src/collection.ts:101-106`.
@@ -527,8 +548,8 @@ first:
 
 ## 5. What goes away
 
-All rows have a replacement or are deleted. "Old" means the reader is kept for
-records that still hold `versions[]` (§6).
+This section describes the transition to the final design. "Old" means the
+reader is kept for records that still hold `versions[]` (§6).
 
 ### 5.1 Record fields
 
@@ -552,10 +573,10 @@ records that still hold `versions[]` (§6).
 | `review-package <n>` | `src/cli.ts:116`; `src/review-package.ts:66-71` | deleted |
 | `republish <rig>` | `src/cli.ts:55`; `src/republish.ts:25-70` | deleted; `job open` publishes current |
 | `job open --rig <n>`, `--draft <id>` | `src/cli.ts:56`, `:338-341` | `job open` (#982 sets what it shows) |
-| `handoff [--rig <n>]` | `src/cli.ts:85`; `src/review.ts` | deleted |
+| `handoff [--rig <n>]` | `src/cli.ts:85`; `src/review.ts` | Public and unchanged in #1018. Removal is grouped with the numbered writers in a follow-up after the §8.6 Review switch. |
 | `review <version> …` | `src/cli.ts:87-89` | comment ingest (#982) |
-| `scene write --rig <R>` | `src/cli.ts:79`; `src/scene-writers.ts:23`, `:111` | `scene write` binds `current.rig` by hash |
-| `direction write <N> --rig <r>` | `src/direction-writers.ts:41-49`, `:113-117` | `direction write` (spec) then `record direction` |
+| `scene write --rig <R>` | `src/scene-writers.ts` | The numbered form stays public and unchanged in #1018. `scene write . --compose-scene specs/direction/compose-scene.json` binds the current rig model, current motion frames, motion output-set hash and Parts scene. |
+| `direction write <N> --rig <r>` | `src/direction-writers.ts` | The numbered form stays public and unchanged in #1018. `direction write . --file specs/direction/intent.json` writes `specs/direction/direction.json`, followed by compose and `record direction --from <compose out> --direction specs/direction/direction.json`. |
 | `draft-rig <id>`, `--reuse`, `--reuse-record` | `src/cli.ts:108-111`; `src/drafts.ts:359-370` | `record parts` / `record rig`; reuse deleted |
 | `signoff … --version` | `src/signoff.ts:91`, `:203` | deleted (#981) |
 | `version config-lost <n>`, `version outputs-lost <n>` | `src/cli.ts:122`, `:124`; `src/config-lost.ts` | writers deleted; old readers kept |
@@ -600,8 +621,8 @@ all listed in the contract-date sentence at `docs/CHECKS.md:832`.
 | Constant | Where | After |
 | --- | --- | --- |
 | `RIG_PARTS_APPROVAL_SINCE` | `src/rig-version.ts:653` | deleted (#981) |
-| `RUN_RECORD_SINCE` | `src/run-record.ts:11` | kept for old records; `record` always requires a run record |
-| `RIG_CHECK_REPORT_SINCE` | `src/rig-check-report.ts:5` | kept for old; `record` requires the report |
+| `RUN_RECORD_SINCE` | `src/run-record.ts:11` | kept for old records. See §1.3 for the current run bindings. |
+| `RIG_CHECK_REPORT_SINCE` | `src/rig-check-report.ts:5` | kept for old records. `record rig` requires the report. |
 | `PART_FILE_IDENTITY_SINCE`, `BUILD_IDENTITY_SINCE` | `src/review-package.ts:23-24` | old reader only |
 | `CONFIG_INPUTS_SINCE` | `src/config-inputs.ts:10` | old reader; `record rig` requires every config-named input under `specs/rig/` |
 | `SIGNOFF_TARGET_SINCE` | `src/signoff-target.ts:17` | deleted (#981) |
@@ -613,12 +634,18 @@ all listed in the contract-date sentence at `docs/CHECKS.md:832`.
 
 ### 5.5 `next` output and Review publication subjects
 
+In #1018, `next` keeps the numbered moves and their existing prerequisites for
+`direction-review`. In `post` and `direction-review`, it offers
+`record motion` for a current rig with staged frames, and `record direction`
+for a current rig with a numbered post, the unnumbered direction spec and
+staged compose receipts. The exclusive switch to current moves is §8.6.
+
 | Item | Where | After |
 | --- | --- | --- |
 | `rig-version ${n}` commands | `src/next.ts:403`, `:428`, `:1589`, `:1657`, `:1695` | `record rig` |
 | `--rig ${n}` selectors | `src/next.ts:551-559` | `job open` |
-| `scene write --rig ${rigN}` | `src/next.ts:743` | `scene write` |
-| `direction write ${nextPostN}` | `src/next.ts:2351`, `:2361` | `direction write`, `record direction` |
+| `scene write --rig ${rigN}` | `src/next.ts:743` | Retained in #1018. |
+| `direction write ${nextPostN}` | `src/next.ts:2351`, `:2361` | Retained in #1018. |
 | `review ${postN} --from-review` | `src/next.ts:2456` | comment ingest (#982) |
 | Stale rebuilds | — | new: upstream-first `OUTPUT_STALE` moves |
 | Subject `{kind:'rig', version}` / `{kind:'post', version, rigVersion}` | `src/job-publication.ts:706-712` | `{kind:'current', record: sha256}` (#982 contract) |
@@ -736,20 +763,30 @@ reports disk before and after (#980 "Verification").
    (`src/job-publication.ts:781`, `:910-925`; `src/review-act.ts:687-694`).
    These are the same bytes without the second copy, and the package check
    stays only for old records.
-4. **Add `current` and `record <kind>`,** with per-writer commits, the
-   `.gitignore` change, `--adopt` and the read-only `history` reader (§4.4). Delete `rig-version`, `draft-rig`,
-   numbered `direction write`, `scene write --rig`, `handoff`, `--answers`, and
-   the `v<N>` path builders (`src/direction.ts:35`, `src/direction-compose.ts:15-16`,
-   `src/scene.ts:18`, `src/review-package.ts:80`). Switch `next` to `record`.
-   This is the largest slice; it may be split by kind (parts, rig, motion,
-   direction) if each split still runs end to end.
+4. **Add `current` and `record <kind>`.** The design calls for per-writer
+   commits (§4.2), the `.gitignore` change, `--adopt` and the read-only
+   `history` reader (§4.4).
+   #1018 adds the motion and direction kinds and the unnumbered scene and
+   direction writes. Numbered `direction write`, `scene write --rig` and
+   `handoff` stay public and unchanged, with their existing checks and
+   historical generators. `next` offers both the existing numbered moves
+   and the new record moves (§5.5). #1018 acceptance is
+   `rig-create interview --check <dir> --json` at `post`, with exit 0 and no
+   `OUTPUT_STALE` after the current-output rebuild.
+   Removal of `rig-version`, `draft-rig`, `--answers` and the `v<N>` path
+   builders is outside #1018.
 5. **Staleness by hash:** `OUTPUT_STALE` in check and stale moves in `next`.
 6. **Comments bound by `saw[]`,** once the rig-c/review#1226 contract is
    signed. Delete version-numbered publication subjects and manifests
    (`src/job-publication.ts:706-712`, `:796-800`).
+   Switch `direction-review` and `next` to the current-only flow.
 7. **Old projects:** WARN demotion once `current` exists, `CURRENT_DATA_SINCE`,
    and the `VERSION_AFTER_CURRENT` row. Run `check` on every live pilot before
    merge (invariant 3).
+
+After the §8.6 Review switch, a separate follow-up removes numbered
+`direction write`, `scene write --rig` and `handoff` together. Readers for
+retained numbered posts persist.
 
 Docs (#987) follow: `docs/PROJECT.md` layout and lifetimes (`:26-55`),
 "Versions" (`:964-1198`) and the agent guide.
@@ -758,7 +795,9 @@ Docs (#987) follow: `docs/PROJECT.md` layout and lifetimes (`:26-55`),
 
 ## 9. Walk-through: adding a capability to a finished project
 
-This is the bar for #981 and #985 together.
+This walkthrough shows the target design, including the per-writer commits.
+The #1018 portion ends with `rig-create interview --check <dir> --json` at
+`post` after step 5.
 
 **Start.** A finished project:
 
@@ -784,10 +823,16 @@ rig bones and a motion track.
    `stale: motion, direction`.
 4. **Motion.** The agent adds a blink track to `specs/motion/`, renders, and
    runs `record motion`. The commit is `motion: blink track`.
-5. **Direction.** The scene binds the new idle frames by hash. `scene write`
-   commits the updated `specs/direction/scene.json`. Compose runs, then
-   `record direction`, and the commit is `direction: recompose with blink`.
-   Nothing is stale now.
+5. **Direction.** `scene write . --compose-scene specs/direction/compose-scene.json`
+   writes the updated `specs/direction/scene.json` with the current rig model,
+   idle frame manifest, motion output-set hash and Parts scene bindings.
+   `direction write . --file specs/direction/intent.json` writes
+   `specs/direction/direction.json`. After compose runs, use
+   `record direction --from <compose out> --direction specs/direction/direction.json`.
+   The commit is `direction: recompose with blink`.
+   `current.direction.built_from` keeps the `outputs/motion` output-set hash,
+   so a later frame PNG change makes direction stale even if `frames.json`
+   stays the same.
 6. **Look together.** `job open` commits the publication closure and shows the
    current work. Old comments on the direction show as "earlier": their `saw`
    hashes differ from the current files, and their words and pins read as

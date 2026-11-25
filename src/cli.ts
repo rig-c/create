@@ -76,6 +76,10 @@ ${INPUT_CLI}  rig-create init <dir> [--no-install]              create a project
   rig-create collection-binding [<member dir>] [--out <path>]
                                                     write and bind the member's collection interview snapshot
   rig-create scene write --rig <R> --background <path> --citations-file <file> [<dir>]
+  rig-create scene write --compose-scene <Parts scene file> [<dir>]
+                                                    bind the current rig and motion in specs/direction/scene.json
+  rig-create direction write [<dir>] --file <retained intent JSON>
+                                                    write specs/direction/direction.json
   rig-create derived add [<dir>] --source <file> --file <file> --operation <text>
                                                     record external preparation and both file hashes
   rig-create interview --check [<project dir>] [--json]
@@ -124,6 +128,10 @@ ${INPUT_CLI}  rig-create init <dir> [--no-install]              create a project
                                                     record the current parts output and rename it into outputs/parts/
   rig-create record rig [<dir>] --from <producer out> --config <rig config>
                                                     record the current rig output and rename it into outputs/rig/
+  rig-create record motion [<dir>] --from <render out>
+                                                    record the current motion output and rename it into outputs/motion/
+  rig-create record direction [<dir>] --from <compose out> --direction specs/direction/direction.json
+                                                    record the green compose output and rename it into outputs/direction/
   rig-create split-captions [<project dir|project.json>] [--config <file>]
                                                     generate caption data from the config and split.parts
   rig-create packages upgrade [<dir>] --by <operator>  update release pins with checked history
@@ -450,6 +458,7 @@ export function main(argv: string[], now: number): number {
     const text = typeof result === 'string' ? result : result.stdout;
     const output = !rest.includes('--json') && jobLines.length ? `${text}\n${jobLines.join('\n')}` : text;
     process.stdout.write(`${output}\n`);
+    if (typeof result !== 'string' && result.stderr) process.stderr.write(`${result.stderr}\n`);
     // A committed record whose publication is pending is a success with a named WARN (create#844).
     const pending = takePendingNotices();
     if (pending.length) process.stderr.write(`${pending.join('\n')}\n`);

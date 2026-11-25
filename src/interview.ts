@@ -12,6 +12,7 @@ import { beginJobProgress } from './job-writer.ts';
 export interface CommandResult {
   stdout: string;
   exit: number;
+  stderr?: string;
 }
 
 export const INTERVIEW_HELP = `interview:

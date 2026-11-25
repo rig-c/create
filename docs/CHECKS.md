@@ -1952,7 +1952,7 @@ Feedback is discussion; no code here fires because a plan has none.
 | `STEP_PLAN_STALE` (WARN) | the current plan file or one of its bound inputs no longer matches its recorded sha256 | propose the plan again with plan propose so feedback binds the current content |
 | `STEP_PLAN_VALUE_UNSAID` (WARN) | a step-plan value (`source: "step plan"`) has a `plan_quote` that is not in the current plan file of its step, whitespace collapsed | say the value in plain words in the plan, propose it again, and record the value with interview-decision `--plan-quote-file` |
 
-## Current outputs (`record parts`, `record rig`)
+## Current outputs (`record parts`, `record rig`, `record motion`, `record direction`)
 
 `rig-create record parts [<dir>] --from <producer out> --config <rig config>`
 writes `current.parts` and renames the producer's folder, normally
@@ -1989,19 +1989,43 @@ takes no owner acceptance: a failed bar, an unmet requirement line or a failed
 source exposure refuses under `RIG_CHECK_BAR_FAILED` or `RIG_CHECK_LINE_UNMET`
 (§ Frozen rig registration).
 
+`rig-create record motion [<dir>] --from <render out>` writes
+`current.motion` and binds the current rig model. A present `render-run.json`
+must be a `rigc-run/2` render and cover `frames.json`. The pinned renderer
+produces no run record, so its motion record binds the model and marks the
+rebuild arguments unrecorded.
+
+`rig-create record direction [<dir>] --from <compose out>
+--direction specs/direction/direction.json` writes `current.direction`.
+It validates the Parts producer evidence and binds `compose-run.json` and
+`check/check.json` by hash. The check report must be green and bind the
+composed model. The project check validates current record shape and input
+staleness. Direction's `built_from` includes the motion output-set hash bound
+by scene@2, so a changed frame PNG under `outputs/motion/` yields
+`OUTPUT_STALE` for direction even if `frames.json` is unchanged. See
+[Recording current motion and direction](PROJECT.md#recording-current-motion-and-direction)
+for the post-stage workflow.
+
 | Code | Fires when | Remedy |
 | --- | --- | --- |
-| `RECORD_USAGE` | the kind is not `parts` or `rig`, `--from` or `--config` is absent, or an option is unknown or repeated | run `record parts [<dir>] --from <producer out> --config <rig config>` or `record rig [<dir>] --from <producer out> --config <rig config>` |
+| `RECORD_USAGE` | the kind is outside `parts`, `rig`, `motion` and `direction`, a required option is absent, or an option is unknown or repeated | use `--from` for each kind, `--config` for parts or rig, and `--direction specs/direction/direction.json` for direction |
 | `RECORD_BUSY` | another record writer holds the project lock | let it finish and retry |
 | `RECORD_FROM_INVALID` | `--from` is outside the project, is neither `outputs/<kind>` nor a sibling folder beside `outputs/<kind>/`, is not a real folder, or holds a symlink or other non-regular entry | point `--from` at a folder beside `outputs/<kind>/` (normally `outputs/<kind>.next`) or `outputs/<kind>` itself |
 | `RECORD_CONFIG_MISMATCH` | `--config` is outside the project, inside the output, not a regular file, or its sha256 differs from the config the `rig-run/1` record or the `rig-run/2` build record names | pass the config the parts or rig output was built from, kept under `specs/rig/` |
-| `RECORD_RUN_INVALID` | a run record is missing or malformed, has the wrong spec or command, lacks `inputs` for `assemble`, mixes conflicting run records or producer versions, or one of its outputs is missing from the folder or differs from its sha256 | re-run the producer into the folder and record again |
-| `RECORD_INPUT_CHANGED` | a producer run input (`rig-run/1` `assemble` `inputs[]`, or `rigc-run/1` or `rigc-run/2` `inputs[]`) is missing, resolves outside the project, or now differs from the sha256 the producer read (inside the folder, a mixed tree across runs) (including when `rig` was rerun without rebuilding Core, or `assemble` was run outside the project root) | run `rig-parts assemble` from the project root or rebuild with `rigc` and `rig-parts check` into the folder, then record again |
+| `RECORD_MOTION_RIG_INVALID` | the current rig lacks a valid compiled-model binding, those model bytes are missing or changed, or the render run's skeleton or any supplied atlas or model input differs in path or hash from the recorded rig | restore or record the current rig, render from its bound build and record motion again |
+| `RECORD_MOTION_FRAMES_INVALID` | the render folder lacks a readable `rigc-frames/1` `frames.json` with a nonempty `sets` array, or the supplied render run omits its `frames.json` output | render again into a clean output folder and record motion |
+| `SCENE_CURRENT_RIG_REQUIRED` | current scene or direction validation cannot find a valid binding for `outputs/rig/check/build/skeleton.model.json` in `current.rig.files` | record the compiled rig before writing the current specs or recording direction |
+| `SCENE_CURRENT_MOTION_REQUIRED` | the current scene lacks bound motion frames from the current model, the sidecar lacks a frame set for the selected animation, the on-disk motion output-set hash differs from `current.motion.files_sha256` (including changed frame PNGs), or the sealed scene cites a different motion binding | restore the recorded frame tree or render and record motion for the current model and selected animation, then write the scene again |
+| `DIRECTION_CURRENT_SPEC_INVALID` | the direction intent or current spec object has the wrong shape or citation fields, the current spec or its sealed scene is unreadable, the sealed scene has changed, the spec lacks the matching model and idle compose-scene binding, or `record direction --direction` names a different path | write the current compose scene, then write direction with the cited looping intent and pass `--direction specs/direction/direction.json` to record it |
+| `RECORD_RUN_INVALID` | a required run record is missing, a run record is malformed, has the wrong spec or command, lacks `inputs` for `assemble`, mixes conflicting run records or producer versions, or one of its outputs is missing from the folder or differs from its sha256 | re-run the producer into the folder and record again |
+| `RECORD_INPUT_CHANGED` | a producer run input (`rig-run/1` `assemble` `inputs[]`, or `rigc-run/1` or `rigc-run/2` `inputs[]`) is missing, resolves outside the project, or now differs from the sha256 the producer read (inside the folder, a mixed tree across runs) (including when `rig` was rerun without rebuilding Core, or `assemble` was run outside the project root) | run `rig-parts assemble` from the project root, rebuild with `rigc` and `rig-parts check`, or re-render from the current rig for motion, then record again |
 | `RECORD_BUILT_FROM_INVALID` | a producer input is a run record (`run.json` or any `*-run.json`), the compose check report, or lies inside `outputs/<kind>/` | keep inputs and configs outside `outputs/<kind>/` and build from product files, not run records |
 | `RECORD_REPORT_INVALID` | `check/parts-check.json` (`parts`) or `check/check.json` (`rig`) is missing, unreadable, has the wrong spec, or (for `rig`) its `build.model_sha256` differs from `check/build/skeleton.model.json` | run `rig-parts check-parts --parts <folder>/rig --out <folder>/check` or `rig-parts check --out <folder>/check` and record again |
 | `RECORD_DESTINATION_INVALID` | `outputs/<kind>` exists and is not a folder | move that file away and record again |
 | `RECORD_SOURCE_CHANGED` | the folder or `project.json` changed while the writer was validating; the renames are undone | let the producer finish and record again |
 | `RECORD_WRITE_FAILED` | a rename or the record write failed for another reason; the renames are undone | fix the project storage and record again |
-| `CURRENT_MALFORMED` | `current` or a `current.<kind>` entry does not have the recorded shape: `at`, `built_by`, `built_with`, sorted `files[]` under `outputs/<kind>/`, `files_sha256`, `built_from[]`, `run` and `report` naming entries of `files[]`, and for `rig` `rebuild` (`{ recorded: false, note }` or `{ recorded: true, runs }`); or a `built_from` entry names a run record (`run.json` or any `*-run.json`), the compose check report or the output itself | restore the record `record` wrote, or record the output again |
+| `CURRENT_MALFORMED` | `current` or a `current.<kind>` entry has the wrong shape. Each entry has `at`, `built_by`, `built_with`, sorted `files[]` under `outputs/<kind>/`, `files_sha256` and `built_from[]`. Parts, rig and direction require `run` and `report`. Rig requires `rebuild` (`{ recorded: false, note }` or `{ recorded: true, runs }`). Motion with `rebuild` has an optional `report`, requires `run` when `rebuild.recorded` is true and omits it when false, and allows only `rigc-run/2` in `rebuild.runs`. Earlier motion entries without `rebuild` require both `run` and `report`. Each `run` or `report` binding present must match a `files[]` entry by path and sha256. A `built_from` entry naming a run record (`run.json` or any `*-run.json`), the compose check report or the output itself also refuses. | restore the record `record` wrote, or record the output again |
 | `OUTPUT_STALE` | WARN: a `built_from` path is missing or now hashes differently — except the `current.parts` config entry when `outputs/parts/rig/parts.json` still has its recorded sha256 and carries `assembly_config`, which is stale only when the config is missing, unreadable, or `@rig-c/parts/assembly-reading`'s `assemblyConfigChanges` reports changed fields (named in the message; legacy `parts.json` without `assembly_config` keeps the whole-file sha256 comparison) — or a `built_from` path lies in an upstream output that is stale | rebuild it upstream-first and record it with `record <kind>` |
-| `REBUILD_ARGS_UNRECORDED` | WARN: `current.rig.rebuild.recorded` is `false`, because a producer run in `outputs/rig` has no `/2` run record carrying its `argv` | rebuild with the `/2` producers and record again so `current.rig.rebuild` binds the recorded `argv` |
+| `REBUILD_ARGS_UNRECORDED` | WARN for any valid `current.<kind>` entry with `rebuild.recorded: false`. Rig and motion producers can write this form. For rig, a producer run in `outputs/rig` lacks a `/2` run record carrying its `argv`. Motion from the pinned renderer uses `{ recorded: false, note }` and omits `run`. | rebuild with the `/2` producers and record again to bind the recorded `argv`. For motion, use a renderer that supplies a `rigc-run/2` run record. |
+| `PROJECT_NOT_IN_GIT` | a current motion, direction or spec writer saved its data but found no Git work tree at the project root or its collection root. The writer warns on stderr and exits 0. | keep the saved files and commit them from a project or collection work tree if history is required |
+| `PROJECT_COMMIT_FAILED` | a current motion, direction or spec writer saved its data but could not prepare or create its scoped commit. The writer warns on stderr and exits 0. | correct the reported Git error and retry the quoted command from the warning |

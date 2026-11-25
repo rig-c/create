@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test';
-import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { dirname, join } from 'node:path';
 import { isRunRecordFile, outputSetHash, treeFiles } from '../src/current.ts';
@@ -339,6 +339,84 @@ test('record rig accepts build-run.json (rig-run/2 build) as the primary Parts r
   const after = checkProject(dir);
   expect(codes(after.refusals, 'CURRENT_MALFORMED')).toBe(0);
   expect(codes(after.warnings, 'REBUILD_ARGS_UNRECORDED')).toBe(0);
+});
+
+/**
+ * Rearrange producerOut into the folder `rig-parts build --out` writes (parts src/build.ts BUILD_OWNS, cli.ts cmdBuild):
+ * parts/ and parts.json from assemble, rig/ from the rig stage with no run.json (only `rig-parts rig` stamps one),
+ * check/ with rigc's check/build/run.json (rigc-run/1) and the idle render's render-run.json, the --loop files at the
+ * top, and build-run.json (rig-run/2) last, listing every file except run records. No root run.json, no check-run.json.
+ */
+function buildLayoutOut(dir: string, at = NEXT): { buildArgv: string[] } {
+  rmSync(join(dir, at, 'run.json'));
+  for (const name of ['rig.json', 'motion.json', 'mesh_report.json', 'images']) {
+    mkdirSync(join(dir, at, 'rig'), { recursive: true });
+    renameSync(join(dir, at, name), join(dir, at, 'rig', name));
+  }
+  const stampPath = `${at}/check/build/run.json`;
+  const stamp = JSON.parse(readFileSync(join(dir, stampPath), 'utf8')) as { inputs: { path: string }[] };
+  for (const input of stamp.inputs) input.path = input.path.replace('../../', '../../rig/');
+  write(dir, stampPath, `${JSON.stringify(stamp, null, 2)}\n`);
+  for (const [path, bytes] of [
+    ['parts/face.png', 'PART-face'], ['parts/torso.png', 'PART-torso'], ['parts.json', '{"parts":["face","torso"]}\n'],
+    ['recomposite_rig.png', 'RECOMP'], ['recomposite_error_rig.png', 'ERRMAP'], ['painting_in_rig.png', 'PAINT'],
+    ['source_cover.json', '{"cover":1}\n'], ['check/contact.png', 'CONTACT'], ['check/motion_heat.png', 'HEAT'],
+    ['check/idle_frames/frames.json', '{"frames":1}\n'], ['check/idle_frames/idle/f0000.png', 'IDLE0'],
+    ['idle.png', 'APNG'], ['idle-indexed.png', 'IAPNG'], ['idle.gif', 'GIF'],
+  ] as const) write(dir, `${at}/${path}`, bytes);
+  write(dir, `${at}/check/idle_frames/render-run.json`, `${JSON.stringify({
+    spec: 'rigc-run/2', package: { name: '@rig-c/core', version: '3.8.1' }, command: 'render',
+    argv: ['--candidate', '../build', '--animation', 'idle', '--out', '.'],
+    started_at: '2026-11-25T00:00:01.000Z', finished_at: '2026-11-25T00:00:02.000Z',
+    inputs: [{ role: 'skeleton', path: '../build/skeleton.json', sha256: sha(readFileSync(join(dir, at, 'check/build/skeleton.json'))) }],
+    outputs: [{ path: 'frames.json', sha256: sha('{"frames":1}\n') }, { path: 'idle/f0000.png', sha256: sha('IDLE0') }],
+  }, null, 2)}\n`);
+  const buildArgv = ['build', '--config', `../../${CONFIG}`, '--source', '../../inputs/painting.png', '--full', '../../layers/full', '--out', '.', '--loop'];
+  write(dir, `${at}/build-run.json`, `${JSON.stringify({
+    spec: 'rig-run/2',
+    package: { name: '@rig-c/parts', version: '2.56.0' },
+    command: 'build',
+    started_at: '2026-11-25T00:00:00.000Z',
+    finished_at: '2026-11-25T00:00:03.000Z',
+    config: { path: `../../${CONFIG}`, sha256: sha(readFileSync(join(dir, CONFIG))) },
+    outputs: treeFiles(dir, at, '').map(f => ({ path: f.path.slice(1), sha256: f.sha256 })).filter(f => !isRunRecordFile(f.path)),
+    argv: buildArgv,
+  }, null, 1)}\n`);
+  return { buildArgv };
+}
+
+test('record rig records a rig-parts build output: build-run.json at the top, rig/ without run.json, run records under check/', () => {
+  const dir = project();
+  const { buildArgv } = buildLayoutOut(dir);
+  expect(record(dir).exit).toBe(0);
+  const node = rig(dir);
+  const buildRunSha = sha(readFileSync(join(dir, 'outputs/rig/build-run.json')));
+  expect(node.run).toEqual({ path: 'outputs/rig/build-run.json', sha256: buildRunSha });
+  expect(node.rebuild).toEqual({
+    recorded: true,
+    runs: [{ path: 'outputs/rig/build-run.json', sha256: buildRunSha, spec: 'rig-run/2', argv: buildArgv }],
+  });
+  expect(node.built_from).toEqual([{ path: CONFIG, sha256: sha(readFileSync(join(dir, CONFIG))) }]);
+  const after = checkProject(dir);
+  expect(codes(after.refusals, 'CURRENT_MALFORMED')).toBe(0);
+  expect(codes(after.warnings, 'REBUILD_ARGS_UNRECORDED')).toBe(0);
+});
+
+test.each([
+  // A build clears rig/ before its rig stage and never stamps it, so rig/run.json means a later `rig-parts rig` mixed in.
+  ['a rig-run/1 stamp beside rig/rig.json', 'rig/run.json'],
+  ['an unknown *-run.json at the top', 'extra-run.json'],
+] as const)('record rig refuses a build output holding an unexpected run record outside check/: %s', (_label, planted) => {
+  const dir = project();
+  expect(record(dir).exit).toBe(0);
+  producerOut(dir);
+  buildLayoutOut(dir);
+  write(dir, `${NEXT}/${planted}`, readFileSync(join(PRODUCER, 'out/run.json')));
+  const recordBytes = readFileSync(join(dir, 'project.json'));
+  const outputs = treeDigest(join(dir, 'outputs/rig'));
+  refused(() => record(dir), 'RECORD_RUN_INVALID');
+  expect(readFileSync(join(dir, 'project.json'))).toEqual(recordBytes);
+  expect(treeDigest(join(dir, 'outputs/rig'))).toEqual(outputs);
 });
 
 test('REBUILD_ARGS_UNRECORDED still fires when check-run.json exists alongside an unrecorded idle folder', () => {

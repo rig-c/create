@@ -268,6 +268,7 @@ export function recordCommand(args: string[], now: number): CommandResult {
     if (build) {
       bindRunInputs(dir, from, root, `${BUILD_DIR}/${RUN_RECORD_NAME}`, build.inputs as JsonObject[], byPath, builtFrom,
         `rebuild with rigc and run rig-parts check into ${from}, then record again`);
+      // rig-parts build stamps nothing outside check/ but build-run.json (its rig stage writes no rig/run.json), so any other record mixes runs.
       for (const entry of files) {
         const rel = entry.path.slice(`${root}/`.length);
         if (rel === primaryRunRel || rel === `${CHECK_DIR}` || rel.startsWith(`${CHECK_DIR}/`) || !isRunRecordFile(rel)) continue;

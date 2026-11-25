@@ -17,7 +17,7 @@ import type { CommandResult } from './interview.ts';
 import { writeRecord } from './record-input.ts';
 import { Refusal, refuse, USAGE_EXIT } from './refusal.ts';
 import { baselineOf, newFindings } from './refusal-baseline.ts';
-import { parseRigCheckReport, RIG_CHECK_REPORT_FILE } from './rig-check-report.ts';
+import { checkRigReport, parseRigCheckReport, RIG_CHECK_REPORT_FILE } from './rig-check-report.ts';
 import { RunRecordError, validateRunRecord } from './run-record.ts';
 import type { JsonObject } from './templates.ts';
 
@@ -129,8 +129,15 @@ export function recordCommand(args: string[], now: number): CommandResult {
     const builtFrom: { path: string; sha256: string }[] = [{ path: config, sha256: sha256(configBytes) }];
     for (const input of build.inputs as JsonObject[]) {
       const resolved = posix.normalize(posix.join(from, BUILD_DIR, String(input.path)));
-      if (resolved === from || resolved.startsWith(`${from}/`)) continue; // the build's own rig and motion: this output's files, checked above by the run's inventory
       const where = `${from}/${BUILD_DIR}/${RUN_RECORD_NAME} input ${String(input.role)} ${String(input.path)}`;
+      if (resolved === from || resolved.startsWith(`${from}/`)) {
+        // The build's own rig and motion are this output's files: the bytes there now must be the bytes the build read,
+        // or the folder mixes a later producer run with an earlier build.
+        if (byPath.get(`${root}${resolved.slice(from.length)}`) !== input.sha256) {
+          refuse('RECORD_INPUT_CHANGED', `${where}: ${resolved} is missing or now differs from the sha256 the build read, so the build is older than the rig beside it; rebuild with rigc and run rig-parts check into ${from}, then record again`);
+        }
+        continue;
+      }
       if (resolved.startsWith('..') || posix.isAbsolute(resolved)) refuse('RECORD_INPUT_CHANGED', `${where}: resolves outside the project; build from inputs inside the project`);
       if (!builtFromNameAllowed(resolved)) refuse('RECORD_BUILT_FROM_INVALID', `${where}: a run record is provenance and never a built_from input; name the product file the build read`);
       let bytes: Buffer | undefined;
@@ -141,16 +148,24 @@ export function recordCommand(args: string[], now: number): CommandResult {
 
     const reportPath = `${from}/${CHECK_DIR}/${RIG_CHECK_REPORT_FILE}`;
     let report: JsonObject;
-    try { report = parseRigCheckReport(readFileSync(literalFile(dir, reportPath))); }
+    let reportBytes: Buffer;
+    try { reportBytes = readFileSync(literalFile(dir, reportPath)); report = parseRigCheckReport(reportBytes); }
     catch (error) { return refuse('RECORD_REPORT_INVALID', `${reportPath}: ${error instanceof Error ? error.message : String(error)}; run rig-parts check with --out ${from}/${CHECK_DIR} and record again`); }
     const model = byPath.get(`${root}/${MODEL_FILE}`);
     if (report.spec !== 'rig-parts-check/1' || !isObject(report.build) || report.build.model_sha256 !== model || model === undefined) {
       refuse('RECORD_REPORT_INVALID', `${reportPath}: expected a rig-parts-check/1 report whose build.model_sha256 equals ${from}/${MODEL_FILE}; run rig-parts check on this build and record again`);
     }
 
+    // The report's outcomes go through the registration reader as they are: a failed bar, unmet line or failed source
+    // exposure refuses by that reader's code. record rig takes no owner acceptance, so none is passed.
+    const at = new Date(now).toISOString();
+    const outcome = checkRigReport({ at, check_report: { path: reportPath, spec: report.spec ?? null } }, `${reportPath}`, reportPath, model,
+      () => reportBytes, [])[0];
+    if (outcome) refuse(outcome.code, `${outcome.message}; record rig records a green check only`);
+
     const pkgs = [run.package, build.package] as JsonObject[];
     const node: JsonObject = {
-      at: new Date(now).toISOString(),
+      at,
       built_by: options['--by'] ?? 'agent',
       built_with: Object.fromEntries(pkgs.map(pkg => [String(pkg.name), String(pkg.version)])),
       files,

@@ -30,6 +30,12 @@ function producerOut(dir: string, at = NEXT): void {
   write(dir, `${at}/check/check.json`, `${JSON.stringify({ spec: 'rig-parts-check/1', bar_outcomes: {}, build: { model_sha256: model }, PASS: true }, null, 1)}\n`);
 }
 
+/** Rewrite the producer's check report with the right spec and model but red outcomes. */
+function redReport(dir: string, outcomes: JsonObject): void {
+  const model = sha(readFileSync(join(dir, NEXT, 'check/build/skeleton.model.json')));
+  write(dir, `${NEXT}/check/check.json`, JSON.stringify({ spec: 'rig-parts-check/1', bar_outcomes: {}, build: { model_sha256: model }, ...outcomes, PASS: false }));
+}
+
 function project(): string {
   const dir = fixture(() => {}, 'example-project.json');
   write(dir, CONFIG, readFileSync(join(PRODUCER, 'config.json')));
@@ -92,6 +98,15 @@ test.each([
   ['run record missing', (dir: string) => rmSync(join(dir, NEXT, 'run.json')), 'RECORD_RUN_INVALID'],
   ['output differs from the run', (dir: string) => write(dir, `${NEXT}/rig.json`, '{}'), 'RECORD_RUN_INVALID'],
   ['report names another model', (dir: string) => write(dir, `${NEXT}/check/check.json`, JSON.stringify({ spec: 'rig-parts-check/1', bar_outcomes: {}, build: { model_sha256: '0'.repeat(64) } })), 'RECORD_REPORT_INVALID'],
+  ['Parts rerun into the folder without rebuilding Core (mixed tree)', (dir: string) => {
+    write(dir, `${NEXT}/rig.json`, '{"rerun":true}\n');
+    const run = JSON.parse(readFileSync(join(dir, NEXT, 'run.json'), 'utf8')) as { outputs: { path: string; sha256: string }[] };
+    run.outputs.find(o => o.path === 'rig.json')!.sha256 = sha('{"rerun":true}\n');
+    write(dir, `${NEXT}/run.json`, JSON.stringify(run));
+  }, 'RECORD_INPUT_CHANGED'],
+  ['red check report: a failed bar', (dir: string) => redReport(dir, { bar_outcomes: { SEAM: { status: 'FAIL' } } }), 'RIG_CHECK_BAR_FAILED'],
+  ['red check report: an unmet requirement', (dir: string) => redReport(dir, { requirements: { lines: { BREATH: { status: 'NOT MEASURABLE' } } } }), 'RIG_CHECK_LINE_UNMET'],
+  ['red check report: failed source exposure', (dir: string) => redReport(dir, { SOURCE_EXPOSURE: { status: 'FAIL' } }), 'RIG_CHECK_LINE_UNMET'],
   ['producer folder missing', (dir: string) => { rmSync(join(dir, NEXT), { recursive: true }); }, 'RECORD_FROM_INVALID'],
 ] as const)('a refused record leaves project.json and outputs/rig byte-identical: %s', (_name, plant, code) => {
   const dir = project();

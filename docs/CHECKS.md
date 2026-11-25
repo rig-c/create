@@ -2003,7 +2003,10 @@ run record or `outputs/direction/check/check.json`. A `built_from` entry may nam
 output root (`outputs/<kind>`), which is compared by that hash. A record
 without `current` gets none of these findings. `current.rig.rebuild` is
 `{ recorded: false, note }`: no producer report records the check's or the
-idle render's arguments yet.
+idle render's arguments yet. The writer reads the report's outcomes with the
+frozen-registration reader and takes no owner acceptance: a failed bar, an
+unmet requirement line or a failed source exposure refuses under
+`RIG_CHECK_BAR_FAILED` or `RIG_CHECK_LINE_UNMET` (§ Frozen rig registration).
 
 | Code | Fires when | Remedy |
 | --- | --- | --- |
@@ -2012,7 +2015,7 @@ idle render's arguments yet.
 | `RECORD_FROM_INVALID` | `--from` is outside the project, inside `outputs/rig/`, not a real folder, or holds a symlink or other non-regular entry | point `--from` at the producer's folder inside the project, normally `outputs/rig.next` |
 | `RECORD_CONFIG_MISMATCH` | `--config` is outside the project, inside the output, not a regular file, or its sha256 differs from the config the `rig-run/1` record names | pass the config the rig was built from, kept under `specs/rig/` |
 | `RECORD_RUN_INVALID` | a run record is missing or malformed, has the wrong spec or command, or one of its outputs is missing from the folder or differs from its sha256 | re-run the producer into the folder and record again |
-| `RECORD_INPUT_CHANGED` | a `rigc-run/1` input outside the folder resolves outside the project, is missing, or now differs from the sha256 the build read | rebuild from the current input and record again |
+| `RECORD_INPUT_CHANGED` | a `rigc-run/1` input is missing or now differs from the sha256 the build read: one inside the folder (the build's own `rig.json` or `motion.json`, as when Parts is rerun into the folder without rebuilding Core), or one outside it, which must also resolve inside the project | rebuild with rigc and run `rig-parts check` into the folder, then record again |
 | `RECORD_BUILT_FROM_INVALID` | a build input outside the folder is a run record (`run.json` or any `*-run.json`) | build from product files, not run records |
 | `RECORD_REPORT_INVALID` | `check/check.json` is missing, malformed, not `rig-parts-check/1`, or its `build.model_sha256` differs from `check/build/skeleton.model.json` | run `rig-parts check` on this build with `--out <folder>/check` and record again |
 | `RECORD_DESTINATION_INVALID` | `outputs/rig` exists and is not a folder | move that file away and record again |

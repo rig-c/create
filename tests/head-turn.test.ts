@@ -1,9 +1,11 @@
 import { expect, test } from 'bun:test';
-import { depthPlanMoves } from '../src/rig-version.ts';
+import { checkProject } from '../src/check.ts';
+import { depthPlanMoves, TURN_BODY_SINCE } from '../src/rig-version.ts';
 import { deriveWaypoints, TURN_OPTIONS, TURN_QUESTION } from '../src/waypoints.ts';
 import { interviewStageOfGuide } from '../src/stages.ts';
-import { readTemplate, type JsonObject } from '../src/templates.ts';
+import { readTemplate, type Json, type JsonObject } from '../src/templates.ts';
 import { arr, obj } from './fixtures.ts';
+import { tempDir } from './helpers.ts';
 
 function project(value?: JsonObject): JsonObject {
   return { interview: { waypoints: value ? [{ id: 'turn', guide: { delegated: false, by: 'user', at: '2026-11-14T01:00:00Z', verbatim: 'Keep this synthetic view.', value } }] : [] }, versions: [] };
@@ -45,10 +47,84 @@ test('#514 the owner question and options are concrete Review option-set input',
   expect(TURN_OPTIONS).toEqual([
     { id: 'fixed', kind: 'value', label: 'Fixed view', effect: 'Keep the painted view.', fragment: { mode: 'fixed' } },
     { id: 'turn', kind: 'value', label: 'Head turn', effect: 'The head turns with depth, like the head-turn demo.', fragment: { mode: 'depth' } },
+    { id: 'turn-body', kind: 'value', label: 'Head and body turn', effect: 'The head and body turn with depth.', fragment: { mode: 'depth', body: true } },
     { id: 'other', kind: 'other', label: 'Other', effect: 'Describe the view you want.' },
     { id: 'auto', kind: 'auto', label: 'Let the agent decide', effect: 'The agent records its decision before approval.' },
   ]);
   expect(TURN_OPTIONS.every(option => !('recommended' in option) && !('reason' in option))).toBe(true);
+});
+
+test('#1000 head-and-body depth moves keep turn.body instead of stripping it', () => {
+  const moves = depthPlanMoves(project({ mode: 'depth', body: true }));
+  expect(moves).toHaveLength(3);
+  expect(moves[2]!.act).toContain('keep turn.body in the working config and apply both head and body groups');
+  expect(moves[2]!.act).not.toContain('--groups head');
+});
+
+test('#1000 TURN_BODY_VALUE_INVALID accepts only body: true with mode: "depth" and refuses invalid body before writing', () => {
+  const dir = tempDir();
+  const base = readTemplate('example-project.json');
+  const now = Date.parse('2026-11-25T00:00:00Z');
+  const withGuide = (guide: JsonObject): JsonObject => {
+    const candidate = structuredClone(base);
+    const turn = arr(obj(candidate.interview).waypoints).map(obj).find(w => w.id === 'turn')!;
+    turn.guide = guide;
+    return candidate;
+  };
+  const validGuide = structuredClone(obj(arr(obj(base.interview).waypoints).map(obj).find(w => w.id === 'turn')!.guide));
+  delete validGuide.choice;
+  expect(checkProject(dir, withGuide({ ...structuredClone(validGuide), value: { mode: 'depth', body: true } }), { now, recordPublication: true }).refusals
+    .filter(f => f.code === 'TURN_BODY_VALUE_INVALID')).toEqual([]);
+
+  for (const invalid of [
+    { mode: 'depth', body: false },
+    { mode: 'depth', body: 'true' },
+    { mode: 'depth', body: null },
+    { mode: 'fixed', body: true },
+    { mode: 'fixed', body: false },
+    { body: true },
+  ] as Json[]) {
+    const report = checkProject(dir, withGuide({ ...structuredClone(validGuide), value: invalid }), { now, recordPublication: true });
+    expect(report.refusals.filter(f => f.code === 'TURN_BODY_VALUE_INVALID').map(f => f.path))
+      .toEqual(['interview.waypoints[turn].guide.value.body']);
+  }
+
+  const delegatedBad = withGuide({
+    delegated: true, by: 'user', at: TURN_BODY_SINCE, verbatim: 'Let the agent decide',
+    agent_decision: { by: 'agent', at: TURN_BODY_SINCE, reasoning: 'Invalid combo', covers: 'view', value: { mode: 'fixed', body: true } },
+  });
+  expect(checkProject(dir, delegatedBad, { now, recordPublication: true }).refusals.filter(f => f.code === 'TURN_BODY_VALUE_INVALID').map(f => f.path))
+    .toEqual(['interview.waypoints[turn].guide.agent_decision.value.body']);
+
+  const additionBad = withGuide({
+    ...structuredClone(validGuide), value: { mode: 'depth' },
+    additions: [{ by: 'user', at: TURN_BODY_SINCE, verbatim: 'No body', source: 'polish feedback, v1', value: { mode: 'depth', body: false } }],
+  });
+  expect(checkProject(dir, additionBad, { now, recordPublication: true }).refusals.filter(f => f.code === 'TURN_BODY_VALUE_INVALID').map(f => f.path))
+    .toEqual(['interview.waypoints[turn].guide.additions[0].value.body']);
+});
+
+test('#1003 TURN_BODY_VALUE_INVALID is dated by the agent decision: WARN before TURN_BODY_SINCE, refusal from it', () => {
+  const dir = tempDir();
+  const base = readTemplate('example-project.json');
+  const now = Date.parse(TURN_BODY_SINCE) + 24 * 60 * 60 * 1000;
+  const path = 'interview.waypoints[turn].guide.agent_decision.value.body';
+  const decided = (at: string): JsonObject => {
+    const candidate = structuredClone(base);
+    const turn = arr(obj(candidate.interview).waypoints).map(obj).find(w => w.id === 'turn')!;
+    turn.guide = {
+      delegated: true, by: 'user', at, verbatim: 'Let the agent decide',
+      agent_decision: { by: 'agent', at, reasoning: 'Head only', covers: 'view', value: { mode: 'depth', body: false } },
+    };
+    return candidate;
+  };
+  const earlier = checkProject(dir, decided(new Date(Date.parse(TURN_BODY_SINCE) - 60 * 1000).toISOString()), { now, recordPublication: true });
+  expect(earlier.refusals.filter(f => f.code === 'TURN_BODY_VALUE_INVALID')).toEqual([]);
+  expect(earlier.warnings.filter(f => f.code === 'TURN_BODY_VALUE_INVALID').map(f => f.path)).toEqual([path]);
+
+  const from = checkProject(dir, decided(TURN_BODY_SINCE), { now, recordPublication: true });
+  expect(from.refusals.filter(f => f.code === 'TURN_BODY_VALUE_INVALID').map(f => f.path)).toEqual([path]);
+  expect(from.warnings.filter(f => f.code === 'TURN_BODY_VALUE_INVALID')).toEqual([]);
 });
 
 test('#514 an approved depth turn requires an earlier depth plan step', async () => {

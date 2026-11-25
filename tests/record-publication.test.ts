@@ -1000,6 +1000,7 @@ test('synthetic mature version outputs exceed the old retain cap but all post as
 test.each([
   ['rig_type', 'RIG_TYPE_UNKNOWN', 'unknown-type'],
   ['meshes', 'BUST_EXCLUSION_UNREASONED', { bust: { excluded: true } }],
+  ['turn', 'TURN_BODY_VALUE_INVALID', { mode: 'fixed', body: true }],
 ] as const)('record checks retain the %s answer-domain refusal %s', (id, code, value) => {
   const root = approvalFixture('post-interview');
   const project = JSON.parse(readFileSync(join(root, 'project.json'), 'utf8'));

@@ -123,6 +123,7 @@ export const TURN_QUESTION = 'Should this rig keep the painted view, or turn its
 export const TURN_OPTIONS = [
   { id: 'fixed', kind: 'value', label: 'Fixed view', effect: 'Keep the painted view.', fragment: { mode: 'fixed' } },
   { id: 'turn', kind: 'value', label: 'Head turn', effect: 'The head turns with depth, like the head-turn demo.', fragment: { mode: 'depth' } },
+  { id: 'turn-body', kind: 'value', label: 'Head and body turn', effect: 'The head and body turn with depth.', fragment: { mode: 'depth', body: true } },
   { id: 'other', kind: 'other', label: 'Other', effect: 'Describe the view you want.' },
   { id: 'auto', kind: 'auto', label: 'Let the agent decide', effect: 'The agent records its decision before approval.' },
 ] as const;

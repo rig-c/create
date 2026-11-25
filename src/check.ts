@@ -64,7 +64,7 @@ import { checkDiffMap } from './diff-map.ts';
 import { checkReviews, latestAccepted, readVersions } from './review.ts';
 import { checkAppliedReview } from './applied-review.ts';
 import { checkReviewPackages } from './review-package.ts';
-import { rigRegistrationFindings } from './rig-version.ts';
+import { checkTurnValue, rigRegistrationFindings } from './rig-version.ts';
 import { currentFindings } from './current.ts';
 import { checkPreInterview } from './pre-interview.ts';
 import { checkStepPlans } from './step-plans.ts';
@@ -979,6 +979,7 @@ function checkProjectOnce(projectDirArg: string, candidate: JsonObject | undefin
   if (!options.recordPublication) checkSetupPainting(ctx);
   if (!options.recordPublication) checkFigureMask(ctx);
   checkMeshesBust(ctx);
+  checkTurnValue(ctx);
   if (!hasStageOrder(project)) warnings.push(STAGE_ORDER_LEGACY_FINDING);
   checkInputs(ctx);
   checkChoices(ctx);

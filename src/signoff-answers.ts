@@ -2,7 +2,7 @@
 import { createHash } from 'node:crypto';
 import { answered, asArray, collectItems, isObject, itemFor, loadCollection, postNotPassed, type Ctx, type Finding, type Item } from './check.ts';
 import { refuse } from './refusal.ts';
-import { approvalStageOfStep, currentStepPlan, hasStageOrder, planStepOfGuide } from './stages.ts';
+import { approvalStageOfStep, currentStepPlan, hasStageOrder, planStepOfGuide, STEP_PLAN_SOURCE } from './stages.ts';
 import { sorted } from './step-hash.ts';
 import type { Json, JsonObject } from './templates.ts';
 
@@ -38,11 +38,19 @@ export function answerRevisionHash(item: Item, stage = 'plan-approved'): string 
  * that plan entry (step and sha256; docs/INTERVIEW.md § Step plans). Undefined when neither exists.
  */
 export function boundRevisionHash(project: JsonObject, item: Item, stage = 'plan-approved'): string | undefined {
-  if (answered(item.state)) return answerRevisionHash(item, stage);
+  const plan = () => currentStepPlan(project, planStepOfGuide(item.id, item.kind === 'post'));
+  const planBinding = (current: JsonObject) => ({ step_plan: { step: current.step ?? null, sha256: current.sha256 ?? null } });
+  if (answered(item.state)) {
+    const answer = answerRevisionHash(item, stage);
+    // A value delegated under a step plan is also a revision of the plan that covers it now.
+    const current = isObject(item.raw) && item.raw.source === STEP_PLAN_SOURCE ? plan() : undefined;
+    if (current === undefined) return answer;
+    return createHash('sha256').update(JSON.stringify(sorted({ answer, ...planBinding(current) }))).digest('hex');
+  }
   if (item.state.state !== 'silent') return undefined;
-  const plan = currentStepPlan(project, planStepOfGuide(item.id, item.kind === 'post'));
-  if (plan === undefined) return undefined;
-  return createHash('sha256').update(JSON.stringify(sorted({ step_plan: { step: plan.step ?? null, sha256: plan.sha256 ?? null } }))).digest('hex');
+  const current = plan();
+  if (current === undefined) return undefined;
+  return createHash('sha256').update(JSON.stringify(sorted(planBinding(current)))).digest('hex');
 }
 
 /** Plan completeness follows the signature's own covered steps. */

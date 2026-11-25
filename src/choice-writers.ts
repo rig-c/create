@@ -444,7 +444,8 @@ function stepPlanDecision(opts: Args, now: number): string {
       ...(asks ? { asks } : {}), agent_decision: { by, at, reasoning, value } };
     if (prior) item.record.history = [...asArray(item.record.history), prior];
     item.record[item.kind === 'framing' ? 'answer' : 'guide'] = answer;
-    save(file,dir,project,next,now); return JSON.stringify(answer);
+    // Like every other answer writer: steps resting on the new value are marked for revision, not refused.
+    save(file,dir,project,next,now,[],[{ id: item.id, correction: false }]); return JSON.stringify(answer);
   } finally { release(); }
 }
 

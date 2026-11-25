@@ -8,7 +8,7 @@ import { closeSync, openSync, rmSync } from 'node:fs';
 import { existsSync, readFileSync, statSync } from './check-reads.ts';
 import { isAbsolute, join, normalize, relative, resolve, sep } from 'node:path';
 
-import { asArray, checkProject, collectItems, isObject, loadCollection, type Finding, type Item } from './check.ts';
+import { answered, asArray, checkProject, collectItems, isObject, loadCollection, type Finding, type Item } from './check.ts';
 import { staleSignoffAnswer } from './signoff-answers.ts';
 import { readProject } from './feedback.ts';
 import { acquireBoundJobWrite } from './job-writer.ts';
@@ -16,7 +16,7 @@ import { OWNER_CHAT_SOURCE, ownerChatFinding } from './owner-chat.ts';
 import { readVerbatim, writeRecord } from './record-input.ts';
 import { refuse, USAGE_EXIT } from './refusal.ts';
 import { baselineOf, newFindings } from './refusal-baseline.ts';
-import { PLAN_STEPS, STEP_PLAN_SCHEMA, currentStepPlan, planStepOfGuide, stepPlanValue, type PlanStep } from './stages.ts';
+import { PLAN_STEPS, STEP_PLAN_SCHEMA, STEP_PLAN_SOURCE, currentStepPlan, planStepOfGuide, stepPlanValue, type PlanStep } from './stages.ts';
 import type { JsonObject } from './templates.ts';
 
 export const REVIEW_COMMENT_SOURCE = 'review comment';
@@ -199,7 +199,8 @@ export function stepPlanCommand(args: string[], now: number): { stdout: string; 
     const covered = (finding: Finding): boolean => {
       const id = action === 'propose' ? staleSignoffAnswer(finding)?.id : undefined;
       const item = id === undefined ? undefined : collectItems(next, { collection: loadCollection(dir) }).find(i => i.id === id);
-      return item !== undefined && item.state.state === 'silent' && planStepOfGuide(item.id, item.kind === 'post') === step;
+      if (item === undefined || planStepOfGuide(item.id, item.kind === 'post') !== step) return false;
+      return item.state.state === 'silent' || (answered(item.state) && isObject(item.raw) && item.raw.source === STEP_PLAN_SOURCE);
     };
     const fresh = newFindings(baselineOf(checkProject(dir, project, { now })), checkProject(dir, next, { now }).refusals).filter(f => !covered(f))[0];
     if (fresh !== undefined) refuse(fresh.code, fresh.message);

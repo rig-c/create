@@ -285,6 +285,21 @@ test('#983 sign-offs bind a plan-covered question to its step plan; a changed pl
   proposeParts(dir, `${PARTS_PLAN}The hair is cut into finer locks.\n`);
   const stale = checkProject(dir, undefined, { now: testClock.now() }).refusals.filter(r => r.code === 'SIGNOFF_ANSWERS_STALE').map(r => r.path);
   expect(stale).toContain('signoffs[1].answer_hashes[seethrough]');
+  // #997: an answered value delegated under the plan is covered by it too, so its binding is stale as well.
+  expect(stale).toContain('signoffs[1].answer_hashes[assemble]');
+});
+
+test('#997 re-recording a step-plan value with a step resting on it marks that step for revision instead of refusing', () => {
+  const dir = freshProject();
+  proposeParts(dir, PARTS_PLAN);
+  testClock.set(testClock.now() + 1000);
+  decide(dir, 'assemble', { project: 'core', ground: 'plain' }, 'The parts are projected from their core masks on a plain ground.');
+  expect(cli(['plan', 'add', 'assemble', dir, '--by', 'agent', '--phase', 'rig', '--order', '1', '--does', 'work', '--produces', 'result',
+    '--rests-on', 'assemble', '--bar', 'the parts check passes', '--checkpoint-proposed', 'false']).code).toBe(0);
+  testClock.set(testClock.now() + 1000);
+  decide(dir, 'assemble', { project: 'core', ground: 'plain' }, 'The parts are projected from their core masks on a plain ground.');
+  const codes = checkProject(dir, undefined, { now: testClock.now() }).refusals.map(r => r.code);
+  expect(codes).not.toContain('PLAN_STEP_PREDATES_ANSWER');
 });
 
 test('#983 without a covering plan a silent rests_on question still refuses the sign-off by code', () => {

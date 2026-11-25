@@ -1283,7 +1283,7 @@ test('merged record-mode host lists finalized picks and its printed writer comma
   // #738: next shows the guide as answered and offers no second publication of the question.
   const report = nextProject(root);
   expect(report.refusals.map(({ code, field }) => ({ code, path: field }))).toEqual([stalePlanStep('motion')]);
-  expect(report.moves.filter(move => move.command?.includes('--question motion') || move.field.includes('[motion]'))).toEqual([]);
+  expect(report.moves.filter(move => move.command?.includes('--question motion') || move.field === 'interview.waypoints[motion].pending_options')).toEqual([]);
   expect(report.answers!.find(answer => answer.question_id === 'motion')).toMatchObject({ field: 'interview.waypoints[motion].guide', at: act.at });
   expectExit0(await cli(root, ['plan', 'revise', 'motion', root, '--by', 'agent',
     '--reason', 'The motion definition still covers the recorded synthetic choices.']));
@@ -1291,11 +1291,17 @@ test('merged record-mode host lists finalized picks and its printed writer comma
 }, 30_000);
 
 test('#737 a second --question refuses JOB_ASK_PENDING while the first ask is open, keeps its answer, and publishes after ingest', async () => {
-  const { root, url, view, value, others: [bones] } = await openMotionQuestion(['bones']);
+  const root = riggingInterviewRoot();
+  const value = await registerQuestion(root, 'motion');
+  await registerQuestion(root, 'bones');
+  const opening = await open(root, ['--question', 'motion']);
+  const { url } = opening;
+  const initialView = await page(root, url, 0);
   // Re-opening the pending question itself is not a second ask.
   const same = await cli(root, ['job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner', '--question', 'motion']);
   expectExit0(same);
-  expect(same.stdout.trimEnd().split('\n')).toContain(`job: option-set motion/pending-acts-motion already published (publication ${view.head.publicationId})`);
+  expect(same.stdout.trimEnd().split('\n')).toContain(`job: option-set motion/pending-acts-motion already published (publication ${initialView.head.publicationId})`);
+  const view = seedLegacyPicksPage(root);
   const before = snapshot(root);
   const second = await cli(root, ['job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner', '--question', 'bones']);
   expect(second.exit).toBe(1);

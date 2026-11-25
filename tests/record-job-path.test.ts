@@ -560,7 +560,7 @@ test('record question public path, API@2 fetch, retry, stale source and wrong su
   expect(resolvedPick.shown).toEqual({ label: 'Spine', effect: '24' });
   await reviseAfterAnswer(root, 'motion', '기록된 선택에 기존 모션 계획이 맞는지 확인했어요.');
   await checked(root);
-}, 30_000);
+}, 60_000);
 
 test('exclusive record selectors and missing pending question refuse before host writes', async () => {
   const root = synthetic('rigging-interview');

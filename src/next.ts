@@ -58,8 +58,11 @@ import {
   stepStatusFollows,
 } from './stage-progress.ts';
 import {
+  coveredByStepPlan,
   hasStageOrder,
   interviewStageOfGuide,
+  PLAN_STEPS,
+  planStepOfGuide,
   isOpenInterviewArrivalStage,
   isOpenInterviewStage,
   LEGACY_STAGE_VALUES,
@@ -70,6 +73,8 @@ import {
   stageIndex,
   stageOfStep,
   stepCoveredByApproval,
+  stepPlanValue,
+  VALUE_QUESTIONS,
 } from './stages.ts';
 import type { Json, JsonObject } from './templates.ts';
 import { currentScene, plateRegistration, sceneBytes, sceneCurrentAt, sceneRig, SceneError } from './scene.ts';
@@ -678,7 +683,35 @@ function interviewQuestionMoves(dir: string, stageItems: Item[], effectiveStage:
   return moves;
 }
 
-function interviewPlanMoves(dir: string, stageItems: Item[], stage: string, steps: JsonObject[]) {
+/**
+ * New work gets one plan per step instead of per-question option sets (INTERVIEW.md § Step plans).
+ * A stage the per-question process already touched (a registered set or a recorded answer) keeps its
+ * question moves, so older projects finish as they started; covered questions are never asked.
+ */
+function stepPlanQuestions(dir: string, project: JsonObject, stageItems: Item[]): { questionItems: Item[]; moves: NextMove[] } {
+  const started = stageItems.some(item => pendingInterviewOptions(item) !== undefined
+    || ((item.state.state === 'user' || item.state.state === 'delegated') && !stepPlanValue(project, item, item.state.answer)));
+  const open = stageItems.filter(item => !coveredByStepPlan(project, item));
+  if (started) return { questionItems: open, moves: [] };
+  // Code reads these values, so a covered question still gets one, stated in the plan's prose.
+  const values = stageItems.filter(item => item.state.state === 'silent' && coveredByStepPlan(project, item) && VALUE_QUESTIONS.includes(item.id))
+    .map((item): NextMove => ({
+      role: 'agent', field: item.path, awaits: item.path,
+      command: `rig-create interview-decision ${shellWord(item.id)} ${shellWord(dir)} --by agent --reasoning-file '<why.md>' --value-file '<value.json>' --plan-quote-file '<plan sentence>'`,
+      act: `record the ${item.id} value the ${planStepOfGuide(item.id, item.kind === 'post')} plan states in plain words; the quote file holds that sentence of the plan`,
+      unanswered_by_record: item.path,
+    }));
+  const steps = new Set(open.filter(item => item.state.state === 'silent').map(item => planStepOfGuide(item.id, item.kind === 'post')));
+  const moves = PLAN_STEPS.filter(step => steps.has(step)).map((step): NextMove => ({
+    role: 'agent', field: 'interview.step_plans', awaits: `interview.step_plans[step=${step}]`,
+    command: `rig-create plan propose ${step} ${shellWord(dir)} --file '<plans/${step}.md>' --by agent`,
+    act: `write one ${step} plan for the whole figure: what you will do and why, in the owner's language. Propose it at once and talk the direction through in chat or Review comments; record what the person says with plan feedback. Feedback is discussion, not a gate`,
+    unanswered_by_record: `interview.step_plans[step=${step}]`,
+  }));
+  return { questionItems: open.filter(item => item.state.state !== 'silent'), moves: [...moves, ...values] };
+}
+
+function interviewPlanMoves(dir: string, project: JsonObject, stageItems: Item[], stage: string, steps: JsonObject[]) {
   const phase = stage === 'post-interview' ? 'post' : 'rig';
   const planIds = phase === 'post' ? ['camera', 'timing', 'composition'] : requiredInterviewSteps(stage);
   const guideForStep = (id: string) => id === 'camera' ? 'camera_depth' : id === 'timing' ? 'post_timing' : id === 'composition' ? 'post_composition' : id;
@@ -689,7 +722,7 @@ function interviewPlanMoves(dir: string, stageItems: Item[], stage: string, step
   for (const [index, id] of missingPlanIds.entries()) {
     const guideId = guideForStep(id);
     const item = stageItems.find(item => item.id === guideId);
-    if (!item || item.state.state === 'silent' || hasPendingOther(item) || isUndecidedDelegation(item)) continue;
+    if (!item || (item.state.state === 'silent' && !coveredByStepPlan(project, item)) || hasPendingOther(item) || isUndecidedDelegation(item)) continue;
     const order = lastOrder + index + 1;
     moves.push({ role: 'agent', field: 'plan.steps', awaits: 'plan.steps',
       command: `rig-create plan add ${id} ${shellWord(dir)} --by agent --phase ${phase} --order ${order} --does '<work>' --produces '<result>' --rests-on ${guideId} --bar '<acceptance bar>' --checkpoint-proposed false`,
@@ -1515,8 +1548,9 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
     // Keep the interview and plan drafting available while a stale step blocks approval.
     const interviewCanContinue = holes.length === 0 && blockingRefusals.every(r => r.code === 'PLAN_STEP_PREDATES_ANSWER')
       && stage !== PAUSED_STAGE && isOpenInterviewStage(effectiveStage);
-    const questions = interviewCanContinue ? interviewQuestionMoves(dir, stageItems, effectiveStage, jobId) : [];
-    const plan = interviewCanContinue ? interviewPlanMoves(dir, stageItems, effectiveStage, steps) : undefined;
+    const stepPlans = stepPlanQuestions(dir, project, stageItems);
+    const questions = interviewCanContinue ? [...stepPlans.moves, ...interviewQuestionMoves(dir, stepPlans.questionItems, effectiveStage, jobId)] : [];
+    const plan = interviewCanContinue ? interviewPlanMoves(dir, project, stageItems, effectiveStage, steps) : undefined;
     const awaits = [...moves, ...questions].map(move => move.awaits);
     if (plan?.missingPlanIds.length) awaits.push('plan.steps');
     return {
@@ -1913,12 +1947,13 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
       },
     });
   } else if (isOpenInterviewStage(effectiveStage)) {
-    for (const move of interviewQuestionMoves(dir, stageItems, effectiveStage, jobId)) {
+    const stepPlans = stepPlanQuestions(dir, project, stageItems);
+    for (const move of [...stepPlans.moves, ...interviewQuestionMoves(dir, stepPlans.questionItems, effectiveStage, jobId)]) {
       addAwait(move.awaits);
       moves.push(move);
     }
 
-    const { planIds, missingPlanIds, moves: planMoves } = interviewPlanMoves(dir, stageItems, effectiveStage, steps);
+    const { planIds, missingPlanIds, moves: planMoves } = interviewPlanMoves(dir, project, stageItems, effectiveStage, steps);
     const needsPlanSteps = missingPlanIds.length > 0;
     if (needsPlanSteps) {
       addAwait('plan.steps');

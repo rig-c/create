@@ -32,6 +32,16 @@ import { answered, asArray, asString, collectionQuestion, isDecision, isObject, 
 import type { PartsSections } from './parts-sections.ts';
 import type { Json, JsonObject } from './templates.ts';
 import { SECTION_PLACEMENT, WAYPOINT_ASKS } from './waypoints.ts';
+import { currentStepPlan, planStepOfGuide } from './stages.ts';
+
+/** A silent question its step plan covers rests on the plan: a delegated entry, or a quote of the plan's text. */
+function stepPlanCites(ctx: Ctx, item: Item, delegated: boolean, quote: string | null): boolean {
+  const plan = currentStepPlan(ctx.project, planStepOfGuide(item.id, item.kind === 'post'));
+  if (plan === undefined) return false;
+  if (delegated) return true;
+  if (quote === null || quote === '' || typeof plan.path !== 'string') return false;
+  try { return readFileSync(resolve(ctx.dir, plan.path), 'utf8').replace(/\s+/g, ' ').includes(quote.replace(/\s+/g, ' ')); } catch { return false; }
+}
 
 /** How the version's section list was obtained. */
 export type ConfigRead =
@@ -250,6 +260,7 @@ export function checkEntry(ctx: Ctx, kind: 'rig' | 'post', path: string, raw: Js
     ctx.refusals.push({ code: 'CITATION_GUIDE_UNKNOWN', path, message: `${named}: cites '${guide}', which is no framing, waypoint or post item of this interview` });
     return;
   }
+  if (!answered(item.state) && item.state.state === 'silent' && stepPlanCites(ctx, item, delegated, quote)) return;
   if (!answered(item.state)) {
     ctx.refusals.push({ code: 'CITATION_GUIDE_SILENT', path, message: `${named}: cites '${guide}', which has no answer (${item.path} is ${item.state.state})` });
     return;

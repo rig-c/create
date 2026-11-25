@@ -1476,7 +1476,7 @@ test('#478 answered rigging guides request plan steps before the publishable sig
 });
 
 
-test('#490 fresh init record prints runnable option registration without initializing git', () => {
+test('#983 fresh init record prints a runnable step plan proposal instead of option registration', () => {
   const dir = join(tempDir(), "synthetic project's folder");
   mkdirSync(join(dir, 'evidence'), { recursive: true });
   writeFileSync(join(dir, 'project.json'), JSON.stringify(freshProjectRecord('synthetic-fresh', CHAIN_NOW)));
@@ -1485,13 +1485,16 @@ test('#490 fresh init record prints runnable option registration without initial
   expect(runMainCapture(['input', 'add', 'inputs/painting.png', dir, '--origin', 'synthetic source'], CHAIN_NOW)).toMatchObject({ code: 0, stderr: '' });
   const bytes = readFileSync(join(dir, 'project.json'));
   const report = nextProject(dir, CHAIN_NOW);
-  const move = report.moves.find(move => move.command?.startsWith('rig-create interview-options rig_type '))!;
+  expect(report.moves.some(move => move.command?.startsWith('rig-create interview-options '))).toBe(false);
+  const move = report.moves.find(move => move.command?.startsWith('rig-create plan propose parts '))!;
   expect(move.role).toBe('agent');
-  const argv = preparePrintedOptions(dir, move.command!, CHAIN_NOW);
-  const result = runMainCapture(argv, CHAIN_NOW);
-  expect(result).toMatchObject({ code: 0, stderr: '' });
+  mkdirSync(join(dir, 'plans'));
+  writeFileSync(join(dir, 'plans/parts.md'), 'One synthetic plan for the whole figure.\n');
+  const argv = printedArgs(move.command!).slice(1).map(arg => arg === '<plans/parts.md>' ? 'plans/parts.md' : arg);
+  expect(runMainCapture(argv, CHAIN_NOW)).toMatchObject({ code: 0, stderr: '' });
   expect(readFileSync(join(dir, 'project.json'))).not.toEqual(bytes);
-  expect(nextProject(dir, CHAIN_NOW).moves.find(move => move.review_act?.question_id === 'rig_type')?.role).toBe('human');
+  const after = nextProject(dir, CHAIN_NOW);
+  expect(after.moves.some(move => move.field === 'interview.step_plans' || move.review_act?.question_id === 'rig_type')).toBe(false);
 });
 
 test('#490 answers expose current picks, ids, labels, author and time; refresh registers a new set', () => {

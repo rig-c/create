@@ -13,6 +13,7 @@ import { baselineOf, newFindings } from './refusal-baseline.ts';
 import { approvalStageOfStep, hasStageOrder } from './stages.ts';
 import { stepHash } from './step-hash.ts';
 import type { JsonObject } from './templates.ts';
+import { STEP_PLAN_HELP, stepPlanCommand } from './step-plans.ts';
 
 export const PLAN_HELP = `plan add|revise|remove|replace <id> [<project dir>] --by <drafter> [--json]
   --phase rig|post --order <number> --does <text> --produces <text>
@@ -30,18 +31,20 @@ export const PLAN_HELP = `plan add|revise|remove|replace <id> [<project dir>] --
   Under a signed plan, a new or replaced step starts with checkpoint null and needs the owner's checkpoint answer (CHECKPOINT_UNANSWERED).
   Dates follow approval ownership: parts/legacy rig update drafted_at and drafted_by,
   production rigging updates rigging_drafted_at, and post preserves plan dates.
-  Each candidate passes check's refusal delta before writing.`;
+  Each candidate passes check's refusal delta before writing.
+${STEP_PLAN_HELP}`;
 
 const FIELDS = ['phase', 'order', 'does', 'produces', 'rests_on', 'bar', 'checkpoint_proposed'];
 
 export function planCommand(args: string[], now: number): { stdout: string; exit: number } {
   const action = args[0];
   if (action === 'help' || args.includes('--help')) return { stdout: PLAN_HELP, exit: 0 };
+  if (action === 'propose' || action === 'feedback') return stepPlanCommand(args, now);
   const opts: Record<string, string> = {};
   const positional: string[] = [];
   let json = false;
   const usage = (why: string): never => refuse('PLAN_OPTION_INVALID', `plan.steps: ${why}; see plan help`, USAGE_EXIT);
-  if (!['add', 'revise', 'remove', 'replace', 'checkpoint-withdraw', 'bar-amend'].includes(action ?? '')) usage('expected add, revise, remove, replace, checkpoint-withdraw or bar-amend');
+  if (!['add', 'revise', 'remove', 'replace', 'checkpoint-withdraw', 'bar-amend'].includes(action ?? '')) usage('expected propose, feedback, add, revise, remove, replace, checkpoint-withdraw or bar-amend');
   const flags = ['--by', '--reason', '--reason-file', '--quote-file', '--bar-file', ...FIELDS.map(field => `--${field.replaceAll('_', '-')}`)];
   for (let index = 1; index < args.length; index++) {
     const arg = args[index]!;

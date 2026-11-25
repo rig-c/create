@@ -66,12 +66,14 @@ import { checkAppliedReview } from './applied-review.ts';
 import { checkReviewPackages } from './review-package.ts';
 import { rigRegistrationFindings } from './rig-version.ts';
 import { checkPreInterview } from './pre-interview.ts';
+import { checkStepPlans } from './step-plans.ts';
 import {
   PARTS_REVIEW,
   PARTS_REVIEW_SINCE,
   PAUSED_STAGE,
   approvalStageOfStep,
   approvalStageOfGuide,
+  coveredByStepPlan,
   hasStageOrder,
   interviewStageOfGuide,
   LEGACY_STAGES,
@@ -552,6 +554,8 @@ function checkAnswers(ctx: Ctx): void {
     }
     if (state.state === 'silent') {
       if (hasStageOrder(ctx.project) && cur < ownInterview) continue;
+      // A proposed step plan answers its step's questions as a whole (INTERVIEW.md § Step plans).
+      if (coveredByStepPlan(ctx.project, item)) continue;
       const via = state.via === undefined ? '' : ` (${state.via})`;
       if (item.kind === 'post') {
         if (cur < postInterviewIdx) continue;
@@ -663,7 +667,7 @@ function checkPlan(ctx: Ctx, replaced: JsonObject[], now: number): void {
       const item = itemFor(ctx, id);
       if (item === undefined) {
         ctx.refusals.push({ code: 'STEP_BASIS_UNKNOWN', path, message: `${path}: rests on '${id}', which is no framing, waypoint or post item of this interview` });
-      } else if (!answered(item.state) && !laterDraft) {
+      } else if (!answered(item.state) && !laterDraft && !coveredByStepPlan(ctx.project, item)) {
         ctx.refusals.push({ code: 'STEP_BASIS_SILENT', path, message: `${path}: rests on '${id}', which has no answer (${item.path} is ${item.state.state})` });
       }
     }
@@ -976,6 +980,7 @@ function checkProjectOnce(projectDirArg: string, candidate: JsonObject | undefin
   if (!hasStageOrder(project)) warnings.push(STAGE_ORDER_LEGACY_FINDING);
   checkInputs(ctx);
   checkChoices(ctx);
+  checkStepPlans(dir, project, refusals, warnings, ctx.items);
   checkComposeValues(ctx);
   const checkChat = (value: Json | undefined, path: string): void => {
     if (Array.isArray(value)) value.forEach((entry, index) => checkChat(entry, `${path}[${index}]`));
@@ -984,6 +989,7 @@ function checkProjectOnce(projectDirArg: string, candidate: JsonObject | undefin
       const checked = value.from === 'picks' && /^project\.json\.signoffs\[\d+\]\.evidence$/.test(path)
         || /^project\.json\.(reopens|restarts)\[\d+\]$/.test(path)
         || /^project\.json\.amendments\[\d+\]$/.test(path)
+        || /^project\.json\.interview\.step_plans\[\d+\]\.feedback\[\d+\]$/.test(path)
         || /^project\.json\.review_acts\[\d+\]$/.test(path) && isDiscardReceipt(value);
       const finding = checked ? undefined : ownerChatFinding(value, path);
       if (finding) ctx.refusals.push(finding);

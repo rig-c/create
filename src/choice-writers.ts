@@ -9,7 +9,8 @@ import { assertActSubjectDeclared, decodeReviewAct, fetchReviewActBytes, intervi
 import { dirname, join, resolve } from 'node:path';
 import { isDeepStrictEqual as equal } from 'node:util';
 import { answered, asArray, checkProject, collectItems, collectSignoffs, isObject, loadCollection, collectionAnswer, type Item } from './check.ts';
-import { approvalStageOfGuide } from './stages.ts';
+import { approvalStageOfGuide, currentStepPlan, planStepOfGuide, STEP_PLAN_SOURCE, stepPlanValue, VALUE_QUESTIONS } from './stages.ts';
+import { WAYPOINT_ASKS } from './waypoints.ts';
 import { collectReopens, liveSignoff } from './reopen.ts';
 import { readProject } from './feedback.ts';
 import { readVerbatim } from './record-input.ts';
@@ -31,6 +32,8 @@ interview-answer <question> [<dir>] --set <path> --sha256 <shown sha> --by <huma
   [--note-file <file>] [--source <location>] [--why-file <file> for a member override]
 interview-decision <question> [<dir>] --by <agent> --reasoning-file <file>
   --fragment <ask>=<JSON file>...
+interview-decision <question> [<dir>] --by agent --reasoning-file <file>
+  --value-file <JSON file> --plan-quote-file <file>   (a value code reads, under a step plan)
 Retain the shown set first. Each ask is picked explicitly; no recommended option is preselected.
 Write ask prompts, option labels and effects, and recommendation reasons in the owner's declared language.
 To ask an answered question again, retain and register a new set id/path with
@@ -407,9 +410,49 @@ export function interviewAnswerCommand(args: string[], now: number, hooks: Inter
   } finally { release(); }
 }); }
 
+/** Asks a waypoint's step-plan value covers, filtered as ask coverage filters them. */
+function stepPlanAsks(dir: string, project: JsonObject, item: Item, value: Json): JsonObject[] | undefined {
+  const asks = item.kind === 'waypoint' ? WAYPOINT_ASKS[item.id] : undefined;
+  if (asks === undefined) return undefined;
+  const rig = collectItems(project, { collection: loadCollection(dir) }).find(i => i.id === 'rig_type')?.state;
+  const rigValue = rig?.state === 'user' ? rig.answer.value
+    : rig?.state === 'delegated' && isObject(rig.answer.agent_decision) ? rig.answer.agent_decision.value : null;
+  const visible = isObject(value) && value.project === 'visible';
+  return asks.filter(ask => (ask.id !== 'ground' || item.id !== 'assemble' || visible)
+    && (ask.required_for === undefined || (ask.required_for === 'fullscreen.game_logic' ? rigValue === 'fullscreen.game_logic' : rigValue !== 'fullscreen.game_logic')))
+    .map(ask => ({ id: ask.id, state: 'delegated' }));
+}
+
+/** A value code reads, delegated under the current step plan; the plan's prose states it (STEP_PLAN_VALUE_UNSAID). */
+function stepPlanDecision(opts: Args, now: number): string {
+  if (opts.many['--fragment'] || !opts.one['--plan-quote-file']) usage('a step plan value takes --value-file and --plan-quote-file, without --fragment');
+  const dir = resolve(opts.positional[1] ?? process.cwd());
+  const release = acquireBoundJobWrite(dir, { kind: 'record-only', writer: 'interview' });
+  try {
+    const {file,project} = readProject(dir); const next = structuredClone(project);
+    const item = itemAt(next,dir,opts.positional[0]);
+    if (!VALUE_QUESTIONS.includes(item.id)) usage(`${item.id}: no code reads its value; under a step plan it stays unanswered`);
+    const step = planStepOfGuide(item.id, item.kind === 'post'); const plan = currentStepPlan(next, step);
+    if (!plan) refuse('STEP_PLAN_MISSING', `${item.path}: propose the ${step} plan with plan propose ${step} before recording its values`);
+    const prior = item.state.state === 'silent' ? undefined : isObject(item.raw) && stepPlanValue(next, item, item.raw) ? item.raw : null;
+    if (prior === null) refuse('INTERVIEW_CHOICE_INVALID', `${item.path}: already answered; a step plan value fills only a silent question`);
+    checkNewAnswer(dir,next,item);
+    const quote = readText(opts.one['--plan-quote-file'] as string).trim(); if (!quote) usage('--plan-quote-file is empty');
+    const reasoning = readText(opts.one['--reasoning-file'] as string); const value = jsonFile(opts.one['--value-file'] as string);
+    const at = new Date(now).toISOString(); const by = opts.one['--by'] as string; const asks = stepPlanAsks(dir,next,item,value);
+    const answer: JsonObject = { delegated: true, by, at, source: STEP_PLAN_SOURCE, step_plan: { step, sha256: plan.sha256 as string }, plan_quote: quote,
+      ...(asks ? { asks } : {}), agent_decision: { by, at, reasoning, value } };
+    if (prior) item.record.history = [...asArray(item.record.history), prior];
+    item.record[item.kind === 'framing' ? 'answer' : 'guide'] = answer;
+    save(file,dir,project,next,now); return JSON.stringify(answer);
+  } finally { release(); }
+}
+
 export function interviewDecisionCommand(args: string[], now: number): string { return run(() => {
-  const opts = parse(args,['--by','--reasoning-file'],['--fragment']);
+  const opts = parse(args,['--by','--reasoning-file','--value-file','--plan-quote-file'],['--fragment']);
   if (opts.positional.length > 2 || !opts.one['--by'] || !opts.one['--reasoning-file']) usage('question, --by and --reasoning-file required');
+  if (opts.one['--value-file'] !== undefined) return stepPlanDecision(opts, now);
+  if (opts.one['--plan-quote-file'] !== undefined) usage('--plan-quote-file goes with --value-file');
   const dir = resolve(opts.positional[1] ?? process.cwd());
   const release = acquireBoundJobWrite(dir, { kind: 'record-only', writer: 'interview' });
   try {

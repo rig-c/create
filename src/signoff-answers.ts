@@ -2,7 +2,7 @@
 import { createHash } from 'node:crypto';
 import { answered, asArray, collectItems, isObject, itemFor, loadCollection, postNotPassed, type Ctx, type Finding, type Item } from './check.ts';
 import { refuse } from './refusal.ts';
-import { approvalStageOfStep, hasStageOrder } from './stages.ts';
+import { approvalStageOfStep, currentStepPlan, hasStageOrder, planStepOfGuide } from './stages.ts';
 import { sorted } from './step-hash.ts';
 import type { Json, JsonObject } from './templates.ts';
 
@@ -33,6 +33,18 @@ export function answerRevisionHash(item: Item, stage = 'plan-approved'): string 
   return createHash('sha256').update(JSON.stringify(sorted(envelope))).digest('hex');
 }
 
+/**
+ * The revision a signature binds: the answer, or for a silent question its current step plan covers,
+ * that plan entry (step and sha256; docs/INTERVIEW.md § Step plans). Undefined when neither exists.
+ */
+export function boundRevisionHash(project: JsonObject, item: Item, stage = 'plan-approved'): string | undefined {
+  if (answered(item.state)) return answerRevisionHash(item, stage);
+  if (item.state.state !== 'silent') return undefined;
+  const plan = currentStepPlan(project, planStepOfGuide(item.id, item.kind === 'post'));
+  if (plan === undefined) return undefined;
+  return createHash('sha256').update(JSON.stringify(sorted({ step_plan: { step: plan.step ?? null, sha256: plan.sha256 ?? null } }))).digest('hex');
+}
+
 /** Plan completeness follows the signature's own covered steps. */
 function requiredIds(project: JsonObject, signoff: JsonObject, items: Item[]): string[] {
   if (signoff.stage === 'interview') return [];
@@ -48,12 +60,13 @@ export function selectAnswerHashes(dir: string, project: JsonObject, signoff: Js
   if (!stages.includes(String(signoff.stage))) return undefined;
   const items = collectItems(project, { collection: loadCollection(dir) });
   // The writer captures every answer present now, independent of its recorded date.
-  const ids = signoff.stage === 'interview' ? items.filter(item => answered(item.state)).map(item => item.id) : requiredIds(project, signoff, items);
+  const ids = signoff.stage === 'interview' ? items.filter(item => boundRevisionHash(project, item, 'interview') !== undefined).map(item => item.id) : requiredIds(project, signoff, items);
   const hashes = Object.create(null) as JsonObject;
   for (const id of new Set([...ids, ...extraIds])) {
     const item = items.find(item => item.id === id);
-    if (!item || !answered(item.state)) refuse('SIGNOFF_ANSWERS_UNANSWERED', `signoffs[${asArray(project.signoffs).length}].answer_hashes[${id}]: answer is missing or unresolved; answer ${id} before signing ${String(signoff.stage)}`);
-    hashes[id] = answerRevisionHash(item, String(signoff.stage));
+    const hash = item && boundRevisionHash(project, item, String(signoff.stage));
+    if (hash === undefined) refuse('SIGNOFF_ANSWERS_UNANSWERED', `signoffs[${asArray(project.signoffs).length}].answer_hashes[${id}]: answer is missing or unresolved, and no step plan covers it; answer ${id} or propose its step plan before signing ${String(signoff.stage)}`);
+    hashes[id] = hash;
   }
   return hashes;
 }
@@ -79,7 +92,7 @@ export function checkSignoffAnswers(ctx: Ctx, signoff: JsonObject, path: string)
       || (isObject(s.record.answer_hashes) && Object.hasOwn(s.record.answer_hashes, id)));
     if (superseded) continue;
     const item = itemFor(ctx, id);
-    if (!item || !answered(item.state) || hash !== answerRevisionHash(item, String(signoff.stage))) {
+    if (!item || hash !== boundRevisionHash(ctx.project, item, String(signoff.stage))) {
       const at = `${path}.answer_hashes[${id}]`;
       ctx.refusals.push({ code: 'SIGNOFF_ANSWERS_STALE', path: at, message: `${at}: ${id} is missing, unresolved or changed since signing; sign ${String(signoff.stage)} again after restoring the intended answer` });
     }

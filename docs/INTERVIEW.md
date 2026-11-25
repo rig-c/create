@@ -3,7 +3,7 @@
 The direction a user gives before any rig work starts, and the shape every
 answer takes in `project.json`. The interview is organised by the **waypoints**
 the rig work always passes through — the sections of a `@rig-c/parts` config —
-and the user's decisions attach at each one. New adopted records use [per-ask choices](#per-ask-choices-interview2); the sentence format below remains historical. Camera framing and timing are
+and the user's decisions attach at each one. New work proposes one [plan per step](#step-plans); records already begun use [per-ask choices](#per-ask-choices-interview2), and the sentence format below remains historical. Camera framing and timing are
 **post-production**, asked separately after the rig is accepted. The plan the
 work follows is drafted from these answers ([PROJECT.md § The plan](PROJECT.md#the-plan));
 a worked example is in [../templates/example-interview.md](../templates/example-interview.md),
@@ -31,6 +31,95 @@ a form.
 | 1. **Base motion** | Framing (`rig_type`, `reference`), then a guide at each rig waypoint: `seethrough`, `assemble`, `bones`, `meshes`, `constraints`, `motion` | stage `interview`, before any rig work; the parts judged at `parts-review` before rigging, the rig at the first review, on a still frame |
 | 2. **Direction** | Post items: `camera_depth`, `post_timing`, `post_composition` | stage `post-interview`, after the rig is accepted; judged at the second review |
 | 3. **Polish feedback** | Verdicts on a shown version, each tied to a waypoint or post item | at either review, as often as it takes |
+
+## Step plans
+
+New work does not ask question by question. For each of the user's steps the
+agent writes **one plan** for the whole figure (what it will do and why) and
+proposes it at once. The person reads it and says what they think, in chat or
+as Review comments. That feedback is discussion: no writer, check or `next`
+move waits for it, and the agent may revise and propose the plan again at any
+time. An example rigging plan is `docs/examples/step-plan-rigging.md` in the repository.
+
+A plan is one page of plain sentences in the owner's declared language, and its
+sections are fixed, in this order: a short summary; what will be done and why,
+area by area; what is left out; then two or three questions about direction.
+No check reads the sections.
+
+| Step | Questions the plan answers |
+| --- | --- |
+| `parts` | `rig_type`, `reference`, `seethrough`, `assemble` (everything placed at `interview` in the split order) |
+| `rigging` | `turn`, `bones`, `meshes`, `constraints` and any other rig waypoint |
+| `motion` | `motion` |
+| `direction` | the post items: `camera_depth`, `post_timing`, `post_composition` |
+
+```
+rig-create plan propose <step> [<project dir>] --file <plan.md> --by <drafter> [--input <path>]...
+rig-create plan feedback <step> [<project dir>] --words-file <file> --by <who said it>
+  --said-at <ISO date> --relayed-by <operator> [--comment-id <id>] [--sha256 <plan sha256>]
+```
+
+`plan propose` appends one entry to `interview.step_plans[]`:
+
+| Field | Meaning |
+| --- | --- |
+| `schema` | `rig-create/step-plan@1` |
+| `step` | `parts`, `rigging`, `motion` or `direction` |
+| `path`, `sha256`, `bytes` | the plan file, kept in the project folder (for example `plans/rigging.md`), bound by the hash of its bytes |
+| `inputs[]` | `{path, sha256}` of each registered `inputs[]` file and each `--input` the plan was written against (parts, a rig build) |
+| `by`, `at` | the drafter and the writer's clock |
+| `feedback[]` | what people said about this plan, in order |
+
+The latest entry for a step is its current plan. Proposing the same bytes and
+inputs again writes nothing; proposing changed bytes appends a new entry, and
+earlier entries keep their feedback. There are no plan version numbers and no
+copies of the file: the hash says which bytes a comment was about, and the
+project folder's git history keeps the older text. When the plan file or a
+bound input no longer matches its hash, the check warns `STEP_PLAN_STALE`
+until the plan is proposed again.
+
+`plan feedback` attaches the person's exact words to the current plan, or to
+the one named by `--sha256`. Without `--comment-id` the entry is relayed owner
+chat (`source: "owner chat, relayed"`, `owner_words`, `by`, `said_at`,
+`relayed_by`, `at`); with it the entry is a Review comment (`source: "review
+comment"`, `words`, `comment_id`, `by`, `said_at`, `relayed_by`, `at`).
+`said_at` is when the words were said; `at` is the write. Words from `agent`
+are refused: feedback is what a person said.
+
+A question whose step has a current plan is answered by that plan. The check
+does not refuse it as silent, a `plan.steps` entry may rest on it, and `next`
+does not ask it. A sign-off binds such a question to the plan entry (its step and
+sha256), so proposing changed plan bytes makes that binding stale
+(`SIGNOFF_ANSWERS_STALE`) until the stage is signed again. On a stage the per-question process has not touched, `next`
+proposes `plan propose <step>` for each step still open there instead of option
+sets. A stage that already holds a registered option set or a recorded answer
+keeps its per-question moves, and every recorded set and answer is still read
+and checked as before ([§ Per-ask choices](#per-ask-choices-interview2)).
+
+Some questions have a value that code reads, so a plan's prose alone is not
+enough for them: `rig_type`, `assemble`, `turn`, `meshes`, `camera_depth`,
+`post_timing` and `post_composition` (the list and each reader are
+`INTERVIEW_VALUE_READERS` in `src/stages.ts`). With an empty value a full-screen
+project skips its CG gates, assemble's projection is not compared with
+`config.json`, no head turn is built, a structure delta is refused, and
+direction and scene citations are refused. Under a step plan the agent states
+each such value in plain words in the plan, then records it as a delegation:
+
+```
+rig-create interview-decision <question> [<project dir>] --by agent --reasoning-file <file>
+  --value-file <JSON file> --plan-quote-file <the plan's sentence>
+```
+
+The answer is `{delegated: true, by, at, source: "step plan", step_plan: {step,
+sha256}, plan_quote, asks (waypoints), agent_decision: {by, at, reasoning,
+value}}`. It needs no option set and no owner act. It fills only a silent
+question (or replaces an earlier step-plan value) and needs a current plan for
+its step. `next` offers this move for each such question still silent. The
+check warns `STEP_PLAN_VALUE_UNSAID` when `plan_quote` does not appear in the
+current plan file of that step; the rule is a plain substring match after
+collapsing runs of whitespace to one space. Other covered questions stay
+unanswered. A config section may cite a covered silent question as delegated,
+or by a quote of its plan's text.
 
 ## Every item has an owner
 

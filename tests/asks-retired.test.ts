@@ -1,6 +1,6 @@
 import { afterEach, expect, test } from 'bun:test';
 import { randomUUID } from 'node:crypto';
-import { cpSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -13,16 +13,21 @@ import {
 } from '@rig-c/review/job-host';
 import { EXAMPLE_NOW } from '../scripts/example-time.ts';
 import { checkProject } from '../src/check.ts';
+import { diffClassesCommand } from '../src/diff-classes.ts';
 import { interviewCommand } from '../src/interview.ts';
 import { agentCall, readHostActsAndAsks } from '../src/job-acts.ts';
 import { openCreateJob, openDraftPublication, openRecordPublication, reconcileCreateJob } from '../src/job-host.ts';
 import { acknowledgePublication, enqueuePublication, jobHash, jobHostStateRoot, jobPrivateRoot, readWriterBinding } from '../src/job-outbox.ts';
 import { prepareDraftManifest, prepareLiveManifest, readPublished, readRecordPublished, type RecordPublicationRequest } from '../src/job-publication.ts';
 import { nextProject } from '../src/next.ts';
+import { assertPartsActSource, partsActDraftHash, partsActFindings } from '../src/parts-act.ts';
+import { partsReviewCommand } from '../src/parts-review.ts';
 import { planCommand } from '../src/plan-writers.ts';
-import { fetchReviewAct, reviewActFindings } from '../src/review-act.ts';
+import { advanceCommand } from '../src/progress-writers.ts';
+import { decodeReviewAct, fetchReviewAct, reviewActFindings } from '../src/review-act.ts';
 import { signoffCommand } from '../src/signoff.ts';
 import { stageIndex } from '../src/stages.ts';
+import { structureSnapshotCommand } from '../src/structure-snapshot.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { arr, obj, retainSignoffs } from './fixtures.ts';
 
@@ -370,3 +375,129 @@ test('a plan replace under a signed plan no longer refuses', () => {
   expect(checked.exit).toBe(0);
   expect(JSON.parse(checked.stdout).refusals).toEqual([]);
 });
+
+test('a legacy unsigned approved parts draft publishes parts-verdict again and folds the new verdict into signoffs', async () => {
+  const prepNow = Math.max(EXAMPLE_NOW, Date.now() - 5_000);
+  const root = copyCheckpoint('1-parts-verdict');
+  cpSync(join(import.meta.dir, '../templates/example-chain/evidence/diff-components.json'), join(root, 'evidence/diff-components.json'));
+  expect(structureSnapshotCommand([root, '--draft', 'chain', '--out', 'evidence/structure-chain.json']).exit).toBe(0);
+  expect(diffClassesCommand([root, '--diff-report', 'evidence/diff-components.json', '--by', 'agent'], prepNow).exit).toBe(0);
+  expect(advanceCommand(['parts-review', root, '--parts-check', 'evidence/parts-check.json', '--parts', 'derived/drafts/chain/input'], prepNow).exit).toBe(0);
+
+  const host = await openCreateJob(root, reviewer, prepNow);
+  hosts.push(host);
+  await openDraftPublication(root, host, prepNow, 'chain');
+
+  const uiRequest = (route: string, body: object) => new Request(`${host.origin}/jobs/${host.session.jobId}/ui/${route}`, {
+    method: 'POST',
+    headers: { origin: host.origin, 'X-Review-Capability': host.session.hostCredentials().ui, 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const submitPartsVerdict = async (words: string) => {
+    const { asks } = await readHostActsAndAsks(host);
+    expect(asks.map(a => a.subject)).toEqual([{ kind: 'parts-verdict', draftId: 'chain' }]);
+    const publication = host.session.status().publication!;
+    const pageId = randomUUID();
+    const displayed = await host.ports.ackDisplayed(host.session.jobId, uiRequest('displayed', {
+      publicationId: publication.publicationId,
+      pageId,
+      sourceHash: publication.source.sourceHash,
+    }));
+    expect(displayed.ok).toBe(true);
+    if (!displayed.ok) throw new Error(displayed.error.code);
+    const committed = await host.ports.commitUIAct(host.session.jobId, uiRequest('acts', {
+      publicationId: publication.publicationId,
+      askId: asks[0]!.askId,
+      pageId,
+      displayedNonce: displayed.value.displayedNonce,
+      expectedGeneration: host.session.status().generation,
+      submissionId: randomUUID(),
+      kind: 'parts-verdict',
+      value: { verdict: 'approved', issues: [], words },
+    }));
+    expect(committed.ok).toBe(true);
+    if (!committed.ok) throw new Error(committed.error.code);
+    return committed.value;
+  };
+
+  // Seed a legacy pre-fold state: an approved parts-verdict receipt in review_acts with no parts-review signature.
+  const legacyAct = await submitPartsVerdict('Legacy pre-fold approved parts verdict.\n');
+  const binding = readWriterBinding(root)!;
+  const legacyFetched = await fetchReviewAct({
+    origin: binding.origin,
+    jobId: binding.jobId,
+    actId: legacyAct.actId,
+    fetchCapability: binding.fetchCapability,
+    kind: 'parts-verdict',
+  });
+  const decodedLegacy = decodeReviewAct(legacyFetched.bytes, 'parts-verdict');
+  const legacyProject = read(root);
+  const legacyEvidence = {
+    path: `evidence/review-acts/${jobHash(JSON.stringify([decodedLegacy.jobId, decodedLegacy.actId]))}.json`,
+    sha256: jobHash(legacyFetched.bytes),
+  };
+  mkdirSync(join(root, 'evidence/review-acts'), { recursive: true });
+  writeFileSync(join(root, legacyEvidence.path), legacyFetched.bytes);
+  legacyProject.review_acts = [...(Array.isArray(legacyProject.review_acts) ? legacyProject.review_acts : []), {
+    schema: 'rig-create/review-act@1',
+    kind: 'parts-verdict',
+    jobId: decodedLegacy.jobId,
+    actId: decodedLegacy.actId,
+    draft_id: 'chain',
+    version_hash: partsActDraftHash(legacyProject, decodedLegacy),
+    bytes: legacyFetched.bytes,
+    sha256: legacyEvidence.sha256,
+    evidence: legacyEvidence,
+  }];
+  save(root, legacyProject);
+  expect(arr(read(root).signoffs).some(s => obj(s).stage === 'parts-review')).toBe(false);
+  expect(partsActFindings(root, read(root))).toEqual([]);
+
+  // Re-publishing the unsigned approved draft declares parts-verdict again (legacyApproval branch is gone).
+  const republishNow = Math.max(Date.now(), Date.parse(decodedLegacy.at)) + 1_000;
+  await openDraftPublication(root, host, republishNow, 'chain');
+  const freshAct = await submitPartsVerdict('Approve the unsigned parts draft and fold its signature.\n');
+  const freshFetched = await fetchReviewAct({
+    origin: binding.origin,
+    jobId: binding.jobId,
+    actId: freshAct.actId,
+    fetchCapability: binding.fetchCapability,
+    kind: 'parts-verdict',
+  });
+  const decodedFresh = decodeReviewAct(freshFetched.bytes, 'parts-verdict');
+  assertPartsActSource(root, read(root), decodedFresh);
+
+  // Ingesting the new verdict folds into the parts-review signature and passes partsActFindings + checkProject.
+  const ingestNow = Math.max(Date.now(), Date.parse(decodedFresh.at)) + 1_000;
+  const ingested = partsReviewCommand([root, '--from-review', freshAct.actId, '--json'], ingestNow, {
+    fetch: () => freshFetched,
+  });
+  expect(ingested.exit).toBe(0);
+
+  const after = read(root);
+  const signoffs = arr(after.signoffs).map(obj);
+  const receipts = arr(after.review_acts).map(obj);
+  expect(receipts).toHaveLength(2);
+  expect(receipts[0]!.signoff).toBeUndefined();
+  expect(receipts[1]!.actId).toBe(freshAct.actId);
+  expect(receipts[1]!.signoff).toBe(signoffs.length - 1);
+  expect(signoffs.at(-1)).toMatchObject({
+    stage: 'parts-review',
+    checkpoint: null,
+    draft_id: 'chain',
+    by: 'user',
+    source: `review act ${binding.jobId}/${freshAct.actId}`,
+    evidence: {
+      kind: 'parts-verdict',
+      path: obj(receipts[1]!.evidence).path,
+      sha256: receipts[1]!.sha256,
+      spec: decodedFresh.schema,
+    },
+  });
+  expect(partsActFindings(root, after)).toEqual([]);
+  expect(reviewActFindings(after)).toEqual([]);
+  expect(checkProject(root, undefined, { now: ingestNow }).refusals).toEqual([]);
+
+  await openDraftPublication(root, host, ingestNow + 1_000, 'chain');
+  expect((await readHostActsAndAsks(host)).asks).toEqual([]);
+}, 30_000);

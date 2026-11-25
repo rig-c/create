@@ -1408,14 +1408,19 @@ test('P1 withdrawn checkpoint next offers executable done through the normal ent
   stepStatusCommand(['assemble', 'in-progress', dir, '--by', 'agent']);
   stepStatusCommand(['assemble', 'at-checkpoint', dir, '--by', 'agent']);
   const before = JSON.parse(runMainCapture(['next', dir, '--json'], testClock.now()).stdout) as NextReport;
-  expect(before.moves.some(move => move.review_act?.kind === 'signoff-checkpoint' && move.review_act.step_id === 'assemble')).toBe(true);
+  expect(before.moves.find(move => move.field === 'plan.steps[assemble].checkpoint')).toMatchObject({
+    role: 'human',
+    awaits: 'signoffs[checkpoint=assemble]',
+    command: expect.stringContaining('--checkpoint assemble'),
+  });
+  expect(before.moves.some(move => move.review_act?.kind === 'signoff-checkpoint')).toBe(false);
   expect(planCommand(['checkpoint-withdraw', 'assemble', dir, '--by', 'operator', '--reason-file', reason, '--quote-file', words]).exit).toBe(0);
   const bytes = readFileSync(join(dir, 'project.json'));
   const result = runMainCapture(['next', dir, '--json'], testClock.now());
   expect({ code: result.code, stderr: result.stderr }).toEqual({ code: 0, stderr: '' });
   const after = JSON.parse(result.stdout) as NextReport;
   expect(after.refusals).toEqual([]);
-  expect(after.moves.some(move => move.review_act?.kind === 'signoff-checkpoint' && move.review_act.step_id === 'assemble')).toBe(false);
+  expect(after.moves.some(move => move.field === 'plan.steps[assemble].checkpoint')).toBe(false);
   expect(after.awaits).not.toContain('signoffs[checkpoint=assemble]');
   const done = after.moves.find(move => move.command?.startsWith('rig-create step-status assemble done'));
   expect(done).toBeDefined();
@@ -1555,7 +1560,7 @@ test('#490 post moves run in adoption, scene, direction, advance order', () => {
   expect(JSON.parse(readFileSync(file, 'utf8')).stage).toBe('direction-review');
 });
 
-test('#490 row56a parts checkpoint precedes the executable done move', () => {
+test('#490 row56a parts checkpoint precedes the executable done move and prints owner-chat relay instead of a Review act', () => {
   testClock.set(CHAIN_NOW);
   const dir = join(tempDir(), 'checkpoint-order');
   cpSync(join(CHECKPOINTS_DIR, '1-parts-verdict'), dir, { recursive: true });
@@ -1567,9 +1572,24 @@ test('#490 row56a parts checkpoint precedes the executable done move', () => {
   writeFileSync(file, JSON.stringify(project));
   const report = nextProject(dir, CHAIN_NOW);
   expect(report.refusals).toEqual([]);
-  expect(report.moves.find(move => move.review_act?.step_id === 'assemble')).toMatchObject({ role: 'human', command: null });
+  const checkpointMove = report.moves.find(move => move.field === 'plan.steps[assemble].checkpoint');
+  expect(checkpointMove).toBeDefined();
+  expect(checkpointMove!.role).toBe('human');
+  expect(checkpointMove!.review_act).toBeUndefined();
+  expect(checkpointMove!.act).not.toContain('signoff-checkpoint');
+  expect(checkpointMove!.command).toContain(`rig-create signoff parts ${dir} --checkpoint assemble`);
+  for (const flag of ['--owner-chat', '--said-at', '--relayed-by', '--by']) expect(checkpointMove!.command).toContain(flag);
+  expect(nextCommand([dir], CHAIN_NOW).stdout).toContain(checkpointMove!.command!);
   expect(report.moves.some(move => move.command?.startsWith('rig-create step-status assemble done'))).toBe(false);
-  signoffCommand(['parts', dir, '--checkpoint', 'assemble', '--by', 'user', '--verbatim-file', join(dir, 'evidence/approval.txt')]);
+
+  const saidAt = new Date(CHAIN_NOW - 1000).toISOString();
+  const relayArgs = printedArgs(checkpointMove!.command!).slice(1).map(arg =>
+    arg === '<owner>' ? 'user'
+      : arg === '<words file>' ? join(dir, 'evidence/approval.txt')
+        : arg === '<ISO date>' ? saidAt
+          : arg === '<operator>' ? 'operator'
+            : arg);
+  expect(runMainCapture(relayArgs, CHAIN_NOW)).toMatchObject({ code: 0, stderr: '' });
   const done = nextProject(dir, CHAIN_NOW).moves.find(move => move.command?.startsWith('rig-create step-status assemble done'))!;
   expect(runMainCapture(printedArgs(done.command!).slice(1), CHAIN_NOW)).toMatchObject({ code: 0, stderr: '' });
 });

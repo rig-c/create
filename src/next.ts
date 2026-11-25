@@ -503,6 +503,20 @@ function plateInputMoves(dir: string, project: JsonObject, items: Item[], now: n
 
 const OWNER_CHAT_COMMAND_FLAGS = "--by '<owner>' --owner-chat '<words file>' --said-at '<ISO date>' --relayed-by '<operator>'";
 
+function checkpointOwnerChatCommand(dir: string, stage: string, stepId: string): string {
+  return `rig-create signoff ${stage} ${shellWord(dir)} --checkpoint ${shellWord(stepId)} ${OWNER_CHAT_COMMAND_FLAGS}`;
+}
+
+function checkpointSignoffMove(dir: string, stage: 'parts' | 'rigging' | 'post', stepId: string, awaits: string): NextMove {
+  return {
+    role: 'human',
+    field: `plan.steps[${stepId}].checkpoint`,
+    awaits,
+    command: checkpointOwnerChatCommand(dir, stage, stepId),
+    act: `relay the owner chat checkpoint approval for plan.steps[${stepId}] with exact words, owner date and relay identity`,
+  };
+}
+
 function ownerChatSignoffCommand(dir: string, project: JsonObject, act: NextReviewAct, writer: string): string | undefined {
   if (act.kind !== 'signoff' || !ownerChatSignoffAllowed(dir, project, act.stage, act.draft_id, act.version_id?.slice(1))) return;
   const version = act.stage === 'rig-review' || act.stage === 'direction-review'
@@ -2092,19 +2106,7 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
           const cpAwait = `signoffs[checkpoint=${stepId}]`;
           addAwait(cpAwait);
           if (!recordedLapseTargets.has(cpAwait)) {
-            moves.push({
-              role: 'human',
-              field: `plan.steps[${stepId}].checkpoint`,
-              awaits: cpAwait,
-              command: null,
-              act: `review-tool act signoff-checkpoint for plan.steps[${stepId}]`,
-              review_act: {
-                kind: 'signoff-checkpoint',
-                stage: 'parts',
-                step_id: stepId,
-                ...(jobId ? { job_id: jobId } : {}),
-              },
-            });
+            moves.push(checkpointSignoffMove(dir, 'parts', stepId, cpAwait));
           }
           continue;
         }
@@ -2198,19 +2200,7 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
           const cpAwait = `signoffs[checkpoint=${stepId}]`;
           addAwait(cpAwait);
           if (!recordedLapseTargets.has(cpAwait)) {
-            moves.push({
-              role: 'human',
-              field: `plan.steps[${stepId}].checkpoint`,
-              awaits: cpAwait,
-              command: null,
-              act: `review-tool act signoff-checkpoint for plan.steps[${stepId}]`,
-              review_act: {
-                kind: 'signoff-checkpoint',
-                stage: 'rigging',
-                step_id: stepId,
-                ...(jobId ? { job_id: jobId } : {}),
-              },
-            });
+            moves.push(checkpointSignoffMove(dir, 'rigging', stepId, cpAwait));
           }
           continue;
         }
@@ -2396,19 +2386,7 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
           const cpAwait = `signoffs[checkpoint=${stepId}]`;
           addAwait(cpAwait);
           if (!recordedLapseTargets.has(cpAwait)) {
-            moves.push({
-              role: 'human',
-              field: `plan.steps[${stepId}].checkpoint`,
-              awaits: cpAwait,
-              command: null,
-              act: `review-tool act signoff-checkpoint for plan.steps[${stepId}]`,
-              review_act: {
-                kind: 'signoff-checkpoint',
-                stage: 'post',
-                step_id: stepId,
-                ...(jobId ? { job_id: jobId } : {}),
-              },
-            });
+            moves.push(checkpointSignoffMove(dir, 'post', stepId, cpAwait));
           }
           continue;
         }

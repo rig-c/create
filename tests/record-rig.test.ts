@@ -120,10 +120,12 @@ test.each([
   expect(treeDigest(join(dir, 'outputs/rig'))).toEqual(outputs);
 });
 
-test('record rig refuses a --from outside the project before reading anything', () => {
+test('record rig refuses a --from outside the project or not beside outputs/rig before reading anything', () => {
   const dir = project();
   const recordBytes = readFileSync(join(dir, 'project.json'));
   refused(() => recordCommand(['rig', dir, '--from', '../elsewhere', '--config', CONFIG], testClock.now()), 'RECORD_FROM_INVALID');
+  refused(() => recordCommand(['rig', dir, '--from', 'rig.next', '--config', CONFIG], testClock.now()), 'RECORD_FROM_INVALID');
+  refused(() => recordCommand(['rig', dir, '--from', 'derived/rig.next', '--config', CONFIG], testClock.now()), 'RECORD_FROM_INVALID');
   refused(() => recordCommand(['motion', dir, '--from', NEXT], testClock.now()), 'RECORD_USAGE');
   expect(readFileSync(join(dir, 'project.json'))).toEqual(recordBytes);
   expect(existsSync(join(dir, NEXT))).toBe(true);

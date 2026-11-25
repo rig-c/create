@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { dirname, join, posix } from 'node:path';
 import { EXAMPLE_SOURCE_DATE_EPOCH } from '../scripts/example-time.ts';
 import { EXAMPLE_SEETHROUGH } from '../scripts/generate-example-parts.ts';
 import { outputSetHash, treeFiles } from '../src/current.ts';
@@ -157,29 +157,115 @@ test('a second record replaces outputs/parts and deletes the old tree, leaving n
   expect(readdirSync(join(dir, 'outputs')).filter(name => name.startsWith('parts')).sort()).toEqual(['parts']);
 });
 
-test('recording from a depth-1 folder with ../ config then rebinding in place at outputs/parts preserves built_from', () => {
+test('a new-convention assemble record (--out-relative paths and <dir>/layers.json) records and rebinds in place with built_from unchanged', () => {
   const dir = project();
-  rmSync(join(dir, NEXT), { recursive: true });
-  producerOut(dir, 'parts.next');
-  // Assemble into a depth-1 folder writes config.path relative to --out ("../specs/rig/config.json").
-  const run = JSON.parse(readFileSync(join(dir, 'parts.next/run.json'), 'utf8')) as { config: { path: string; sha256: string } };
-  run.config.path = `../${CONFIG}`;
-  write(dir, 'parts.next/run.json', JSON.stringify(run));
+  const headManifest = 'derived/head/layers.json';
+  write(dir, headManifest, '{"width":128,"height":128,"layers":[]}\n');
+  // rig-parts#1555 (src/runstamp.ts buildAssembleInputs + src/outputpaths.ts recordedInputPath):
+  // every assemble input is relative to --out, and a See-through directory names <dir>/layers.json directly.
+  const run = JSON.parse(readFileSync(join(dir, NEXT, 'run.json'), 'utf8')) as {
+    config: { path: string; sha256: string };
+    inputs: { role: string; path: string; sha256: string }[];
+  };
+  run.config = { path: posix.relative(NEXT, CONFIG), sha256: sha(readFileSync(join(dir, CONFIG))) };
+  run.inputs = [
+    { role: 'source', path: posix.relative(NEXT, PAINTING), sha256: sha(readFileSync(join(dir, PAINTING))) },
+    { role: 'full', path: posix.relative(NEXT, LAYERS_MANIFEST), sha256: sha(readFileSync(join(dir, LAYERS_MANIFEST))) },
+    { role: 'head', path: posix.relative(NEXT, headManifest), sha256: sha(readFileSync(join(dir, headManifest))) },
+  ];
+  expect(run.inputs.map(i => i.path)).toEqual([
+    '../../inputs/painting.png',
+    '../../derived/layers/layers.json',
+    '../../derived/head/layers.json',
+  ]);
+  write(dir, `${NEXT}/run.json`, JSON.stringify(run));
 
-  expect(recordCommand(['parts', dir, '--from', 'parts.next', '--config', CONFIG], testClock.now()).exit).toBe(0);
-  expect(existsSync(join(dir, 'parts.next'))).toBe(false);
+  expect(record(dir).exit).toBe(0);
+  expect(existsSync(join(dir, NEXT))).toBe(false);
   const initialBuiltFrom = parts(dir).built_from;
   expect(initialBuiltFrom).toEqual([
+    { path: headManifest, sha256: sha(readFileSync(join(dir, headManifest))) },
     { path: LAYERS_MANIFEST, sha256: sha(readFileSync(join(dir, LAYERS_MANIFEST))) },
     { path: PAINTING, sha256: sha(readFileSync(join(dir, PAINTING))) },
     { path: CONFIG, sha256: sha(readFileSync(join(dir, CONFIG))) },
   ]);
 
-  // After renaming into outputs/parts (depth 2), run.config.path is still "../specs/rig/config.json",
-  // and in-place rebind (--from outputs/parts --config specs/rig/config.json) succeeds with unchanged built_from.
+  // §4.4 in-place rebind (--from outputs/parts --config specs/rig/config.json): same depth as outputs/parts.next, so built_from is unchanged.
   expect(recordCommand(['parts', dir, '--from', 'outputs/parts', '--config', CONFIG], testClock.now()).exit).toBe(0);
   expect(parts(dir).built_from).toEqual(initialBuiltFrom);
   expect(checkProject(dir).refusals.filter(f => f.code === 'CURRENT_MALFORMED')).toEqual([]);
+  expect(codes(checkProject(dir).warnings, 'OUTPUT_STALE')).toBe(0);
+});
+
+test('an old-convention assemble record (cwd-relative paths and See-through directory path) still records and rebinds in place', () => {
+  const dir = project();
+  const headDir = 'derived/head';
+  const headManifest = `${headDir}/layers.json`;
+  write(dir, headManifest, '{"width":128,"height":128,"layers":[]}\n');
+  const run = JSON.parse(readFileSync(join(dir, NEXT, 'run.json'), 'utf8')) as {
+    inputs: { role: string; path: string; sha256: string }[];
+  };
+  run.inputs = [
+    { role: 'source', path: PAINTING, sha256: sha(readFileSync(join(dir, PAINTING))) },
+    { role: 'full', path: LAYERS_DIR, sha256: sha(readFileSync(join(dir, LAYERS_MANIFEST))) },
+    { role: 'head', path: headDir, sha256: sha(readFileSync(join(dir, headManifest))) },
+  ];
+  write(dir, `${NEXT}/run.json`, JSON.stringify(run));
+
+  expect(record(dir).exit).toBe(0);
+  const expectedBuiltFrom = [
+    { path: headManifest, sha256: sha(readFileSync(join(dir, headManifest))) },
+    { path: LAYERS_MANIFEST, sha256: sha(readFileSync(join(dir, LAYERS_MANIFEST))) },
+    { path: PAINTING, sha256: sha(readFileSync(join(dir, PAINTING))) },
+    { path: CONFIG, sha256: sha(readFileSync(join(dir, CONFIG))) },
+  ];
+  expect(parts(dir).built_from).toEqual(expectedBuiltFrom);
+
+  expect(recordCommand(['parts', dir, '--from', 'outputs/parts', '--config', CONFIG], testClock.now()).exit).toBe(0);
+  expect(parts(dir).built_from).toEqual(expectedBuiltFrom);
+});
+
+test.each([
+  ['depth-1 non-sibling folder', 'parts.next'],
+  ['depth-2 folder under another parent', 'derived/parts.next'],
+  ['nested folder inside outputs/parts', 'outputs/parts/nested'],
+] as const)('a non-sibling --from (%s) refuses RECORD_FROM_INVALID and leaves project.json and outputs/parts byte-identical', (_label, nonSibling) => {
+  const dir = project();
+  expect(record(dir).exit).toBe(0);
+  if (nonSibling !== 'outputs/parts/nested') producerOut(dir, nonSibling);
+  const recordBytes = readFileSync(join(dir, 'project.json'));
+  const outputs = treeDigest(join(dir, 'outputs/parts'));
+  refused(() => recordCommand(['parts', dir, '--from', nonSibling, '--config', CONFIG], testClock.now()), 'RECORD_FROM_INVALID');
+  expect(readFileSync(join(dir, 'project.json'))).toEqual(recordBytes);
+  expect(treeDigest(join(dir, 'outputs/parts'))).toEqual(outputs);
+});
+
+test('RECORD_INPUT_CHANGED names both the --from candidate and the project-root candidate when neither matches', () => {
+  const dir = project();
+  const run = JSON.parse(readFileSync(join(dir, NEXT, 'run.json'), 'utf8')) as {
+    inputs: { role: string; path: string; sha256: string }[];
+  };
+  run.inputs = [
+    { role: 'source', path: posix.relative(NEXT, PAINTING), sha256: sha(readFileSync(join(dir, PAINTING))) },
+    { role: 'full', path: posix.relative(NEXT, LAYERS_MANIFEST), sha256: sha(readFileSync(join(dir, LAYERS_MANIFEST))) },
+  ];
+  write(dir, `${NEXT}/run.json`, JSON.stringify(run));
+  write(dir, PAINTING, 'changed painting bytes');
+
+  let newConvErr: Refusal | undefined;
+  try { record(dir); } catch (error) { if (error instanceof Refusal) newConvErr = error; else throw error; }
+  expect(newConvErr?.code).toBe('RECORD_INPUT_CHANGED');
+  expect(newConvErr?.message).toContain(PAINTING);
+  expect(newConvErr?.message).toContain('../../inputs/painting.png');
+
+  // Old-convention See-through directory mismatch names both <from>/<dir> and <dir>/layers.json.
+  const dir2 = project();
+  write(dir2, LAYERS_MANIFEST, '{"changed":true}\n');
+  let oldConvErr: Refusal | undefined;
+  try { record(dir2); } catch (error) { if (error instanceof Refusal) oldConvErr = error; else throw error; }
+  expect(oldConvErr?.code).toBe('RECORD_INPUT_CHANGED');
+  expect(oldConvErr?.message).toContain(`${NEXT}/${LAYERS_DIR}`);
+  expect(oldConvErr?.message).toContain(LAYERS_MANIFEST);
 });
 
 test.each([
@@ -197,10 +283,29 @@ test.each([
     run.inputs[0] = { role: 'source', path: 'specs/rig/extra-run.json', sha256: sha('{}\n') };
     write(dir, `${NEXT}/run.json`, JSON.stringify(run));
   }, 'RECORD_BUILT_FROM_INVALID'],
+  ['assemble input names a run record (--out-relative)', (dir: string) => {
+    write(dir, 'specs/rig/extra-run.json', '{}\n');
+    const run = JSON.parse(readFileSync(join(dir, NEXT, 'run.json'), 'utf8')) as { inputs: { role: string; path: string; sha256: string }[] };
+    run.inputs[0] = { role: 'source', path: '../../specs/rig/extra-run.json', sha256: sha('{}\n') };
+    write(dir, `${NEXT}/run.json`, JSON.stringify(run));
+  }, 'RECORD_BUILT_FROM_INVALID'],
   ['assemble input lies inside the parts output', (dir: string) => {
     write(dir, `${NEXT}/inside.png`, readFileSync(join(dir, PAINTING)));
     const run = JSON.parse(readFileSync(join(dir, NEXT, 'run.json'), 'utf8')) as { inputs: { role: string; path: string; sha256: string }[] };
     run.inputs[0] = { role: 'source', path: `${NEXT}/inside.png`, sha256: sha(readFileSync(join(dir, PAINTING))) };
+    write(dir, `${NEXT}/run.json`, JSON.stringify(run));
+  }, 'RECORD_BUILT_FROM_INVALID'],
+  ['assemble input lies inside the parts output (--out-relative)', (dir: string) => {
+    write(dir, `${NEXT}/inside.png`, readFileSync(join(dir, PAINTING)));
+    const run = JSON.parse(readFileSync(join(dir, NEXT, 'run.json'), 'utf8')) as { inputs: { role: string; path: string; sha256: string }[] };
+    run.inputs[0] = { role: 'source', path: 'inside.png', sha256: sha(readFileSync(join(dir, PAINTING))) };
+    write(dir, `${NEXT}/run.json`, JSON.stringify(run));
+  }, 'RECORD_BUILT_FROM_INVALID'],
+  ['assemble input lies inside the parts output, with a byte-identical copy at the project root', (dir: string) => {
+    write(dir, `${NEXT}/inside.png`, readFileSync(join(dir, PAINTING)));
+    write(dir, 'inside.png', readFileSync(join(dir, PAINTING)));
+    const run = JSON.parse(readFileSync(join(dir, NEXT, 'run.json'), 'utf8')) as { inputs: { role: string; path: string; sha256: string }[] };
+    run.inputs[0] = { role: 'source', path: 'inside.png', sha256: sha(readFileSync(join(dir, PAINTING))) };
     write(dir, `${NEXT}/run.json`, JSON.stringify(run));
   }, 'RECORD_BUILT_FROM_INVALID'],
   ['run record missing', (dir: string) => rmSync(join(dir, NEXT, 'run.json')), 'RECORD_RUN_INVALID'],

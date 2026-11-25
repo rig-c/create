@@ -37,9 +37,8 @@ Per step, `plan propose` a page of plain sentences in `owner.language`: summary;
    The latest receipt must approve the draft for `structure-snapshot --draft <id>`
    and `signoff parts-review --draft <id> --structure-file <f>`; record component triage with `diff-classes --diff-report <p> --by agent` ([Draft rigs](https://github.com/rig-c/create/blob/main/docs/PROJECT.md#labelled-draft-rigs-and-structure-decisions)).
 2. **Rigging interview**. Plan bones, deformation, physics, motion on approved parts/structure.
-3. **Rig and animation**. Keep rig feedback.
-   Ingest: `review <version> --from-review <actId>`.
-4. **Direction**. Copy owner `value.compose` into Parts' scene and compose to green.
+3. **Rig and animation**. Ingest feedback: `review <version> --from-review <actId>`; then `record rig`.
+4. **Direction**. Copy owner `value.compose` into Parts' scene; compose to green.
    Record `direction@3`: `direction write <N> --file <json> --rig <R> --compose-out <dir>`
    (optional `--compose-scene <file>`). This route has no `scene write`.
    `job open --rig <post>` asks the verdict only.

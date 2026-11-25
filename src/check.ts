@@ -65,6 +65,7 @@ import { checkReviews, latestAccepted, readVersions } from './review.ts';
 import { checkAppliedReview } from './applied-review.ts';
 import { checkReviewPackages } from './review-package.ts';
 import { rigRegistrationFindings } from './rig-version.ts';
+import { currentFindings } from './current.ts';
 import { checkPreInterview } from './pre-interview.ts';
 import { checkStepPlans } from './step-plans.ts';
 import {
@@ -954,6 +955,7 @@ function checkProjectOnce(projectDirArg: string, candidate: JsonObject | undefin
   if (!options.recordPublication) checkPublicationGenerations(dir, project, refusals);
   if (!options.recordPublication) checkReviewPackages(ctx);
   if (!options.recordPublication) refusals.push(...rigRegistrationFindings(dir, project, warnings, collection));
+  if (!options.recordPublication) refusals.push(...currentFindings(dir, project, warnings));
   if (!options.recordPublication) checkAppliedReview(ctx);
   const provenance = options.recordPublication ? [] : checkProvenance(ctx, parts);
   const feedback = options.recordPublication ? [] : checkFeedback(ctx);

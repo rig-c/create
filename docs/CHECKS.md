@@ -1986,3 +1986,41 @@ Feedback is discussion; no code here fires because a plan has none.
 | `STEP_PLAN_MISSING` | plan feedback names a step with no proposed plan, or a `--sha256` no entry of that step has; interview-decision `--value-file` names a question whose step has no plan | propose the plan first, or name the hash of the plan the words were about |
 | `STEP_PLAN_STALE` (WARN) | the current plan file or one of its bound inputs no longer matches its recorded sha256 | propose the plan again with plan propose so feedback binds the current content |
 | `STEP_PLAN_VALUE_UNSAID` (WARN) | a step-plan value (`source: "step plan"`) has a `plan_quote` that is not in the current plan file of its step, whitespace collapsed | say the value in plain words in the plan, propose it again, and record the value with interview-decision `--plan-quote-file` |
+
+## Current outputs (`record rig`)
+
+`rig-create record rig [<dir>] --from <producer out> --config <rig config>`
+writes `current.rig` (docs/CURRENT-DATA.md §1.3) and renames the producer's
+folder, normally `outputs/rig.next/`, into `outputs/rig/`; the old tree is
+deleted after the record is written. It reads `run.json` (`rig-run/1`),
+`check/build/run.json` (`rigc-run/1`) and `check/check.json`
+(`rig-parts-check/1`) from the producer folder and never re-runs them. Every
+refusal comes before the first rename, so `project.json` and `outputs/rig/`
+stay byte-identical. `files_sha256` is the output-set hash: it leaves out
+every producer run record, which is any file named `run.json` or any
+`*-run.json` (the producers' own rule), and no `built_from` entry may name a
+run record or `outputs/direction/check/check.json`. A `built_from` entry may name an
+output root (`outputs/<kind>`), which is compared by that hash. A record
+without `current` gets none of these findings. `current.rig.rebuild` is
+`{ recorded: false, note }`: no producer report records the check's or the
+idle render's arguments yet. The writer reads the report's outcomes with the
+frozen-registration reader and takes no owner acceptance: a failed bar, an
+unmet requirement line or a failed source exposure refuses under
+`RIG_CHECK_BAR_FAILED` or `RIG_CHECK_LINE_UNMET` (§ Frozen rig registration).
+
+| Code | Fires when | Remedy |
+| --- | --- | --- |
+| `RECORD_USAGE` | the kind is not `rig`, `--from` or `--config` is absent, or an option is unknown or repeated | run `record rig [<dir>] --from <producer out> --config <rig config>` |
+| `RECORD_BUSY` | another record writer holds the project lock | let it finish and retry |
+| `RECORD_FROM_INVALID` | `--from` is outside the project, inside `outputs/rig/`, not a real folder, or holds a symlink or other non-regular entry | point `--from` at the producer's folder inside the project, normally `outputs/rig.next` |
+| `RECORD_CONFIG_MISMATCH` | `--config` is outside the project, inside the output, not a regular file, or its sha256 differs from the config the `rig-run/1` record names | pass the config the rig was built from, kept under `specs/rig/` |
+| `RECORD_RUN_INVALID` | a run record is missing or malformed, has the wrong spec or command, or one of its outputs is missing from the folder or differs from its sha256 | re-run the producer into the folder and record again |
+| `RECORD_INPUT_CHANGED` | a `rigc-run/1` input is missing or now differs from the sha256 the build read: one inside the folder (the build's own `rig.json` or `motion.json`, as when Parts is rerun into the folder without rebuilding Core), or one outside it, which must also resolve inside the project | rebuild with rigc and run `rig-parts check` into the folder, then record again |
+| `RECORD_BUILT_FROM_INVALID` | a build input outside the folder is a run record (`run.json` or any `*-run.json`) | build from product files, not run records |
+| `RECORD_REPORT_INVALID` | `check/check.json` is missing, malformed, not `rig-parts-check/1`, or its `build.model_sha256` differs from `check/build/skeleton.model.json` | run `rig-parts check` on this build with `--out <folder>/check` and record again |
+| `RECORD_DESTINATION_INVALID` | `outputs/rig` exists and is not a folder | move that file away and record again |
+| `RECORD_SOURCE_CHANGED` | the folder or `project.json` changed while the writer was validating; the renames are undone | let the producer finish and record again |
+| `RECORD_WRITE_FAILED` | a rename or the record write failed for another reason; the renames are undone | fix the project storage and record again |
+| `CURRENT_MALFORMED` | `current` or a `current.<kind>` entry does not have the recorded shape: `at`, `built_by`, `built_with`, sorted `files[]` under `outputs/<kind>/`, `files_sha256`, `built_from[]`, `run` and `report` naming entries of `files[]`, and for `rig` the `rebuild` note; or a `built_from` entry names a run record (`run.json` or any `*-run.json`), the compose check report or the output itself | restore the record `record` wrote, or record the output again |
+| `OUTPUT_STALE` | WARN: a `built_from` path is missing or now hashes differently, or a `built_from` path lies in an upstream output that is stale | rebuild it upstream-first and record it with `record <kind>` |
+| `REBUILD_ARGS_UNRECORDED` | WARN: `current.rig.rebuild.recorded` is `false`, because no producer report records the check's or the idle render's arguments yet | keep the arguments with the operator until a later `record` reads them from the producers' reports |

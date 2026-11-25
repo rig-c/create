@@ -365,11 +365,14 @@ are in no run record today: the check's and the idle render's arguments. The
 `record` writer stores them with `built_from` (§1.3) before these outputs leave
 git.
 
-**"Same output" ignores run records.** A file named `run.json` is provenance, not
-product: its `started_at`/`finished_at`, `package.version` and `config.path`
-change on a rebuild whose bytes are otherwise identical. So:
-- a hash over an output set excludes every file named `run.json`;
-- no writer puts a `run.json` path, or the compose `check/check.json` (absolute
+**"Same output" ignores run records.** A run record is a file named `run.json`
+or any `*-run.json` (the producers' own rule; for example core's
+`render-run.json` and Parts' `check-run.json` and `build-run.json`). It is
+provenance, not product: its `started_at`/`finished_at`, `package.version` and
+`config.path` change on a rebuild whose bytes are otherwise identical. So:
+- a hash over an output set excludes every run record (`isRunRecordFile`,
+  `src/current.ts`);
+- no writer puts a run record, or the compose `check/check.json` (absolute
   paths in its reasons), into `built_from`. A node names the product files it
   reads (for example idle names `outputs/rig/check/build/skeleton.model.json`).
 

@@ -32,6 +32,7 @@ import { PLAN_HELP, planCommand } from './plan-writers.ts';
 import { HANDOFF_HELP, handoffCommand } from './review.ts';
 import { REVIEW_PACKAGE_HELP, reviewPackageCommand } from './review-package.ts';
 import { RIG_VERSION_HELP, rigVersionCommand } from './rig-version.ts';
+import { RECORD_HELP, recordCommand } from './record.ts';
 import { DERIVED_HELP, derivedCommand } from './prepared-inputs.ts';
 import { SPLIT_CAPTIONS_HELP, splitCaptionsCommand } from './split-captions.ts';
 import { VERSION_HELP, versionCommand } from './config-lost.ts';
@@ -119,6 +120,8 @@ ${INPUT_CLI}  rig-create init <dir> [--no-install]              create a project
                                                     copy producer inputs and record the review open command
   rig-create rig-version <n> [<dir>] --parts <dir> --rig <dir> --build <dir> --idle <dir> …
                                                     register frozen producer output with declared source bindings
+  rig-create record rig [<dir>] --from <producer out> --config <rig config>
+                                                    record the current rig output and rename it into outputs/rig/
   rig-create split-captions [<project dir|project.json>] [--config <file>]
                                                     generate caption data from the config and split.parts
   rig-create version config-lost <n> --note <text> --source <text> [<dir>]
@@ -203,6 +206,8 @@ ${DERIVED_HELP}
 ${REVIEW_PACKAGE_HELP}
 
 ${RIG_VERSION_HELP}
+
+${RECORD_HELP}
 
 ${SPLIT_CAPTIONS_HELP}
 
@@ -289,6 +294,7 @@ const COMMANDS: Record<string, Command> = {
   handoff: handoffCommand,
   'review-package': reviewPackageCommand,
   'rig-version': rigVersionCommand,
+  record: recordCommand,
   collection: collectionCommand,
   'collection-binding': collectionBindingCommand,
   review: reviewCommand,

@@ -157,10 +157,9 @@ function externalTarget(destination: string): string {
   return canonical;
 }
 
-async function submit(host: JobOwnerHost, kind: 'parts-verdict' | 'review-verdict' | 'interview-picks', words: string, {
-  stage = 'rig-review', verdict = 'approved', picture, pick,
-}: { stage?: 'rig-review' | 'direction-review'; verdict?: 'approved' | 'changes-requested'; picture?: Buffer;
-  pick?: { questionId: string; optionId: string } } = {}) {
+async function submit(host: JobOwnerHost, kind: 'parts-verdict' | 'review-verdict', words: string, {
+  stage = 'rig-review', verdict = 'approved', picture,
+}: { stage?: 'rig-review' | 'direction-review'; verdict?: 'approved' | 'changes-requested'; picture?: Buffer } = {}) {
   const { readHostActsAndAsks } = await import('../src/job-acts.ts');
   const { publication, generation } = host.session.status();
   if (!publication) throw Error('Review has no publication');
@@ -177,9 +176,7 @@ async function submit(host: JobOwnerHost, kind: 'parts-verdict' | 'review-verdic
     });
   const displayed = await host.ports.ackDisplayed(host.session.jobId, request('displayed', { publicationId, pageId, sourceHash }));
   if (!displayed.ok) throw Error(`Review displayed: ${displayed.error.code}`);
-  const value = pick ? { questionId: pick.questionId,
-    selections: [{ itemId: pick.questionId, optionId: pick.optionId, otherText: null }], note: words }
-    : kind === 'parts-verdict'
+  const value = kind === 'parts-verdict'
     ? { verdict: 'approved', issues: [], words }
     : { stage, verdict, words };
   const act = await host.ports.commitUIAct(host.session.jobId, request('acts', {
@@ -497,7 +494,8 @@ async function generate(root: string, scratch: string, inputs: Map<string, Buffe
       const next = JSON.parse(await write('next', '--json')) as NextReport;
       if (next.stage !== 'direction-review' || next.effective_stage !== 'direction-review'
         || !next.moves.some(move => move.command?.includes('job open') && move.command.includes('--question post_composition'))
-        || !next.moves.some(move => move.review_act?.kind === 'interview-picks' && move.review_act.option_set_id === 'composed-post_composition-002')
+        || !next.moves.some(move => move.role === 'human' && move.command === null && move.act.includes('composed-post_composition-002'))
+        || !next.moves.some(move => move.command?.startsWith('rig-create interview-answer post_composition ') && move.command.includes('--owner-chat'))
         || next.moves.some(move => move.command?.includes('direction write'))) {
         throw Error(`Expected next to request the revised composition pick before authoring: ${JSON.stringify(next)}`);
       }
@@ -527,9 +525,11 @@ async function generate(root: string, scratch: string, inputs: Map<string, Buffe
       host = await openCreateJob(root, { id: owner, role: 'owner' }, now);
       await write('job', 'open', '--question', 'post_composition', '--reviewer', owner, '--role', 'owner');
       await write('job', 'open', '--questions', '--reviewer', owner, '--role', 'owner');
-      const pick = await submit(host, 'interview-picks', `${label}.`, { pick: { questionId: 'post_composition', optionId: 'all-still' } });
-      now = Math.max(now, Date.parse(pick.at));
-      await write('interview-answer', 'post_composition', '--from-review', pick.actId);
+      if ((await readHostActsAndAsks(host)).asks.length !== 0) {
+        throw Error('Expected option-set publication to open no interview-picks asks');
+      }
+      await write('interview-answer', 'post_composition', '--set', setPath, '--sha256', sha256(readFileSync(join(root, setPath))),
+        '--pick', 'post_composition=all-still', ...ownerChat());
       await write('job', 'close');
       host.stop();
       host = undefined;

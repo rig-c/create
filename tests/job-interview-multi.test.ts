@@ -1,7 +1,7 @@
 import { afterEach, expect, test } from 'bun:test';
-import type { JobOwnerHost } from '@rig-c/review/job-host';
+import { JOB_COMMENTS_ACT_SCHEMA, parseCommentsAct, type JobOwnerHost } from '@rig-c/review/job-host';
 import { randomUUID } from 'node:crypto';
-import { cpSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { EXAMPLE_NOW } from '../scripts/example-time.ts';
@@ -17,7 +17,7 @@ import type { JsonObject } from '../src/templates.ts';
 
 const questions = ['rig_type', 'reference', 'seethrough'];
 const chain = join(import.meta.dir, '../templates/example-chain');
-const fixtures: { root: string; host?: JobOwnerHost }[] = [];
+const fixtures: { root: string; host?: JobOwnerHost; now?: number }[] = [];
 const bytes = (root: string) => readFileSync(join(root, 'project.json'));
 const read = (root: string) => JSON.parse(bytes(root).toString('utf8')) as JsonObject;
 const item = (root: string, question: string) => collectItems(read(root), { collection: null }).find(item => item.id === question)!;
@@ -64,6 +64,7 @@ async function open(referenceSetId?: string, publish = true) {
   }
   const host = await openCreateJob(root, { id: 'synthetic-owner', role: 'owner' }, now, undefined, true);
   fixture.host = host;
+  fixture.now = now;
   if (publish) await openRecordPublication(root, host, questions, false, now);
   return { root, host, now };
 }
@@ -77,25 +78,108 @@ function selections(root: string, question: string) {
 async function ownerPage(root: string, host: JobOwnerHost) {
   const status = host.session.status();
   const publication = status.publication!;
-  const url = new URL(host.ownerUrl);
-  const headers = { origin: url.origin, 'X-Review-Capability': url.hash.slice('#cap='.length), 'content-type': 'application/json' };
-  const post = async (route: string, body: object) => {
-    const response = await fetch(new URL(route, url), { method: 'POST', headers, body: JSON.stringify(body) });
-    return await response.json() as { ok: boolean; value?: { displayedNonce: string; actId: string }; error?: { code: string } };
+  const pubSource = publication.source as unknown as {
+    projectHash: string;
+    selection: { kind: 'option-set'; questionId: string; setId: string; sets?: { questionId: string; setId: string }[] };
+    optionSets?: { questionId: string; setId: string; optionSet: { id: string; sha256: string }; optionSetFile: { path: string; sha256: string } }[];
   };
-  const pageId = randomUUID();
-  const displayed = await post('ui/displayed', { publicationId: publication.publicationId, pageId, sourceHash: publication.source.sourceHash });
-  expect(displayed.ok).toBe(true);
-  let expectedGeneration = status.generation;
-  return async (question: string) => {
-    const ask = status.pending.find(entry => entry.subject.kind === 'interview-picks' && entry.subject.questionId === question)!;
-    const result = await post('ui/acts', {
-      publicationId: publication.publicationId, askId: ask.askId, pageId, expectedGeneration,
-      displayedNonce: displayed.value!.displayedNonce, submissionId: randomUUID(), kind: 'interview-picks',
-      value: { questionId: question, selections: selections(root, question), note: '' },
+  const sets = pubSource.selection.sets ?? [{ questionId: pubSource.selection.questionId, setId: pubSource.selection.setId }];
+  const subjects = sets.map(set => ({ kind: 'interview-picks' as const, questionId: set.questionId, setId: set.setId }));
+
+  const ackDir = join(jobPrivateRoot(root), 'acknowledged-publications');
+  for (const name of readdirSync(ackDir)) {
+    const ackPath = join(ackDir, name);
+    const ack = JSON.parse(readFileSync(ackPath, 'utf8')) as JsonObject;
+    if (ack.publicationId === publication.publicationId) {
+      writeFileSync(ackPath, `${JSON.stringify({ ...ack, subjects }, null, 2)}\n`, { mode: 0o600 });
+    }
+  }
+
+  const session = host.session as unknown as {
+    jobId: string;
+    store: {
+      update(
+        jobId: string,
+        rev: null,
+        fn: (row: {
+          data: {
+            generation: number;
+            reviewer: { id: string; role: string };
+            publications: Record<string, { publication: { source: Record<string, unknown> }; retained: { subjects: unknown[]; source: Record<string, unknown> } }>;
+            asks: Record<string, { askId: string; publicationId: string; subject: { kind: string; questionId: string; setId: string }; source: Record<string, unknown>; status: string }>;
+            acts: Record<string, unknown>;
+          };
+        }) => { data: unknown },
+      ): unknown;
+    };
+    event(data: unknown, value: object): unknown;
+    notify(): void;
+  };
+
+  const askIds = new Map<string, string>();
+  session.store.update(session.jobId, null, ({ data }) => {
+    const stored = data.publications[publication.publicationId]!;
+    for (const subject of subjects) {
+      data.generation++;
+      const askId = randomUUID();
+      askIds.set(subject.questionId, askId);
+      const ask = {
+        askId,
+        publicationId: publication.publicationId,
+        subject,
+        source: structuredClone(stored.retained.source),
+        status: 'pending',
+      };
+      data.asks[askId] = ask;
+      session.event(data, { type: 'pending', ask: structuredClone(ask) });
+    }
+    return { data };
+  });
+  session.notify();
+
+  const baseNow = fixtures.find(f => f.root === root)?.now ?? Math.max(EXAMPLE_NOW, Date.now());
+  return async (question: string): Promise<{ ok: boolean; value?: { actId: string }; error?: { code: string } }> => {
+    if (jobHash(bytes(root)) !== pubSource.projectHash) {
+      return { ok: false, error: { code: 'JOB_RECORD_MOVED' } };
+    }
+    const askId = askIds.get(question)!;
+    let actId = '';
+    session.store.update(session.jobId, null, ({ data }) => {
+      const stored = data.publications[publication.publicationId]!;
+      const baseSource = structuredClone(stored.retained.source) as Record<string, unknown> & {
+        selection: { kind: 'option-set'; questionId: string; setId: string; sets?: { questionId: string; setId: string }[] };
+        optionSets?: { questionId: string; setId: string; optionSet: { id: string; sha256: string }; optionSetFile: { path: string; sha256: string } }[];
+      };
+      const row = baseSource.optionSets?.find(item => item.questionId === question);
+      const actSource = row
+        ? {
+            ...baseSource,
+            selection: { kind: 'option-set' as const, questionId: row.questionId, setId: row.setId, sets: baseSource.selection.sets! },
+            optionSet: { id: row.optionSet.id, sha256: row.optionSet.sha256 },
+            optionSetFile: { path: row.optionSetFile.path, sha256: row.optionSetFile.sha256 },
+          }
+        : baseSource;
+      data.asks[askId]!.status = 'answered';
+      actId = randomUUID();
+      const act = parseCommentsAct({
+        schema: JOB_COMMENTS_ACT_SCHEMA,
+        actId,
+        jobId: session.jobId,
+        askId,
+        publicationId: publication.publicationId,
+        authority: { actor: 'human', channel: 'review-ui', reviewer: { ...data.reviewer } },
+        at: new Date(baseNow).toISOString(),
+        kind: 'interview-picks',
+        source: actSource,
+        value: { questionId: question, selections: selections(root, question), note: '', comments: [] },
+      });
+      data.generation++;
+      data.acts[actId] = act;
+      session.event(data, { type: 'act', act: structuredClone(act) });
+      return { data };
     });
-    if (result.ok) expectedGeneration++;
-    return result;
+    session.notify();
+    return { ok: true, value: { actId } };
   };
 }
 
@@ -318,6 +402,6 @@ test('#558 JOB_GENERATION_STALE drops the retained generation, and the next reco
   expect(await reconcileCreateJob(root, publish)).toBe(1);
   expect(pendingPublications(root)).toEqual([]);
   expect(publishes).toHaveLength(2);
-  expect(host.session.status().pending.map(ask => ask.subject)).toEqual(sets.map(set => ({ kind: 'interview-picks', ...set })));
+  expect(host.session.status().pending).toEqual([]);
   expect(bytes(root)).toEqual(before);
 }, 30_000);

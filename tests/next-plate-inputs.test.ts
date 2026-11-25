@@ -112,7 +112,7 @@ test('#504 pending option sets include every offered plate, deduplicated across 
   expect(report.refusals.map(refusal => refusal.code)).toEqual(['INTERVIEW_INCOMPLETE']);
   const adds = report.moves.filter(move => move.command?.startsWith('rig-create input add '));
   expect(adds.map(move => printedArgs(move.command!)[2])).toEqual([f.background, f.foreground, alternate]);
-  expect(report.moves.findIndex(move => move.review_act?.kind === 'interview-picks')).toBeGreaterThan(report.moves.indexOf(adds.at(-1)!));
+  expect(report.moves.findIndex(move => move.field === 'interview.post.items[post_composition].pending_options')).toBeGreaterThan(report.moves.indexOf(adds.at(-1)!));
 });
 
 test.each(['complete', 'incomplete', 'cycle'])('#504 honors complete prepared-input fan-in chains and repairs missing registration (%s)', kind => {

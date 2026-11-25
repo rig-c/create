@@ -851,7 +851,8 @@ command adopts only post choices, recording `interview.post.choices_adopted_at`.
 It preserves the stage order, earlier answers and signatures. Only `camera_depth`,
 `post_timing` and `post_composition` can use this adoption; framing and waypoint
 choices still require explicit split-order adoption. Repeating adoption preserves
-its original date. Post picks and approval use the Review job and `--from-review`.
+its original date. Post picks and approval use the owner-chat relay; previously
+stored Review acts still ingest with `--from-review`.
 
 Every newly asked framing question, waypoint and post item uses a retained
 option set. **Each applicable ask gets its own pick.** A waypoint is never a
@@ -1012,18 +1013,12 @@ signoffs whose answer hashes are stale, and `next` offers the corresponding
 re-sign commands. Collection members write local overrides and retain the
 inherited source answers as historical evidence.
 
-Review exposes finalized `interview-picks` acts through the standing job API.
-Publish the stage's registered pending sets together with `job open --questions`.
-Collect one act ID per set with `job acts --json --wait` and ingest them
-together after every set has a finalized act from the same publication.
-Use `job open --question <question>` and the single-act writer above when
-publishing one set. For an active published ask, the owner answers in Review
-and the operator records the act with `interview-answer --from-review`.
-
-After a partial ingest, refresh the same job before the owner submits any
-remaining answers. Pass one `--question` per unresolved question to `job open`
-and keep each exact previously displayed option-set binding. Unrelated asks still
-block publication.
+Option-set publications (`job open --question <question>` or
+`job open --questions`) publish the pending set(s) and their images to Review
+with `subjects: []` so the person can view them and comment. Ask the owner in
+chat and record their answer with `interview-answer --owner-chat`. Previously
+stored `interview-picks` acts (and acts from pages opened before retirement)
+still ingest through `interview-answer --from-review` and `--batch`.
 
 The writer fetches the act using its private sibling capability, binds the
 question and displayed option-set ID and SHA-256 to the pending set, and retains
@@ -1082,20 +1077,21 @@ parts, but later signatures do not make a pending optional choice invalid.
 ### Relayed owner chat
 
 When the project has no bound live job holding an unresolved owner ask,
-interview questions may use `interview-answer --owner-chat <words file>
+interview questions use `interview-answer --owner-chat <words file>
 --said-at <ISO date> --relayed-by <operator> --by <owner>` alongside the
 existing `--set`, `--sha256` and explicit `--pick` flags. Shared context images
-are background and do not change this route. The writer retains generated
-pick text in `verbatim`, exact UTF-8 chat in `owner_words`, the owner's original
-`said_at`, the relay's `relayed_by`, and source `owner chat, relayed`.
-`at` remains the write time; no review act id is created. Empty or whitespace
-words, missing clocks or relay identity, and agent owners are refused.
-If options ever carry their own images, those sets leave the chat path;
-that requires a new Review contract outside this change.
+and option images shown in Review do not change this route: Review displays the
+images for looking and commenting while the question is asked in chat. The
+writer retains generated pick text in `verbatim`, exact UTF-8 chat in
+`owner_words`, the owner's original `said_at`, the relay's `relayed_by`, and
+source `owner chat, relayed`. `at` remains the write time; no review act id is
+created. Empty or whitespace words, missing clocks or relay identity, and agent
+owners are refused.
 
 Stage signoffs use the same flags, retaining the exact words in `verbatim`.
 Parts-review, rig-review and direction-review first require the current
 accepted live verdict from the review tool; changes-requested does not count.
 Get that verdict with `job open --draft <id>` (parts) or `job open --rig <n>`
 (rig/post), then ingest it through the existing verdict writer. Verdict writers
-have no owner-chat route. Review remains available for picks and signoffs.
+have no owner-chat route. Previously stored Review picks and signoffs still
+ingest through `--from-review`.

@@ -649,12 +649,183 @@ async function registerQuestion(root: string, question: string, setId = `pending
   return { questionId: question, selections, note: WORDS };
 }
 
+function packJobCrops(db: Database, value: unknown): string {
+  db.exec('CREATE TABLE IF NOT EXISTS job_comment_crops (sha256 TEXT PRIMARY KEY, png BLOB NOT NULL)');
+  const paths = new WeakMap<object, string[]>();
+  const references: [string[], string][] = [];
+  const text = JSON.stringify(value, function (this: Record<string, unknown>, key, item) {
+    const path = key === '' ? [] : [...(paths.get(this) ?? []), key];
+    if (item && typeof item === 'object') paths.set(item, path);
+    if (key === 'png' && typeof item === 'string' && item.startsWith('data:image/png;base64,')
+      && this.path === `comment-crops/${String(this.sha256)}.png`) {
+      const sha256 = String(this.sha256);
+      const bytes = Buffer.from(item.slice('data:image/png;base64,'.length), 'base64');
+      db.query('INSERT OR IGNORE INTO job_comment_crops(sha256, png) VALUES(?, ?)').run(sha256, bytes);
+      references.push([path, sha256]);
+      return `job-crop:${sha256}`;
+    }
+    return item;
+  });
+  if (!references.length) return text;
+  const packed = JSON.parse(text) as Record<string, unknown>;
+  packed._jobCommentCrops = references;
+  return JSON.stringify(packed);
+}
+
+interface StoredLegacyAsk {
+  askId: string;
+  publicationId: string;
+  subject: { kind: string; questionId?: string; setId?: string };
+  source: Record<string, unknown>;
+  status: string;
+}
+
+interface StoredLegacyPublication {
+  publication: JsonObject & { source: Record<string, unknown> };
+  retained: { subjects: unknown[]; source: Record<string, unknown> };
+}
+
+interface StoredLegacyJobDoc {
+  head: string | null;
+  generation: number;
+  reviewer: { id: string; role: string };
+  publications: Record<string, StoredLegacyPublication>;
+  asks: Record<string, StoredLegacyAsk>;
+  acts: Record<string, unknown>;
+  events: Record<string, unknown>[];
+}
+
+function unpackJobCrops(db: Database, rawDocument: string): StoredLegacyJobDoc {
+  const packed = JSON.parse(rawDocument) as Record<string, unknown>;
+  const references = packed._jobCommentCrops as [string[], string][] | undefined;
+  if (!references) return packed as unknown as StoredLegacyJobDoc;
+  delete packed._jobCommentCrops;
+  for (const [path, sha256] of references) {
+    let owner = packed;
+    for (const key of path.slice(0, -1)) owner = owner[key] as Record<string, unknown>;
+    const row = db.query<{ png: Uint8Array }, [string]>('SELECT png FROM job_comment_crops WHERE sha256 = ?').get(sha256)!;
+    owner.png = `data:image/png;base64,${Buffer.from(row.png).toString('base64')}`;
+  }
+  return packed as unknown as StoredLegacyJobDoc;
+}
+
+function seedLegacyPicksPage(root: string) {
+  const binding = readWriterBinding(root)!;
+  const dbPath = join(binding.identity.stateDir, 'jobs.sqlite');
+  const updateJob = <T>(fn: (data: StoredLegacyJobDoc) => T): T => {
+    const db = new Database(dbPath);
+    try {
+      const row = db.query<{ revision: number; document: string }, [string]>(
+        'SELECT revision, document FROM jobs WHERE job_id = ?',
+      ).get(binding.jobId)!;
+      const data = unpackJobCrops(db, row.document);
+      const out = fn(data);
+      const encoded = packJobCrops(db, data);
+      db.query('UPDATE jobs SET revision = ?, document = ? WHERE job_id = ?')
+        .run(row.revision + 1, encoded, binding.jobId);
+      return out;
+    } finally {
+      db.close();
+    }
+  };
+  const { head, asks } = updateJob(data => {
+    const publicationId = String(data.head);
+    const stored = data.publications[publicationId]!;
+    const selection = stored.retained.source.selection as { questionId: string; setId: string; sets?: { questionId: string; setId: string }[] };
+    const sets = selection.sets ?? [{ questionId: selection.questionId, setId: selection.setId }];
+    const subjects = sets.map(set => ({ kind: 'interview-picks' as const, questionId: set.questionId, setId: set.setId }));
+    const ackDir = join(jobPrivateRoot(root), 'acknowledged-publications');
+    for (const name of readdirSync(ackDir)) {
+      const ackPath = join(ackDir, name);
+      const ack = JSON.parse(readFileSync(ackPath, 'utf8')) as JsonObject;
+      if (ack.publicationId === publicationId) {
+        writeFileSync(ackPath, `${JSON.stringify({ ...ack, subjects }, null, 2)}\n`, { mode: 0o600 });
+      }
+    }
+    const createdAsks: JsonObject[] = [];
+    for (const subject of subjects) {
+      data.generation++;
+      const askId = randomUUID();
+      const ask = { askId, publicationId, subject, source: structuredClone(stored.retained.source), status: 'pending' };
+      data.asks[askId] = ask;
+      data.events.push({ type: 'pending', ask: structuredClone(ask), cursor: randomUUID(), jobId: binding.jobId, generation: data.generation });
+      createdAsks.push(ask as unknown as JsonObject);
+    }
+    return { head: stored.publication as JsonObject, asks: createdAsks };
+  });
+  return {
+    head,
+    asks,
+    act: async (
+      _subject: string,
+      _kind: string,
+      value: { questionId: string; selections: { itemId: unknown; optionId: unknown; otherText: string | null }[]; note: string; words?: string; comments?: unknown[] },
+      extra: { askId?: unknown } = {},
+    ): Promise<JsonObject> => {
+      return updateJob(data => {
+        const publicationId = String(head.publicationId);
+        const stored = data.publications[publicationId]!;
+        const ask = Object.values(data.asks).find(entry =>
+          extra.askId !== undefined
+            ? entry.askId === String(extra.askId)
+            : entry.publicationId === publicationId && entry.subject.kind === 'interview-picks' && entry.subject.questionId === value.questionId,
+        )!;
+        ask.status = 'answered';
+        const baseSource = structuredClone(stored.retained.source) as Record<string, unknown> & {
+          selection: { kind: 'option-set'; questionId: string; setId: string; sets?: { questionId: string; setId: string }[] };
+          optionSets?: { questionId: string; setId: string; optionSet: { id: string; sha256: string }; optionSetFile: { path: string; sha256: string } }[];
+        };
+        const row = baseSource.optionSets?.find(item => item.questionId === value.questionId);
+        const actSource = row
+          ? {
+              ...baseSource,
+              selection: { kind: 'option-set' as const, questionId: row.questionId, setId: row.setId, sets: baseSource.selection.sets },
+              optionSet: { id: row.optionSet.id, sha256: row.optionSet.sha256 },
+              optionSetFile: { path: row.optionSetFile.path, sha256: row.optionSetFile.sha256 },
+            }
+          : baseSource;
+        const actAtMs = Math.max(testClock.now(), Date.now());
+        testClock.set(actAtMs);
+        const actId = randomUUID();
+        const comments = value.comments !== undefined
+          ? value.comments
+          : value.words !== undefined
+            ? [{ text: value.words }]
+            : [];
+        const act = parseCommentsAct({
+          schema: JOB_COMMENTS_ACT_SCHEMA,
+          actId,
+          jobId: binding.jobId,
+          askId: ask.askId,
+          publicationId,
+          authority: { actor: 'human', channel: 'review-ui', reviewer: { ...data.reviewer } },
+          at: new Date(actAtMs).toISOString(),
+          kind: 'interview-picks',
+          source: actSource,
+          value: {
+            questionId: value.questionId,
+            selections: value.selections.map(sel => ({ itemId: String(sel.itemId), optionId: String(sel.optionId), otherText: sel.otherText })),
+            note: value.note,
+            comments,
+          },
+        }) as unknown as JsonObject;
+        data.generation++;
+        data.acts[actId] = act;
+        data.events.push({ type: 'act', act: structuredClone(act), cursor: randomUUID(), jobId: binding.jobId, generation: data.generation });
+        return act;
+      });
+    },
+  };
+}
+
 async function openMotionQuestion(also: string[] = [], edit?: (project: JsonObject) => void) {
   const root = riggingInterviewRoot(edit);
   const value = await registerQuestion(root, 'motion');
   const others = [];
   for (const question of also) others.push(await registerQuestion(root, question));
-  const opening = await open(root, ['--question', 'motion']); const view = await page(root, opening.url, 1);
+  const opening = await open(root, ['--question', 'motion']);
+  await page(root, opening.url, 0);
+  const view = seedLegacyPicksPage(root);
   return { root, url: opening.url, view, value, others };
 }
 
@@ -1045,7 +1216,8 @@ test('#846 batch ingest routes comments atomically and omits the route for an em
   const root = riggingInterviewRoot();
   const values = [await registerQuestion(root, 'motion'), await registerQuestion(root, 'bones')];
   const { url } = await open(root, ['--question', 'motion', '--question', 'bones']);
-  const view = await page(root, url);
+  await page(root, url, 0);
+  const view = seedLegacyPicksPage(root);
   const acts: JsonObject[] = [];
   for (const value of values) {
     const ask = view.asks.find(row => obj(row.subject).questionId === value.questionId)!;
@@ -1111,7 +1283,7 @@ test('merged record-mode host lists finalized picks and its printed writer comma
   // #738: next shows the guide as answered and offers no second publication of the question.
   const report = nextProject(root);
   expect(report.refusals.map(({ code, field }) => ({ code, path: field }))).toEqual([stalePlanStep('motion')]);
-  expect(report.moves.filter(move => move.command?.includes('--question motion') || move.review_act?.question_id === 'motion')).toEqual([]);
+  expect(report.moves.filter(move => move.command?.includes('--question motion') || move.field === 'interview.waypoints[motion].pending_options')).toEqual([]);
   expect(report.answers!.find(answer => answer.question_id === 'motion')).toMatchObject({ field: 'interview.waypoints[motion].guide', at: act.at });
   expectExit0(await cli(root, ['plan', 'revise', 'motion', root, '--by', 'agent',
     '--reason', 'The motion definition still covers the recorded synthetic choices.']));
@@ -1119,11 +1291,17 @@ test('merged record-mode host lists finalized picks and its printed writer comma
 }, 30_000);
 
 test('#737 a second --question refuses JOB_ASK_PENDING while the first ask is open, keeps its answer, and publishes after ingest', async () => {
-  const { root, url, view, value, others: [bones] } = await openMotionQuestion(['bones']);
+  const root = riggingInterviewRoot();
+  const value = await registerQuestion(root, 'motion');
+  await registerQuestion(root, 'bones');
+  const opening = await open(root, ['--question', 'motion']);
+  const { url } = opening;
+  const initialView = await page(root, url, 0);
   // Re-opening the pending question itself is not a second ask.
   const same = await cli(root, ['job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner', '--question', 'motion']);
   expectExit0(same);
-  expect(same.stdout.trimEnd().split('\n')).toContain(`job: option-set motion/pending-acts-motion already published (publication ${view.head.publicationId})`);
+  expect(same.stdout.trimEnd().split('\n')).toContain(`job: option-set motion/pending-acts-motion already published (publication ${initialView.head.publicationId})`);
+  const view = seedLegacyPicksPage(root);
   const before = snapshot(root);
   const second = await cli(root, ['job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner', '--question', 'bones']);
   expect(second.exit).toBe(1);
@@ -1145,11 +1323,12 @@ test('#737 a second --question refuses JOB_ASK_PENDING while the first ask is op
 
   const next = await cli(root, ['job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner', '--question', 'bones']);
   expectExit0(next);
-  const bonesView = await page(root, url, 1);
+  const bonesView = await page(root, url, 0);
+  expect(bonesView.asks).toEqual([]);
   expect(next.stdout.trimEnd().split('\n')).toContain(`job: option-set bones/pending-acts-bones published (publication ${bonesView.head.publicationId})`);
-  const bonesAct = await bonesView.act('interview-picks', 'interview-picks', bones!);
-  const after = JSON.parse((await cli(root, ['job', 'acts', root, '--json'])).stdout).acts as PendingJobAct[];
-  expect(after.map(row => row.actId)).toEqual([String(bonesAct.actId)]);
+  const after = JSON.parse((await cli(root, ['job', 'acts', root, '--json'])).stdout) as { acts: PendingJobAct[]; asked: number };
+  expect(after.acts).toEqual([]);
+  expect(after.asked).toBe(0);
 }, 60_000);
 
 function ownerChatAnswerArgs(root: string, value: { questionId: string; selections: { itemId: Json; optionId: Json }[] }) {
@@ -1268,17 +1447,21 @@ test('#558 next at the rigging interview groups the question loop and prints one
   const root = riggingInterviewRoot();
   for (const question of ['motion', 'bones']) await registerQuestion(root, question);
   const { moves } = nextProject(root);
-  expect(moves.filter(move => move.review_act?.kind === 'interview-picks').map(move => move.review_act!.question_id)).toEqual(['bones', 'motion']);
+  const prompts = moves.filter(move => move.role === 'human' && move.command === null);
+  expect(prompts.map(move => move.act)).toEqual([
+    'ask the owner in chat for interview.waypoints[bones] (option set pending-acts-bones), then relay the answer with interview-answer --owner-chat',
+    'ask the owner in chat for interview.waypoints[motion] (option set pending-acts-motion), then relay the answer with interview-answer --owner-chat',
+  ]);
+  expect(moves.filter(move => move.command?.includes('--owner-chat')).map(move => move.field)).toEqual([
+    'interview.waypoints[bones].pending_options',
+    'interview.waypoints[motion].pending_options',
+  ]);
   const commands = moves.filter(move => move.role === 'agent' && move.command);
   const workflow = commands.filter(move => move.command!.startsWith('rig-create job ') || move.command!.includes('--from-review'));
   expect(workflow.map(move => move.command)).toEqual([
     `rig-create job open ${shellWord(root)} --questions --reviewer '<reviewer>' --role owner`,
-    `rig-create job acts ${shellWord(root)} --json --wait`,
-    `rig-create interview-answer --batch ${shellWord(root)} --from-review '<actId for bones>' --from-review '<actId for motion>'`,
   ]);
-  expect(workflow[0]!.act).toContain('rigging-interview question loop');
-  expect(workflow[1]!.act).toContain('--wait keeps waiting until every set has submitted');
-  expect(workflow[2]!.act).toContain('JOB_ASK_PENDING');
+  expect(workflow[0]!.act).toContain('optional: publish the pending sets for bones, motion on one Review page');
 }, 30_000);
 
 test.each([
@@ -1296,7 +1479,8 @@ test.each([
   });
   const value = await registerQuestion(root, 'motion');
   const opening = await open(root, ['--question', 'motion']);
-  const view = await page(root, opening.url, 1);
+  await page(root, opening.url, 0);
+  const view = seedLegacyPicksPage(root);
   const before = snapshot(root);
   const beforePrivate = snapshot(jobPrivateRoot(root));
   const beforeJobState = snapshot(jobHostStateRoot(root));
@@ -1364,7 +1548,13 @@ test('#740 a draft republished over an unanswered earlier-draft ask publishes wh
 }, 60_000);
 
 test('#698 wait wakes on a finalized pick and reuses the strict attach without timer re-listing', async () => {
-  const { root, url, view, value } = await openMotionQuestion();
+  const root = copy('3-rig-review');
+  const opening = await open(root, ['--rig', '1']);
+  const { url } = opening;
+  const view = await page(root, url, 1, 'review-verdict');
+  const askId = String(view.asks.find(item => (item.subject as JsonObject).kind === 'review-verdict')!.askId);
+  const value = { stage: 'rig-review', verdict: 'approved', words: WORDS };
+  const capture = rigCapture(root, view, askId);
   const before = readFileSync(join(root, 'project.json'));
   const requests: { after: string | null; waitMs: number }[] = [];
   const entered = Promise.withResolvers<void>();
@@ -1389,16 +1579,16 @@ test('#698 wait wakes on a finalized pick and reuses the strict attach without t
     expect(beforeWait[2]!.after).toBe(beforeWait[1]!.after);
     expect(beforeWait[2]!.after).not.toBeNull();
 
-    const refused = await view.tryAct('interview-picks', 'interview-picks', value, { displayedNonce: '0'.repeat(64) });
+    const refused = await view.tryAct('review-verdict', 'review-verdict', value, { ...capture, displayedNonce: '0'.repeat(64) });
     expect(obj(refused.error).code).toBe('JOB_DISPLAY_MISMATCH');
-    await page(root, url, 1);
+    await page(root, url, 1, 'review-verdict');
     await Bun.sleep(600);
     expect(requests).toEqual(beforeWait);
 
-    const act = await view.act('interview-picks', 'interview-picks', value);
+    const act = await view.act('review-verdict', 'review-verdict', value, capture);
     const result = await waiting;
     expect(result.acts).toHaveLength(1);
-    expect(result.acts[0]).toMatchObject({ actId: act.actId, kind: 'interview-picks' });
+    expect(result.acts[0]).toMatchObject({ actId: act.actId, kind: 'review-verdict' });
     expect(requests.slice(beforeWait.length).map(request => request.waitMs)).toEqual([0, 0]);
 
     const pending = await cli(root, ['job', 'acts', '--wait', '--timeout-ms', '1', '--json']);
@@ -1469,9 +1659,24 @@ test('#633 post composition Other leads to a cited scene through two Review pick
   writeFileSync(join(root, path), JSON.stringify(set, null, 2) + '\n');
   expectExit0(await cli(root, ['interview-options', question, root, '--file', path]));
   const opening = await open(root, ['--question', question]);
-  const view = await page(root, opening.url, 1);
-  const act = await view.act('interview-picks', 'interview-picks', { questionId: question, selections: [{ itemId: question, optionId: 'other', otherText }], note: '' });
-  expectExit0(await cli(root, ['interview-answer', question, root, '--from-review', String(act.actId)]));
+  const view = await page(root, opening.url, 0);
+  expect(view.asks).toEqual([]);
+  const otherFile = join(root, 'other-composition.txt');
+  writeFileSync(otherFile, otherText);
+  const wordsFile = join(root, 'owner-composition-words.txt');
+  writeFileSync(wordsFile, `${otherText}\n`);
+  testClock.set(testClock.now() + 1_000);
+  expectExit0(await cli(root, [
+    'interview-answer', question, root,
+    '--set', path,
+    '--sha256', jobHash(readFileSync(join(root, path))),
+    '--by', 'synthetic-owner',
+    '--owner-chat', wordsFile,
+    '--said-at', new Date(testClock.now() - 500).toISOString(),
+    '--relayed-by', 'synthetic-operator',
+    '--pick', `${question}=other`,
+    '--other', `${question}=${otherFile}`,
+  ]));
   expectExit0(await cli(root, ['job', 'close', root]));
   expect(await opening.proc.exited).toBe(0);
   const composition = () => collectItems(read(root), { collection: null }).find(i => i.id === question)!;
@@ -1501,7 +1706,17 @@ test('#633 post composition Other leads to a cited scene through two Review pick
   set.id = 'scene-act-follow-up';
   writeFileSync(join(root, followUpPath), JSON.stringify(set, null, 2) + '\n');
   await executePrinted(root, move.command!.replace("'<option-set.json>'", quote(followUpPath)));
-  await nextReview(root, 'interview-picks', { questionId: question, selections: [{ itemId: question, optionId: 'keep', otherText: null }], note: '' }, question, ['INTERVIEW_CHOICE_REQUIRED']);
+  const followUpReport = nextProject(root, testClock.now());
+  expect(followUpReport.refusals.filter(row => row.code !== 'INTERVIEW_INCOMPLETE').map(row => row.code)).toEqual(['INTERVIEW_CHOICE_REQUIRED']);
+  const chatMove = followUpReport.moves.find(row => row.command?.startsWith(`rig-create interview-answer ${question} `) && row.command.includes('--owner-chat'))!;
+  expect(chatMove).toBeDefined();
+  testClock.set(testClock.now() + 1_000);
+  await executePrinted(root, chatMove.command!
+    .replace("'<owner>'", "'synthetic-owner'")
+    .replace("'<words file>'", quote(wordsFile))
+    .replace("'<ISO date>'", quote(new Date(testClock.now() - 500).toISOString()))
+    .replace("'<operator>'", "'synthetic-operator'")
+    .replaceAll('<option-id>', 'keep'));
   const ingested = obj(composition().raw);
   expect(composition().record.history).toContainEqual(otherAnswer);
   expect(ingested.value).toEqual(option.fragment);
@@ -1684,9 +1899,32 @@ test.each([
   const item = collectItems(project, { collection: null }).find(item => item.id === question)!;
   const pending = obj(item.record.pending_options);
   const set = JSON.parse(readFileSync(join(root, String(pending.path)), 'utf8')) as JsonObject;
-  const selections = arr(set.asks).map(obj).map(ask => ({ itemId: ask.id,
-    optionId: arr(ask.options).map(obj).find(option => option.kind === 'value')!.id, otherText: null }));
-  await nextReview(root, 'interview-picks', { questionId: question, selections, note: WORDS }, question);
+  const report = nextProject(root, testClock.now());
+  expect(report.moves.some(move => move.command?.includes('--from-review') || move.command?.startsWith('rig-create job acts '))).toBe(false);
+  const askMove = report.moves.find(move => move.role === 'human' && move.command === null && move.field.includes(`[${question}]`))!;
+  expect(askMove.act).toContain(`ask the owner in chat for `);
+  const chatMove = report.moves.find(move => move.command?.startsWith(`rig-create interview-answer ${question} `) && move.command.includes('--owner-chat'))!;
+  const openMove = report.moves.find(move => move.command?.startsWith('rig-create job open ') && move.command.includes(`--question ${question}`))!;
+  expect(chatMove).toBeDefined();
+  expect(openMove).toBeDefined();
+
+  const opening = await open(root, [], openMove.command!.replace("'<reviewer>'", "'synthetic-owner'"));
+  const shown = await page(root, opening.url, 0);
+  expect(shown.asks).toEqual([]);
+  const wordsFile = join(root, `${question}-words.txt`);
+  writeFileSync(wordsFile, WORDS);
+  let answerCmd = chatMove.command!
+    .replace("'<owner>'", "'synthetic-owner'")
+    .replace("'<words file>'", quote(wordsFile))
+    .replace("'<ISO date>'", quote(new Date(testClock.now() - 500).toISOString()))
+    .replace("'<operator>'", "'synthetic-operator'");
+  for (const ask of arr(set.asks).map(obj)) {
+    const optionId = String(arr(ask.options).map(obj).find(option => option.kind === 'value')!.id);
+    answerCmd = answerCmd.replace(quote(`${String(ask.id)}=<option-id>`), quote(`${String(ask.id)}=${optionId}`));
+  }
+  await executePrinted(root, answerCmd);
+  expectExit0(await cli(root, ['job', 'close', root]));
+  await opening.proc.exited;
   const answered = collectItems(read(root), { collection: null }).find(item => item.id === question)!;
   expect(answered.state.state).toBe('user');
 }, 30_000);
@@ -1857,9 +2095,23 @@ test('#502 all post-interview picks and plan signoff execute next host and expor
     const path = `evidence/interview/next-${question}.json`;
     writeFileSync(join(root, path), JSON.stringify(set));
     expectExit0(await cli(root, ['interview-options', question, root, '--file', path]));
-    const selections = arr(set.asks).map(obj).map(ask => ({ itemId: ask.id,
-      optionId: arr(ask.options).map(obj).find(option => option.kind === 'value')!.id, otherText: null }));
-    await nextReview(root, 'interview-picks', { questionId: question, selections, note: WORDS }, question);
+    const questionReport = nextProject(root, testClock.now());
+    expect(questionReport.moves.some(move => move.command?.includes('--from-review'))).toBe(false);
+    const chatMove = questionReport.moves.find(move => move.command?.startsWith(`rig-create interview-answer ${question} `) && move.command.includes('--owner-chat'))!;
+    expect(chatMove).toBeDefined();
+    const wordsFile = join(root, `${question}-words.txt`);
+    writeFileSync(wordsFile, WORDS);
+    let answerCmd = chatMove.command!
+      .replace("'<owner>'", "'synthetic-owner'")
+      .replace("'<words file>'", quote(wordsFile))
+      .replace("'<ISO date>'", quote(new Date(testClock.now() - 500).toISOString()))
+      .replace("'<operator>'", "'synthetic-operator'");
+    for (const ask of arr(set.asks).map(obj)) {
+      const optionId = String(arr(ask.options).map(obj).find(option => option.kind === 'value')!.id);
+      answerCmd = answerCmd.replace(quote(`${String(ask.id)}=<option-id>`), quote(`${String(ask.id)}=${optionId}`));
+    }
+    testClock.set(testClock.now() + 1_000);
+    await executePrinted(root, answerCmd);
     if (step !== null) expectExit0(await cli(root, ['plan', 'revise', step, root, '--by', 'agent',
       '--reason', `The ${step} definition still fits the recorded synthetic choice.`]));
   }
@@ -1923,7 +2175,8 @@ test('#556 job close refuses un-ingested acts byte-identically, closes after ing
   // 2. An un-ingested finalized act refuses with JOB_ACTS_PENDING, names the act id and ingest command,
   // and leaves both the binding and project.json byte-identical; after ingest, close succeeds.
   const firstOpen = await open(root, ['--question', 'rig_type']);
-  const firstView = await page(root, firstOpen.url, 1, 'interview-picks');
+  await page(root, firstOpen.url, 0);
+  const firstView = seedLegacyPicksPage(root);
   const firstAct = await firstView.act('interview-picks', 'interview-picks', pickValue);
   const bindingPath = join(root, JOB_BINDING_FILE);
   const beforeBindingBytes = readFileSync(bindingPath);
@@ -1948,7 +2201,8 @@ test('#556 job close refuses un-ingested acts byte-identically, closes after ing
   // 3. --discard-acts validates the reason and record through the check validator, records the dropped act ids, and closes.
   const discardRoot = copy('0a-interview-options');
   const secondOpen = await open(discardRoot, ['--question', 'rig_type']);
-  const secondView = await page(discardRoot, secondOpen.url, 1, 'interview-picks');
+  await page(discardRoot, secondOpen.url, 0);
+  const secondView = seedLegacyPicksPage(discardRoot);
   const droppedAct = await secondView.act('interview-picks', 'interview-picks', pickValue);
   const discardBindingPath = join(discardRoot, JOB_BINDING_FILE);
   const discardBeforeBinding = readFileSync(discardBindingPath);
@@ -2015,10 +2269,19 @@ test('#556 job close refuses un-ingested acts byte-identically, closes after ing
   const reask = nextProject(discardRoot, testClock.now());
   expect(reask.refusals.filter(r => r.code === 'REVIEW_ACT_LEDGER_INVALID')).toEqual([]);
   expect(reask.moves).toContainEqual(expect.objectContaining({ role: 'agent', command: expect.stringContaining('job open') }));
-  expect(reask.moves).toContainEqual(expect.objectContaining({ role: 'human', review_act: expect.objectContaining({ kind: 'interview-picks', question_id: 'rig_type' }) }));
+  expect(reask.moves).toContainEqual(expect.objectContaining({
+    role: 'human',
+    command: null,
+    act: expect.stringContaining('ask the owner in chat for interview.framing[rig_type]'),
+  }));
+  expect(reask.moves).toContainEqual(expect.objectContaining({
+    role: 'human',
+    command: expect.stringContaining('--owner-chat'),
+  }));
 
   const thirdOpen = await open(discardRoot, ['--question', 'rig_type']);
-  const thirdView = await page(discardRoot, thirdOpen.url, 1, 'interview-picks');
+  await page(discardRoot, thirdOpen.url, 0);
+  const thirdView = seedLegacyPicksPage(discardRoot);
   const freshAct = await thirdView.act('interview-picks', 'interview-picks', pickValue);
   expect(freshAct.jobId).not.toBe(droppedAct.jobId);
   const beforeReplay = readFileSync(join(discardRoot, 'project.json'));

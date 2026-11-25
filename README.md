@@ -122,7 +122,7 @@ The full procedure, with recovery when the page stops, is in
 - `interview-options <question>`: register the choices shown for one question.
 - `interview-answer <question>`: record your pick.
 - `interview-decision <question>`: record the agent's decision on a question you delegated.
-- `plan add|revise|remove <id>`: draft plan steps, keeping what they replace.
+- `plan add|revise|remove|replace <id>`: draft plan steps, keeping what they replace.
 - `signoff <stage>`: record your signature without moving the stage.
 - `advance <stage>`: move to the next stage a sign-off allows.
 - `step-status <step> <status>`: record a plan step's progress.

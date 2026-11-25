@@ -809,7 +809,7 @@ agent reads, and a second file is one a resume can skip.
 }
 ```
 
-Draft steps with `rig-create plan add|revise|remove <id> [<project dir>]
+Draft steps with `rig-create plan add|revise|remove|replace <id> [<project dir>]
 --by <drafter>`. Its `--help` lists their field flags. Draft dates follow the
 existing [phase-date contract](#explicit-adoption-of-the-split-interview),
 using both previous and resulting approval ownership on revision, with
@@ -825,10 +825,13 @@ If the existing definition still fits, use `plan revise <id> --by <drafter>
 additional checker findings counted by code and path before changing the file.
 Amend the stage that owns the change before replanning under a live covering
 approval. To replace completed work under the same id, record an amendment
-after completion at the step's approval stage or an earlier stage. Remove the
-step and add its replacement with the same id and phase. Historical reopens
-still qualify under their original stage rules. Revise/remove append the full
-previous step to optional `replaced[]`, with its existing `stepHash`, action, ISO date and
+after completion at the step's approval stage or an earlier stage, then run
+`plan replace <id>` with the same phase and every `add` field. It removes the
+old step and adds the new definition in one write, checked once on the final
+state, so a step another rule requires (such as the depth `turn` step) is never
+missing in between. Historical reopens still qualify under their original
+stage rules. Revise/remove/replace append the full previous step
+to optional `replaced[]`, with its existing `stepHash`, action, ISO date and
 drafter. A revision also records its reason. Entries retain write order, nondecreasing dates and unique
 `step.id` / `at` identities. Historical signatures may resolve hashes and
 checkpoints against history. Live approvals bind current steps.

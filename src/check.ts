@@ -633,7 +633,7 @@ function checkPlanAnswerOrder(ctx: Ctx, step: Step, restsOn: string[], approval:
   const basis = `${latest.path}.at ${new Date(latest.at).toISOString()}`;
   const remedy = planStepCompleted(ctx.project, step.record)
     ? `review the recorded answer, ${completedPlanStepNeedsAmendment(ctx.project, step.record, now)
-      ? `record an owner amendment at ${approval} or earlier after completion, ` : ''}then use plan remove ${step.id} followed by plan add ${step.id} with the same phase and the reviewed definition`
+      ? `record an owner amendment at ${approval} or earlier after completion, ` : ''}then use plan replace ${step.id} with the same phase and the reviewed definition`
     : `record the answer, then use plan revise ${step.id}`;
   if (at < latest.at) {
     const findings = latest.at >= Date.parse(PLAN_STEP_ANSWER_SINCE) ? ctx.refusals : ctx.warnings;

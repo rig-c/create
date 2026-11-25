@@ -343,12 +343,12 @@ test('#561 a completed step stays immutable after an owner amendment and next re
   expect(rendered.code).toBe(0);
   const next = JSON.parse(rendered.stdout) as NextReport;
   expect(next.refusals).toEqual([expect.objectContaining({ code: STALE, field: stepPath,
-    message: expect.stringContaining('plan remove bones followed by plan add bones') })]);
+    message: expect.stringContaining('plan replace bones with the same phase') })]);
   const move = next.moves[0]!;
   expect(move.role).toBe('agent');
   expect(move.field).toBe(stepPath);
   const command = move.command!;
-  expect(command).toMatch(/^rig-create plan remove bones .* && rig-create plan add bones .* --phase rig .* --checkpoint-proposed false$/);
+  expect(command).toMatch(/^rig-create plan replace bones .* --phase rig .* --checkpoint-proposed false$/);
   expect(next.moves.some(move => move.review_act?.kind === 'signoff')).toBe(false);
   const before = readFileSync(file(root));
   expect(run('plan', 'revise', id, '--by', 'agent', '--reason', 'Keep the existing synthetic definition.'))

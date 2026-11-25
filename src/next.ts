@@ -293,7 +293,7 @@ function completedPlanRepairCommand(step: JsonObject, dir: string): string | nul
   const target = `${shellWord(id)} ${shellWord(dir)} --by agent`;
   const definition = ['--phase', phase, '--order', String(order), '--does', String(does), '--produces', String(produces),
     '--rests-on', restsOn.join(','), '--bar', String(bar), '--checkpoint-proposed', String(checkpoint)].map(shellWord).join(' ');
-  return `rig-create plan remove ${target} && rig-create plan add ${target} ${definition}`;
+  return `rig-create plan replace ${target} ${definition}`;
 }
 
 interface CheckedRigBuild {
@@ -1357,7 +1357,7 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
       const command = needsAmendment ? null : completedPlanRepairCommand(step, dir);
       return { role: needsAmendment ? 'human' : 'agent', field: finding.path, awaits: finding.path, command,
         act: `${finding.message}. Retain the completed definition and its execution history in plan.replaced.`
-          + (command === null ? '' : ' Before executing the shown remove/add command, review the replacement definition against the recorded answer and update any plan add fields that need to change.') };
+          + (command === null ? '' : ' Before executing the shown plan replace command, review the replacement definition against the recorded answer and update any fields that need to change.') };
     }
     const id = String(step.id);
     return { role: 'agent', field: finding.path, awaits: finding.path,

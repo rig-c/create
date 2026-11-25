@@ -14,18 +14,19 @@ import { approvalStageOfStep, hasStageOrder, stageOfStep } from './stages.ts';
 import { stepHash } from './step-hash.ts';
 import type { JsonObject } from './templates.ts';
 
-export const PLAN_HELP = `plan add|revise|remove <id> [<project dir>] --by <drafter> [--json]
+export const PLAN_HELP = `plan add|revise|remove|replace <id> [<project dir>] --by <drafter> [--json]
   --phase rig|post --order <number> --does <text> --produces <text>
   --rests-on <id,id,...> --bar <text> --checkpoint-proposed true|false
   checkpoint-withdraw <id> [<project dir>] --by <operator> --reason-file <file> --quote-file <file>
   bar-amend <id> [<project dir>] --by <operator> --reason-file <file> --quote-file <file> --bar-file <file>
   Amend one execution bar without changing the signed step.
   Withdraw one enabled execution checkpoint without changing the signed step.
-  Add requires all fields. Revise accepts any of these fields and preserves the id.
+  Add and replace require all fields. Revise accepts any of these fields and preserves the id.
+  Replace removes the current step and adds its new definition with the same id and phase in one write.
   Revise also accepts --reason <text> alone to re-date the same definition after reviewing its answers.
   Write --does, --produces, --bar and --reason in the owner's declared language.
-  Add and revise stamp the current step's drafted_at. Revise/remove retain the full previous step in plan.replaced[].
-  Amend at the step's approval stage or earlier to lapse its live signature. A same-id replacement of completed work requires removal and an amendment after completion.
+  Add and revise stamp the current step's drafted_at. Revise/remove/replace retain the full previous step in plan.replaced[].
+  Amend at the step's approval stage or earlier to lapse its live signature. A same-id replacement of completed work requires plan replace and an amendment after completion.
   Dates follow approval ownership: parts/legacy rig update drafted_at and drafted_by,
   production rigging updates rigging_drafted_at, and post preserves plan dates.
   Each candidate passes check's refusal delta before writing.`;
@@ -39,7 +40,7 @@ export function planCommand(args: string[], now: number): { stdout: string; exit
   const positional: string[] = [];
   let json = false;
   const usage = (why: string): never => refuse('PLAN_OPTION_INVALID', `plan.steps: ${why}; see plan help`, USAGE_EXIT);
-  if (!['add', 'revise', 'remove', 'checkpoint-withdraw', 'bar-amend'].includes(action ?? '')) usage('expected add, revise, remove, checkpoint-withdraw or bar-amend');
+  if (!['add', 'revise', 'remove', 'replace', 'checkpoint-withdraw', 'bar-amend'].includes(action ?? '')) usage('expected add, revise, remove, replace, checkpoint-withdraw or bar-amend');
   const flags = ['--by', '--reason', '--reason-file', '--quote-file', '--bar-file', ...FIELDS.map(field => `--${field.replaceAll('_', '-')}`)];
   for (let index = 1; index < args.length; index++) {
     const arg = args[index]!;
@@ -73,7 +74,7 @@ export function planCommand(args: string[], now: number): { stdout: string; exit
   const verbatim = inputs[1]?.text ?? '';
   const amendedBar = inputs[2]?.text ?? '';
   if (action === 'remove' && Object.keys(patch).length) usage('remove takes no step fields');
-  if (action === 'add' && FIELDS.some(field => patch[field] === undefined)) usage('add needs every step field');
+  if ((action === 'add' || action === 'replace') && FIELDS.some(field => patch[field] === undefined)) usage(`${action} needs every step field`);
   if (action === 'revise' && Object.keys(patch).length === 0 && !opts['--reason']) usage('revise needs at least one step field or --reason');
   if (patch.phase !== undefined && patch.phase !== 'rig' && patch.phase !== 'post') usage('--phase is rig or post');
   if (patch.order !== undefined) {
@@ -110,16 +111,20 @@ export function planCommand(args: string[], now: number): { stdout: string; exit
     const steps = plan.steps as JsonObject[];
     const matches = steps.filter(step => isObject(step) && step.id === id);
     const previous = matches[0];
-    if (action === 'add' ? matches.length !== 0 : matches.length !== 1) refuse('PLAN_STEP_INVALID', `plan.steps[${id}]: ${action === 'add' ? 'id already exists' : 'no unique current step'}; use a distinct id for add or an existing id for revise/remove`);
-    if (action === 'add' && asArray(plan.replaced).some((entry, index) => {
-      if (!isObject(entry) || !isObject(entry.step) || entry.step.id !== id) return false;
-      const after = planGenerationStart(project, id, index);
-      const before = Date.parse(String(entry.at));
-      return planStepCompleted(project, entry.step, after, before)
-        && !(entry.action === 'removed' && patch.phase === entry.step.phase && planStepReplacementAuthorized(project, entry.step, now, after, before));
-    })) {
-      refuse('PLAN_STEP_DONE', `plan.steps[${id}]: completed work is retained in plan.replaced; record a human amendment at the step's approval stage or earlier after its completion, remove the old definition, then add the same id and phase`);
-    }
+    if (action === 'add' ? matches.length !== 0 : matches.length !== 1) refuse('PLAN_STEP_INVALID', `plan.steps[${id}]: ${action === 'add' ? 'id already exists' : 'no unique current step'}; use a distinct id for add or an existing id for revise/remove/replace`);
+    // Adding an id with retained completed work needs a removal authorized by a later human amendment.
+    // Replace runs the same rule on the history its own removal produces.
+    const refuseUnauthorizedReAdd = (history: JsonObject): void => {
+      if (!asArray((history.plan as JsonObject).replaced).some((entry, index) => {
+        if (!isObject(entry) || !isObject(entry.step) || entry.step.id !== id) return false;
+        const after = planGenerationStart(history, id, index);
+        const before = Date.parse(String(entry.at));
+        return planStepCompleted(history, entry.step, after, before)
+          && !(entry.action === 'removed' && patch.phase === entry.step.phase && planStepReplacementAuthorized(history, entry.step, now, after, before));
+      })) return;
+      refuse('PLAN_STEP_DONE', `plan.steps[${id}]: completed work is retained in plan.replaced; record a human amendment at the step's approval stage or earlier after its completion, then keep the same id and phase (plan replace, or plan add once the old definition is removed)`);
+    };
+    if (action === 'add') refuseUnauthorizedReAdd(project);
     const at = new Date(now).toISOString();
     if (amendingBar) {
       const findings: import('./check.ts').Finding[] = [];
@@ -164,7 +169,8 @@ export function planCommand(args: string[], now: number): { stdout: string; exit
         if (planStepHasLiveApproval(project, previous)) {
           refuse('PLAN_STEP_SIGNED', `plan.steps[${id}]: a live ${stage} signature binds this step; record a human amendment with amend ${stage} before revising or removing it`);
         }
-        if (action === 'revise' && planStepCompleted(project, previous)) refuse('PLAN_STEP_DONE', `plan.steps[${id}]: completed work cannot be revised; remove it and add the replacement, using a later human amendment at ${stage} or earlier for the same id`);
+        if (action === 'revise' && planStepCompleted(project, previous)) refuse('PLAN_STEP_DONE', `plan.steps[${id}]: completed work cannot be revised; use plan replace with the same phase, after a later human amendment at ${stage} or earlier`);
+        if (action === 'replace' && patch.phase !== previous.phase) refuse('PLAN_STEP_INVALID', `plan.steps[${id}].phase: replace keeps the phase ${String(previous.phase)}; use the same phase`);
       }
       if (previous !== undefined) {
         const revisionReason = opts['--reason'] ?? (Object.entries(patch).some(([key, value]) => JSON.stringify(value) !== JSON.stringify(previous[key]))
@@ -172,10 +178,12 @@ export function planCommand(args: string[], now: number): { stdout: string; exit
         plan.replaced = [...asArray(plan.replaced), { step: structuredClone(previous), sha256: stepHash(previous),
           action: action === 'revise' ? 'revised' : 'removed', at, by: opts['--by']!, ...(action === 'revise' ? { reason: revisionReason } : {}) }];
         const index = steps.indexOf(previous);
-        if (action === 'remove') steps.splice(index, 1);
-        else steps[index] = { ...previous, ...patch, drafted_at: at };
-      } else steps.push({ id: id!, ...patch, checkpoint: null, status: 'pending', drafted_at: at });
-      if (action === 'add' || (action === 'revise' && patch.order !== undefined)) {
+        if (action === 'revise') steps[index] = { ...previous, ...patch, drafted_at: at };
+        else steps.splice(index, 1);
+        if (action === 'replace') refuseUnauthorizedReAdd(structuredClone(next));
+      }
+      if (action === 'add' || action === 'replace') steps.push({ id: id!, ...patch, checkpoint: null, status: 'pending', drafted_at: at });
+      if (action === 'add' || action === 'replace' || (action === 'revise' && patch.order !== undefined)) {
         steps.sort((a, b) => Number(a.order) - Number(b.order));
       }
       const changedSteps = [previous, ...steps.filter(step => isObject(step) && step.id === id)].filter(isObject);

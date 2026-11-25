@@ -123,6 +123,8 @@ ${INPUT_CLI}  rig-create init <dir> [--no-install]              create a project
                                                     copy producer inputs and record the review open command
   rig-create rig-version <n> [<dir>] --parts <dir> --rig <dir> --build <dir> --idle <dir> …
                                                     register frozen producer output with declared source bindings
+  rig-create record parts [<dir>] --from <producer out> --config <rig config>
+                                                    record the current parts output and rename it into outputs/parts/
   rig-create record rig [<dir>] --from <producer out> --config <rig config>
                                                     record the current rig output and rename it into outputs/rig/
   rig-create split-captions [<project dir|project.json>] [--config <file>]

@@ -4,7 +4,7 @@ import os from 'node:os';
 import { dirname, join, posix, relative, resolve, sep } from 'node:path';
 import { readPlatePainting, readSourceMask } from '@rig-c/parts/src/plate.ts';
 import { TURN_OPTIONS, TURN_QUESTION } from '../src/waypoints.ts';
-import { DEPTH_MAP_BINDING_SINCE, depthPlanFindings, depthPlanMoves, registeredDepthPartsMatch, rigRegistrationFindings, turnExtraGroup, turnExtraGroupMoves } from '../src/rig-version.ts';
+import { DEPTH_MAP_BINDING_SINCE, depthPlanFindings, depthPlanMoves, registeredDepthPartsMatch, rigRegistrationFindings, turnExtraGroup, turnExtraGroupMoves, turnMissingBodyGroup } from '../src/rig-version.ts';
 import { RIG_CHECK_REPORT_SINCE } from '../src/rig-check-report.ts';
 import { checkProject as checkRecordProject } from '../src/check.ts';
 import { checkProject, rigVersionCommand, testClock } from './clock.ts';
@@ -2910,6 +2910,7 @@ describe('#514 producer depth bindings in frozen registration', () => {
       expect(turnExtraGroup(dir, project)).toEqual({ version: 1, dial: 'body_yaw_dial', recorded: false });
       const messages = codes(dir, project);
       expect(messages).toHaveLength(1);
+      expect(messages[0]).toContain('head-only answer');
       expect(messages[0]).toContain('body_yaw_dial');
       const depth = obj(obj(obj(arr(project.versions)[0]).registration).depth);
       for (const field of ['manifest', 'report'] as const) {
@@ -3005,6 +3006,175 @@ describe('#514 producer depth bindings in frozen registration', () => {
       const { dir, project } = bodySetup(body === undefined ? undefined : structuredClone(body) as JsonObject, mode);
       expect(turnExtraGroup(dir, project)).toBeNull();
       expect(codes(dir, project)).toEqual([]);
+    });
+
+    test('#1000 body: true suppresses RIG_TURN_EXTRA_GROUP when body roles are declared and raises RIG_TURN_BODY_MISSING when absent', () => {
+      const withBody = bodySetup({ bone: 'rectangle', pivot: 15, roles: { rectangle: 'surface' } });
+      obj(arr(obj(withBody.project.interview).waypoints).map(obj).find(w => w.id === 'turn')!.guide).value = { mode: 'depth', body: true };
+      expect(turnExtraGroup(withBody.dir, withBody.project)).toBeNull();
+      expect(turnExtraGroupMoves(withBody.dir, withBody.project)).toEqual([]);
+      expect(turnMissingBodyGroup(withBody.dir, withBody.project)).toBeNull();
+      const warningsWithBody: import('../src/check.ts').Finding[] = [];
+      rigRegistrationFindings(withBody.dir, withBody.project, warningsWithBody);
+      expect(warningsWithBody.filter(w => w.code === 'RIG_TURN_EXTRA_GROUP' || w.code === 'RIG_TURN_BODY_MISSING')).toEqual([]);
+
+      for (const absent of [undefined, { bone: 'rectangle', pivot: 15, roles: {} }] as const) {
+        const withoutBody = bodySetup(absent === undefined ? undefined : structuredClone(absent) as JsonObject);
+        obj(arr(obj(withoutBody.project.interview).waypoints).map(obj).find(w => w.id === 'turn')!.guide).value = { mode: 'depth', body: true };
+        expect(turnExtraGroup(withoutBody.dir, withoutBody.project)).toBeNull();
+        expect(turnMissingBodyGroup(withoutBody.dir, withoutBody.project)).toEqual({ version: 1 });
+        const warningsWithoutBody: import('../src/check.ts').Finding[] = [];
+        rigRegistrationFindings(withoutBody.dir, withoutBody.project, warningsWithoutBody);
+        expect(warningsWithoutBody.filter(w => w.code === 'RIG_TURN_EXTRA_GROUP')).toEqual([]);
+        const missing = warningsWithoutBody.filter(w => w.code === 'RIG_TURN_BODY_MISSING');
+        expect(missing).toHaveLength(1);
+        expect(missing[0]!.path).toBe('versions[v1].registration.config_source');
+        expect(missing[0]!.message).toContain('turn.body');
+      }
+    });
+
+    test('#1000 interview-decision turn records { mode: "depth", body: true } as a delegated answer with the same WARN behaviour and refuses invalid body', async () => {
+      const { interviewAnswerCommand, interviewDecisionCommand, interviewOptionsCommand } = await import('../src/choice-writers.ts');
+      const { OPTIONS_SPEC, optionContext } = await import('../src/choices.ts');
+      const runDelegatedScenario = (declaredBodyRoles: JsonObject | undefined): import('../src/check.ts').Finding[] => {
+        const base = boundDepthSetup();
+        const config = JSON.parse(readFileSync(join(base.dir, 'source/config.json'), 'utf8'));
+        if (declaredBodyRoles !== undefined) config.turn.body = declaredBodyRoles;
+        put(base.dir, 'source/config.json', config);
+        const report = JSON.parse(readFileSync(join(base.dir, 'source/parts/depth-report.json'), 'utf8'));
+        report.rigConfigSha256 = jobHash(readFileSync(join(base.dir, 'source/config.json')));
+        put(base.dir, 'source/parts/depth-report.json', report);
+        approveFrozenParts(base.dir, base.load(), base.args);
+
+        // Set up rigging-interview with turn waypoint before registering the rig.
+        const initial = base.load();
+        const interview = obj(initial.interview);
+        interview.order = { spec: 'rig-create/stage-order@2', choices_adopted_at: '2026-11-18T12:00:00Z' };
+        interview.turn_question = 'rig-create/turn-question@1';
+        arr(interview.waypoints).push({ id: 'turn', config: ['turn', 'depth'], prompts: [{ id: 'view', text: TURN_QUESTION }], guide: null, history: [] });
+        initial.stage = 'rigging-interview';
+        writeFileSync(join(base.dir, 'project.json'), `${JSON.stringify(initial, null, 2)}\n`);
+
+        // Deliberately omit turn-body from the offered option set: delegated interview-decision must not depend on it being an offered option.
+        const draftedAt = '2026-11-19T00:01:00Z';
+        const set: JsonObject = {
+          schema: OPTIONS_SPEC,
+          id: 'turn-delegated-only',
+          question: 'turn',
+          stage: 'rigging-interview',
+          drafted_by: 'agent',
+          drafted_at: draftedAt,
+          context: optionContext(base.load(), 'rigging-interview', Date.parse(draftedAt), base.dir),
+          asks: [{
+            id: 'view',
+            prompt: TURN_QUESTION,
+            options: [
+              { id: 'fixed', kind: 'value', label: 'Fixed view', effect: 'Keep the painted view.', fragment: { mode: 'fixed' }, recommended: true, reason: 'Synthetic baseline.' },
+              { id: 'turn', kind: 'value', label: 'Head turn', effect: 'The head turns with depth.', fragment: { mode: 'depth' }, recommended: false },
+              { id: 'other', kind: 'other', label: 'Other', effect: 'Describe the view.', recommended: false },
+              { id: 'auto', kind: 'auto', label: 'Let the agent decide', effect: 'The agent records its decision before approval.', recommended: false },
+            ],
+          }],
+          assembly: { rule: 'merge' },
+        };
+        const setPath = 'evidence/interview/turn-delegated-only.json';
+        put(base.dir, setPath, set);
+        const reg = JSON.parse(interviewOptionsCommand(['turn', base.dir, '--file', setPath], Date.parse('2026-11-19T00:02:00Z'))) as JsonObject;
+        interviewAnswerCommand(['turn', base.dir, '--set', setPath, '--sha256', String(reg.sha256), '--by', 'synthetic-owner', '--pick', 'view=auto'], Date.parse('2026-11-19T00:03:00Z'));
+
+        // Refuses invalid body before writing, leaving project.json byte-identical.
+        const badFragment = join(base.dir, 'bad-turn-fragment.json');
+        const reasoning = join(base.dir, 'turn-reasoning.txt');
+        writeFileSync(badFragment, JSON.stringify({ mode: 'fixed', body: true }));
+        writeFileSync(reasoning, 'Whole-figure turn chosen from accepted structure.');
+        const beforeBytes = readFileSync(join(base.dir, 'project.json'));
+        expect(() => interviewDecisionCommand(['turn', base.dir, '--by', 'agent', '--reasoning-file', reasoning, '--fragment', `view=${badFragment}`], Date.parse('2026-11-19T00:04:00Z')))
+          .toThrow(expect.objectContaining({ code: 'TURN_BODY_VALUE_INVALID' }));
+        expect(readFileSync(join(base.dir, 'project.json')).equals(beforeBytes)).toBe(true);
+
+        // Accepts { mode: "depth", body: true } through interview-decision.
+        const goodFragment = join(base.dir, 'good-turn-fragment.json');
+        writeFileSync(goodFragment, JSON.stringify({ mode: 'depth', body: true }));
+        const recorded = JSON.parse(interviewDecisionCommand(['turn', base.dir, '--by', 'agent', '--reasoning-file', reasoning, '--fragment', `view=${goodFragment}`], Date.parse('2026-11-19T00:04:00Z'))) as JsonObject;
+        expect(recorded.value).toEqual({ mode: 'depth', body: true });
+
+        // Add the depth plan step, sign rigging-interview, advance to rigging, and register the rig.
+        const decided = base.load();
+        decided.stage = 'rigging';
+        const steps = arr(obj(decided.plan).steps);
+        steps.push({ ...structuredClone(obj(steps[0])), id: 'turn', order: 0.5, rests_on: ['turn'], status: 'in-progress', status_history: [] });
+        put(base.dir, 'source/depth-citations.json', { turn: [{ entry: 'delegated whole-figure turn', guide: 'turn', delegated: true, asks: ['view'] }] });
+        put(base.dir, 'source/at-source.json', { finished_at: '2026-11-19T00:05:00Z' });
+        writeFileSync(join(base.dir, 'project.json'), `${JSON.stringify(decided, null, 2)}\n`);
+        testClock.set(new Date('2026-11-19T00:06:00Z'));
+        expect(rigVersionCommand(base.args).exit).toBe(0);
+
+        const warnings: import('../src/check.ts').Finding[] = [];
+        expect(rigRegistrationFindings(base.dir, base.load(), warnings)).toEqual([]);
+        return warnings;
+      };
+
+      const runOptionPickScenario = (declaredBodyRoles: JsonObject | undefined): import('../src/check.ts').Finding[] => {
+        const base = boundDepthSetup();
+        const config = JSON.parse(readFileSync(join(base.dir, 'source/config.json'), 'utf8'));
+        if (declaredBodyRoles !== undefined) config.turn.body = declaredBodyRoles;
+        put(base.dir, 'source/config.json', config);
+        const report = JSON.parse(readFileSync(join(base.dir, 'source/parts/depth-report.json'), 'utf8'));
+        report.rigConfigSha256 = jobHash(readFileSync(join(base.dir, 'source/config.json')));
+        put(base.dir, 'source/parts/depth-report.json', report);
+        approveFrozenParts(base.dir, base.load(), base.args);
+        const initial = base.load();
+        const interview = obj(initial.interview);
+        interview.order = { spec: 'rig-create/stage-order@2', choices_adopted_at: '2026-11-18T12:00:00Z' };
+        interview.turn_question = 'rig-create/turn-question@1';
+        arr(interview.waypoints).push({ id: 'turn', config: ['turn', 'depth'], prompts: [{ id: 'view', text: TURN_QUESTION }], guide: null, history: [] });
+        initial.stage = 'rigging-interview';
+        writeFileSync(join(base.dir, 'project.json'), `${JSON.stringify(initial, null, 2)}\n`);
+        const draftedAt = '2026-11-19T00:01:00Z';
+        const set: JsonObject = {
+          schema: OPTIONS_SPEC,
+          id: 'turn-standard-options',
+          question: 'turn',
+          stage: 'rigging-interview',
+          drafted_by: 'agent',
+          drafted_at: draftedAt,
+          context: optionContext(base.load(), 'rigging-interview', Date.parse(draftedAt), base.dir),
+          asks: [{
+            id: 'view',
+            prompt: TURN_QUESTION,
+            options: TURN_OPTIONS.map(option => ({ ...structuredClone(option), recommended: option.id === 'fixed', ...(option.id === 'fixed' ? { reason: 'Synthetic baseline.' } : {}) })) as unknown as JsonObject[],
+          }],
+          assembly: { rule: 'merge' },
+        };
+        const setPath = 'evidence/interview/turn-standard-options.json';
+        put(base.dir, setPath, set);
+        const reg = JSON.parse(interviewOptionsCommand(['turn', base.dir, '--file', setPath], Date.parse('2026-11-19T00:02:00Z'))) as JsonObject;
+        const picked = JSON.parse(interviewAnswerCommand(['turn', base.dir, '--set', setPath, '--sha256', String(reg.sha256), '--by', 'synthetic-owner', '--pick', 'view=turn-body'], Date.parse('2026-11-19T00:03:00Z'))) as JsonObject;
+        expect(picked.value).toEqual({ mode: 'depth', body: true });
+        const decided = base.load();
+        decided.stage = 'rigging';
+        const steps = arr(obj(decided.plan).steps);
+        steps.push({ ...structuredClone(obj(steps[0])), id: 'turn', order: 0.5, rests_on: ['turn'], status: 'in-progress', status_history: [] });
+        put(base.dir, 'source/depth-citations.json', { turn: [{ entry: 'picked whole-figure turn', guide: 'turn', quote: 'Head and body turn', asks: ['view'] }] });
+        put(base.dir, 'source/at-source.json', { finished_at: '2026-11-19T00:05:00Z' });
+        writeFileSync(join(base.dir, 'project.json'), `${JSON.stringify(decided, null, 2)}\n`);
+        testClock.set(new Date('2026-11-19T00:06:00Z'));
+        expect(rigVersionCommand(base.args).exit).toBe(0);
+        const warnings: import('../src/check.ts').Finding[] = [];
+        expect(rigRegistrationFindings(base.dir, base.load(), warnings)).toEqual([]);
+        return warnings;
+      };
+
+      const warningsWithoutBody = runDelegatedScenario(undefined);
+      const optionWarningsWithoutBody = runOptionPickScenario(undefined);
+      expect(warningsWithoutBody.filter(w => w.code === 'RIG_TURN_EXTRA_GROUP')).toEqual([]);
+      expect(warningsWithoutBody.filter(w => w.code === 'RIG_TURN_BODY_MISSING')).toHaveLength(1);
+      expect(warningsWithoutBody).toEqual(optionWarningsWithoutBody);
+
+      const warningsWithBody = runDelegatedScenario({ bone: 'rectangle', pivot: 15, roles: { rectangle: 'surface' } });
+      const optionWarningsWithBody = runOptionPickScenario({ bone: 'rectangle', pivot: 15, roles: { rectangle: 'surface' } });
+      expect(warningsWithBody.filter(w => w.code === 'RIG_TURN_EXTRA_GROUP' || w.code === 'RIG_TURN_BODY_MISSING')).toEqual([]);
+      expect(warningsWithBody).toEqual(optionWarningsWithBody);
     });
   });
 

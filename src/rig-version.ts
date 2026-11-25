@@ -10,7 +10,7 @@ import { BODY_YAW_DIAL_BONE } from '@rig-c/parts/src/turn.ts';
 import { tmpdir } from 'node:os';
 import { basename, dirname, isAbsolute, join, posix, relative, resolve, sep, win32 } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
-import { asArray, checkProject, collectItems, isObject, type Finding } from './check.ts';
+import { asArray, checkProject, collectItems, isObject, itemFor, type Ctx, type Finding } from './check.ts';
 import { literalFile } from './choices.ts';
 import { configInputReferences } from './config-inputs.ts';
 import { assembleOnlyDraftPath, assertDraftHasRig } from './draft-layout.ts';
@@ -653,6 +653,7 @@ function depthBindingFindings(dir: string, version: JsonObject, config: JsonObje
 export function rigRegistrationFindings(dir: string, project: JsonObject, warnings: Finding[] = [], collection: JsonObject | null = null): Finding[] {
   const findings: Finding[] = depthPlanFindings(project, warnings, collection);
   turnExtraGroupFindings(dir, project, warnings, collection);
+  turnMissingBodyGroupFindings(dir, project, warnings, collection);
   const allVersions = asArray(project.versions).filter(isObject);
   const registeredNumbers = new Set(allVersions.map(v => v.n).filter((n): n is number => typeof n === 'number' && Number.isSafeInteger(n)));
   for (const [index, version] of allVersions.entries()) {
@@ -1747,22 +1748,58 @@ export function rigVersionCommand(args: string[], now: number): { stdout: string
 
 /** The optional plan step consumes approved parts before the ordinary rig step. */
 export function depthPlanMoves(project: JsonObject, collection: JsonObject | null = null): { role: 'agent'; field: string; awaits: string; command: null; act: string }[] {
-  const { answer, mode } = depthAnswer(project, collection);
+  const { answer, mode, body } = depthAnswer(project, collection);
   if (mode !== 'depth') return [];
   const answerAt = typeof answer.at === 'string' ? Date.parse(answer.at) : -Infinity;
   const rig = asArray(project.versions).filter(isObject).find(v => v.kind === 'rig' && typeof v.at === 'string' && Date.parse(v.at) >= answerAt && isObject(v.registration) && isObject(v.registration.depth));
   if (rig) return [];
+  const groupNote = body
+    ? 'keep turn.body in the working config and apply both head and body groups'
+    : 'when the depth recipe also has a body group, pass --groups head and remove turn.body from the working config, because Parts refuses DEPTH_GROUP_LEFT_OUT otherwise';
   const steps = ["Record the chosen depth route and reason in the turn plan step text. Default per-part sequence: rig-parts depth-prepare --parts <accepted assembled parts> --config <depth recipe> --out <inference directory>",
     "Run the supplied depth model on each prepared image; retain raw rig-parts-map/1 maps (face normals, scalar depth for other parts). Immediately after each inference run rig-parts depth-bind --map <numeric-map.json> --input <prepared.png> --part <name>. Reuse a map and its existing receipt only when the prepared inputSha256 is unchanged. If input changes, re-infer and bind a new map filename; never bind an old map to a freshly prepared input or overwrite a receipt.",
-    "rig-parts depth-apply --parts <accepted assembled parts> --manifest <inference/manifest.json> --config <depth recipe> --rig-config <config.json> --out <mapped directory> (when the depth recipe also has a body group, pass --groups head and remove turn.body from the working config, because Parts refuses DEPTH_GROUP_LEFT_OUT otherwise); then rig-parts rig --parts <mapped directory> --config <mapped/config.json> --out <rig directory>. Register with rig-version --parts <mapped directory> --rig <rig directory> --config <mapped/config.json> --depth-manifest <inference/manifest.json> and repeat --depth-map-binding <map.binding.json> for each applied map."];
+    `rig-parts depth-apply --parts <accepted assembled parts> --manifest <inference/manifest.json> --config <depth recipe> --rig-config <config.json> --out <mapped directory> (${groupNote}); then rig-parts rig --parts <mapped directory> --config <mapped/config.json> --out <rig directory>. Register with rig-version --parts <mapped directory> --rig <rig directory> --config <mapped/config.json> --depth-manifest <inference/manifest.json> and repeat --depth-map-binding <map.binding.json> for each applied map.`];
   return steps.map((act, i) => ({ role: 'agent', field: `plan.steps[turn].moves[${i}]`, awaits: 'versions[].registration.depth', command: null, act }));
 }
 
-function depthAnswer(project: JsonObject, collection: JsonObject | null = null): { answer: JsonObject; mode: Json | undefined } {
+function depthAnswer(project: JsonObject, collection: JsonObject | null = null): { answer: JsonObject; mode: Json | undefined; body: boolean } {
   const item = collectItems(project, { collection }).find(item => item.id === 'turn');
   const answer = item?.state.state === 'user' || item?.state.state === 'delegated' ? item.state.answer : {};
   const decision = answer.delegated === true && isObject(answer.agent_decision) ? answer.agent_decision.value : answer.value;
-  return { answer, mode: isObject(decision) ? decision.mode : undefined };
+  return {
+    answer,
+    mode: isObject(decision) ? decision.mode : undefined,
+    body: isObject(decision) && decision.mode === 'depth' && decision.body === true,
+  };
+}
+
+/** Validate `body` on the `turn` guide value, delegated decision, and additions: only `body: true` with `mode: "depth"` is valid. */
+export function checkTurnValue(ctx: Ctx): void {
+  const item = itemFor(ctx, 'turn');
+  if (item === undefined) return;
+  const candidates: { value: Json | undefined; path: string }[] = [];
+  const answer = item.state.state === 'user' || item.state.state === 'delegated'
+    ? item.state.answer
+    : isObject(item.raw) ? item.raw : null;
+  if (answer !== null) {
+    if ('value' in answer) candidates.push({ value: answer.value, path: `${item.path}.value` });
+    if (isObject(answer.agent_decision) && 'value' in answer.agent_decision) {
+      candidates.push({ value: answer.agent_decision.value, path: `${item.path}.agent_decision.value` });
+    }
+    asArray(answer.additions).forEach((add, i) => {
+      if (isObject(add) && 'value' in add) candidates.push({ value: add.value, path: `${item.path}.additions[${i}].value` });
+    });
+  }
+  for (const { value, path } of candidates) {
+    if (!isObject(value) || !('body' in value)) continue;
+    if (value.body === true && value.mode === 'depth') continue;
+    const at = `${path}.body`;
+    ctx.refusals.push({
+      code: 'TURN_BODY_VALUE_INVALID',
+      path: at,
+      message: `${at}: turn value accepts body only as true together with mode "depth" (got body ${JSON.stringify(value.body ?? null)} with mode ${JSON.stringify(value.mode ?? null)}); record { "mode": "depth", "body": true } for head and body, { "mode": "depth" } for head-only, or { "mode": "fixed" } for a fixed view`,
+    });
+  }
 }
 
 /** The optional depth step is drafted before its rigging-interview approval, just like the other rig steps. */
@@ -1786,13 +1823,14 @@ export function depthPlanFindings(project: JsonObject, warnings: Finding[], coll
 }
 
 /**
- * The turn question's one depth option is a head turn. When a recipe prepared with a body group applies only the
- * head group (`depth-apply --groups head`) without `config.turn.body`, the report's `selection.leftOut` records the
- * left-out body parts while `recipeSha256` and `manifestSha256` stay unchanged. When a registered rig still declares
- * `config.turn.body`, Create reads the registered config's declaration and names the dial (#563, #792).
+ * On a head-only depth answer (`{ mode: "depth" }` without `body: true`), when a recipe prepared with a body group
+ * applies only the head group (`depth-apply --groups head`) without `config.turn.body`, the report's `selection.leftOut`
+ * records the left-out body parts while `recipeSha256` and `manifestSha256` stay unchanged. When a registered rig still
+ * declares `config.turn.body`, Create reads the registered config's declaration and names the dial (#563, #792, #1000).
  */
 export function turnExtraGroup(dir: string, project: JsonObject, collection: JsonObject | null = null): { version: number; dial: string; recorded: boolean } | null {
-  if (depthAnswer(project, collection).mode !== 'depth') return null;
+  const { mode, body } = depthAnswer(project, collection);
+  if (mode !== 'depth' || body) return null;
   const rig = asArray(project.versions).filter(isObject).filter(v => v.kind === 'rig' && isObject(v.registration)).at(-1);
   if (rig === undefined || typeof rig.n !== 'number') return null;
   const record = rig.registration as JsonObject;
@@ -1800,10 +1838,10 @@ export function turnExtraGroup(dir: string, project: JsonObject, collection: Jso
   try { config = JSON.parse(bytesAt(dir, record.config_source).toString('utf8')); }
   catch { return null; } // Registration checks own unreadable config evidence.
   const turn = isObject(config) && isObject(config.turn) ? config.turn : {};
-  const body = isObject(turn.body) ? turn.body : {};
-  const bodyRoles = isObject(body.roles) ? Object.keys(body.roles) : [];
+  const turnBody = isObject(turn.body) ? turn.body : {};
+  const bodyRoles = isObject(turnBody.roles) ? Object.keys(turnBody.roles) : [];
   if (bodyRoles.length === 0) return null;
-  const dial = typeof body.slider === 'string' && body.slider !== '' ? body.slider : BODY_YAW_DIAL_BONE;
+  const dial = typeof turnBody.slider === 'string' && turnBody.slider !== '' ? turnBody.slider : BODY_YAW_DIAL_BONE;
   const plan = isObject(project.plan) ? project.plan : {};
   const step = asArray(plan.steps).filter(isObject).find(s => s.id === 'turn');
   const noteRecorded = asArray(step?.status_history).some(e => isObject(e) && typeof e.note === 'string' && e.note.includes(dial));
@@ -1830,14 +1868,42 @@ export function turnExtraGroupMoves(dir: string, project: JsonObject, collection
   if (extra === null || extra.recorded || step === undefined || step.status === 'done') return [];
   const field = 'plan.steps[turn].status_history[].note';
   return [{ role: 'agent', field, awaits: field, command: null,
-    act: `RIG_TURN_EXTRA_GROUP: the head-turn answer leaves dial ${extra.dial} of rig v${extra.version} unused; either remove turn.body from the working config and re-run rig-parts depth-apply --parts <accepted assembled parts> --manifest <inference/manifest.json> --config <depth recipe> --rig-config <config.json> --out <mapped directory> --groups head (Parts refuses DEPTH_GROUP_LEFT_OUT if turn.body remains) and register a new rig version, or keep the depth recipe and record it with the turn step's next status move: rig-create step-status turn <next status> <project dir> --by agent --note-file <file naming ${extra.dial} as unused>` }];
+    act: `RIG_TURN_EXTRA_GROUP: the head-only answer leaves dial ${extra.dial} of rig v${extra.version} unused; either remove turn.body from the working config and re-run rig-parts depth-apply --parts <accepted assembled parts> --manifest <inference/manifest.json> --config <depth recipe> --rig-config <config.json> --out <mapped directory> --groups head (Parts refuses DEPTH_GROUP_LEFT_OUT if turn.body remains) and register a new rig version, or keep the depth recipe and record it with the turn step's next status move: rig-create step-status turn <next status> <project dir> --by agent --note-file <file naming ${extra.dial} as unused>` }];
 }
 
 function turnExtraGroupFindings(dir: string, project: JsonObject, warnings: Finding[], collection: JsonObject | null): void {
   const extra = turnExtraGroup(dir, project, collection);
   if (extra === null || extra.recorded) return;
   const path = 'plan.steps[turn]';
-  warnings.push({ code: 'RIG_TURN_EXTRA_GROUP', path, message: `${path}: the turn answer asks for a head turn, but rig v${extra.version}'s registered config.turn.body also turns a body group on dial ${extra.dial}; remove turn.body from the working config and re-run rig-parts depth-apply ... --groups head (Parts refuses DEPTH_GROUP_LEFT_OUT otherwise) so depth-report.json records selection.leftOut for the body group, or keep the depth recipe and name ${extra.dial} as unused in a turn step note: rig-create step-status turn <next status> --by <operator> --note-file <file naming ${extra.dial}>` });
+  warnings.push({ code: 'RIG_TURN_EXTRA_GROUP', path, message: `${path}: the head-only answer omits body: true, but rig v${extra.version}'s registered config.turn.body also turns a body group on dial ${extra.dial}; remove turn.body from the working config and re-run rig-parts depth-apply ... --groups head (Parts refuses DEPTH_GROUP_LEFT_OUT otherwise) so depth-report.json records selection.leftOut for the body group, or keep the depth recipe and name ${extra.dial} as unused in a turn step note: rig-create step-status turn <next status> --by <operator> --note-file <file naming ${extra.dial}>` });
+}
+
+/** Reverse of `turnExtraGroup`: the answer asks for head and body, while the registered rig declares no `turn.body` roles (#1000). */
+export function turnMissingBodyGroup(dir: string, project: JsonObject, collection: JsonObject | null = null): { version: number } | null {
+  const { mode, body } = depthAnswer(project, collection);
+  if (mode !== 'depth' || !body) return null;
+  const rig = asArray(project.versions).filter(isObject).filter(v => v.kind === 'rig' && isObject(v.registration)).at(-1);
+  if (rig === undefined || typeof rig.n !== 'number') return null;
+  const record = rig.registration as JsonObject;
+  let config: Json;
+  try { config = JSON.parse(bytesAt(dir, record.config_source).toString('utf8')); }
+  catch { return null; } // Registration checks own unreadable config evidence.
+  const turn = isObject(config) && isObject(config.turn) ? config.turn : {};
+  const turnBody = isObject(turn.body) ? turn.body : {};
+  const bodyRoles = isObject(turnBody.roles) ? Object.keys(turnBody.roles) : [];
+  if (bodyRoles.length > 0) return null;
+  return { version: rig.n };
+}
+
+function turnMissingBodyGroupFindings(dir: string, project: JsonObject, warnings: Finding[], collection: JsonObject | null): void {
+  const missing = turnMissingBodyGroup(dir, project, collection);
+  if (missing === null) return;
+  const path = `versions[v${missing.version}].registration.config_source`;
+  warnings.push({
+    code: 'RIG_TURN_BODY_MISSING',
+    path,
+    message: `${path}: the turn answer asks for head and body (body: true), but rig v${missing.version}'s registered config.turn.body declares no body roles; add turn.body to the working config, re-run rig-parts depth-apply with the body group and rig-parts rig, and register a new rig version, or record a head-only turn answer`,
+  });
 }
 
 /** Depth-apply may enrich only depth declarations; accepted art/geometry/measurements stay identical. */

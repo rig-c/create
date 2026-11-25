@@ -757,7 +757,7 @@
             "spec": "rig-create/interview-choice@1",
             "set": {
               "path": "evidence/interview/turn.json",
-              "sha256": "fe302dc1bd58e46fcc4d5f9da6ffb48280555e4fdb299e24719728b35f3ffee1"
+              "sha256": "74d9a151752f8bf5d7986bbc6d20b025cc92d524260174ede445dcb8c8288343"
             },
             "picks": [
               {

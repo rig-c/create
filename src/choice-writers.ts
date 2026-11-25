@@ -102,9 +102,11 @@ export function save(file: string, dir: string, original: JsonObject, candidate:
     }
   }
   // A guide correction can also require its already-run steps to be re-signed.
-  // Record an answer before asking for revisions to steps that depend on it.
+  // Record an answer before asking for additions or revisions to steps that depend on it.
+  const recordsTurn = asRead.effective_stage === 'rigging-interview' && recordedAnswers.some(({ id }) => id === 'turn');
   const first = findings.find(finding => !unsignedAnswers.some(id => staleBinding(finding, id))
-    && !(finding.code === 'PLAN_STEP_PREDATES_ANSWER' && stepsToRevise.has(finding.path)));
+    && !(finding.code === 'PLAN_STEP_PREDATES_ANSWER' && stepsToRevise.has(finding.path))
+    && !(finding.code === 'RIG_DEPTH_PLAN_MISSING' && finding.path === 'plan.steps[turn]' && recordsTurn));
   if (first) refuse(first.code,first.message);
   if (originalBytes && !readFileSync(file).equals(originalBytes)) refuse('REVIEW_ACT_SOURCE_STALE', 'project.json: record changed during interview validation; retry against the current job');
   const tmp = join(dirname(file), `.interview-${process.pid}-${crypto.randomUUID()}.tmp`);
@@ -467,6 +469,6 @@ export function interviewDecisionCommand(args: string[], now: number): string { 
     const pending = isObject(item.raw.agent_decision) && equal(Object.keys(item.raw.agent_decision),['covers']);
     const baseline = pending ? refusalBaseline(item.raw) : [];
     item.raw.agent_decision = {by:opts.one['--by'],at:new Date(now).toISOString(),reasoning:readText(opts.one['--reasoning-file']),covers:result.autos.join(','),fragments,value:assembleFragments(String((set.assembly as JsonObject).rule),fragments.map(f=>f.fragment))};
-    validateChoice(dir,next,item,item.raw); save(file,dir,project,next,now,baseline); return JSON.stringify(item.raw.agent_decision);
+    validateChoice(dir,next,item,item.raw); save(file,dir,project,next,now,baseline,[{id:item.id,correction:false}]); return JSON.stringify(item.raw.agent_decision);
   } finally { release(); }
 }); }

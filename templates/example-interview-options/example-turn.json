@@ -86,6 +86,17 @@
           "recommended": false
         },
         {
+          "id": "turn-body",
+          "kind": "value",
+          "label": "Head and body turn",
+          "effect": "The head and body turn with depth.",
+          "fragment": {
+            "mode": "depth",
+            "body": true
+          },
+          "recommended": false
+        },
+        {
           "id": "other",
           "kind": "other",
           "label": "Other",

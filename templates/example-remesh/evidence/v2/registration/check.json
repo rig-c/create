@@ -839,7 +839,7 @@
  },
  "requirements": {
   "file": {
-   "path": "rig-check-requirements.json",
+   "path": "../rig-check-requirements.json",
    "sha256": "9cbae4e4804fc055aa598852dd7cb2957483b566b764a96a095bb066758f819f",
    "keys": [
     "spec",

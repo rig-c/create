@@ -6,7 +6,7 @@ The generator builds the same synthetic 128×128 figure, records a real Review a
 - `character.offset`: `[-16, 0]` (instead of `[0, 0]`);
 - `characters[0].canvas_clip`: `true`.
 
-The pinned Parts 2.56.0 `compose` reports shift `[0, 0]` and placement `{ canvas_clip: true, bounds: [-16, 0, 112, 128], clipped_bounds: [0, 0, 96, 128] }`. Without `canvas_clip: true`, the same scene is refused by Parts with `SCENE_CHARACTER_INSIDE_CANVAS`. Create records `compose.clipped_bounds` `[0, 0, 96, 128]` on `evidence/direction/v2.json` and publishes post v2 at `direction-review` with one pending direction verdict request.
+The pinned Parts 2.57.0 `compose` reports shift `[0, 0]` and placement `{ canvas_clip: true, bounds: [-16, 0, 112, 128], clipped_bounds: [0, 0, 96, 128] }`. Without `canvas_clip: true`, the same scene is refused by Parts with `SCENE_CHARACTER_INSIDE_CANVAS`. Create records `compose.clipped_bounds` `[0, 0, 96, 128]` on `evidence/direction/v2.json` and publishes post v2 at `direction-review` with one pending direction verdict request.
 
 ## Check the authored inputs
 

@@ -10,7 +10,7 @@ import { isDeepStrictEqual } from 'node:util';
 import { existsSync, lstatSync, readFileSync, realpathSync } from './check-reads.ts';
 import { checkProject, isObject, PROJECT_SCHEMA } from './check.ts';
 import { literalFile } from './choices.ts';
-import { builtFromNameAllowed, currentShapeFindings, outputRoot, outputSetHash, RUN_RECORD_NAME, sha256, treeFiles } from './current.ts';
+import { builtFromNameAllowed, currentShapeFindings, isRunRecordFile, outputRoot, outputSetHash, RUN_RECORD_NAME, sha256, treeFiles, type RebuildRunSpec } from './current.ts';
 import { readProject } from './feedback.ts';
 import { acquireBoundJobWrite } from './job-writer.ts';
 import type { CommandResult } from './interview.ts';
@@ -19,7 +19,7 @@ import { writeRecord } from './record-input.ts';
 import { Refusal, refuse, USAGE_EXIT } from './refusal.ts';
 import { baselineOf, newFindings } from './refusal-baseline.ts';
 import { checkRigReport, parseRigCheckReport, RIG_CHECK_REPORT_FILE } from './rig-check-report.ts';
-import { RunRecordError, validateRunRecord } from './run-record.ts';
+import { RunRecordError, validateRunRecord, type RunSpec } from './run-record.ts';
 import type { JsonObject } from './templates.ts';
 
 export const RECORD_HELP = `record:
@@ -31,15 +31,20 @@ export const RECORD_HELP = `record:
   rig-create record rig [<dir>] --from <producer out> --config <rig config> [--by <who>] [--json]
                  record the producer's rig output as current.rig and rename it into outputs/rig/ (the old tree is deleted
                  after). <producer out> is a folder inside the project, normally outputs/rig.next, holding the parts rig
-                 output with run.json (rig-run/1), check/check.json (rig-parts-check/1) and check/build/ with its run.json
-                 (rigc-run/1). --config must be the config the run names by sha256. --by defaults to agent.`;
+                 output with run.json (rig-run/1) or build-run.json (rig-run/2), check/check.json (rig-parts-check/1),
+                 check/build/ with its run.json (rigc-run/1), and optional check/check-run.json (rig-run/2) and render-run.json
+                 (rigc-run/2). --config must be the config the run names by sha256. --by defaults to agent.`;
 
 type RecordableKind = 'parts' | 'rig';
 
 const CHECK_DIR = 'check';
+const CHECK_RUN_FILE = `${CHECK_DIR}/check-run.json`;
+const BUILD_RUN_FILE = 'build-run.json';
+const RENDER_RUN_FILE = 'render-run.json';
 const BUILD_DIR = `${CHECK_DIR}/build`;
 const MODEL_FILE = `${BUILD_DIR}/skeleton.model.json`;
 const REBUILD_NOTE = 'The rig check and idle render arguments are not recorded: no producer report records its arguments yet.';
+const UNRECORDED_RENDER_NOTE = 'An output outside the rig and check directories has no render-run.json recording its arguments.';
 
 const usage = (why: string, kind: RecordableKind = 'rig'): never => refuse(
   'RECORD_USAGE',
@@ -60,37 +65,69 @@ function runAt(
   dir: string,
   from: string,
   rel: string,
-  spec: 'rig-run/1' | 'rigc-run/1',
+  spec: RunSpec,
+  command: string,
   files: Map<string, string>,
   kind: RecordableKind,
-): JsonObject {
+): { record: JsonObject; outputs: Set<string> } {
   const path = `${from}/${rel}`;
   let bytes: Buffer;
   try { bytes = readFileSync(literalFile(dir, path)); }
   catch { return refuse('RECORD_RUN_INVALID', `${path}: the producer run record is missing; re-run the producer into ${from} so it writes ${rel}`); }
-  const expectedCommand = spec === 'rigc-run/1' ? 'build' : kind === 'parts' ? 'assemble' : 'rig';
   let record: JsonObject;
   try {
-    const validated = validateRunRecord(bytes, path, { allowAssembleInputs: expectedCommand === 'assemble' });
+    const validated = validateRunRecord(bytes, path, { allowAssembleInputs: command === 'assemble' });
     if (validated.spec !== spec) throw new RunRecordError('RUN_RECORD_SPEC_UNKNOWN', `${path}.spec`, `expected ${spec}`);
     record = validated.record;
   } catch (error) {
     const why = error instanceof RunRecordError ? `${error.code} ${error.path}: ${error.why}` : String(error);
     return refuse('RECORD_RUN_INVALID', `${path}: ${why}; re-run the producer into ${from} and record again`);
   }
-  if (record.command !== expectedCommand) refuse('RECORD_RUN_INVALID', `${path}.command: expected ${expectedCommand}, got ${JSON.stringify(record.command)}`);
-  if (expectedCommand === 'assemble' && !Array.isArray(record.inputs)) {
+  if (record.command !== command) refuse('RECORD_RUN_INVALID', `${path}.command: expected ${command}, got ${JSON.stringify(record.command)}`);
+  if (command === 'assemble' && !Array.isArray(record.inputs)) {
     refuse('RECORD_RUN_INVALID', `${path}.inputs: expected source, full and optional head inputs; re-run rig-parts assemble into ${from} and record again`);
   }
   const base = posix.dirname(rel);
-  const root = outputRoot(kind);
+  const outputs = new Set<string>();
   for (const out of record.outputs as JsonObject[]) {
     const inside = posix.normalize(posix.join(base, String(out.path)));
-    if (files.get(`${root}/${inside}`) !== out.sha256) {
+    const target = `${outputRoot(kind)}/${inside}`;
+    if (files.get(target) !== out.sha256) {
       refuse('RECORD_RUN_INVALID', `${path}: output ${String(out.path)} is missing from ${from} or differs from the run's sha256; re-run the producer into ${from} and record again`);
     }
+    outputs.add(target);
   }
-  return record;
+  return { record, outputs };
+}
+
+function bindRunInputs(
+  dir: string,
+  from: string,
+  root: string,
+  rel: string,
+  inputs: JsonObject[],
+  byPath: Map<string, string>,
+  builtFrom: { path: string; sha256: string }[],
+  staleRemedy: string,
+): void {
+  const base = posix.dirname(rel);
+  for (const input of inputs) {
+    const resolved = posix.normalize(posix.join(from, base, String(input.path)));
+    const where = `${from}/${rel} input ${String(input.role)} ${String(input.path)}`;
+    if (resolved === from || resolved.startsWith(`${from}/`)) {
+      // Inputs inside the producer folder must match the files on disk, or the folder mixes an earlier and later run.
+      if (byPath.get(`${root}${resolved.slice(from.length)}`) !== input.sha256) {
+        refuse('RECORD_INPUT_CHANGED', `${where}: ${resolved} is missing or now differs from the sha256 the run read, so the folder mixes runs; ${staleRemedy}`);
+      }
+      continue;
+    }
+    if (resolved.startsWith('..') || posix.isAbsolute(resolved)) refuse('RECORD_INPUT_CHANGED', `${where}: resolves outside the project; build from inputs inside the project`);
+    if (!builtFromNameAllowed(resolved)) refuse('RECORD_BUILT_FROM_INVALID', `${where}: a run record is provenance and never a built_from input; name the product file the build read`);
+    let bytes: Buffer | undefined;
+    try { bytes = readFileSync(literalFile(dir, resolved)); } catch { bytes = undefined; }
+    if (bytes === undefined || sha256(bytes) !== input.sha256) refuse('RECORD_INPUT_CHANGED', `${where}: ${resolved} is missing or now differs from the sha256 the run read; rebuild from the current input and record again`);
+    if (!builtFrom.some(entry => entry.path === resolved)) builtFrom.push({ path: resolved, sha256: String(input.sha256) });
+  }
 }
 
 function recordPartsInputs(
@@ -188,23 +225,63 @@ export function recordCommand(args: string[], now: number): CommandResult {
     catch (error) { return refuse('RECORD_FROM_INVALID', `record ${kind} --from ${from}: ${error instanceof Error ? error.message : String(error)}; keep only regular files in the producer output`); }
     const byPath = new Map(files.map(f => [f.path, f.sha256]));
 
-    const run = runAt(dir, from, RUN_RECORD_NAME, 'rig-run/1', byPath, kind);
-    const build = kind === 'rig' ? runAt(dir, from, `${BUILD_DIR}/${RUN_RECORD_NAME}`, 'rigc-run/1', byPath, 'rig') : undefined;
+    let hasBuildRun = false;
+    let primaryRunRel = RUN_RECORD_NAME;
+    let primaryRun: { record: JsonObject; outputs: Set<string> };
+    let build: JsonObject | undefined;
+    let checkRun: JsonObject | undefined;
+    if (kind === 'parts') {
+      primaryRun = runAt(dir, from, RUN_RECORD_NAME, 'rig-run/1', 'assemble', byPath, kind);
+    } else {
+      const hasRigRun = byPath.has(`${root}/${RUN_RECORD_NAME}`);
+      hasBuildRun = byPath.has(`${root}/${BUILD_RUN_FILE}`);
+      if (hasRigRun && hasBuildRun) {
+        refuse('RECORD_RUN_INVALID', `${from}: holds both ${RUN_RECORD_NAME} and ${BUILD_RUN_FILE}; build into a clean folder and record again`);
+      }
+      primaryRunRel = hasBuildRun ? BUILD_RUN_FILE : RUN_RECORD_NAME;
+      primaryRun = hasBuildRun
+        ? runAt(dir, from, BUILD_RUN_FILE, 'rig-run/2', 'build', byPath, kind)
+        : runAt(dir, from, RUN_RECORD_NAME, 'rig-run/1', 'rig', byPath, kind);
+      build = runAt(dir, from, `${BUILD_DIR}/${RUN_RECORD_NAME}`, 'rigc-run/1', 'build', byPath, kind).record;
+
+      if (byPath.has(`${root}/${CHECK_RUN_FILE}`)) {
+        if (hasBuildRun) {
+          refuse('RECORD_RUN_INVALID', `${from}: holds both ${BUILD_RUN_FILE} and ${CHECK_RUN_FILE}; run either rig-parts build or rig-parts rig + check into a clean folder and record again`);
+        }
+        checkRun = runAt(dir, from, CHECK_RUN_FILE, 'rig-run/2', 'check', byPath, kind).record;
+      }
+    }
+    const run = primaryRun.record;
 
     let configBytes: Buffer;
     try { configBytes = readFileSync(literalFile(dir, config)); }
     catch { return refuse('RECORD_CONFIG_MISMATCH', `record ${kind} --config ${config}: expected a regular file inside the project`); }
     const configRun = run.config as JsonObject;
     if (sha256(configBytes) !== configRun.sha256) {
-      refuse('RECORD_CONFIG_MISMATCH', `record ${kind} --config ${config}: its sha256 ${sha256(configBytes)} differs from the config ${String(configRun.sha256)} that ${from}/${RUN_RECORD_NAME} names; pass the config the ${kind === 'parts' ? 'parts were assembled' : 'rig was built'} from`);
+      refuse('RECORD_CONFIG_MISMATCH', `record ${kind} --config ${config}: its sha256 ${sha256(configBytes)} differs from the config ${String(configRun.sha256)} that ${from}/${primaryRunRel} names; pass the config the ${kind === 'parts' ? 'parts were assembled' : 'rig was built'} from`);
     }
     if (!builtFromNameAllowed(config)) {
       refuse('RECORD_BUILT_FROM_INVALID', `record ${kind} --config ${config}: a run record is provenance and never a built_from input; name the config file`);
     }
     const builtFrom: { path: string; sha256: string }[] = [{ path: config, sha256: sha256(configBytes) }];
+    const renderRuns: { rel: string; record: JsonObject; outputs: Set<string> }[] = [];
+    if (build) {
+      bindRunInputs(dir, from, root, `${BUILD_DIR}/${RUN_RECORD_NAME}`, build.inputs as JsonObject[], byPath, builtFrom,
+        `rebuild with rigc and run rig-parts check into ${from}, then record again`);
+      for (const entry of files) {
+        const rel = entry.path.slice(`${root}/`.length);
+        if (rel === primaryRunRel || rel === `${CHECK_DIR}` || rel.startsWith(`${CHECK_DIR}/`) || !isRunRecordFile(rel)) continue;
+        if (posix.basename(rel) !== RENDER_RUN_FILE) {
+          refuse('RECORD_RUN_INVALID', `${from}/${rel}: unexpected run record outside ${CHECK_DIR}/; expected ${RENDER_RUN_FILE} (rigc-run/2)`);
+        }
+        const validatedRender = runAt(dir, from, rel, 'rigc-run/2', 'render', byPath, kind);
+        bindRunInputs(dir, from, root, rel, validatedRender.record.inputs as JsonObject[], byPath, builtFrom,
+          `re-render into ${from}/${posix.dirname(rel)} from the current build and record again`);
+        renderRuns.push({ rel, record: validatedRender.record, outputs: validatedRender.outputs });
+      }
+    }
 
     const at = new Date(now).toISOString();
-    let pkgs: JsonObject[];
     let reportRel: string;
 
     if (kind === 'parts') {
@@ -220,27 +297,7 @@ export function recordCommand(args: string[], now: number): CommandResult {
       }
       const outcome = partsCheckFindings(dir, checked.record, reportPath, true, () => reportBytes)[0];
       if (outcome) refuse(outcome.code, `${outcome.message}; record parts records a green check only`);
-      pkgs = [run.package as JsonObject];
     } else {
-      for (const input of build!.inputs as JsonObject[]) {
-        const resolved = posix.normalize(posix.join(from, BUILD_DIR, String(input.path)));
-        const where = `${from}/${BUILD_DIR}/${RUN_RECORD_NAME} input ${String(input.role)} ${String(input.path)}`;
-        if (resolved === from || resolved.startsWith(`${from}/`)) {
-          // The build's own rig and motion are this output's files: the bytes there now must be the bytes the build read,
-          // or the folder mixes a later producer run with an earlier build.
-          if (byPath.get(`${root}${resolved.slice(from.length)}`) !== input.sha256) {
-            refuse('RECORD_INPUT_CHANGED', `${where}: ${resolved} is missing or now differs from the sha256 the build read, so the build is older than the rig beside it; rebuild with rigc and run rig-parts check into ${from}, then record again`);
-          }
-          continue;
-        }
-        if (resolved.startsWith('..') || posix.isAbsolute(resolved)) refuse('RECORD_INPUT_CHANGED', `${where}: resolves outside the project; build from inputs inside the project`);
-        if (!builtFromNameAllowed(resolved)) refuse('RECORD_BUILT_FROM_INVALID', `${where}: a run record is provenance and never a built_from input; name the product file the build read`);
-        let bytes: Buffer | undefined;
-        try { bytes = readFileSync(literalFile(dir, resolved)); } catch { bytes = undefined; }
-        if (bytes === undefined || sha256(bytes) !== input.sha256) refuse('RECORD_INPUT_CHANGED', `${where}: ${resolved} is missing or now differs from the sha256 the build read; rebuild from the current input and record again`);
-        if (!builtFrom.some(entry => entry.path === resolved)) builtFrom.push({ path: resolved, sha256: String(input.sha256) });
-      }
-
       reportRel = `${CHECK_DIR}/${RIG_CHECK_REPORT_FILE}`;
       const reportPath = `${from}/${reportRel}`;
       let report: JsonObject;
@@ -257,19 +314,64 @@ export function recordCommand(args: string[], now: number): CommandResult {
       const outcome = checkRigReport({ at, check_report: { path: reportPath, spec: report.spec ?? null } }, `${reportPath}`, reportPath, model,
         () => reportBytes, [])[0];
       if (outcome) refuse(outcome.code, `${outcome.message}; record rig records a green check only`);
-      pkgs = [run.package, build!.package] as JsonObject[];
     }
+
+    const allRuns = [run, ...(build ? [build] : []), ...(checkRun ? [checkRun] : []), ...renderRuns.map(r => r.record)];
+    const builtWith = new Map<string, string>();
+    for (const r of allRuns) {
+      const pkg = r.package as JsonObject;
+      const name = String(pkg.name);
+      const version = String(pkg.version);
+      const prior = builtWith.get(name);
+      if (prior !== undefined && prior !== version) {
+        refuse('RECORD_RUN_INVALID', `${from}: run records disagree on ${name} version (${prior} vs ${version}); rebuild with one installed toolchain and record again`);
+      }
+      builtWith.set(name, version);
+    }
+
+    const partsArgvEntry = hasBuildRun
+      ? { rel: BUILD_RUN_FILE, spec: 'rig-run/2' as RebuildRunSpec, argv: run.argv as string[] }
+      : checkRun
+        ? { rel: CHECK_RUN_FILE, spec: 'rig-run/2' as RebuildRunSpec, argv: checkRun.argv as string[] }
+        : undefined;
+    const coveredOutsideCheck = new Set<string>([...primaryRun.outputs]);
+    for (const r of renderRuns) for (const outPath of r.outputs) coveredOutsideCheck.add(outPath);
+    const hasUnrecordedExtraFiles = files.some(f => {
+      if (isRunRecordFile(f.path)) return false;
+      const rel = f.path.slice(`${root}/`.length);
+      if (rel.startsWith(`${CHECK_DIR}/`)) return false;
+      return !coveredOutsideCheck.has(f.path);
+    });
+    const rebuild: JsonObject | undefined = kind === 'parts' ? undefined : partsArgvEntry && !hasUnrecordedExtraFiles
+      ? {
+          recorded: true,
+          runs: [
+            partsArgvEntry,
+            ...renderRuns.map(r => ({ rel: r.rel, spec: 'rigc-run/2' as RebuildRunSpec, argv: r.record.argv as string[] })),
+          ]
+            .map(entry => ({
+              path: `${root}/${entry.rel}`,
+              sha256: byPath.get(`${root}/${entry.rel}`)!,
+              spec: entry.spec,
+              argv: entry.argv,
+            }))
+            .sort((a, b) => a.path < b.path ? -1 : a.path > b.path ? 1 : 0),
+        }
+      : {
+          recorded: false,
+          note: partsArgvEntry ? UNRECORDED_RENDER_NOTE : REBUILD_NOTE,
+        };
 
     const node: JsonObject = {
       at,
       built_by: options['--by'] ?? 'agent',
-      built_with: Object.fromEntries(pkgs.map(pkg => [String(pkg.name), String(pkg.version)])),
+      built_with: Object.fromEntries(builtWith),
       files,
       files_sha256: outputSetHash(files),
       built_from: builtFrom.sort((a, b) => a.path < b.path ? -1 : a.path > b.path ? 1 : 0),
-      run: { path: `${root}/${RUN_RECORD_NAME}`, sha256: byPath.get(`${root}/${RUN_RECORD_NAME}`)! },
+      run: { path: `${root}/${primaryRunRel}`, sha256: byPath.get(`${root}/${primaryRunRel}`)! },
       report: { path: `${root}/${reportRel}`, sha256: byPath.get(`${root}/${reportRel}`)! },
-      ...(kind === 'rig' ? { rebuild: { recorded: false, note: REBUILD_NOTE } } : {}),
+      ...(rebuild ? { rebuild } : {}),
     };
     const shape = currentShapeFindings(kind, node)[0];
     if (shape) refuse(shape.code, shape.message);

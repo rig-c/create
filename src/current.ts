@@ -8,11 +8,14 @@ import { join, posix } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import { existsSync, lstatSync, readdirSync, readFileSync } from './check-reads.ts';
 import { asArray, isObject, type Finding } from './check.ts';
+import { runArgvProblem } from './run-record.ts';
 import type { Json, JsonObject } from './templates.ts';
 
 export const CURRENT_KINDS = ['parts', 'rig', 'motion', 'direction'] as const;
 export type CurrentKind = (typeof CURRENT_KINDS)[number];
 export const RUN_RECORD_NAME = 'run.json';
+export const REBUILD_RUN_SPECS = ['rig-run/2', 'rigc-run/2'] as const;
+export type RebuildRunSpec = (typeof REBUILD_RUN_SPECS)[number];
 /**
  * The producers' own rule for run records: a file named `run.json` (`rig-run/1`, `rigc-run/1`) or ending in `-run.json`
  * (core's `render-run.json`, Parts' `rig-run/2` `check-run.json` and `build-run.json`).
@@ -116,9 +119,41 @@ export function currentShapeFindings(kind: CurrentKind, node: Json | undefined):
     else if (upstreamKind(String((entry as JsonObject).path)) === kind) findings.push(malformed(at, 'names a file of this output itself'));
   }
   const rebuild = node.rebuild;
-  if (kind === 'rig' && (!isObject(rebuild) || !isDeepStrictEqual(Object.keys(rebuild), ['recorded', 'note'])
-    || rebuild.recorded !== false || typeof rebuild.note !== 'string' || !rebuild.note.trim())) {
-    findings.push(malformed(`${path}.rebuild`, 'expected { recorded: false, note } until the producers record the check and idle arguments'));
+  if (kind === 'rig') {
+    if (!isObject(rebuild) || typeof rebuild.recorded !== 'boolean') {
+      findings.push(malformed(`${path}.rebuild`, 'expected { recorded: false, note } or { recorded: true, runs }'));
+    } else if (rebuild.recorded === false) {
+      if (!isDeepStrictEqual(Object.keys(rebuild), ['recorded', 'note']) || typeof rebuild.note !== 'string' || !rebuild.note.trim()) {
+        findings.push(malformed(`${path}.rebuild`, 'expected { recorded: false, note } with a nonempty note'));
+      }
+    } else if (!isDeepStrictEqual(Object.keys(rebuild), ['recorded', 'runs']) || !Array.isArray(rebuild.runs) || rebuild.runs.length === 0) {
+      findings.push(malformed(`${path}.rebuild`, 'expected { recorded: true, runs } with a nonempty list of producer run records'));
+    } else {
+      let previousRun = '';
+      let rigRuns = 0;
+      for (const [index, entry] of rebuild.runs.entries()) {
+        const at = `${path}.rebuild.runs[${index}]`;
+        if (!isObject(entry) || !isDeepStrictEqual(Object.keys(entry), ['path', 'sha256', 'spec', 'argv']) || bindingProblem(entry)) {
+          findings.push(malformed(at, 'expected { path, sha256, spec, argv }'));
+          continue;
+        }
+        const entryPath = String(entry.path);
+        if (!isRunRecordFile(entryPath)) findings.push(malformed(`${at}.path`, 'expected a producer run record path (run.json or *-run.json)'));
+        if (!pairs.some(pair => pair.path === entryPath && pair.sha256 === entry.sha256)) {
+          findings.push(malformed(at, 'names no entry of files[] with the same sha256'));
+        }
+        if (!(previousRun < entryPath)) findings.push(malformed(`${at}.path`, 'runs must sort by path with no duplicate'));
+        previousRun = entryPath;
+        if (entry.spec !== 'rig-run/2' && entry.spec !== 'rigc-run/2') {
+          findings.push(malformed(`${at}.spec`, 'expected rig-run/2 or rigc-run/2'));
+          continue;
+        }
+        if (entry.spec === 'rig-run/2') rigRuns++;
+        const argvProblem = runArgvProblem(entry.argv, entry.spec);
+        if (argvProblem) findings.push(malformed(`${at}.argv`, argvProblem));
+      }
+      if (rigRuns !== 1) findings.push(malformed(`${path}.rebuild.runs`, 'expected exactly one rig-run/2 check or build record'));
+    }
   }
   return findings;
 }
@@ -173,7 +208,7 @@ export function currentFindings(dir: string, project: JsonObject, warnings: Find
   const rig = nodes.get('rig');
   if (rig && isObject(rig.rebuild) && rig.rebuild.recorded === false) {
     warnings.push({ code: 'REBUILD_ARGS_UNRECORDED', path: 'current.rig.rebuild',
-      message: `current.rig.rebuild: the rig check's and the idle render's arguments are not recorded, because no producer report records them yet; a rebuild of outputs/rig needs them from the operator until a later record reads them from the producers' reports` });
+      message: `current.rig.rebuild: ${String(rig.rebuild.note)}; a rebuild of outputs/rig needs the unrecorded arguments from the operator until it is recorded from rig-run/2 and rigc-run/2 reports` });
   }
   for (const kind of CURRENT_KINDS) {
     const why = stale.get(kind);

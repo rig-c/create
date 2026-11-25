@@ -19,7 +19,9 @@ and shows you each result. Nothing moves to the next step until you approve it.
 create runs the whole cycle. The cutting, rigging and review page come from
 [rig-c/parts](https://github.com/rig-c/parts),
 [rig-c/core](https://github.com/rig-c/core) and
-[rig-c/review](https://github.com/rig-c/review).
+[rig-c/review](https://github.com/rig-c/review). The
+[getting-started guide](https://github.com/rig-c/getting-started#the-whole-thing-in-one-glance)
+shows what each rig-c package takes and gives.
 
 ## The four steps
 

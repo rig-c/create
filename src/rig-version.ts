@@ -26,7 +26,7 @@ import { prepareRigReviewPackage } from './review-package.ts';
 import { checkRigReport, parseRigCheckReport, RIG_CHECK_REPORT_FILE, SOURCE_EXPOSURE_ID, type RigCheckTarget } from './rig-check-report.ts';
 import { lockedPackage, type ToolchainKind } from './toolchain-lock.ts';
 import { rigVersionDateFinding } from './rig-version-date.ts';
-import { checkRegisteredRuns, RUN_RECORD_SINCE, RUN_SPECS, RunRecordError, validateRunRecord, type RunSpec } from './run-record.ts';
+import { checkRegisteredRuns, FROZEN_RUN_SPECS, RUN_RECORD_SINCE, RunRecordError, validateRunRecord, type FrozenRunSpec } from './run-record.ts';
 import { approvedStructureDelta, rigPartsApproval, structurePathIsIgnored } from './structure.ts';
 import { stageOfStep } from './stages.ts';
 import { checkVersionDeclarations, formatDeclarations } from './version-declarations.ts';
@@ -496,7 +496,7 @@ function absoluteConfigAdapter(config: JsonObject, ref: AssetRefSpec): Normalize
   return row?.pointer === ref.pointer && pointerValue(config, ref.pointer) === ref.value ? row : undefined;
 }
 
-function registrationReservedTargets(bunLock: boolean, runs: readonly RunSpec[]): Set<string> {
+function registrationReservedTargets(bunLock: boolean, runs: readonly FrozenRunSpec[]): Set<string> {
   const targets = new Set(RESERVED_REGISTRATION_NAMES);
   if (bunLock) targets.add('bun.lock');
   for (const spec of runs) targets.add(`${spec.replace('/', '-')}.json`);
@@ -1231,7 +1231,7 @@ function generatePathAdapter(dir: string, requestedDir: string, configPath: stri
   };
   const evidence = 'registration';
   const { portable, effectiveAdapter, runtimeRequirements } = mapRegistrationAssets(
-    dir, configPath, config, evidence, configPath, registrationReservedTargets(true, RUN_SPECS), {
+    dir, configPath, config, evidence, configPath, registrationReservedTargets(true, FROZEN_RUN_SPECS), {
       checkSourceAncestors, sourceBytes, retain,
       copyTree: (source, target) => walkSourceTree(source, target, (_, path) => directory(path),
         (path, destination) => retain(destination, sourceBytes(path))),
@@ -1517,12 +1517,12 @@ export function rigVersionCommand(args: string[], now: number): { stdout: string
     const { kind: toolchainKind, versions } = lock;
     const registrationAt = new Date(now).toISOString();
     const approvalBasis = { registration: { at: registrationAt } };
-    const validatedRuns: { path: string; spec: RunSpec }[] = [];
-    const seenSpecs = new Set<RunSpec>();
+    const validatedRuns: { path: string; spec: FrozenRunSpec }[] = [];
+    const seenSpecs = new Set<FrozenRunSpec>();
     for (const [i, recordPath] of runRecords.entries()) {
       const entryPath = `versions[v${n}].registration.runs[${i}]`;
       try {
-        const { spec } = validateRunRecord(sourceBytes(recordPath), entryPath);
+        const { spec } = validateRunRecord(sourceBytes(recordPath), entryPath, { specs: FROZEN_RUN_SPECS }) as { spec: FrozenRunSpec };
         if (seenSpecs.has(spec)) throw new RunRecordError('RUN_RECORD_MALFORMED', `${entryPath}.spec`, `duplicate run record for spec ${spec}; supply at most one --run-record per spec`);
         seenSpecs.add(spec);
         validatedRuns.push({ path: recordPath, spec });

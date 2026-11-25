@@ -301,3 +301,174 @@ test.each(['@rig-c/core', 'rig-c'])('core producer run accepts its published pac
   const raw = Buffer.from(JSON.stringify(coreRunRecord({ package: { name, version: '3.6.0' } })));
   expect(validateRunRecord(raw, 'versions[v1].registration.runs[0]').spec).toBe('rigc-run/1');
 });
+
+function partsCheckRunRecord(overrides: Partial<Record<string, unknown>> = {}): JsonObject {
+  return {
+    spec: 'rig-run/2',
+    package: { name: '@rig-c/parts', version: '2.56.0' },
+    command: 'check',
+    started_at: '2026-11-25T00:00:00.000Z',
+    finished_at: '2026-11-25T00:00:01.000Z',
+    outputs: [
+      { path: 'build/skeleton.atlas', sha256: '1'.repeat(64) },
+      { path: 'build/skeleton.json', sha256: '2'.repeat(64) },
+      { path: 'build/skeleton.model.json', sha256: '3'.repeat(64) },
+      { path: 'check.json', sha256: '4'.repeat(64) },
+    ],
+    argv: ['check', '--rig', '..', '--out', '.', '--parts', '../../parts', '--no-extremes'],
+    ...overrides,
+  } as JsonObject;
+}
+
+function partsBuildRunRecord(overrides: Partial<Record<string, unknown>> = {}): JsonObject {
+  return {
+    spec: 'rig-run/2',
+    package: { name: '@rig-c/parts', version: '2.56.0' },
+    command: 'build',
+    started_at: '2026-11-25T00:00:00.000Z',
+    finished_at: '2026-11-25T00:00:02.000Z',
+    config: { path: '../../specs/rig/config.json', sha256: 'a'.repeat(64) },
+    outputs: [
+      { path: 'check/check.json', sha256: 'b'.repeat(64) },
+      { path: 'parts.json', sha256: 'c'.repeat(64) },
+      { path: 'rig/rig.json', sha256: 'd'.repeat(64) },
+    ],
+    argv: [
+      'build',
+      '--config', '../../specs/rig/config.json',
+      '--source', '../../inputs/painting.png',
+      '--full', '../../outputs/parts/sources/full',
+      '--out', '.',
+      '--alt', 'smile=../../inputs/smile.png:../../outputs/parts/sources/smile',
+      '--no-extremes',
+    ],
+    ...overrides,
+  } as JsonObject;
+}
+
+function coreRenderRunRecord(overrides: Partial<Record<string, unknown>> = {}): JsonObject {
+  return {
+    spec: 'rigc-run/2',
+    package: { name: '@rig-c/core', version: '3.8.1' },
+    command: 'render',
+    argv: ['--candidate', '../check/build', '--animation', 'idle', '--fps', '24', '--max', '640', '--geometry', '--out', '.'],
+    started_at: '2026-11-25T00:00:02.000Z',
+    finished_at: '2026-11-25T00:00:03.000Z',
+    inputs: [
+      { role: 'skeleton', path: '../check/build/skeleton.json', sha256: '2'.repeat(64) },
+      { role: 'atlas', path: '../check/build/skeleton.atlas', sha256: '1'.repeat(64) },
+      { role: 'model', path: '../check/build/skeleton.model.json', sha256: '3'.repeat(64) },
+    ],
+    outputs: [
+      { path: 'frames.json', sha256: 'e'.repeat(64) },
+      { path: 'idle/f0000.png', sha256: 'f'.repeat(64) },
+      { path: 'idle/geometry.json', sha256: '9'.repeat(64) },
+    ],
+    ...overrides,
+  } as JsonObject;
+}
+
+describe('producer run records (rig-run/2 and rigc-run/2)', () => {
+  test('accepts rig-run/2 check and build records and rigc-run/2 render records in published key order', () => {
+    expect(validateRunRecord(Buffer.from(JSON.stringify(partsCheckRunRecord())), 'check-run.json').spec).toBe('rig-run/2');
+    expect(validateRunRecord(Buffer.from(JSON.stringify(partsBuildRunRecord())), 'build-run.json').spec).toBe('rig-run/2');
+    const fullRender = coreRenderRunRecord({
+      package: { name: 'rig-c', version: '3.8.1' },
+      inputs: [
+        { role: 'skeleton', path: '../check/build/skeleton.json', sha256: '2'.repeat(64) },
+        { role: 'atlas', path: '../check/build/skeleton.atlas', sha256: '1'.repeat(64) },
+        { role: 'model', path: '../check/build/skeleton.model.json', sha256: '3'.repeat(64) },
+        { role: 'environment', path: '../../specs/rig/wind.json', sha256: '4'.repeat(64) },
+        { role: 'viewport', path: '../prev/frames.json', sha256: '5'.repeat(64) },
+        { role: 'boundary', path: '../bound/frames.json', sha256: '6'.repeat(64) },
+      ],
+    });
+    expect(validateRunRecord(Buffer.from(JSON.stringify(fullRender)), 'render-run.json').spec).toBe('rigc-run/2');
+  });
+
+  test.each([
+    ['check record carrying config', {
+      spec: 'rig-run/2',
+      package: { name: '@rig-c/parts', version: '2.56.0' },
+      command: 'check',
+      started_at: '2026-11-25T00:00:00.000Z',
+      finished_at: '2026-11-25T00:00:01.000Z',
+      config: { path: '../config.json', sha256: 'a'.repeat(64) },
+      outputs: [{ path: 'check.json', sha256: '4'.repeat(64) }],
+      argv: ['check', '--rig', '..', '--out', '.'],
+    }],
+    ['build record omitting config', {
+      spec: 'rig-run/2',
+      package: { name: '@rig-c/parts', version: '2.56.0' },
+      command: 'build',
+      started_at: '2026-11-25T00:00:00.000Z',
+      finished_at: '2026-11-25T00:00:01.000Z',
+      outputs: [{ path: 'check/check.json', sha256: '4'.repeat(64) }],
+      argv: ['build', '--config', '../config.json', '--out', '.'],
+    }],
+    ['invalid rig-run/2 command', partsCheckRunRecord({ command: 'rig', argv: ['rig', '--out', '.'] })],
+    ['rig-run/2 argv[0] mismatch', partsCheckRunRecord({ argv: ['build', '--rig', '..', '--out', '.'] })],
+    ['empty argv', partsCheckRunRecord({ argv: [] })],
+    ['absolute path token in rig-run/2 argv', partsCheckRunRecord({ argv: ['check', '--rig', '/abs/rig', '--out', '.'] })],
+    ['windows absolute path token in rigc-run/2 argv', coreRenderRunRecord({ argv: ['--candidate=C:\\abs\\build', '--out', '.'] })],
+    ['rigc-run/2 argv placed at end instead of after command', {
+      spec: 'rigc-run/2',
+      package: { name: '@rig-c/core', version: '3.8.1' },
+      command: 'render',
+      started_at: '2026-11-25T00:00:02.000Z',
+      finished_at: '2026-11-25T00:00:03.000Z',
+      inputs: [{ role: 'skeleton', path: '../build/skeleton.json', sha256: '2'.repeat(64) }],
+      outputs: [{ path: 'frames.json', sha256: 'e'.repeat(64) }],
+      argv: ['--candidate', '../build', '--out', '.'],
+    }],
+    ['invalid rigc-run/2 command', coreRenderRunRecord({ command: 'build' })],
+    ['run record listed inside /2 outputs', partsCheckRunRecord({
+      outputs: [
+        { path: 'build/run.json', sha256: '1'.repeat(64) },
+        { path: 'check.json', sha256: '4'.repeat(64) },
+      ],
+    })],
+    ['escaping output path in /2 outputs', coreRenderRunRecord({
+      outputs: [{ path: '../frames.json', sha256: 'e'.repeat(64) }],
+    })],
+  ])('refuses malformed /2 run record (%s) with RUN_RECORD_MALFORMED', (_label, bad) => {
+    expect(() => validateRunRecord(Buffer.from(JSON.stringify(bad)), 'run-2.json')).toThrow(/RUN_RECORD_MALFORMED|keys must be|invalid|argv|output/);
+    try {
+      validateRunRecord(Buffer.from(JSON.stringify(bad)), 'run-2.json');
+      throw new Error('expected RunRecordError');
+    } catch (error) {
+      expect((error as { code?: string }).code).toBe('RUN_RECORD_MALFORMED');
+    }
+  });
+
+  test.each([
+    ['missing skeleton role', [{ role: 'atlas', path: '../check/build/skeleton.atlas', sha256: '1'.repeat(64) }]],
+    ['unknown role', [
+      { role: 'skeleton', path: '../check/build/skeleton.json', sha256: '2'.repeat(64) },
+      { role: 'rig', path: '../rig.json', sha256: '5'.repeat(64) },
+    ]],
+    ['misordered roles', [
+      { role: 'atlas', path: '../check/build/skeleton.atlas', sha256: '1'.repeat(64) },
+      { role: 'skeleton', path: '../check/build/skeleton.json', sha256: '2'.repeat(64) },
+    ]],
+    ['duplicate skeleton role', [
+      { role: 'skeleton', path: '../check/build/skeleton.json', sha256: '2'.repeat(64) },
+      { role: 'skeleton', path: '../other/skeleton.json', sha256: '7'.repeat(64) },
+    ]],
+  ])('refuses rigc-run/2 with %s under RUN_RECORD_ROLE_INVALID', (_label, inputs) => {
+    try {
+      validateRunRecord(Buffer.from(JSON.stringify(coreRenderRunRecord({ inputs }))), 'render-run.json');
+      throw new Error('expected RunRecordError');
+    } catch (error) {
+      expect((error as { code?: string }).code).toBe('RUN_RECORD_ROLE_INVALID');
+    }
+  });
+
+  test('frozen-rig/1 registration.runs keeps rejecting valid /2 run records as RUN_RECORD_SPEC_UNKNOWN', () => {
+    const { dir, baseArgs } = setup();
+    put(dir, 'source/check-run.json', partsCheckRunRecord());
+    const before = readFileSync(join(dir, 'project.json'));
+    refused([...baseArgs, '--run-record', 'source/check-run.json'], 'RUN_RECORD_SPEC_UNKNOWN');
+    expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
+  });
+});

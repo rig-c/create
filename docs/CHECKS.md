@@ -1426,10 +1426,10 @@ registrations by `registration.at`: before it they WARN under
 | `RIG_CHECK_LINE_UNMET` | an unaccepted `requirements.lines` entry is `FAIL` or `NOT MEASURABLE`, or the report's top-level `SOURCE_EXPOSURE` line is `FAIL` (a declared `source_exposure.max_px` exceeded or unmeasured, Parts 2.53.0; `REPORTED` and an absent line are met). WARN before `RIG_CHECK_REPORT_SINCE` by `registration.at`, refusal from that date onward | fix the line and rerun `rig-parts check`, or relay the owner's exact words accepting this line with `--accept-check-line <name>` (or `--accept-check-exposure` for `SOURCE_EXPOSURE`) `--check-accepted-by <owner> --owner-chat <file> --said-at <ISO date> --relayed-by <operator>` |
 | `RIG_CHECK_ACCEPTANCE_INVALID` | the registration has acceptance flags without a report or target, or an acceptance is duplicated, selects no failed bar or unmet line, or has a write time different from registration | select each exact failed bar ID or unmet line name once from the explicit report and relay the owner's words at registration |
 | `RUN_RECORD_REQUIRED` | a `frozen-rig/1` version has no `registration.runs` (WARN before `RUN_RECORD_SINCE` by `registration.at`, refusal from `RUN_RECORD_SINCE` onward) | retain producer `run.json` records with `--run-record` and register a new rig version |
-| `RUN_RECORD_SPEC_UNKNOWN` | a run record or `registration.runs[]` entry names a `spec` other than `rig-run/1` or `rigc-run/1`, or a draft's bound run stamp is not `rig-run/1`. Draft registration refuses. The check refuses an assemble-only stamp and retains the existing WARN for a full draft without reuse | supply the unedited producer run record and register a new draft or rig version |
+| `RUN_RECORD_SPEC_UNKNOWN` | a run record names an unsupported `spec` (outside `rig-run/1`, `rig-run/2`, `rigc-run/1`, `rigc-run/2`), `registration.runs[]` names a `spec` other than `rig-run/1` or `rigc-run/1`, or a draft's bound run stamp is not `rig-run/1`. Draft registration refuses. The check refuses an assemble-only stamp and retains the existing WARN for a full draft without reuse | supply the unedited producer run record and register a new draft or rig version |
 | `RUN_RECORD_HASH_MISMATCH` | a bound run record is missing, unreadable, absent from `registration.files`, or its bytes differ from its recorded `sha256` | restore the retained run record bytes or register a new rig version |
-| `RUN_RECORD_ROLE_INVALID` | a `rigc-run/1` record omits a required input role (`rig` or `motion`), names an unknown role, or sorts roles outside `rig`, `motion`, `manifest`, `cuts` | retain the unedited `rigc-run/1` `run.json` with required `rig` and `motion` inputs |
-| `RUN_RECORD_MALFORMED` | a run record has invalid JSON, wrong keys or published key order, invalid package/command/timestamps/paths/hashes, unsorted outputs, or duplicate specs. The assemble-only reader accepts the published optional assemble `inputs` field in its declared key and role order. Draft registration refuses malformed stamps. The check refuses an assemble-only stamp and retains the existing WARN for a full draft without reuse | retain at most one unedited producer `run.json` per spec in its published key order |
+| `RUN_RECORD_ROLE_INVALID` | a `rigc-run/1` record omits a required input role (`rig` or `motion`), names an unknown role, or sorts roles outside `rig`, `motion`, `manifest`, `cuts`; or a `rigc-run/2` record omits `skeleton`, repeats or misorders roles outside `skeleton`, `atlas`, `model`, `environment`, `viewport`, `boundary` | retain the unedited `rigc-run/1` or `rigc-run/2` record with its required inputs |
+| `RUN_RECORD_MALFORMED` | a run record has invalid JSON, wrong keys or published key order, invalid package/command/timestamps/paths/hashes/argv, unsorted outputs, or duplicate specs. The assemble-only reader accepts the published optional assemble `inputs` field in its declared key and role order. Draft registration refuses malformed stamps. The check refuses an assemble-only stamp and retains the existing WARN for a full draft without reuse | retain at most one unedited producer run record per spec in its published key order |
 
 `rig-version <n> [<dir>] --preflight --config <file> [--citations <file>]
 [--at-source <file> --at-pointer </pointer>]` writes nothing. It runs the
@@ -2014,35 +2014,39 @@ check at the parts → parts-review move).
 `rig-create record rig [<dir>] --from <producer out> --config <rig config>`
 writes `current.rig` (docs/CURRENT-DATA.md §1.3) and renames the producer's
 folder, normally `outputs/rig.next/`, into `outputs/rig/`; the old tree is
-deleted after the record is written. It reads `run.json` (`rig-run/1`),
-`check/build/run.json` (`rigc-run/1`) and `check/check.json`
-(`rig-parts-check/1`) from the producer folder and never re-runs them. Every
-refusal comes before the first rename, so `project.json` and `outputs/<kind>/`
-stay byte-identical. `files_sha256` is the output-set hash: it leaves out
-every producer run record, which is any file named `run.json` or any
-`*-run.json` (the producers' own rule), and no `built_from` entry may name a
-run record or `outputs/direction/check/check.json`. A `built_from` entry may name an
-output root (`outputs/<kind>`), which is compared by that hash. A record
-without `current` gets none of these findings. `current.rig.rebuild` is
-`{ recorded: false, note }`: no producer report records the check's or the
-idle render's arguments yet. The writer reads the report's outcomes with the
-frozen-registration reader and takes no owner acceptance: a failed bar, an
-unmet requirement line or a failed source exposure refuses under
-`RIG_CHECK_BAR_FAILED` or `RIG_CHECK_LINE_UNMET` (§ Frozen rig registration).
+deleted after the record is written. It reads `run.json` (`rig-run/1`) or
+`build-run.json` (`rig-run/2`), `check/build/run.json` (`rigc-run/1`),
+`check/check.json` (`rig-parts-check/1`), and, when present,
+`check/check-run.json` (`rig-run/2`) and `render-run.json` (`rigc-run/2`) from
+the producer folder and never re-runs them. Every refusal comes before the
+first rename, so `project.json` and `outputs/<kind>/` stay byte-identical.
+`files_sha256` is the output-set hash: it leaves out every producer run record,
+which is any file named `run.json` or any `*-run.json` (the producers' own
+rule), and no `built_from` entry may name a run record or
+`outputs/direction/check/check.json`. A `built_from` entry may name an output
+root (`outputs/<kind>`), which is compared by that hash. A record without
+`current` gets none of these findings. When `rig-run/2` (and `rigc-run/2` for
+any render outside `check/`) records `argv`, `current.rig.rebuild` is
+`{ recorded: true, runs: [{ path, sha256, spec, argv }, ...] }`; otherwise it
+is `{ recorded: false, note }` and `check` warns `REBUILD_ARGS_UNRECORDED`. The
+writer reads the report's outcomes with the frozen-registration reader and
+takes no owner acceptance: a failed bar, an unmet requirement line or a failed
+source exposure refuses under `RIG_CHECK_BAR_FAILED` or `RIG_CHECK_LINE_UNMET`
+(§ Frozen rig registration).
 
 | Code | Fires when | Remedy |
 | --- | --- | --- |
 | `RECORD_USAGE` | the kind is not `parts` or `rig`, `--from` or `--config` is absent, or an option is unknown or repeated | run `record parts [<dir>] --from <producer out> --config <rig config>` or `record rig [<dir>] --from <producer out> --config <rig config>` |
 | `RECORD_BUSY` | another record writer holds the project lock | let it finish and retry |
 | `RECORD_FROM_INVALID` | `--from` is outside the project, inside `outputs/<kind>/`, not a real folder, or holds a symlink or other non-regular entry | point `--from` at the producer's folder inside the project, normally `outputs/<kind>.next` |
-| `RECORD_CONFIG_MISMATCH` | `--config` is outside the project, inside the output, not a regular file, or its sha256 differs from the config the `rig-run/1` record names | pass the config the parts or rig output was built from, kept under `specs/rig/` |
-| `RECORD_RUN_INVALID` | a run record is missing or malformed, has the wrong spec or command, lacks `inputs` for `assemble`, or one of its outputs is missing from the folder or differs from its sha256 | re-run the producer into the folder and record again |
-| `RECORD_INPUT_CHANGED` | a producer run input (`rig-run/1` `assemble` `inputs[]` or `rigc-run/1` `inputs[]`) is missing, resolves outside the project, or now differs from the sha256 the producer read (including when `rig` was rerun without rebuilding Core, or `assemble` was run outside the project root) | run `rig-parts assemble` from the project root or rebuild with `rigc` and `rig-parts check` into the folder, then record again |
+| `RECORD_CONFIG_MISMATCH` | `--config` is outside the project, inside the output, not a regular file, or its sha256 differs from the config the `rig-run/1` record or the `rig-run/2` build record names | pass the config the parts or rig output was built from, kept under `specs/rig/` |
+| `RECORD_RUN_INVALID` | a run record is missing or malformed, has the wrong spec or command, lacks `inputs` for `assemble`, mixes conflicting run records or producer versions, or one of its outputs is missing from the folder or differs from its sha256 | re-run the producer into the folder and record again |
+| `RECORD_INPUT_CHANGED` | a producer run input (`rig-run/1` `assemble` `inputs[]`, or `rigc-run/1` or `rigc-run/2` `inputs[]`) is missing, resolves outside the project, or now differs from the sha256 the producer read (inside the folder, a mixed tree across runs) (including when `rig` was rerun without rebuilding Core, or `assemble` was run outside the project root) | run `rig-parts assemble` from the project root or rebuild with `rigc` and `rig-parts check` into the folder, then record again |
 | `RECORD_BUILT_FROM_INVALID` | a producer input is a run record (`run.json` or any `*-run.json`), the compose check report, or lies inside `outputs/<kind>/` | keep inputs and configs outside `outputs/<kind>/` and build from product files, not run records |
 | `RECORD_REPORT_INVALID` | `check/parts-check.json` (`parts`) or `check/check.json` (`rig`) is missing, unreadable, has the wrong spec, or (for `rig`) its `build.model_sha256` differs from `check/build/skeleton.model.json` | run `rig-parts check-parts --parts <folder>/rig --out <folder>/check` or `rig-parts check --out <folder>/check` and record again |
 | `RECORD_DESTINATION_INVALID` | `outputs/<kind>` exists and is not a folder | move that file away and record again |
 | `RECORD_SOURCE_CHANGED` | the folder or `project.json` changed while the writer was validating; the renames are undone | let the producer finish and record again |
 | `RECORD_WRITE_FAILED` | a rename or the record write failed for another reason; the renames are undone | fix the project storage and record again |
-| `CURRENT_MALFORMED` | `current` or a `current.<kind>` entry does not have the recorded shape: `at`, `built_by`, `built_with`, sorted `files[]` under `outputs/<kind>/`, `files_sha256`, `built_from[]`, `run` and `report` naming entries of `files[]`, and for `rig` the `rebuild` note; or a `built_from` entry names a run record (`run.json` or any `*-run.json`), the compose check report or the output itself | restore the record `record` wrote, or record the output again |
+| `CURRENT_MALFORMED` | `current` or a `current.<kind>` entry does not have the recorded shape: `at`, `built_by`, `built_with`, sorted `files[]` under `outputs/<kind>/`, `files_sha256`, `built_from[]`, `run` and `report` naming entries of `files[]`, and for `rig` `rebuild` (`{ recorded: false, note }` or `{ recorded: true, runs }`); or a `built_from` entry names a run record (`run.json` or any `*-run.json`), the compose check report or the output itself | restore the record `record` wrote, or record the output again |
 | `OUTPUT_STALE` | WARN: a `built_from` path is missing or now hashes differently, or a `built_from` path lies in an upstream output that is stale | rebuild it upstream-first and record it with `record <kind>` |
-| `REBUILD_ARGS_UNRECORDED` | WARN: `current.rig.rebuild.recorded` is `false`, because no producer report records the check's or the idle render's arguments yet | keep the arguments with the operator until a later `record` reads them from the producers' reports |
+| `REBUILD_ARGS_UNRECORDED` | WARN: `current.rig.rebuild.recorded` is `false`, because a producer run in `outputs/rig` has no `/2` run record carrying its `argv` | rebuild with the `/2` producers and record again so `current.rig.rebuild` binds the recorded `argv` |

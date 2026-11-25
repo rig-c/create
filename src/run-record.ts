@@ -1,7 +1,7 @@
-/** Bind producer run records (rig-run/1 and rigc-run/1) by raw SHA-256 and spec shape without re-running or recomputing producer measurements. */
+/** Bind producer run records (rig-run/1, rig-run/2, rigc-run/1 and rigc-run/2) by raw SHA-256 and spec shape without re-running or recomputing producer measurements. */
 import { createHash } from 'node:crypto';
 import { readFileSync } from './check-reads.ts';
-import { isAbsolute, win32 } from 'node:path';
+import { isAbsolute, posix, win32 } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import { asArray, isObject, type Finding } from './check.ts';
 import { literalFile } from './choices.ts';
@@ -9,14 +9,21 @@ import { structurePathIsIgnored } from './structure.ts';
 import type { Json, JsonObject } from './templates.ts';
 
 export const RUN_RECORD_SINCE = '2026-11-08T00:00:00Z';
-export const RUN_SPECS = ['rig-run/1', 'rigc-run/1'] as const;
+export const FROZEN_RUN_SPECS = ['rig-run/1', 'rigc-run/1'] as const;
+export type FrozenRunSpec = (typeof FROZEN_RUN_SPECS)[number];
+export const RUN_SPECS = ['rig-run/1', 'rig-run/2', 'rigc-run/1', 'rigc-run/2'] as const;
 export type RunSpec = (typeof RUN_SPECS)[number];
 export const RIGC_INPUT_ROLES = ['rig', 'motion', 'manifest', 'cuts'] as const;
 export const RIGC_REQUIRED_ROLES = ['rig', 'motion'] as const;
+export const RIGC_RENDER_INPUT_ROLES = ['skeleton', 'atlas', 'model', 'environment', 'viewport', 'boundary'] as const;
+export const RIGC_RENDER_REQUIRED_ROLES = ['skeleton'] as const;
 
-const TOP_KEYS: Record<RunSpec, readonly string[]> = {
+const RIG_RUN_2_CHECK_KEYS = ['spec', 'package', 'command', 'started_at', 'finished_at', 'outputs', 'argv'] as const;
+const RIG_RUN_2_BUILD_KEYS = ['spec', 'package', 'command', 'started_at', 'finished_at', 'config', 'outputs', 'argv'] as const;
+const TOP_KEYS: Record<Exclude<RunSpec, 'rig-run/2'>, readonly string[]> = {
   'rig-run/1': ['spec', 'package', 'command', 'started_at', 'finished_at', 'config', 'outputs'],
   'rigc-run/1': ['spec', 'package', 'command', 'started_at', 'finished_at', 'inputs', 'outputs'],
+  'rigc-run/2': ['spec', 'package', 'command', 'argv', 'started_at', 'finished_at', 'inputs', 'outputs'],
 };
 const ASSEMBLE_RUN_KEYS = ['spec', 'package', 'command', 'started_at', 'finished_at', 'config', 'inputs', 'outputs'];
 const ASSEMBLE_INPUT_ROLES = ['source', 'full', 'head'];
@@ -27,6 +34,10 @@ const literal = (path: string): boolean => !!path && !absolute(path) && !path.in
 const relativeRunPath = (path: Json | undefined): path is string =>
   typeof path === 'string' && path.length > 0 && !absolute(path) && !path.startsWith('~') && !path.includes('\\') && !path.includes(':')
   && path.split('/').every(segment => segment !== '' && segment !== '.');
+const isRunRecordOutputName = (path: string): boolean => {
+  const name = posix.basename(path);
+  return name === 'run.json' || name.endsWith('-run.json');
+};
 const hex64 = (value: Json | undefined): value is string => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
 const runTimestamp = (value: Json | undefined): value is string =>
   typeof value === 'string' && /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/.test(value)
@@ -42,21 +53,56 @@ function fail(code: string, path: string, why: string): never {
   throw new RunRecordError(code, path, why);
 }
 
-export function isRunSpec(value: Json | undefined): value is RunSpec {
+export function isFrozenRunSpec(value: Json | undefined): value is FrozenRunSpec {
   return value === 'rig-run/1' || value === 'rigc-run/1';
 }
 
-export function validateRunRecord(bytes: Buffer, path: string, options: { allowAssembleInputs?: boolean } = {}): { spec: RunSpec; record: JsonObject } {
+export function isRunSpec(value: Json | undefined): value is RunSpec {
+  return (RUN_SPECS as readonly unknown[]).includes(value);
+}
+
+/** Validate a recorded `/2` `argv` array: nonempty strings, no absolute path token, and `argv[0]` naming the Parts command on `rig-run/2`. */
+export function runArgvProblem(argv: Json | undefined, spec: 'rig-run/2' | 'rigc-run/2', command?: string): string | undefined {
+  if (!Array.isArray(argv) || argv.length === 0) return 'argv must be a nonempty array of strings';
+  for (const token of argv) {
+    if (typeof token !== 'string') return 'argv entries must be strings';
+    if (absolute(token)) return `argv token ${JSON.stringify(token)} must be relative to the output directory, not an absolute path`;
+    if (token.startsWith('--') && token.includes('=')) {
+      const value = token.slice(token.indexOf('=') + 1);
+      if (absolute(value)) return `argv token ${JSON.stringify(token)} must carry a path relative to the output directory, not an absolute path`;
+    }
+  }
+  if (spec === 'rig-run/2') {
+    const first = argv[0];
+    if (command !== undefined ? first !== command : (first !== 'check' && first !== 'build')) {
+      return command !== undefined
+        ? `argv[0] must equal command ${JSON.stringify(command)}`
+        : 'argv[0] must be "check" or "build"';
+    }
+  }
+  return undefined;
+}
+
+export function validateRunRecord(
+  bytes: Buffer,
+  path: string,
+  options: { allowAssembleInputs?: boolean; specs?: readonly RunSpec[] } = {},
+): { spec: RunSpec; record: JsonObject } {
   let parsed: Json;
   try { parsed = JSON.parse(bytes.toString('utf8')) as Json; }
   catch { fail('RUN_RECORD_MALFORMED', path, 'expected valid UTF-8 JSON'); }
   if (!isObject(parsed)) fail('RUN_RECORD_MALFORMED', path, 'expected a JSON object');
-  if (!isRunSpec(parsed.spec)) {
-    fail('RUN_RECORD_SPEC_UNKNOWN', `${path}.spec`, `unknown producer run spec ${JSON.stringify(parsed.spec ?? null)}; expected rig-run/1 or rigc-run/1`);
+  const allowed = options.specs ?? RUN_SPECS;
+  if (!isRunSpec(parsed.spec) || !allowed.includes(parsed.spec)) {
+    fail('RUN_RECORD_SPEC_UNKNOWN', `${path}.spec`, `unknown producer run spec ${JSON.stringify(parsed.spec ?? null)}; expected ${allowed.join(' or ')}`);
   }
   const spec = parsed.spec;
   const assembleInputs = options.allowAssembleInputs && spec === 'rig-run/1' && parsed.command === 'assemble' && Object.hasOwn(parsed, 'inputs');
-  const keys = assembleInputs ? ASSEMBLE_RUN_KEYS : TOP_KEYS[spec];
+  const keys = assembleInputs
+    ? ASSEMBLE_RUN_KEYS
+    : spec === 'rig-run/2'
+      ? (parsed.command === 'build' || (parsed.command !== 'check' && Object.hasOwn(parsed, 'config')) ? RIG_RUN_2_BUILD_KEYS : RIG_RUN_2_CHECK_KEYS)
+      : TOP_KEYS[spec];
   if (!isDeepStrictEqual(Object.keys(parsed), [...keys])) {
     fail('RUN_RECORD_MALFORMED', path, `keys must be in published ${spec} order (${keys.join(', ')})`);
   }
@@ -64,17 +110,24 @@ export function validateRunRecord(bytes: Buffer, path: string, options: { allowA
   if (!isObject(pkg) || !isDeepStrictEqual(Object.keys(pkg), ['name', 'version'])) {
     fail('RUN_RECORD_MALFORMED', `${path}.package`, 'package must have keys name, version in that order');
   }
-  const expectedNames = spec === 'rig-run/1' ? ['@rig-c/parts'] : ['@rig-c/core', 'rig-c'];
+  const expectedNames = spec.startsWith('rig-run/') ? ['@rig-c/parts'] : ['@rig-c/core', 'rig-c'];
   if (!expectedNames.includes(String(pkg.name)) || typeof pkg.version !== 'string' || !pkg.version.trim()) {
     fail('RUN_RECORD_MALFORMED', `${path}.package`, `expected package.name ${expectedNames.map(name => JSON.stringify(name)).join(' or ')} and a nonempty version`);
   }
-  if (spec === 'rig-run/1' ? (parsed.command !== 'rig' && parsed.command !== 'assemble') : parsed.command !== 'build') {
+  const validCommand = spec === 'rig-run/1'
+    ? (parsed.command === 'rig' || parsed.command === 'assemble')
+    : spec === 'rig-run/2'
+      ? (parsed.command === 'check' || parsed.command === 'build')
+      : spec === 'rigc-run/1'
+        ? parsed.command === 'build'
+        : parsed.command === 'render';
+  if (!validCommand) {
     fail('RUN_RECORD_MALFORMED', `${path}.command`, `invalid ${spec} command ${JSON.stringify(parsed.command ?? null)}`);
   }
   if (!runTimestamp(parsed.started_at)) fail('RUN_RECORD_MALFORMED', `${path}.started_at`, 'expected a UTC ISO-8601 millisecond timestamp ending in Z');
   if (!runTimestamp(parsed.finished_at)) fail('RUN_RECORD_MALFORMED', `${path}.finished_at`, 'expected a UTC ISO-8601 millisecond timestamp ending in Z');
 
-  if (spec === 'rig-run/1') {
+  if (spec === 'rig-run/1' || (spec === 'rig-run/2' && parsed.command === 'build')) {
     const config = parsed.config;
     if (!isObject(config) || !isDeepStrictEqual(Object.keys(config), ['path', 'sha256']) || !relativeRunPath(config.path) || !hex64(config.sha256)) {
       fail('RUN_RECORD_MALFORMED', `${path}.config`, 'config must have relative path and 64-hex sha256 in that order');
@@ -91,7 +144,9 @@ export function validateRunRecord(bytes: Buffer, path: string, options: { allowA
         }
       }
     }
-  } else {
+  } else if (spec === 'rigc-run/1' || spec === 'rigc-run/2') {
+    const roles = spec === 'rigc-run/1' ? RIGC_INPUT_ROLES : RIGC_RENDER_INPUT_ROLES;
+    const requiredRoles = spec === 'rigc-run/1' ? RIGC_REQUIRED_ROLES : RIGC_RENDER_REQUIRED_ROLES;
     const inputs = parsed.inputs;
     if (!Array.isArray(inputs)) fail('RUN_RECORD_MALFORMED', `${path}.inputs`, 'inputs must be an array');
     const seenRoles = new Set<string>();
@@ -100,28 +155,34 @@ export function validateRunRecord(bytes: Buffer, path: string, options: { allowA
     for (const [i, item] of inputs.entries()) {
       const itemPath = `${path}.inputs[${i}]`;
       if (!isObject(item)) fail('RUN_RECORD_MALFORMED', itemPath, 'input entry must be an object');
-      if (typeof item.role !== 'string' || !RIGC_INPUT_ROLES.includes(item.role as (typeof RIGC_INPUT_ROLES)[number])) {
-        fail('RUN_RECORD_ROLE_INVALID', `${itemPath}.role`, `unknown input role ${JSON.stringify(item.role ?? null)}; expected one of ${RIGC_INPUT_ROLES.join(', ')}`);
+      if (typeof item.role !== 'string' || !(roles as readonly string[]).includes(item.role)) {
+        fail('RUN_RECORD_ROLE_INVALID', `${itemPath}.role`, `unknown input role ${JSON.stringify(item.role ?? null)}; expected one of ${roles.join(', ')}`);
       }
       if (!isDeepStrictEqual(Object.keys(item), ['role', 'path', 'sha256']) || !relativeRunPath(item.path) || !hex64(item.sha256)) {
         fail('RUN_RECORD_MALFORMED', itemPath, 'input entry must have keys role, path, sha256 in that order with a relative path and 64-hex sha256');
       }
-      const roleOrder = RIGC_INPUT_ROLES.indexOf(item.role as (typeof RIGC_INPUT_ROLES)[number]);
+      const roleOrder = (roles as readonly string[]).indexOf(item.role);
       if (roleOrder < prevRoleOrder) {
-        fail('RUN_RECORD_ROLE_INVALID', `${itemPath}.role`, `input roles must sort in fixed order (${RIGC_INPUT_ROLES.join(', ')})`);
+        fail('RUN_RECORD_ROLE_INVALID', `${itemPath}.role`, `input roles must sort in fixed order (${roles.join(', ')})`);
       }
-      if (roleOrder === prevRoleOrder && !(prevPath < item.path)) {
-        fail('RUN_RECORD_MALFORMED', `${itemPath}.path`, 'inputs with the same role must sort by path in UTF-16 code-unit order');
+      if (roleOrder === prevRoleOrder) {
+        if (spec === 'rigc-run/2') fail('RUN_RECORD_ROLE_INVALID', `${itemPath}.role`, `duplicate input role ${item.role}`);
+        if (!(prevPath < item.path)) fail('RUN_RECORD_MALFORMED', `${itemPath}.path`, 'inputs with the same role must sort by path in UTF-16 code-unit order');
       }
       seenRoles.add(item.role);
       prevRoleOrder = roleOrder;
       prevPath = item.path;
     }
-    for (const required of RIGC_REQUIRED_ROLES) {
+    for (const required of requiredRoles) {
       if (!seenRoles.has(required)) {
-        fail('RUN_RECORD_ROLE_INVALID', `${path}.inputs`, `rigc-run/1 requires input role ${required}`);
+        fail('RUN_RECORD_ROLE_INVALID', `${path}.inputs`, `${spec} requires input role ${required}`);
       }
     }
+  }
+
+  if (spec === 'rig-run/2' || spec === 'rigc-run/2') {
+    const argvProblem = runArgvProblem(parsed.argv, spec, String(parsed.command));
+    if (argvProblem) fail('RUN_RECORD_MALFORMED', `${path}.argv`, argvProblem);
   }
 
   const outputs = parsed.outputs;
@@ -133,6 +194,9 @@ export function validateRunRecord(bytes: Buffer, path: string, options: { allowA
     const outPath = `${path}.outputs[${i}]`;
     if (!isObject(out) || !isDeepStrictEqual(Object.keys(out), ['path', 'sha256']) || !relativeRunPath(out.path) || !hex64(out.sha256)) {
       fail('RUN_RECORD_MALFORMED', outPath, 'output entry must have keys path, sha256 in that order with a relative path and 64-hex sha256');
+    }
+    if ((spec === 'rig-run/2' || spec === 'rigc-run/2') && (out.path.split('/').includes('..') || isRunRecordOutputName(out.path))) {
+      fail('RUN_RECORD_MALFORMED', `${outPath}.path`, `${spec} output path must stay within the output directory and exclude run records`);
     }
     if (i > 0 && !(prevOutputPath < out.path)) {
       fail('RUN_RECORD_MALFORMED', `${outPath}.path`, 'outputs must sort by path in UTF-16 code-unit order');
@@ -186,7 +250,7 @@ export function checkRegisteredRuns(
       });
       continue;
     }
-    if (!isRunSpec(entry.spec)) {
+    if (!isFrozenRunSpec(entry.spec)) {
       refusals.push({
         code: 'RUN_RECORD_SPEC_UNKNOWN',
         path: `${entryPath}.spec`,
@@ -228,7 +292,7 @@ export function checkRegisteredRuns(
       continue;
     }
     try {
-      const validated = validateRunRecord(bytes, entryPath);
+      const validated = validateRunRecord(bytes, entryPath, { specs: FROZEN_RUN_SPECS });
       if (validated.spec !== entry.spec) {
         fail('RUN_RECORD_MALFORMED', `${entryPath}.spec`, `declared spec ${entry.spec} disagrees with retained record spec ${validated.spec}`);
       }

@@ -124,7 +124,7 @@ test('record parts writes current.parts with the §1.3 shape and renames the pro
   expect(treeDigest(join(dir, 'outputs/parts'))).toEqual(producerBytes);
   const node = parts(dir);
   expect(Object.keys(node)).toEqual(['at', 'built_by', 'built_with', 'files', 'files_sha256', 'built_from', 'run', 'report']);
-  expect(node.built_with).toEqual({ '@rig-c/parts': '2.56.0' });
+  expect(node.built_with).toEqual({ '@rig-c/parts': '2.57.0' });
   expect(node.built_from).toEqual([
     { path: LAYERS_MANIFEST, sha256: sha(readFileSync(join(dir, LAYERS_MANIFEST))) },
     { path: PAINTING, sha256: sha(readFileSync(join(dir, PAINTING))) },
@@ -261,14 +261,14 @@ test('RECORD_INPUT_CHANGED names both the --from candidate and the project-root 
   expect(newConvErr?.message).toContain(PAINTING);
   expect(newConvErr?.message).toContain('../../inputs/painting.png');
 
-  // Old-convention See-through directory mismatch names both <from>/<dir> and <dir>/layers.json.
+  // Parts 2.57.0 records the See-through manifest relative to --out.
   const dir2 = project();
   write(dir2, LAYERS_MANIFEST, '{"changed":true}\n');
-  let oldConvErr: Refusal | undefined;
-  try { record(dir2); } catch (error) { if (error instanceof Refusal) oldConvErr = error; else throw error; }
-  expect(oldConvErr?.code).toBe('RECORD_INPUT_CHANGED');
-  expect(oldConvErr?.message).toContain(`${NEXT}/${LAYERS_DIR}`);
-  expect(oldConvErr?.message).toContain(LAYERS_MANIFEST);
+  let manifestErr: Refusal | undefined;
+  try { record(dir2); } catch (error) { if (error instanceof Refusal) manifestErr = error; else throw error; }
+  expect(manifestErr?.code).toBe('RECORD_INPUT_CHANGED');
+  expect(manifestErr?.message).toContain(`neither ${LAYERS_MANIFEST} (from ${NEXT})`);
+  expect(manifestErr?.message).toContain(`nor ${posix.relative(NEXT, LAYERS_MANIFEST)} (from project root)`);
 });
 
 test.each([

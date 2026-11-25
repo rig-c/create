@@ -64,7 +64,7 @@ test('record rig writes current.rig with the §1.3 shape and renames the produce
   expect(treeDigest(join(dir, 'outputs/rig'))).toEqual(producerBytes);
   const node = rig(dir);
   expect(Object.keys(node)).toEqual(['at', 'built_by', 'built_with', 'files', 'files_sha256', 'built_from', 'run', 'report', 'rebuild']);
-  expect(node.built_with).toEqual({ '@rig-c/parts': '2.56.0', '@rig-c/core': '3.8.1' });
+  expect(node.built_with).toEqual({ '@rig-c/parts': '2.57.0', '@rig-c/core': '3.8.1' });
   expect(node.built_from).toEqual([{ path: CONFIG, sha256: sha(readFileSync(join(dir, CONFIG))) }]);
   expect(node.run).toEqual({ path: 'outputs/rig/run.json', sha256: sha(readFileSync(join(dir, 'outputs/rig/run.json'))) });
   expect((node.report as JsonObject).path).toBe('outputs/rig/check/check.json');
@@ -234,13 +234,16 @@ test('an old-process project with versions[] and no current gets no current find
 /** Plant Parts check-run.json (rig-run/2) and Core idle/render-run.json (rigc-run/2) shaped like the producers' source. */
 function plantV2RunRecords(dir: string, options: { envPath?: string; at?: string } = {}): { checkArgv: string[]; renderArgv: string[] } {
   const at = options.at ?? NEXT;
+  const rigRun = JSON.parse(readFileSync(join(dir, at, 'run.json'), 'utf8')) as {
+    package: { name: string; version: string };
+  };
   const checkArgv = ['check', '--rig', '..', '--out', '.', '--parts', '../../parts', '--source', '../../../inputs/painting.png', '--no-extremes'];
   const checkFiles = treeFiles(dir, `${at}/check`, '')
     .map(f => ({ path: f.path.slice(1), sha256: f.sha256 }))
     .filter(f => !isRunRecordFile(f.path));
   write(dir, `${at}/check/check-run.json`, `${JSON.stringify({
     spec: 'rig-run/2',
-    package: { name: '@rig-c/parts', version: '2.56.0' },
+    package: rigRun.package,
     command: 'check',
     started_at: '2026-11-25T00:00:00.000Z',
     finished_at: '2026-11-25T00:00:01.000Z',

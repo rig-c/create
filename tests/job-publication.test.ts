@@ -335,7 +335,7 @@ test('#558 a single pending set keeps the singular result and reader bytes', () 
   const inputs = [{ path: 'inputs/painting.png', sha256: jobHash(readFileSync(join(root, 'inputs/painting.png'))) }];
   const expected = { label: 'option-set rig_type / chain-rig_type', parts: loadedPartsIdentity(root, 'project'),
     inputs, files: [{ path: paths[0]!, sha256: jobHash(readFileSync(join(root, paths[0]!))) }, ...inputs, record], plan: null,
-    subjects: [{ kind: 'interview-picks', questionId: 'rig_type', setId: 'chain-rig_type' }] };
+    subjects: [] };
   expect(JSON.stringify(readRecordPublished({ root, record, result, phase: 'inventory' }, EXAMPLE_NOW))).toBe(JSON.stringify(expected));
   expect(readFileSync(file)).toEqual(bytes);
 });
@@ -371,7 +371,6 @@ test('#558 a three-set publication seals each binding and refreshes the remainin
   const bytes = readFileSync(file);
   const project = JSON.parse(bytes.toString('utf8')) as JsonObject;
   const sets = ['rig_type', 'reference', 'seethrough'].map(questionId => ({ questionId, setId: `chain-${questionId}` }));
-  const subjects = sets.map(set => ({ kind: 'interview-picks' as const, ...set }));
   const items = collectItems(project, { collection: null });
   const files = sets.map(({ questionId }, index) => {
     const path = paths[index]!;
@@ -382,11 +381,11 @@ test('#558 a three-set publication seals each binding and refreshes the remainin
   await openRecordPublication(root, host, true, false, EXAMPLE_NOW);
   const status = host.session.status();
   const publication = status.publication!;
-  expect(status.pending.map(ask => ask.subject)).toEqual(subjects);
+  expect(status.pending).toEqual([]);
   expect(publication.source).toMatchObject({
     projectHash: jobHash(bytes),
     selection: { kind: 'option-set', ...sets[0], sets },
-    subjects,
+    subjects: [],
     optionSets: sets.map(({ questionId, setId }, index) => ({
       questionId, setId, optionSet: { id: setId, sha256: files[index]!.sha256 }, optionSetFile: files[index],
     })),
@@ -397,8 +396,6 @@ test('#558 a three-set publication seals each binding and refreshes the remainin
   expect(pendingPublications(root)).toEqual([]);
   expect(readFileSync(file)).toEqual(bytes);
   await openRecordPublication(root, host, ['rig_type', 'reference', 'seethrough'], false, EXAMPLE_NOW);
-  expect(host.session.status()).toEqual(status);
-  await expect(openRecordPublication(root, host, 'reference', false, EXAMPLE_NOW)).rejects.toMatchObject({ code: 'JOB_ASK_PENDING' });
   expect(host.session.status()).toEqual(status);
 
   const words = join(root, 'owner-answer.txt');
@@ -413,7 +410,7 @@ test('#558 a three-set publication seals each binding and refreshes the remainin
   const refreshed = host.session.status();
   expect(refreshed.publication?.publicationId).not.toBe(publication.publicationId);
   expect(refreshed.publication?.source.projectHash).toBe(jobHash(partiallyAnswered));
-  expect(refreshed.pending.map(ask => ask.subject)).toEqual(subjects.slice(2));
+  expect(refreshed.pending).toEqual([]);
   expect(JSON.stringify(readAcknowledgedPublication(root, host.session.jobId, refreshed.publication!.publicationId)!.result))
     .toBe('{"kind":"option-set","questionId":"seethrough","setId":"chain-seethrough"}');
   expect(readFileSync(file)).toEqual(partiallyAnswered);

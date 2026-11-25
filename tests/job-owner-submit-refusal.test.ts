@@ -51,17 +51,16 @@ test('#841 refused owner submissions write one safe stderr line each and preserv
           const chunk = await reader.read();
           if (chunk.done) return output + decoder.decode();
           output += decoder.decode(chunk.value, { stream: true });
-          if (output.split('\n').length >= 4) ready.resolve(output);
+          if (output.split('\n').length >= 3) ready.resolve(output);
         }
       } finally { reader.releaseLock(); }
     })();
     try {
       const startup = await Promise.race([stdout, ready.promise]);
       const lines = startup.split('\n');
-      expect(lines).toHaveLength(4);
-      const [url, published, asked, tail] = lines;
+      expect(lines).toHaveLength(3);
+      const [url, published, tail] = lines;
       expect(published).toMatch(/^job: option-set rig_type\/.+ published \(publication [A-Za-z0-9][A-Za-z0-9._-]{0,127}\)$/);
-      expect(asked).toMatch(/^job: asked interview-picks rig_type\/.+$/);
       expect(tail).toBe('');
       const ownerUrl = new URL(url!);
       const record = readFileSync(join(root, 'project.json'));
@@ -79,10 +78,10 @@ test('#841 refused owner submissions write one safe stderr line each and preserv
       }
 
       const human = await run('acts');
-      expect(human).toEqual({ exit: 0, stdout: 'job: no un-ingested acts; 0 already ingested for 1 current ask(s)\n', stderr: '' });
+      expect(human).toEqual({ exit: 0, stdout: 'job: no un-ingested acts; none asked on the current publication\n', stderr: '' });
       const json = await run('acts', '--json');
       expect({ exit: json.exit, stderr: json.stderr }).toEqual({ exit: 0, stderr: '' });
-      expect(JSON.parse(json.stdout)).toEqual({ jobId: ownerUrl.pathname.split('/')[2], acts: [], ingested: [], asked: 1 });
+      expect(JSON.parse(json.stdout)).toEqual({ jobId: ownerUrl.pathname.split('/')[2], acts: [], ingested: [], asked: 0 });
       expect(readFileSync(join(root, 'project.json'))).toEqual(record);
 
       expect(await run('close')).toEqual({ exit: 0, stdout: 'job: closed\n', stderr: '' });

@@ -416,31 +416,25 @@ test('#767 fake-clock reopen publishes a redrafted option set after advancing 1 
     const host = await openCreateJob(root, reviewer, clock, undefined, true);
     try {
       const { publication, pending } = host.session.status();
-      const { publicationId, source: { sourceHash } } = publication!;
-      expect(pending).toHaveLength(1);
-      const { askId } = pending[0]!;
-      const pageId = crypto.randomUUID();
-      const url = new URL(host.ownerUrl);
-      const headers = {
-        origin: url.origin, 'X-Review-Capability': url.hash.slice('#cap='.length), 'content-type': 'application/json',
-      };
-      const post = async (route: string, body: object) => {
-        const response = await fetch(`${url.origin}/jobs/${host.session.jobId}/ui/${route}`, {
-          method: 'POST', headers, body: JSON.stringify(body),
-        });
-        const payload = await response.json() as JsonObject;
-        expect(response.ok, JSON.stringify(payload)).toBe(true);
-        return obj(payload.value);
-      };
-      const { displayedNonce } = await post('displayed', { publicationId, pageId, sourceHash });
-      const act = await post('acts', {
-        publicationId, askId, pageId, displayedNonce, expectedGeneration: host.session.status().generation,
-        submissionId: crypto.randomUUID(), kind: 'interview-picks',
-        value: { questionId: 'rig_type', selections: [{ itemId: 'rig_type', optionId: 'keep', otherText: null }], note: 'Use the synthetic rig type.' },
+      expect(publication?.source).toMatchObject({
+        selection: { kind: 'option-set', questionId: 'rig_type', setId: 'chain-rig_type' },
       });
-      const answered = await stepCli(['interview-answer', 'rig_type', root, '--from-review', String(act.actId)]);
-      expect(answered.exit, answered.stderr).toBe(0);
+      expect(pending).toEqual([]);
     } finally { host.stop(); }
+    const wordsFile = join(root, 'rig-type-words.txt');
+    writeFileSync(wordsFile, 'Use the synthetic rig type.\n');
+    const saidAt = nextInstant();
+    const answered = await stepCli([
+      'interview-answer', 'rig_type', root,
+      '--set', setRel,
+      '--sha256', jobHash(readFileSync(join(root, setRel))),
+      '--by', 'synthetic-owner',
+      '--owner-chat', wordsFile,
+      '--said-at', saidAt,
+      '--relayed-by', 'synthetic-operator',
+      '--pick', 'rig_type=keep',
+    ]);
+    expect(answered.exit, answered.stderr).toBe(0);
 
     // Advance 1 s per CLI step so the fake clock leads wall time by several seconds.
     const checked = await stepCli(['next', root, '--json']);
@@ -463,8 +457,11 @@ test('#767 fake-clock reopen publishes a redrafted option set after advancing 1 
     expect(binding).not.toBeNull();
     const checkHost = await openCreateJob(root, reviewer, clock, undefined, true);
     try {
+      expect(checkHost.session.status().publication?.source).toMatchObject({
+        selection: { kind: 'option-set', questionId: 'rig_type', setId: 'redraft-rig_type' },
+      });
       const { asks } = await readHostActsAndAsks(checkHost);
-      expect(asks.map(ask => ask.subject)).toEqual([{ kind: 'interview-picks', questionId: 'rig_type', setId: 'redraft-rig_type' }]);
+      expect(asks).toEqual([]);
     } finally {
       checkHost.stop();
     }

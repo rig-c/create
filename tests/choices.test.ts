@@ -106,15 +106,22 @@ test('#670 next names every current-stage set and offers one grouped question pa
   registerReask(dir, 'seethrough', 'test-seethrough', testClock.now());
   expect(obj(obj(current(load(dir), 'seethrough').raw).agent_decision).reasoning).toBeTruthy();
   const report = nextProject(dir, testClock.now());
-  expect(report.moves.filter(move => move.review_act?.kind === 'interview-picks')).toEqual([
+  expect(report.moves.filter(move => move.role === 'human' && move.command === null)).toEqual([
     expect.objectContaining({ role: 'human', command: null, field: 'interview.framing[reference].pending_options',
-      awaits: 'interview.framing[reference].answer', review_act: { kind: 'interview-picks', stage: 'interview', question_id: 'reference', option_set_id: 'test-reference-reask' } }),
+      awaits: 'interview.framing[reference].answer',
+      act: expect.stringContaining('ask the owner in chat for interview.framing[reference] (option set test-reference-reask)') }),
     expect.objectContaining({ role: 'human', command: null, field: 'interview.waypoints[seethrough].pending_options',
-      awaits: 'interview.waypoints[seethrough].guide', review_act: { kind: 'interview-picks', stage: 'interview', question_id: 'seethrough', option_set_id: 'test-seethrough' } }),
+      awaits: 'interview.waypoints[seethrough].guide',
+      act: expect.stringContaining('ask the owner in chat for interview.waypoints[seethrough] (option set test-seethrough)') }),
+  ]);
+  expect(report.moves.filter(move => move.command?.includes('--owner-chat')).map(move => move.field)).toEqual([
+    'interview.framing[reference].pending_options',
+    'interview.waypoints[seethrough].pending_options',
   ]);
   const opens = report.moves.filter(move => move.command?.startsWith('rig-create job open '));
   expect(opens).toHaveLength(1);
   expect(opens[0]!.command).toEndWith(" --questions --reviewer '<reviewer>' --role owner");
+  expect(report.moves.some(move => move.command?.includes('--from-review') || move.command?.startsWith('rig-create job acts '))).toBe(false);
   expect(report.awaits).not.toContain('signoffs[stage=interview]');
   expect(report.moves.some(move => move.review_act?.kind === 'signoff' && move.review_act.stage === 'interview')).toBe(false);
   expect(report.moves.some(move => move.command?.startsWith('rig-create signoff interview '))).toBe(false);
@@ -149,7 +156,9 @@ test('#670 an earlier-stage set does not block the current rigging interview sig
   const wordsFile = join(w.dir, 'approval.txt');
   writeFileSync(wordsFile, 'I approve the rigging interview.');
   const sign = () => signoffCommand(['rigging-interview', w.dir, '--by', 'user', ...ownerChatArgs(wordsFile)]);
-  expect(next().moves.filter(move => move.review_act?.kind === 'interview-picks').map(move => move.review_act?.question_id)).toEqual(['motion']);
+  expect(next().moves.filter(move => move.role === 'human' && move.command === null).map(move => move.field)).toEqual([
+    'interview.waypoints[motion].pending_options',
+  ]);
   expect(code(sign)).toBe('SIGNOFF_REASK_PENDING');
 
   answer(w);

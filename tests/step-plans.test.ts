@@ -51,7 +51,7 @@ test('next on a fresh project proposes the parts plan instead of option sets', (
   const dir = freshProject();
   const report = nextProject(dir, testClock.now());
   expect(report.moves.some(move => move.command?.includes('interview-options'))).toBe(false);
-  expect(report.moves.some(move => move.review_act?.kind === 'interview-picks')).toBe(false);
+  expect(report.moves.some(move => move.command?.includes('interview-answer'))).toBe(false);
   const move = report.moves.find(move => move.field === 'interview.step_plans');
   expect(move).toMatchObject({ role: 'agent', awaits: 'interview.step_plans[step=parts]' });
   expect(move?.command).toStartWith('rig-create plan propose parts ');

@@ -38,7 +38,7 @@ Per step, `plan propose` a page of plain sentences in `owner.language`: summary;
    and `signoff parts-review --draft <id> --structure-file <f>`; record component triage with `diff-classes --diff-report <p> --by agent` ([Draft rigs](https://github.com/rig-c/create/blob/main/docs/PROJECT.md#labelled-draft-rigs-and-structure-decisions)).
 2. **Rigging interview**. Plan bones, deformation, physics, motion on approved parts/structure.
 3. **Rig and animation**. Keep rig feedback.
-   Ingest: `review <version> --from-review <actId>`.
+   Ingest: `review <version> --from-review <actId>`. Current rig: `record rig`.
 4. **Direction**. Copy owner `value.compose` into Parts' scene and compose to green.
    Record `direction@3`: `direction write <N> --file <json> --rig <R> --compose-out <dir>`
    (optional `--compose-scene <file>`). This route has no `scene write`.

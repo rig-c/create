@@ -239,7 +239,7 @@ test('post-interview hides stale option authoring, Review groups and answer refr
   expect(fresh.effective_stage).toBe('post-interview');
   expect(fresh.refusals.map(finding => finding.code)).toEqual(['INTERVIEW_INCOMPLETE', 'INTERVIEW_INCOMPLETE']);
   expect(fresh.moves.filter(move => move.field === 'interview').map(move => move.command?.split(' ').slice(1, 3).join(' ')))
-    .toEqual(['job open', 'job acts', 'interview-answer --batch']);
+    .toEqual(['job open']);
   const plan = fresh.moves.find(move => move.command?.startsWith('rig-create plan add composition '));
   expect(plan).toBeDefined();
   const answer = fresh.answers?.find(answer => answer.question_id === 'post_composition');

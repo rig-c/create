@@ -152,7 +152,6 @@ const STAGE_OUTPUT: Readonly<Partial<Record<string, CurrentKind>>> = {
 const POST_GUIDE = /^interview\.post\.items\[[^\]]+\]\.guide$/;
 
 function readsPostOptionContext(move: NextMove): boolean {
-  if (move.review_act?.kind === 'interview-picks' && move.review_act.stage === 'post-interview') return true;
   // The grouped Review commands await a comma-separated list of the guides they publish and ingest.
   if (move.field === 'interview') return move.awaits.split(', ').every(field => POST_GUIDE.test(field));
   if (!POST_GUIDE.test(move.awaits)) return false;

@@ -10,12 +10,13 @@ import { CORRECTIONS_SPEC, CORRECTION_SPEC, CORRECTION_STAGES, CorrectionError, 
 import { readProject } from './feedback.ts';
 import { assertDraftHasRig, draftRigDirectory } from './draft-layout.ts';
 import { checkReviewPackages } from './review-package.ts';
-import { reviewActVerdict, type DraftMeshVerdictAct, type MeshReviewVerdictAct } from './review-act.ts';
+import { reviewActBy, reviewActVerbatim, reviewActVerdict, type CommentMeshAct, type DraftMeshVerdictAct, type MeshReviewVerdictAct } from './review-act.ts';
+import { commentSource } from './comment-record.ts';
 import { readVerbatim } from './record-input.ts';
 import { collectReopens, liveSignoff } from './reopen.ts';
 import { refuse, USAGE_EXIT } from './refusal.ts';
 import { baselineOf, newFindings } from './refusal-baseline.ts';
-import { applyMeshEdits, type MeshEditAct, type MeshEditEntry, type MeshEditPaths, type MeshEditResult } from './mesh-edit.ts';
+import { applyMeshEdits, isMeshEditAct, type MeshEditAct, type MeshEditEntry, type MeshEditPaths, type MeshEditResult } from './mesh-edit.ts';
 import type { JsonObject } from './templates.ts';
 
 export const CORRECTION_HELP = `correction --adopt [<dir>]
@@ -88,16 +89,17 @@ function openStage(project: JsonObject, stage: string): void {
 }
 
 /** The finalized act projection needed to bind its displayed rig. The live fetch owns decoding and authorization. */
-export type MeshDeltaCorrectionAct = Omit<MeshEditAct, 'source' | 'value'> & {
+type RequestChangesMeshAct = Extract<MeshEditAct, { readonly schema: 'rig-review/act@8' }>;
+export type MeshDeltaCorrectionAct = Omit<RequestChangesMeshAct, 'source' | 'value'> & {
   readonly at: string;
-  readonly source: MeshEditAct['source'] & {
+  readonly source: RequestChangesMeshAct['source'] & {
     readonly selector: { readonly kind: 'rig'; readonly version: number };
     readonly model: { readonly path: string; readonly sha256: string };
   };
-  readonly value: Omit<MeshEditAct['value'], 'comments'> & { readonly comments?: readonly { readonly text: string }[] };
+  readonly value: Omit<RequestChangesMeshAct['value'], 'comments'> & { readonly comments?: readonly { readonly text: string }[] };
 };
-type ReviewMeshAct = MeshReviewVerdictAct | DraftMeshVerdictAct;
-type StagedMeshAct = MeshDeltaCorrectionAct | DraftMeshVerdictAct;
+type ReviewMeshAct = MeshReviewVerdictAct | DraftMeshVerdictAct | CommentMeshAct;
+type StagedMeshAct = MeshDeltaCorrectionAct | DraftMeshVerdictAct | CommentMeshAct;
 
 export type MeshDeltaCorrectionResult =
   | { status: 'applied'; code: null; object: null; correction: JsonObject }
@@ -116,10 +118,11 @@ function meshDeltaArtifact(act: StagedMeshAct, entry: MeshEditEntry): JsonObject
 
 function meshDeltaSource(dir: string, project: JsonObject, act: StagedMeshAct, now: number): JsonObject {
   if (!correctionsAdopted(project)) refuse('CORRECTION_CONTRACT_INVALID', 'corrections_contract: adopt corrections explicitly first');
-  if (act.schema !== 'rig-review/act@8' || act.kind !== 'review-verdict' || act.value.stage !== 'rig-review'
-    || act.value.verdict !== 'changes-requested' || !['rig', 'draft'].includes(act.source.selector.kind) || !act.value.meshEdits.length
+  // A comment's mesh carrier needs no verdict (#982); it still binds a retained rig or draft.
+  const selectorKind = (act.source.selector as { kind?: unknown } | null | undefined)?.kind;
+  if (!isMeshEditAct(act) || !['rig', 'draft'].includes(String(selectorKind))
     || !Number.isFinite(Date.parse(act.at)) || Date.parse(act.at) > now) {
-    return meshDeltaRefusal('expected a finalized act@8 mesh edit for a retained rig-review source');
+    return meshDeltaRefusal('expected a finalized act@8 mesh edit or act@10 mesh carrier for a retained rig or draft; publish the rig or draft and send the edit there');
   }
   const selector = act.source.selector;
   const on = selector.kind === 'draft'
@@ -151,7 +154,9 @@ function collectMeshDeltaCorrections(
     .map(r => [meshDeltaKey(r.artifact as JsonObject), r]));
   const appended: JsonObject[] = [];
   const returned: MeshDeltaCorrectionResult[] = [];
-  const verdict = review ? reviewActVerdict(review) : null;
+  const commentAct = review?.schema === 'rig-review/act@10' ? review : undefined;
+  const verdict = review && review.schema !== 'rig-review/act@10' ? reviewActVerdict(review)
+    : commentAct ? { by: reviewActBy(commentAct), verbatim: reviewActVerbatim(commentAct), source: commentSource(commentAct) } : null;
   const comment = verdict ? String(verdict.verbatim) : act.value.comments?.map(item => item.text).join('\n\n');
   let chainedRig: string | undefined;
   for (const [index, result] of results.entries()) {
@@ -250,7 +255,7 @@ function stageMeshDeltaCorrections(
   const root = mkdtempSync(join(derived, 'mesh-delta-'));
   const discard = () => rmSync(root, { force: true, recursive: true });
   try {
-    const results = applyMeshEdits(dir, act, (_entry, prior) => ({
+    const results = applyMeshEdits(dir, act as MeshEditAct, (_entry, prior) => ({
       rig: resolve(dir, paths.rig), config: resolve(dir, paths.config), parts: resolve(dir, paths.parts),
       out: join(root, String(prior.length + 1)),
     }));

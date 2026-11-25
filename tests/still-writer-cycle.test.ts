@@ -15,7 +15,7 @@ import type { JsonObject } from '../src/templates.ts';
 
 // Initial interview/plan approvals are fixture inputs. Every record from the
 // draft through the post-interview boundary below is written by main(argv, now).
-test('writer-only draft, parts approval, new producer build and displayed-still acceptance reach post-interview', async () => {
+test('writer-only draft, parts approval, new producer build and verdict ingestion without still retention reach post-interview', async () => {
   let draftAt = 0, partsAt = 0;
   let citations: JsonObject = {};
   const dir = fixture(project => {
@@ -71,11 +71,6 @@ test('writer-only draft, parts approval, new producer build and displayed-still 
       '--config', `${EXAMPLE_DRAFT}/config.json`, '--path-adapter', 'adapter.json', '--compile-report', 'new-compile.json', '--toolchain-lock', 'toolchain.json',
       '--citations', 'citations.json', '--run-record', 'new-build/run.json', '--at-source', 'new-build/run.json', '--at-pointer', '/finished_at', '--by', 'synthetic registrant'], now + 1000);
     command(['advance', 'rig-review', dir], now + 2000);
-    const withoutStill = readFileSync(join(dir, 'project.json'));
-    errors.mockClear();
-    expect(main(['review', '1', dir, '--verdict', 'accepted', '--review', 'rig-review', '--by', 'user', '--verbatim', 'Approve', '--source', 'synthetic tool'], now + 3000)).toBe(1);
-    expect(errors.mock.calls.map(call => String(call[0])).join('')).toContain('RIG_ACCEPTED_WITHOUT_STILL');
-    expect(readFileSync(join(dir, 'project.json'))).toEqual(withoutStill);
     const identity = currentJobIdentity({ root: dir, stateDir: join(scratch, 'host'), fingerprint: 'rig-create/still-cycle/1', reviewer: { id: 'synthetic-reviewer', role: 'owner' } }, dir);
     host = await startJobHost({ ...identity, partsEnumerator, readPublished, installWriterBinding: grant => writePrivateJson(join(dir, JOB_BINDING_FILE), { schema: 'rig-create/job-binding@1', identity, ...grant }, true) });
     const project = load();
@@ -116,9 +111,8 @@ test('writer-only draft, parts approval, new producer build and displayed-still 
     const [stdout, stderr, exit] = await Promise.all([new Response(consumer.stdout).text(), new Response(consumer.stderr).text(), consumer.exited]);
     expect({ exit, stderr }).toEqual({ exit: 0, stderr: '' });
     expect(stdout).toContain('recorded or replayed');
-    const recordedStill = obj(arr(obj(arr(load().versions)[0]).evidence)[0]);
-    expect(recordedStill.frame).toBe(0);
-    expect(recordedStill.what).toBe('Review displayed animation \"idle\" at 0 seconds');
+    expect(arr(obj(arr(load().versions)[0]).evidence)).toEqual([]);
+    expect(readdirSync(join(dir, 'evidence/v1'))).not.toContain(act.still.path);
     const checkAt = (at: number, expectedExit: number): { refusals: { code: string; path: string }[]; warnings: { code: string; path: string }[] } => {
       output.mockClear(); errors.mockClear();
       expect(main(['interview', '--check', dir, '--json'], at)).toBe(expectedExit);

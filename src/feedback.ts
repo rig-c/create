@@ -28,11 +28,11 @@ import { isDeepStrictEqual } from 'node:util';
 import { shellWord } from './job-acts.ts';
 import { acquireBoundJobWrite, beginJobProgress } from './job-writer.ts';
 import { acquireJobLock, jobHash, pendingPublications, readWriterBinding } from './job-outbox.ts';
-import { assertReviewActSource, decodeReviewAct, fetchBustPublicationSeeds, fetchReviewActRuntime, meshReviewVerdict, reviewActFindings, reviewActPublicationWarning, reviewActStill, reviewActTransport, reviewActVerbatim, reviewActVersionHash, type FetchedReviewAct } from './review-act.ts';
-import { agentUnderOwner, assertDraftReviewActSource, draftReviewStillEvidence, isDraftReviewVerdict, retainedActBy, retainedVersionVerdict, reviewActBy, reviewActVerdict, reviewFeedbackComment, reviewStillEvidence, type ReviewVerdictAct } from './review-act.ts';
+import { assertReviewActSource, decodeReviewAct, fetchBustPublicationSeeds, fetchReviewActRuntime, meshReviewVerdict, reviewActFindings, reviewActPublicationWarning, reviewActTransport, reviewActVerbatim, reviewActVersionHash, type FetchedReviewAct } from './review-act.ts';
+import { agentUnderOwner, assertDraftReviewActSource, draftReviewStillEvidence, isDraftReviewVerdict, retainedActBy, retainedVersionVerdict, reviewActBy, reviewActVerdict, reviewFeedbackComment, type ReviewVerdictAct } from './review-act.ts';
 import { DRAFT_ID } from './draft-reuse.ts';
 import { validCarriedRigDraftVerdict } from './rig-draft-verdict.ts';
-import { bustLandmarkCommands, prepareBustConfig } from './review-bust.ts';
+import { bustLandmarkCommands, prepareBustConfig, retainedRigActPath } from './review-bust.ts';
 import { newRefusals } from './refusal-baseline.ts';
 import { guideSignoffMatcher } from './signoff-answers.ts';
 import { ingestedVerdictPairFinding } from './signoff-pair.ts';
@@ -419,12 +419,12 @@ export function readProject(dir: string): { file: string; project: JsonObject; b
 function fetchVerdictAct<Act extends ReviewVerdictAct>(root: string, actId: string, now: number,
   select: (act: ReviewVerdictAct) => Act): FetchedReviewAct & { act: Act } {
   const transport = reviewActTransport(root, actId);
-  const { bytes, stillBytes } = fetchReviewActRuntime(transport);
+  const { bytes } = fetchReviewActRuntime(transport);
   const decoded = decodeReviewAct(bytes);
   if (decoded.jobId !== transport.jobId || decoded.actId !== actId) refuse('REVIEW_ACT_INVALID', 'project.json.review_acts: fetched verdict differs from the requested act; fetch the correct act');
   const act = select(decoded);
   if (Date.parse(act.at) > now) refuse('REVIEW_ACT_INVALID', 'project.json.review_acts: act is dated in the future; restore the clock before recording');
-  return { act, bytes, stillBytes };
+  return { act, bytes };
 }
 
 function replayedVerdictAct(receipts: Json[], { act, bytes }: FetchedReviewAct,
@@ -442,15 +442,6 @@ function replayedVerdictAct(receipts: Json[], { act, bytes }: FetchedReviewAct,
 
 type ReviewEvidenceFile = { path: string; bytes: Buffer };
 type ReviewEvidenceWrite = 'version' | 'draft';
-
-function reviewEvidenceFiles({ bytes, stillBytes }: FetchedReviewAct, path: string, stillHash: string, target: ReviewEvidenceWrite) {
-  const png = stillBytes === undefined ? null : Buffer.from(stillBytes, 'base64');
-  const stillName = target === 'draft' ? 'draft still' : 'named PNG';
-  if (!png || jobHash(png) !== stillHash) refuse('REVIEW_ACT_STILL_INVALID', `project.json.review_acts: ${stillName} is missing or mismatched; fetch act.json and its still together`);
-  const sha256 = jobHash(bytes);
-  const files: ReviewEvidenceFile[] = [{ path, bytes: png }, { path: `${dirname(path)}/${sha256}.act.json`, bytes: Buffer.from(bytes) }];
-  return { sha256, files };
-}
 
 function hasRetainedReviewEvidence(destination: string, file: ReviewEvidenceFile, mode: ReviewEvidenceWrite | 'draft-preflight' | 'draft-replay'): boolean {
   const info = mode === 'version' ? undefined : lstatSync(destination, { throwIfNoEntry: false });
@@ -481,22 +472,18 @@ function makeReviewEvidenceDirectory(directory: string, created: string[]): void
   created.push(...made);
 }
 
-function retainReviewEvidence(root: string, files: ReviewEvidenceFile[], created: string[], target: ReviewEvidenceWrite): void {
-  for (const file of files) {
-    const destination = join(root, file.path);
-    const directory = dirname(destination);
-    if (target === 'version') makeReviewEvidenceDirectory(directory, created);
-    if (hasRetainedReviewEvidence(destination, file, target)) continue;
-    if (target === 'version') {
-      writeFileSync(destination, file.bytes, { flag: 'wx' });
-      created.push(destination);
-    } else {
-      makeReviewEvidenceDirectory(directory, created);
-      const fd = openSync(destination, 'wx', 0o600);
-      created.push(destination);
-      try { writeFileSync(fd, file.bytes); fsyncSync(fd); } finally { closeSync(fd); }
-    }
+function retainReviewSidecar(root: string, file: ReviewEvidenceFile, created: string[], target: ReviewEvidenceWrite): void {
+  const destination = join(root, file.path);
+  if (hasRetainedReviewEvidence(destination, file, target)) return;
+  makeReviewEvidenceDirectory(dirname(destination), created);
+  if (target === 'version') {
+    writeFileSync(destination, file.bytes, { flag: 'wx' });
+    created.push(destination);
+    return;
   }
+  const fd = openSync(destination, 'wx', 0o600);
+  created.push(destination);
+  try { writeFileSync(fd, file.bytes); fsyncSync(fd); } finally { closeSync(fd); }
 }
 
 function writeReviewActRecord(root: string, file: string, project: JsonObject, original: Buffer,
@@ -700,22 +687,10 @@ function writeVerdict(projectDirArg: string, input: ReviewInput, now: number, fe
   let discardMeshRevision: (() => void) | undefined;
   let committed = false;
   try {
-    const addedEvidence: JsonObject[] = [];
-    const still = fetched === undefined ? null : reviewActStill(fetched.act);
-    if (fetched !== undefined && still !== null) {
-      const evidence = reviewStillEvidence(`evidence/v${input.version}`, still);
-      const { files } = reviewEvidenceFiles(fetched, evidence.path, evidence.sha256, 'version');
-      retainReviewEvidence(dir, files, created, 'version');
-      const entries = asArray(version.evidence);
-      if (!isDeepStrictEqual(entries[0], evidence)) {
-        entries.unshift(evidence); addedEvidence.push(evidence);
-      }
-      version.evidence = entries;
-    }
     if (fetched) {
       const receipt = { schema: 'rig-create/review-act@1', jobId: fetched.act.jobId, actId: fetched.act.actId,
         bytes: fetched.bytes, sha256: jobHash(fetched.bytes), version: input.version, verdict: verdicts.length - 1,
-        version_hash: reviewActVersionHash(original, fetched.act), added_evidence: addedEvidence,
+        version_hash: reviewActVersionHash(original, fetched.act),
         ...(fetched.bustConfig ? { bust_config: fetched.bustConfig } : {}), ...(route ? { feedback_route: route } : {}) };
       project.review_acts = [...asArray(project.review_acts), receipt];
       if (foldBaseline) foldRigSignoff(dir, project, fetched.act, originalBytes, foldBaseline, now);
@@ -726,6 +701,9 @@ function writeVerdict(projectDirArg: string, input: ReviewInput, now: number, fe
       const invalid = reviewActFindings(project)[0] ?? ingestedVerdictPairFinding(project, input.version, verdicts.length - 1) ?? (foldBaseline ? undefined : verdictCandidateFinding(dir, original, project, now, route));
       if (invalid) refuse(invalid.code, invalid.message);
       assertReviewActSource(dir, original, fetched.act);
+      if (input.review === 'rig-review') {
+        retainReviewSidecar(dir, { path: retainedRigActPath(input.version, receipt.sha256), bytes: Buffer.from(fetched.bytes) }, created, 'version');
+      }
       writeReviewActRecord(dir, file, project, originalBytes, 'version', () => { committed = true; });
       return result;
     }
@@ -766,28 +744,35 @@ export function recordDraftReviewAct(root: string, draftId: string, actId: strin
       ? reviewActVerdict(act, retainedActBy(act, existing.receipt.verdict.by)) : reviewActVerdict(act);
     const path = `review_acts[${existing?.index ?? receipts.length}].verdict`;
     const result = { project_dir: root, verdict_path: path, verdict, items: [], stage: asString(project.stage) };
-    const still = draftReviewStillEvidence(act);
-    const { sha256, files } = reviewEvidenceFiles(fetched, still.path, still.sha256, 'draft');
-    const stillDirectory = dirname(still.path);
-    const evidenceDirs = ['evidence', 'evidence/drafts', stillDirectory].map(path => join(root, path));
+    const sha256 = jobHash(bytes);
+    const evidenceDirectory = `evidence/drafts/${draftId}`;
+    const sidecar = { path: `${evidenceDirectory}/${sha256}.act.json`, bytes: Buffer.from(bytes) };
+    const evidenceDirs = ['evidence', 'evidence/drafts', evidenceDirectory].map(path => join(root, path));
     for (const directory of evidenceDirs) {
       const info = lstatSync(directory, { throwIfNoEntry: false });
       if (info && !info.isDirectory()) refuse('REVIEW_ACT_STILL_INVALID', `${directory}: draft evidence directory is unsafe; restore its original directory`);
     }
-    for (const file of files) {
-      hasRetainedReviewEvidence(join(root, file.path), file, existing ? 'draft-replay' : 'draft-preflight');
+    hasRetainedReviewEvidence(join(root, sidecar.path), sidecar, existing ? 'draft-replay' : 'draft-preflight');
+    if (existing) {
+      if (existing.receipt.evidence !== undefined) {
+        const still = draftReviewStillEvidence(act)!;
+        const path = join(root, still.path);
+        if (!lstatSync(path, { throwIfNoEntry: false })?.isFile() || jobHash(readFileSync(path)) !== still.sha256) {
+          refuse('REVIEW_ACT_STILL_INVALID', `${still.path}: retained draft still is missing or differs; restore the original export`);
+        }
+      }
+      return result;
     }
-    if (existing) return result;
     const draft = asArray(project.drafts).filter(isObject).find(row => row.id === draftId)!;
     const receipt = { schema: 'rig-create/review-act@1', kind: 'review-verdict', jobId: act.jobId, actId: act.actId,
-      bytes, sha256, draft_id: draftId, version_hash: jobHash(`${JSON.stringify(draft, null, 2)}\n`), verdict, evidence: still, painting: binding.painting };
+      bytes, sha256, draft_id: draftId, version_hash: jobHash(`${JSON.stringify(draft, null, 2)}\n`), verdict, painting: binding.painting };
     const next = { ...project, review_acts: [...receipts, receipt] };
     if (act.schema === JOB_MESH_EDITS_ACT_SCHEMA) discardMesh = stageReviewMeshDeltaCorrections(root, project, next, act, now);
     const problem = reviewActFindings(next)[0] ?? newRefusals(root, project, next, { now })[0];
     if (problem) refuse(problem.code, problem.message);
     assertDraftReviewActSource(root, project, act);
-    retainReviewEvidence(root, files, created, 'draft');
-    syncReviewDirectory(join(root, stillDirectory));
+    retainReviewSidecar(root, sidecar, created, 'draft');
+    syncReviewDirectory(join(root, evidenceDirectory));
     writeReviewActRecord(root, file, next, original, 'draft', () => { committed = true; });
     return result;
   } finally {

@@ -93,7 +93,7 @@ with no verdict. Every other writer refuses act@10 with
 | `REMESH_DELTA_ACT_SUPERSEDED` | Parts found an earlier application of the same act and attachment in the current rig's revision history. Continue from the current revision named by Parts without recording another completion for the attachment. Other Parts refusals retain the producer's code, object and detail. |
 | `REVIEW_PARTS_ENUMERATOR_UNSUPPORTED` | The act's Parts enumerator is missing or outside `>=2.25.0 <4.0.0`. Publish through an accepted installed Parts enumerator and review again. A `review-verdict` act on a composed `direction@3` post carries `source.parts: null` and is exempt: it binds the composed build model, not parts. |
 | `REVIEW_ACT_INVALID` | The fetched/retained act, response identity, authority, date, rig/post or parts value, or historical reopen value is malformed. Restore the original act evidence or request a new act. |
-| `REVIEW_ACT_STILL_INVALID` | The exported still PNG is missing, mismatched or conflicts with bytes retained for `project.json.review_acts`. Fetch the complete original act and PNG pair. |
+| `REVIEW_ACT_STILL_INVALID` | A retained Review act JSON sidecar or historical draft still is missing, mismatched or unsafe, or a historical rig verdict act lacks its still metadata. Restore the original retained bytes for `project.json.review_acts`. |
 | `REVIEW_ACT_KIND_MISMATCH` | The act is for another version or a kind outside the requested review-verdict, parts-verdict, interview-picks, checkpoint or signoff writer, or a signoff act names a stage other than the requested writer stage. Use the matching version, stage and supported writer. |
 | `REVIEW_ACT_TARGET_MISMATCH` | `signoffs[].target.version`: a `rig-review` or `direction-review` signoff act is ingested with `signoff <stage> --from-review <actId>`, but its `source.selector` names no version of that stage's kind (`rig` for rig-review, `post` for direction-review), or `--version` names another version than the one the person approved. The signature's target is the version Review displayed, so drop `--version` or ask for the sign-off again in Review on the version to sign. Refusal preserves the project record. |
 | `REVIEW_ACT_DRAFT_MISMATCH` | `signoffs[].draft_id`: a `parts-review` signoff act is ingested with `signoff parts-review --from-review <actId>`, and its `source.selector` is a non-draft selector or names another draft than `--draft`. Drop `--draft` so the signature takes the draft from the act's `{ kind: 'draft', id }` selector, or ask for `parts-review` again in Review on the draft to sign. Refusal preserves the project record. |
@@ -530,8 +530,8 @@ Exit `1`. Each names its object in `path`.
 | `PARTS_VERDICT_SOURCE_CHANGED` | Retired. Earlier Create releases used this code when a file listed by the saved verdict was missing or changed. | Review changed parts and record the new response with `parts-review` before signing again. |
 | `PARTS_VERDICT_SOURCE_MISMATCH` | Retired. Earlier Create releases used this code when the saved verdict's declared source digest differed from its file list. | Record a fresh Review response for the exact draft with `parts-review`. |
 | `VERSION_MALFORMED` | a `versions[]` entry has no integer `n`, a `kind` other than `rig` / `post`, or a rig version has a non-null `rig_version` | fix the entry ([PROJECT.md § Versions](PROJECT.md#versions)) |
-| `STILL_MALFORMED` | an `evidence[]` entry of `kind: "still"` lacks `path` or a 64-hex `sha256`, has a `camera` other than `"fixed"`, or no `frame` ≥ 0 | write it in the still-frame shape ([PROJECT.md § The rig review rests on a still frame](PROJECT.md#the-rig-review-rests-on-a-still-frame)); it does not count as a still until it is |
-| `RIG_ACCEPTED_WITHOUT_STILL` | a rig version has a human `accepted` verdict at `rig-review` and no well-formed still-frame record in its `evidence[]` | record the still the user accepted on (rig-c/core or rig-c/review renders it) |
+| `STILL_MALFORMED` | an `evidence[]` entry of `kind: "still"` lacks `path` or a 64-hex `sha256`, has a `camera` other than `"fixed"`, or no `frame` ≥ 0 | write it in the still-frame shape ([PROJECT.md § The rig review](PROJECT.md#the-rig-review)); it does not count as a still until it is |
+| `RIG_ACCEPTED_WITHOUT_STILL` | Retired. Earlier Create releases refused accepted rigs without a still-frame record. | Historical still records remain readable. |
 | `POST_ON_UNACCEPTED_RIG` | a post version's `rig_version` is not an integer, names no rig version, names one with no human `accepted` rig-review verdict, or the post version was built (`at`) before that acceptance | build post work on the accepted rig version; `rig-create handoff` names it |
 | `POST_ON_SUPERSEDED_RIG` | the latest post version is on an accepted rig version older than the latest accepted one | redo the post work on the new rig, as a new post version |
 | `PAUSED_UNSIGNED` | `stage` is `paused` with no `{ "stage": "paused" }` sign-off, or `pause` finds no human one dated at or after the latest recorded move | the person who stopped it signs `paused`, then run pause |
@@ -587,7 +587,7 @@ rig-create handoff [<project dir>] [--rig <n>] [--json]
 What post-production tooling runs before it runs
 ([PROJECT.md § The hand-off to post-production](PROJECT.md#the-hand-off-to-post-production)).
 Exit `0` prints the rig version post work is on (with `--json`: `rig_version`,
-`accepted`, `still`); exit `1` prints the first refusal on stderr as
+`accepted`, and optional `still`); exit `1` prints the first refusal on stderr as
 `rig-create: CODE: message`; exit `2` on a usage error (`HANDOFF_RIG_INVALID`,
 `HANDOFF_TOO_MANY_ARGUMENTS`, `UNKNOWN_OPTION`).
 
@@ -597,7 +597,6 @@ Exit `0` prints the rig version post work is on (with `--json`: `rig_version`,
 | `HANDOFF_RIG_INVALID` | `--rig` is missing a value or its value does not select a positive integer. Supply a rig version number such as `3` or `v3`, or omit `--rig`. |
 | `HANDOFF_TOO_MANY_ARGUMENTS` | more than one project folder is supplied. Name one folder or use the current folder. |
 | `RIG_VERSION_UNACCEPTED` | no live rig version has an accepted rig-review verdict, or a newer rig version than the accepted one has none. An acceptance that a later reopen or amendment made history is named with that entry |
-| `RIG_ACCEPTED_WITHOUT_STILL` | the accepted rig version has no still-frame record |
 | `PRE_INTERVIEW_CONFIG_LOST` | handoff would select an accepted pre-interview rig with a declared lost config. Build and accept a new rig with its retained config before post work |
 | `PRE_INTERVIEW_OUTPUTS_LOST` | handoff would select an accepted pre-interview rig with lost outputs. Build and accept a new rig with surviving frozen outputs before post work |
 | `POST_ON_UNACCEPTED_RIG` | `--rig <n>` names no rig version, or one never accepted |
@@ -1018,8 +1017,8 @@ plate-making fix; the default recipe above stays unchanged.
 
 A `rig-review` verdict on a rigging draft binds the project hash, joined source
 hash and model of its acknowledged publication. The command
-`review --draft <id> --from-review <actId>` retains the exact act, its comments
-and its still alongside the draft ID. Changes requested feed the next draft.
+`review --draft <id> --from-review <actId>` retains the exact act and its comments alongside the draft ID.
+Historical draft receipts with a still retain its digest check. Changes requested feed the next draft.
 When the registered inputs and model are byte-identical, `rig-version` carries
 the latest approval with its original job and act IDs, so the version needs no
 second verdict. Changed bytes require a new version verdict. A carried verdict

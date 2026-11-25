@@ -100,7 +100,7 @@ function project(): string {
   return dir;
 }
 
-const args = (dir: string, extra: string[] = []): string[] => ['parts', dir, '--from', NEXT, ...extra];
+const args = (dir: string, extra: string[] = []): string[] => ['parts', dir, '--from', NEXT, '--config', CONFIG, ...extra];
 const record = (dir: string, extra: string[] = []) => recordCommand(args(dir, extra), testClock.now());
 
 function refused(fn: () => unknown, code: string): void {
@@ -157,10 +157,35 @@ test('a second record replaces outputs/parts and deletes the old tree, leaving n
   expect(readdirSync(join(dir, 'outputs')).filter(name => name.startsWith('parts')).sort()).toEqual(['parts']);
 });
 
+test('recording from a depth-1 folder with ../ config then rebinding in place at outputs/parts preserves built_from', () => {
+  const dir = project();
+  rmSync(join(dir, NEXT), { recursive: true });
+  producerOut(dir, 'parts.next');
+  // Assemble into a depth-1 folder writes config.path relative to --out ("../specs/rig/config.json").
+  const run = JSON.parse(readFileSync(join(dir, 'parts.next/run.json'), 'utf8')) as { config: { path: string; sha256: string } };
+  run.config.path = `../${CONFIG}`;
+  write(dir, 'parts.next/run.json', JSON.stringify(run));
+
+  expect(recordCommand(['parts', dir, '--from', 'parts.next', '--config', CONFIG], testClock.now()).exit).toBe(0);
+  expect(existsSync(join(dir, 'parts.next'))).toBe(false);
+  const initialBuiltFrom = parts(dir).built_from;
+  expect(initialBuiltFrom).toEqual([
+    { path: LAYERS_MANIFEST, sha256: sha(readFileSync(join(dir, LAYERS_MANIFEST))) },
+    { path: PAINTING, sha256: sha(readFileSync(join(dir, PAINTING))) },
+    { path: CONFIG, sha256: sha(readFileSync(join(dir, CONFIG))) },
+  ]);
+
+  // After renaming into outputs/parts (depth 2), run.config.path is still "../specs/rig/config.json",
+  // and in-place rebind (--from outputs/parts --config specs/rig/config.json) succeeds with unchanged built_from.
+  expect(recordCommand(['parts', dir, '--from', 'outputs/parts', '--config', CONFIG], testClock.now()).exit).toBe(0);
+  expect(parts(dir).built_from).toEqual(initialBuiltFrom);
+  expect(checkProject(dir).refusals.filter(f => f.code === 'CURRENT_MALFORMED')).toEqual([]);
+});
+
 test.each([
+  ['config differs from the run', (dir: string) => write(dir, CONFIG, '{"changed":true}\n'), 'RECORD_CONFIG_MISMATCH'],
   ['painting changed after assemble', (dir: string) => write(dir, PAINTING, 'changed painting bytes'), 'RECORD_INPUT_CHANGED'],
   ['See-through layers.json changed after assemble', (dir: string) => write(dir, LAYERS_MANIFEST, '{"changed":true}\n'), 'RECORD_INPUT_CHANGED'],
-  ['config changed after assemble', (dir: string) => write(dir, CONFIG, '{"changed":true}\n'), 'RECORD_INPUT_CHANGED'],
   ['assemble run input resolves outside the project', (dir: string) => {
     const run = JSON.parse(readFileSync(join(dir, NEXT, 'run.json'), 'utf8')) as { inputs: { role: string; path: string; sha256: string }[] };
     run.inputs[0]!.path = '../outside/painting.png';
@@ -172,10 +197,10 @@ test.each([
     run.inputs[0] = { role: 'source', path: 'specs/rig/extra-run.json', sha256: sha('{}\n') };
     write(dir, `${NEXT}/run.json`, JSON.stringify(run));
   }, 'RECORD_BUILT_FROM_INVALID'],
-  ['assemble config lies inside the parts output', (dir: string) => {
-    write(dir, `${NEXT}/config.json`, readFileSync(join(dir, CONFIG)));
-    const run = JSON.parse(readFileSync(join(dir, NEXT, 'run.json'), 'utf8')) as { config: { path: string; sha256: string } };
-    run.config.path = 'config.json';
+  ['assemble input lies inside the parts output', (dir: string) => {
+    write(dir, `${NEXT}/inside.png`, readFileSync(join(dir, PAINTING)));
+    const run = JSON.parse(readFileSync(join(dir, NEXT, 'run.json'), 'utf8')) as { inputs: { role: string; path: string; sha256: string }[] };
+    run.inputs[0] = { role: 'source', path: `${NEXT}/inside.png`, sha256: sha(readFileSync(join(dir, PAINTING))) };
     write(dir, `${NEXT}/run.json`, JSON.stringify(run));
   }, 'RECORD_BUILT_FROM_INVALID'],
   ['run record missing', (dir: string) => rmSync(join(dir, NEXT, 'run.json')), 'RECORD_RUN_INVALID'],
@@ -230,11 +255,13 @@ test.each([
   expect(treeDigest(join(dir, 'outputs/parts'))).toEqual(outputs);
 });
 
-test('record parts refuses invalid flags or --from outside the project before reading anything', () => {
+test('record parts refuses invalid flags or paths outside the project before reading anything', () => {
   const dir = project();
   const recordBytes = readFileSync(join(dir, 'project.json'));
-  refused(() => recordCommand(['parts', dir, '--from', '../elsewhere'], testClock.now()), 'RECORD_FROM_INVALID');
-  refused(() => recordCommand(['parts', dir, '--from', NEXT, '--config', CONFIG], testClock.now()), 'RECORD_USAGE');
+  refused(() => recordCommand(['parts', dir, '--from', '../elsewhere', '--config', CONFIG], testClock.now()), 'RECORD_FROM_INVALID');
+  refused(() => recordCommand(['parts', dir, '--from', NEXT, '--config', '../elsewhere'], testClock.now()), 'RECORD_CONFIG_MISMATCH');
+  refused(() => recordCommand(['parts', dir, '--from', NEXT, '--config', `${NEXT}/config.json`], testClock.now()), 'RECORD_CONFIG_MISMATCH');
+  refused(() => recordCommand(['parts', dir, '--from', NEXT], testClock.now()), 'RECORD_USAGE');
   refused(() => recordCommand(['parts', dir], testClock.now()), 'RECORD_USAGE');
   expect(readFileSync(join(dir, 'project.json'))).toEqual(recordBytes);
   expect(existsSync(join(dir, NEXT))).toBe(true);

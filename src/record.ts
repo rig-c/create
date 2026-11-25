@@ -23,11 +23,11 @@ import { RunRecordError, validateRunRecord } from './run-record.ts';
 import type { JsonObject } from './templates.ts';
 
 export const RECORD_HELP = `record:
-  rig-create record parts [<dir>] --from <producer out> [--by <who>] [--json]
+  rig-create record parts [<dir>] --from <producer out> --config <rig config> [--by <who>] [--json]
                  record the producer's parts output as current.parts and rename it into outputs/parts/ (the old tree is
                  deleted after). <producer out> is a folder inside the project, normally outputs/parts.next, holding the
                  parts assemble output with run.json (rig-run/1) and check/parts-check.json (rig-parts-parts-check/1).
-                 --by defaults to agent.
+                 --config must be the config the run names by sha256. --by defaults to agent.
   rig-create record rig [<dir>] --from <producer out> --config <rig config> [--by <who>] [--json]
                  record the producer's rig output as current.rig and rename it into outputs/rig/ (the old tree is deleted
                  after). <producer out> is a folder inside the project, normally outputs/rig.next, holding the parts rig
@@ -41,12 +41,11 @@ const BUILD_DIR = `${CHECK_DIR}/build`;
 const MODEL_FILE = `${BUILD_DIR}/skeleton.model.json`;
 const REBUILD_NOTE = 'The rig check and idle render arguments are not recorded: no producer report records its arguments yet.';
 
-const usage = (why: string, kind: RecordableKind = 'rig'): never => {
-  const line = kind === 'parts'
-    ? 'rig-create record parts [<dir>] --from <producer out> [--by <who>] [--json]'
-    : 'rig-create record rig [<dir>] --from <producer out> --config <rig config> [--by <who>] [--json]';
-  return refuse('RECORD_USAGE', `record: ${why}; ${line}`, USAGE_EXIT);
-};
+const usage = (why: string, kind: RecordableKind = 'rig'): never => refuse(
+  'RECORD_USAGE',
+  `record: ${why}; rig-create record ${kind} [<dir>] --from <producer out> --config <rig config> [--by <who>] [--json]`,
+  USAGE_EXIT,
+);
 
 /** A path named on the command line as a project-relative literal path inside the project, with no symlink on the way. */
 function projectPath(dir: string, arg: string, flag: string, code: string, kind: RecordableKind): string {
@@ -94,14 +93,19 @@ function runAt(
   return record;
 }
 
-function recordPartsInputs(dir: string, from: string, root: string, run: JsonObject): { path: string; sha256: string }[] {
-  const builtFrom: { path: string; sha256: string }[] = [];
+function recordPartsInputs(
+  dir: string,
+  from: string,
+  root: string,
+  run: JsonObject,
+  builtFrom: { path: string; sha256: string }[],
+): void {
   const checkInput = (resolved: string, expectedSha256: string, where: string): void => {
     if (!resolved || resolved === '.' || resolved.startsWith('..') || posix.isAbsolute(resolved)) {
       refuse('RECORD_INPUT_CHANGED', `${where}: resolves outside the project; run rig-parts assemble from the project root on inputs inside the project and record again`);
     }
     if (resolved === from || resolved.startsWith(`${from}/`) || resolved === root || resolved.startsWith(`${root}/`)) {
-      refuse('RECORD_BUILT_FROM_INVALID', `${where}: ${resolved} lies inside the parts output; keep assemble inputs and config outside ${root}/ and record again`);
+      refuse('RECORD_BUILT_FROM_INVALID', `${where}: ${resolved} lies inside the parts output; keep assemble inputs outside ${root}/ and record again`);
     }
     if (!builtFromNameAllowed(resolved)) {
       refuse('RECORD_BUILT_FROM_INVALID', `${where}: a run record is provenance and never a built_from input; name the product file assemble read`);
@@ -113,9 +117,6 @@ function recordPartsInputs(dir: string, from: string, root: string, run: JsonObj
     }
     if (!builtFrom.some(entry => entry.path === resolved)) builtFrom.push({ path: resolved, sha256: expectedSha256 });
   };
-
-  const configRun = run.config as JsonObject;
-  checkInput(posix.normalize(posix.join(from, String(configRun.path))), String(configRun.sha256), `${from}/${RUN_RECORD_NAME} config ${String(configRun.path)}`);
 
   for (const input of run.inputs as JsonObject[]) {
     const rawPath = posix.normalize(String(input.path));
@@ -135,39 +136,37 @@ function recordPartsInputs(dir: string, from: string, root: string, run: JsonObj
       : rawPath;
     checkInput(resolved, String(input.sha256), where);
   }
-  return builtFrom;
 }
 
 export function recordCommand(args: string[], now: number): CommandResult {
   const [rawKind, ...rest] = args;
   if (rawKind !== 'parts' && rawKind !== 'rig') return usage(`${JSON.stringify(rawKind ?? null)} is not a kind this release records; it records parts or rig`);
   const kind: RecordableKind = rawKind;
-  const allowedOptions = kind === 'rig' ? ['--from', '--config', '--by'] : ['--from', '--by'];
   const positional: string[] = [];
   const options: Record<string, string> = {};
   let json = false;
   for (let i = 0; i < rest.length; i++) {
     const arg = rest[i]!;
     if (arg === '--json' && !json) json = true;
-    else if (allowedOptions.includes(arg) && options[arg] === undefined) {
+    else if (['--from', '--config', '--by'].includes(arg) && options[arg] === undefined) {
       const value = rest[++i];
       if (value === undefined || value.startsWith('--') || !value.trim()) usage(`${arg} needs one value`, kind);
       options[arg] = value!;
     } else if (arg.startsWith('-')) usage(`unexpected or repeated option ${arg}`, kind);
     else positional.push(arg);
   }
-  if (positional.length > 1 || !options['--from'] || (kind === 'rig' && !options['--config'])) {
-    usage(kind === 'rig' ? 'pass --from and --config, and at most one project folder' : 'pass --from, and at most one project folder', kind);
+  if (positional.length > 1 || !options['--from'] || !options['--config']) {
+    usage('pass --from and --config, and at most one project folder', kind);
   }
   const dir = resolve(positional[0] ?? process.cwd());
   const root = outputRoot(kind);
   const from = projectPath(dir, options['--from']!, '--from', 'RECORD_FROM_INVALID', kind);
-  const config = kind === 'rig' ? projectPath(dir, options['--config']!, '--config', 'RECORD_CONFIG_MISMATCH', kind) : undefined;
+  const config = projectPath(dir, options['--config']!, '--config', 'RECORD_CONFIG_MISMATCH', kind);
   if (from !== root && (from.startsWith(`${root}/`) || root.startsWith(`${from}/`))) {
     refuse('RECORD_FROM_INVALID', `record ${kind} --from ${from}: name a folder beside ${root}/, normally ${root}.next, or ${root} itself`);
   }
-  if (config !== undefined && (config === from || config.startsWith(`${from}/`) || config.startsWith(`${root}/`))) {
-    refuse('RECORD_CONFIG_MISMATCH', `record rig --config ${config}: the config is a source, not part of the output; keep it under specs/rig/`);
+  if (config === from || config.startsWith(`${from}/`) || config.startsWith(`${root}/`)) {
+    refuse('RECORD_CONFIG_MISMATCH', `record ${kind} --config ${config}: the config is a source, not part of the output; keep it under specs/rig/`);
   }
   const { file } = readProject(dir);
   const lock = `${file}.record.lock`;
@@ -189,14 +188,27 @@ export function recordCommand(args: string[], now: number): CommandResult {
     catch (error) { return refuse('RECORD_FROM_INVALID', `record ${kind} --from ${from}: ${error instanceof Error ? error.message : String(error)}; keep only regular files in the producer output`); }
     const byPath = new Map(files.map(f => [f.path, f.sha256]));
 
+    const run = runAt(dir, from, RUN_RECORD_NAME, 'rig-run/1', byPath, kind);
+    const build = kind === 'rig' ? runAt(dir, from, `${BUILD_DIR}/${RUN_RECORD_NAME}`, 'rigc-run/1', byPath, 'rig') : undefined;
+
+    let configBytes: Buffer;
+    try { configBytes = readFileSync(literalFile(dir, config)); }
+    catch { return refuse('RECORD_CONFIG_MISMATCH', `record ${kind} --config ${config}: expected a regular file inside the project`); }
+    const configRun = run.config as JsonObject;
+    if (sha256(configBytes) !== configRun.sha256) {
+      refuse('RECORD_CONFIG_MISMATCH', `record ${kind} --config ${config}: its sha256 ${sha256(configBytes)} differs from the config ${String(configRun.sha256)} that ${from}/${RUN_RECORD_NAME} names; pass the config the ${kind === 'parts' ? 'parts were assembled' : 'rig was built'} from`);
+    }
+    if (!builtFromNameAllowed(config)) {
+      refuse('RECORD_BUILT_FROM_INVALID', `record ${kind} --config ${config}: a run record is provenance and never a built_from input; name the config file`);
+    }
+    const builtFrom: { path: string; sha256: string }[] = [{ path: config, sha256: sha256(configBytes) }];
+
     const at = new Date(now).toISOString();
-    let builtFrom: { path: string; sha256: string }[];
     let pkgs: JsonObject[];
     let reportRel: string;
 
     if (kind === 'parts') {
-      const run = runAt(dir, from, RUN_RECORD_NAME, 'rig-run/1', byPath, 'parts');
-      builtFrom = recordPartsInputs(dir, from, root, run);
+      recordPartsInputs(dir, from, root, run, builtFrom);
       reportRel = `${CHECK_DIR}/${PARTS_CHECK_FILE}`;
       const reportPath = `${from}/${reportRel}`;
       let reportBytes: Buffer;
@@ -210,18 +222,7 @@ export function recordCommand(args: string[], now: number): CommandResult {
       if (outcome) refuse(outcome.code, `${outcome.message}; record parts records a green check only`);
       pkgs = [run.package as JsonObject];
     } else {
-      const run = runAt(dir, from, RUN_RECORD_NAME, 'rig-run/1', byPath, 'rig');
-      const build = runAt(dir, from, `${BUILD_DIR}/${RUN_RECORD_NAME}`, 'rigc-run/1', byPath, 'rig');
-
-      let configBytes: Buffer;
-      try { configBytes = readFileSync(literalFile(dir, config!)); }
-      catch { return refuse('RECORD_CONFIG_MISMATCH', `record rig --config ${config!}: expected a regular file inside the project`); }
-      const configRun = run.config as JsonObject;
-      if (sha256(configBytes) !== configRun.sha256) {
-        refuse('RECORD_CONFIG_MISMATCH', `record rig --config ${config!}: its sha256 ${sha256(configBytes)} differs from the config ${String(configRun.sha256)} that ${from}/${RUN_RECORD_NAME} names; pass the config the rig was built from`);
-      }
-      builtFrom = [{ path: config!, sha256: sha256(configBytes) }];
-      for (const input of build.inputs as JsonObject[]) {
+      for (const input of build!.inputs as JsonObject[]) {
         const resolved = posix.normalize(posix.join(from, BUILD_DIR, String(input.path)));
         const where = `${from}/${BUILD_DIR}/${RUN_RECORD_NAME} input ${String(input.role)} ${String(input.path)}`;
         if (resolved === from || resolved.startsWith(`${from}/`)) {
@@ -256,7 +257,7 @@ export function recordCommand(args: string[], now: number): CommandResult {
       const outcome = checkRigReport({ at, check_report: { path: reportPath, spec: report.spec ?? null } }, `${reportPath}`, reportPath, model,
         () => reportBytes, [])[0];
       if (outcome) refuse(outcome.code, `${outcome.message}; record rig records a green check only`);
-      pkgs = [run.package, build.package] as JsonObject[];
+      pkgs = [run.package, build!.package] as JsonObject[];
     }
 
     const node: JsonObject = {

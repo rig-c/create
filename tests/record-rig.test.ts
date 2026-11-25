@@ -234,13 +234,16 @@ test('an old-process project with versions[] and no current gets no current find
 /** Plant Parts check-run.json (rig-run/2) and Core idle/render-run.json (rigc-run/2) shaped like the producers' source. */
 function plantV2RunRecords(dir: string, options: { envPath?: string; at?: string } = {}): { checkArgv: string[]; renderArgv: string[] } {
   const at = options.at ?? NEXT;
+  const rigRun = JSON.parse(readFileSync(join(dir, at, 'run.json'), 'utf8')) as {
+    package: { name: string; version: string };
+  };
   const checkArgv = ['check', '--rig', '..', '--out', '.', '--parts', '../../parts', '--source', '../../../inputs/painting.png', '--no-extremes'];
   const checkFiles = treeFiles(dir, `${at}/check`, '')
     .map(f => ({ path: f.path.slice(1), sha256: f.sha256 }))
     .filter(f => !isRunRecordFile(f.path));
   write(dir, `${at}/check/check-run.json`, `${JSON.stringify({
     spec: 'rig-run/2',
-    package: { name: '@rig-c/parts', version: '2.56.0' },
+    package: rigRun.package,
     command: 'check',
     started_at: '2026-11-25T00:00:00.000Z',
     finished_at: '2026-11-25T00:00:01.000Z',

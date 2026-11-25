@@ -161,8 +161,9 @@ test('planted: a timestamp-only change inside run.json or render-run.json marks 
   plantDownstream(dir);
   expect(codes(checkProject(dir).warnings, 'OUTPUT_STALE')).toBe(0);
   for (const path of ['outputs/rig/run.json', 'outputs/rig/check/build/run.json', 'outputs/motion/render-run.json']) {
-    const text = readFileSync(join(dir, path), 'utf8').replaceAll('2026-11-24T00:00:00.000Z', '2026-11-25T09:30:00.000Z');
-    expect(text).toContain('2026-11-25T09:30:00.000Z');
+    const before = readFileSync(join(dir, path), 'utf8');
+    const text = before.replace(/"(started_at|finished_at)": ?"[^"]+"/g, '"$1":"2099-01-01T09:30:00.000Z"');
+    expect(text).not.toBe(before);
     writeFileSync(join(dir, path), text);
   }
   const report = checkProject(dir);

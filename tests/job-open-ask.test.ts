@@ -568,24 +568,6 @@ test('#754 case A: job open --rig at rigging with nothing to ask publishes an as
   expect(readFileSync(join(root, 'project.json'))).toEqual(saved);
 }, 30_000);
 
-test('#754 case B: a bound rig writer at rigging with nothing to ask refuses JOB_RIG_VERDICT_DEFERRED byte-identically', async () => {
-  const root = registeredRig('rigging', noCheckpoints);
-  // A reference-less legacy page, so republish reaches its publication step (as in #690).
-  prepareLiveManifest(root, { ...read(root), inputs: [] }, 1);
-  const opening = await open(root, ['--rig', '1']);
-  const head = (await publication(root, opening.url, 0)).head.publicationId as string;
-  const paths = ['project.json', 'review-live-v1.json'];
-  const before = paths.map(path => readFileSync(join(root, path)));
-  const result = await cli(root, ['republish', '1', root, '--reason', 'Publish retained evidence.']);
-  expect(result.exit).toBe(1);
-  expect(result.stdout).toBe('');
-  expect(result.stderr).toBe(`rig-create: JOB_RIG_VERDICT_DEFERRED: versions[v1]: stage rigging would replace open publication ${head} with rig v1 and nothing to ask: its review-verdict rig-review ask, which review --from-review could not ingest here; ${deferredRoute(root)}; or keep the open page, or close it with rig-create job close ${root} to record without publishing\n`);
-  expect(paths.map(path => readFileSync(join(root, path)))).toEqual(before);
-  expect(existsSync(join(root, 'review-live-v1-g2.json'))).toBe(false);
-  expect(pendingPublications(root, true)).toEqual([]);
-  expect((await publication(root, opening.url, 0)).head.publicationId).toBe(head);
-}, 30_000);
-
 test.each(['0', 'absent', '1.5', '9007199254740992', '2'])('#412 refuses invalid or absent rig %s before creating a host or binding', async rig => {
   const root = registeredRig();
   const before = readFileSync(join(root, 'project.json'));

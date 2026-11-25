@@ -115,7 +115,6 @@ The full procedure, with recovery when the page stops, is in
 - `job reconcile`: finish pending publications after a stopped page is opened again.
 - `job withdraw-act <actId>`: take back a submitted act on your recorded words, keeping the page.
 - `job close`: end the job.
-- `republish <rig> --reason <words>`: publish a registered rig again without rebuilding it.
 
 **Questions, plan and sign-offs**
 
@@ -147,7 +146,6 @@ The full procedure, with recovery when the page stops, is in
 - `review-package <n>`: copy the build's inputs for review and record the command that opens it.
 - `review <version>`: record what you said about a shown version, word for word.
 - `handoff`: name the accepted rig version that direction work runs on, or refuse.
-- `version config-lost|outputs-lost <n>`: record what is missing from a version made before the interview.
 
 **Direction**
 

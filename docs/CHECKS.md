@@ -43,7 +43,7 @@ match their recorded hashes.
 
 | Code | Finding and remedy |
 | --- | --- |
-| `JOB_PUBLISH_PENDING` | A committed `project.json` result awaits publication. A bound writer that committed its record and could not publish it (`rig-version`, `draft-rig`, `direction`, `advance`, `republish`) exits 0 and prints `WARN JOB_PUBLISH_PENDING:` on stderr naming the recorded path; it is not a refusal. Restore its bound host and sources, then run `job reconcile` before another participating write or close. To abandon failed publications explicitly, `job close --retire-refused` archives their complete receipts under the private `retired-publications/` directory and closes without acknowledging them; unfailed pending publications still block close. |
+| `JOB_PUBLISH_PENDING` | A committed `project.json` result awaits publication. A bound writer that committed its record and could not publish it (`rig-version`, `draft-rig`, `direction`, `advance`) exits 0 and prints `WARN JOB_PUBLISH_PENDING:` on stderr naming the recorded path; it is not a refusal. Restore its bound host and sources, then run `job reconcile` before another participating write or close. To abandon failed publications explicitly, `job close --retire-refused` archives their complete receipts under the private `retired-publications/` directory and closes without acknowledging them; unfailed pending publications still block close. |
 | `JOB_OWNER_SUBMIT_REFUSED` (WARN) | Review refused an owner submission for the live `project.json` job. The listening `job open` process prints one stderr line with Review's code, the route template `/jobs/:jobId/ui/acts`, the number of request bytes Review read (possibly zero), and the byte limit if Review supplied one. Use Review's code to resolve the refusal, then have the owner retry in Review. A refused submission produces no finalized act for `job acts --wait`. |
 | `JOB_ROOT_REPLACED` | `project.json`: the managed Review state belongs to a replaced project directory, or its ownership/liveness cannot be established safely. Stop the original `job open` host in its terminal, then retry `job open` or `job reconcile`. With no pending publication or startup claim, both commands preserve the old state in a dated `.replaced-…` sibling only when its recorded PID is absent and its recorded loopback port refuses connections. Missing/unsafe metadata, an occupied port or uncertain liveness refuses without retiring state; restore the retained metadata or original directory before retrying. |
 | `JOB_HOST_ATTACH_REFUSED` | Strict reuse-only attach to the bound live host was refused. The pending receipt names the host `reason` and `phase` (including `incarnation-missing` on `record` or `probe`). Reopen or restore the bound live host before reconciling. `job close` reads the job's finalized owner acts and retires the job through the live host, never from the record alone, so a stopped host refuses close and the message names the `job open <dir> --reviewer <id> --role <role>` restart; the restart serves the same job, then retry `job close`. The refusal leaves `project.json` and the job state byte-identical. |
@@ -93,6 +93,7 @@ with no verdict. Every other writer refuses act@10 with
 | `REMESH_DELTA_ACT_SUPERSEDED` | Parts found an earlier application of the same act and attachment in the current rig's revision history. Continue from the current revision named by Parts without recording another completion for the attachment. Other Parts refusals retain the producer's code, object and detail. |
 | `REVIEW_PARTS_ENUMERATOR_UNSUPPORTED` | The act's Parts enumerator is missing or outside `>=2.25.0 <4.0.0`. Publish through an accepted installed Parts enumerator and review again. A `review-verdict` act on a composed `direction@3` post carries `source.parts: null` and is exempt: it binds the composed build model, not parts. |
 | `REVIEW_ACT_INVALID` | The fetched/retained act, response identity, authority, date, rig/post or parts value, or historical reopen value is malformed. Restore the original act evidence or request a new act. |
+| `REVIEW_ACT_STILL_INVALID` | The exported still PNG is missing, mismatched or conflicts with bytes retained for `project.json.review_acts`. Fetch the complete original act and PNG pair. |
 | `REVIEW_ACT_KIND_MISMATCH` | The act is for another version or a kind outside the requested review-verdict, parts-verdict, interview-picks, checkpoint or signoff writer, or a signoff act names a stage other than the requested writer stage. Use the matching version, stage and supported writer. |
 | `REVIEW_ACT_TARGET_MISMATCH` | `signoffs[].target.version`: a `rig-review` or `direction-review` signoff act is ingested with `signoff <stage> --from-review <actId>`, but its `source.selector` names no version of that stage's kind (`rig` for rig-review, `post` for direction-review), or `--version` names another version than the one the person approved. The signature's target is the version Review displayed, so drop `--version` or ask for the sign-off again in Review on the version to sign. Refusal preserves the project record. |
 | `REVIEW_ACT_DRAFT_MISMATCH` | `signoffs[].draft_id`: a `parts-review` signoff act is ingested with `signoff parts-review --from-review <actId>`, and its `source.selector` is a non-draft selector or names another draft than `--draft`. Drop `--draft` so the signature takes the draft from the act's `{ kind: 'draft', id }` selector, or ask for `parts-review` again in Review on the draft to sign. Refusal preserves the project record. |
@@ -550,13 +551,13 @@ Exit `1`. Each names its object in `path`.
 | `PRE_INTERVIEW_ORIGINAL_N_MISSING` | a pre-interview version omits its source id or it is not a number, string or null | copy its original id unchanged into `original_n` |
 | `PRE_INTERVIEW_ORIGINAL_N_DUPLICATE` | two migrated versions have the same non-null `original_n` | restore their distinct source ids; repeated nulls are allowed |
 | `PRE_INTERVIEW_CONFIG_LOST_MALFORMED` | `config_lost` lacks nonempty note and source strings, accompanies a non-null `provenance.config`, or is on a create-built version | record `{ note, source }` only on a pre-interview version whose config was lost, or restore its surviving config |
-| `PRE_INTERVIEW_OUTPUTS_LOST_MALFORMED` | `outputs_lost` lacks nonempty note and source strings, has an unknown key or malformed/empty `recorded` `{ path, sha256 }` bindings, names a `recorded` path that overlaps `outputs` or is readable on disk, accompanies non-empty `outputs` without `recorded`, or is on a create-built version | record `{ note, source, recorded }` with `version outputs-lost <n>` on a pre-interview version (or `{ note, source }` beside `outputs: []`), keeping surviving outputs in `outputs[]` |
+| `PRE_INTERVIEW_OUTPUTS_LOST_MALFORMED` | `outputs_lost` lacks nonempty note and source strings, has an unknown key or malformed/empty `recorded` `{ path, sha256 }` bindings, names a `recorded` path that overlaps `outputs` or is readable on disk, accompanies non-empty `outputs` without `recorded`, or is on a create-built version | restore the original loss declaration on the pre-interview version and keep surviving files in `outputs[]`. Legacy `{ note, source }` is valid beside `outputs: []` |
 | `PRE_INTERVIEW_HISTORY_MISSING` | a pre-interview version has no `original_verdicts` array | preserve its complete original verdict array |
 | `PRE_INTERVIEW_VERDICT_LOST` | an original verdict has no unchanged `as_recorded` at the matching index, or an extra `as_recorded` has no original | restore the complete original history and its order |
 | `PRE_INTERVIEW_VERDICT_UNKNOWN` | an original verdict string has no exact entry in `PRE_INTERVIEW_VERDICTS` | retain it and obtain an explicit mapping, without guessing |
 | `PRE_INTERVIEW_VERDICT_MISMATCH` | a converted verdict disagrees with that table | apply the stated mapping and retain the original string |
 | `PRE_INTERVIEW_OUTPUT_MALFORMED` | historical outputs are empty without a loss declaration, or lack a distinct project-relative path, lowercase sha256 or nonnegative integer size | list each frozen file with its path, sha256 and bytes |
-| `PRE_INTERVIEW_OUTPUT_UNREAD` | a historical output is unreadable or resolves outside the project | restore the frozen file under the project; if a `pre_interview: true` version's frozen outputs did not survive, record the loss with `rig-create version outputs-lost <n> --note <text> --source <text>` |
+| `PRE_INTERVIEW_OUTPUT_UNREAD` | a historical output is unreadable or resolves outside the project | restore the frozen file under the project |
 | `PRE_INTERVIEW_OUTPUT_CHANGED` | a historical output's hash or size differs from the recorded value | restore the frozen bytes and inspect the migration record |
 | `VERDICT_MALFORMED` (pre-interview) | an imported verdict lacks create-shaped fields, a valid date or a nonempty source, or `verbatim: null` lacks a nonempty note recording the user | preserve the source and write the record in `note`. A create-built version still requires the user's words |
 | `FEEDBACK_REF_UNKNOWN` | an `answers_feedback` entry is not `{ version, verdict }` integers, names no version or no verdict index, or names a version not earlier than its own | point it at the verdict it answers |
@@ -564,7 +565,7 @@ Exit `1`. Each names its object in `path`.
 | `FEEDBACK_NOT_ADDED` | an item is `not-asked` and its answer has no `additions[]` entry with `source: "polish feedback, v<N>"` quoting the verdict, or a recorded Review feedback route has no matching addition for its exact comment | add the sentence to the guide (`rig-create review` does it when it records the verdict) before the next version is built, or restore the original routed addition |
 | `DELEGATION_NOT_GIVEN` | an entry is `delegated: true`, and no answer of the cited item (current or `history[]`) is a delegation or carries an `agent_decision` — or the delegation has no `agent_decision` | cite the sentence instead, or ask the user; a user answer is not a delegation unless it left part open and the agent's decision is written beside it |
 | `RIG_TYPE_UNKNOWN` | the answered `rig_type` (the user's `value`, or the agent's decision on a delegation) is none of `character.idle`, `character.complex`, `character.monster`, `fullscreen.minimal`, `fullscreen.game_logic` | write the value the answer means ([INTERVIEW.md](INTERVIEW.md)); an illustration CG is `fullscreen.minimal` or `fullscreen.game_logic` |
-| `CG_GATES_UNREAD` | a CG project's `rig` version (§ CG gates) has no config at `provenance.config.path` under the project with the recorded sha256, or the requirements file its config names is not there, under the project, a JSON object | keep the config the version was built from, and its requirements file, under the project (`evidence/v<N>/`) and record the config's path and sha256. For a `pre_interview: true` version with no `provenance.config` whose config did not survive, record the loss with `version config-lost <n>` (`CG_GATES_CONFIG_LOST`) |
+| `CG_GATES_UNREAD` | a CG project's `rig` version (§ CG gates) has no config at `provenance.config.path` under the project with the recorded sha256, or the requirements file its config names is not there, under the project, a JSON object | keep the config the version was built from, and its requirements file, under the project (`evidence/v<N>/`) and record the config's path and sha256 |
 | `CG_GATE_UNDECLARED` | a CG project's `rig` version's config lacks `assemble.editor_receipts.trace_parts: true` or a `requirements` path, or its requirements file lacks `seam_over_motion.required: true` or an integer `boundary_colour.max_step_excess`; `path` names the field | declare it and rebuild; a refusal parts then gives is the art's to fix, not a reason to drop the gate |
 | `CG_BOUNDARY_ALLOWANCE_RAISED` | a CG version's requirements file declares `boundary_colour.max_step_excess` above 12 | declare 12 or less; fix the piece's image or mesh that the step points at |
 | `CG_GATE_UNDECLARED` (behind-part seams) | a CG rig version from `CG_BEHIND_SEAMS_SINCE`, or without a readable `at`, lacks a nonnegative integer `behind_seams.threshold`, or supplies an invalid pair threshold; the field path and found value are named | declare `behind_seams.threshold` from 0 through 12 in the config's requirements file and rebuild; pair thresholds must also be from 0 through 12 |
@@ -1562,42 +1563,6 @@ contract date is added.
 | `DIRECTION_IDLE_UNBOUND` | the frames path and sha256 are not `versions[v<R>].registration.idle` (for `frames.json`) or a `versions[v<R>].outputs` row (for other idle files) | run `scene write` again so the frames equal the registration |
 | `DIRECTION_IDLE_HASH` | the frames bytes on disk differ from the bound sha256, including a change during `direction write` | restore the frozen `outputs/v<R>/idle/` bytes, or register a new rig version |
 
-## Pre-interview `config_lost` and `outputs_lost` writers
-
-`rig-create version config-lost <n> --note <text> --source <text> [<dir>]`
-records `config_lost: { note, source }` on a migrated pre-interview version
-whose build config did not survive, validating the candidate with `checkProject`
-before writing. A refused write leaves `project.json` byte-identical.
-
-`rig-create version outputs-lost <n> --note <text> --source <text> [<dir>]`
-records `outputs_lost: { note, source, recorded }` on a migrated pre-interview
-version whose frozen outputs did not survive, keeping any outputs still readable
-with their recorded sha256 in `outputs` and moving only the missing ones into
-`outputs_lost.recorded` (`outputs: []` when none survived). `recorded` retains
-the dropped `{ path, sha256 }` bindings disjoint from `outputs` so the loss stays
-auditable; existing `{ note, source }` declarations beside `outputs: []` without
-`recorded` remain valid, so no `*_SINCE` cutoff is added. When no output is lost
-(every output is readable with its sha256), the writer refuses with
-`OUTPUTS_LOST_HAS_OUTPUTS`. The writer validates with
-`inspectPreInterviewOutputs`, `validOutputsLoss` and `checkProject`, and a
-refused write leaves `project.json` byte-identical.
-
-| Code | Fires when | Clear it by |
-| --- | --- | --- |
-| `CONFIG_LOST_USAGE` | subcommand, version number or required `--note` / `--source` flags are missing, repeated or malformed (exit 2) | supply `rig-create version config-lost <n> --note <text> --source <text> [<dir>]` |
-| `CONFIG_LOST_EMPTY` | `--note` or `--source` is empty or whitespace | supply non-empty `--note` and `--source` strings explaining the loss and naming its source record |
-| `CONFIG_LOST_VERSION_UNKNOWN` | `versions[]` has no entry with that `n` | name an existing pre-interview version in `versions[]` |
-| `CONFIG_LOST_NOT_PRE_INTERVIEW` | the target version does not carry `pre_interview: true` | record `config_lost` only on a migrated `pre_interview: true` version; keep `provenance.config` on create-built versions |
-| `CONFIG_LOST_HAS_CONFIG` | the target version carries a non-null `provenance.config` | retain the surviving build config instead of declaring `config_lost` |
-| `CONFIG_LOST_ALREADY_SET` | `config_lost` is already present on the target version | preserve the existing `config_lost` declaration |
-| `OUTPUTS_LOST_USAGE` | version number or required `--note` / `--source` flags are missing, repeated or malformed (exit 2) | supply `rig-create version outputs-lost <n> --note <text> --source <text> [<dir>]` |
-| `OUTPUTS_LOST_EMPTY` | `--note` or `--source` is empty or whitespace | supply non-empty `--note` and `--source` strings explaining the loss and naming its source record |
-| `OUTPUTS_LOST_VERSION_UNKNOWN` | `versions[]` has no entry with that `n` | name an existing pre-interview version in `versions[]` |
-| `OUTPUTS_LOST_NOT_PRE_INTERVIEW` | the target version does not carry `pre_interview: true` | record `outputs_lost` only on a migrated `pre_interview: true` version; keep `outputs[]` on create-built versions |
-| `OUTPUTS_LOST_HAS_OUTPUTS` | no output is lost on the target version (every recorded output is still readable with its recorded sha256) | keep the surviving outputs instead of declaring `outputs_lost` |
-| `OUTPUTS_LOST_ALREADY_SET` | `outputs_lost` is already present on the target version | preserve the existing `outputs_lost` declaration |
-| `REVIEW_ACT_STILL_INVALID` | `project.json.review_acts`: the exported still PNG is missing, mismatched or conflicts with retained bytes | fetch the complete original act and PNG pair |
-
 ## Review CLI response receipts
 
 | Code | Finding and remedy |
@@ -1759,24 +1724,16 @@ needed for done (#981).
 
 | Code | Meaning and remedy |
 | --- | --- |
-| `PUBLICATION_PAINTING_MISSING` | The republished version has no declared `inputs[0]` original painting; register the original with `input add`. |
-| `PUBLICATION_GENERATION_DUPLICATE` | The version already has its requested painting or scene publication; reopen its existing generation with `job open --rig`. |
 | `PUBLICATION_GENERATION_INVALID` | The version's optional publication chain has invalid identity, predecessor, timestamp, reason or bytes; restore its immutable generation files and recorded hashes. |
 
-`republish <rig> [<dir>] --reason <words>` upgrades a legacy empty-reference
-publication once, to `review-live-v<rig>-g2.json`. `versions[].publication_generations`
-records generation 2, its generation 1 predecessor and both file hashes, `at` and
-`reason`. No stage, verdict, sign-off or rig artifact changes. Legacy-only records
-remain valid without adoption or a new contract date. `job open --rig` selects
-the recorded generation; the original publication remains byte-identical.
-
-For an already-published direction@2 post, `republish <post> [<dir>] --reason
-<words>` adds only `scene` and the `-g2` revision. Its references remain unchanged,
-including an empty list; it introduces no original-painting requirement. The scene
-and every declared plate are sealed as `{path, sha256}` with the direction. New
-post manifests include `scene` only alongside `direction`; existing manifests are
-never rewritten. @1 and scene-less publications retain their previous bytes. Any
-other post generation delta refuses `PUBLICATION_GENERATION_INVALID`.
+An existing `versions[].publication_generations` entry binds
+`review-live-v<N>-g2.json` and its predecessor `review-live-v<N>.json` by hash
+and retains the timestamp and reason. The rig generation adds the original
+painting reference to an empty reference list. The direction@2 post generation
+adds the bound scene and preserves its references. Both generations carry their
+own revision. `job open --rig` selects the recorded generation, and act ingest
+selects by the package identity the reviewer saw. Records without a generation
+entry continue to use `review-live-v<N>.json`.
 
 ### Source CI pin guard
 

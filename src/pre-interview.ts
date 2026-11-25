@@ -47,23 +47,8 @@ function inside(root: string, file: string): boolean {
   return rel !== '' && rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel);
 }
 
-export interface OutputBinding {
-  readonly path: string;
-  readonly sha256: string;
-}
-
-export interface PreInterviewOutputsInspection {
-  readonly refusals: Finding[];
-  readonly malformed: Finding[];
-  readonly otherRefusals: Finding[];
-  readonly bindings: OutputBinding[];
-  readonly missing: OutputBinding[];
-  readonly readable: string[];
-  readonly allMissing: boolean;
-}
-
 /** A loss declaration is usable on a pre-interview version with recorded missing bindings disjoint from surviving outputs, or legacy { note, source } beside outputs: []. */
-export function validOutputsLoss(version: JsonObject, dir: string): boolean {
+function validOutputsLoss(version: JsonObject, dir: string): boolean {
   const loss = version.outputs_lost;
   if (version.pre_interview !== true || !isObject(loss)
     || !Object.keys(loss).every((k) => k === 'note' || k === 'source' || k === 'recorded')
@@ -101,104 +86,53 @@ export function validOutputsLoss(version: JsonObject, dir: string): boolean {
   return true;
 }
 
-export const OUTPUTS_LOST_MALFORMED_MESSAGE =
+const OUTPUTS_LOST_MALFORMED_MESSAGE =
   'record { note, source, recorded } with nonempty strings and missing { path, sha256 } bindings disjoint from surviving outputs (or { note, source } beside outputs: []) on a pre-interview version; restore surviving output records otherwise';
 
-/** Shared output validator for check and `version outputs-lost`. */
-export function inspectPreInterviewOutputs(dir: string, version: JsonObject, label: string): PreInterviewOutputsInspection {
-  const refusals: Finding[] = [];
-  const malformed: Finding[] = [];
-  const otherRefusals: Finding[] = [];
-  const bindings: OutputBinding[] = [];
-  const missing: OutputBinding[] = [];
-  const readable: string[] = [];
-  const push = (target: Finding[], code: string, path: string, message: string): void => {
-    const finding = { code, path, message: `${path}: ${message}` };
-    refusals.push(finding);
-    target.push(finding);
+function checkOutputs({ dir, refusals }: HistoryCtx, version: JsonObject, label: string): void {
+  const push = (code: string, path: string, message: string): void => {
+    refusals.push({ code, path, message: `${path}: ${message}` });
   };
   const hasOutputsLost = Object.hasOwn(version, 'outputs_lost');
-  if (hasOutputsLost) {
-    if (!validOutputsLoss(version, dir)) {
-      push(malformed, 'PRE_INTERVIEW_OUTPUTS_LOST_MALFORMED', `${label}.outputs_lost`, OUTPUTS_LOST_MALFORMED_MESSAGE);
+  if (hasOutputsLost && !validOutputsLoss(version, dir)) {
+    push('PRE_INTERVIEW_OUTPUTS_LOST_MALFORMED', `${label}.outputs_lost`, OUTPUTS_LOST_MALFORMED_MESSAGE);
+  }
+  if (!Array.isArray(version.outputs) || version.outputs.length === 0) {
+    if (!hasOutputsLost) {
+      push('PRE_INTERVIEW_OUTPUT_MALFORMED', `${label}.outputs`, 'a pre-interview version lists its frozen output files with path, sha256 and bytes');
     }
-    if (!Array.isArray(version.outputs) || version.outputs.length === 0) {
-      return { refusals, malformed, otherRefusals, bindings, missing, readable, allMissing: false };
-    }
-  } else if (!Array.isArray(version.outputs) || version.outputs.length === 0) {
-    push(malformed, 'PRE_INTERVIEW_OUTPUT_MALFORMED', `${label}.outputs`, 'a pre-interview version lists its frozen output files with path, sha256 and bytes');
-    return { refusals, malformed, otherRefusals, bindings, missing, readable, allMissing: false };
+    return;
   }
   const paths = new Set<string>();
-  const outcomes: (
-    | { kind: 'malformed'; path: string; message: string }
-    | { kind: 'outside'; path: string }
-    | { kind: 'missing'; path: string; rawPath: string }
-    | { kind: 'changed'; path: string; rawPath: string; actual: string; length: number }
-    | { kind: 'ok' }
-  )[] = [];
   version.outputs.forEach((raw, index) => {
     const path = `${label}.outputs[${index}]`;
     if (!isObject(raw) || typeof raw.path !== 'string' || raw.path.trim() === '' || typeof raw.sha256 !== 'string'
       || !/^[0-9a-f]{64}$/.test(raw.sha256) || typeof raw.bytes !== 'number' || !Number.isSafeInteger(raw.bytes) || raw.bytes < 0) {
-      outcomes.push({ kind: 'malformed', path, message: 'an output is { path, sha256 (64 lowercase hex digits), bytes (a nonnegative integer) }' });
+      push('PRE_INTERVIEW_OUTPUT_MALFORMED', path, 'an output is { path, sha256 (64 lowercase hex digits), bytes (a nonnegative integer) }');
       return;
     }
     const file = resolve(dir, raw.path);
     if (isAbsolute(raw.path) || !inside(dir, file) || paths.has(file)) {
-      outcomes.push({ kind: 'malformed', path, message: 'each output names a distinct file relative to the project' });
+      push('PRE_INTERVIEW_OUTPUT_MALFORMED', path, 'each output names a distinct file relative to the project');
       return;
     }
     paths.add(file);
-    bindings.push({ path: raw.path, sha256: raw.sha256 });
     let bytes: Buffer;
     try {
       if (!inside(realpathSync(dir), realpathSync(file))) {
-        outcomes.push({ kind: 'outside', path });
+        push('PRE_INTERVIEW_OUTPUT_UNREAD', path, 'the output resolves outside the project');
         return;
       }
       bytes = readFileSync(file);
     } catch {
-      missing.push({ path: raw.path, sha256: raw.sha256 });
-      outcomes.push({ kind: 'missing', path, rawPath: raw.path });
+      push('PRE_INTERVIEW_OUTPUT_UNREAD', path, `${raw.path} cannot be read; restore the frozen file before checking the migration`);
       return;
     }
     const actual = createHash('sha256').update(bytes).digest('hex');
     if (actual !== raw.sha256 || bytes.length !== raw.bytes) {
-      outcomes.push({ kind: 'changed', path, rawPath: raw.path, actual, length: bytes.length });
-      return;
+      push('PRE_INTERVIEW_OUTPUT_CHANGED', path, `${raw.path} has sha256 ${actual} and ${bytes.length} bytes, different from its frozen record`);
     }
-    readable.push(raw.path);
-    outcomes.push({ kind: 'ok' });
   });
-  const allMissing = version.pre_interview === true && !hasOutputsLost && missing.length === version.outputs.length && readable.length === 0;
-  const canRecordLoss = version.pre_interview === true
-    && !hasOutputsLost
-    && missing.length > 0
-    && outcomes.every((o) => o.kind === 'missing' || o.kind === 'ok');
-  const lostRemedy = canRecordLoss && typeof version.n === 'number'
-    ? `; if this pre-interview version's frozen outputs did not survive, record the loss with rig-create version outputs-lost ${String(version.n)} --note <text> --source <text>`
-    : '';
-  for (const outcome of outcomes) {
-    if (outcome.kind === 'malformed') {
-      push(malformed, 'PRE_INTERVIEW_OUTPUT_MALFORMED', outcome.path, outcome.message);
-    } else if (outcome.kind === 'outside') {
-      push(otherRefusals, 'PRE_INTERVIEW_OUTPUT_UNREAD', outcome.path, 'the output resolves outside the project');
-    } else if (outcome.kind === 'missing') {
-      refusals.push({
-        code: 'PRE_INTERVIEW_OUTPUT_UNREAD',
-        path: outcome.path,
-        message: `${outcome.path}: ${outcome.rawPath} cannot be read; restore the frozen file before checking the migration${lostRemedy}`,
-      });
-    } else if (outcome.kind === 'changed') {
-      push(otherRefusals, 'PRE_INTERVIEW_OUTPUT_CHANGED', outcome.path, `${outcome.rawPath} has sha256 ${outcome.actual} and ${outcome.length} bytes, different from its frozen record`);
-    }
-  }
-  return { refusals, malformed, otherRefusals, bindings, missing, readable, allMissing };
-}
-
-function checkOutputs(ctx: HistoryCtx, version: JsonObject, label: string): void {
-  ctx.refusals.push(...inspectPreInterviewOutputs(ctx.dir, version, label).refusals);
 }
 
 function checkOriginals(ctx: HistoryCtx, version: JsonObject, label: string): void {

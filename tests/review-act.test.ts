@@ -14,7 +14,6 @@ import { assertReviewActSource, decodeReviewAct, decodeReviewResponse, fetchRevi
 import { directionPin, existingShapes, framedRigPin, HISTORICAL_DIRECTION_VALUE, TIME_ONLY_BASIS } from './comment-anchor-shapes.ts';
 import { pendingMeshDeltaRevision } from '../src/corrections.ts';
 import { commentCommand } from '../src/comment-act.ts';
-import { republishCommand } from '../src/republish.ts';
 import { readVersions } from '../src/review.ts';
 import { formatNext, nextProject } from '../src/next.ts';
 import { reviewPackageCommand } from '../src/review-package.ts';
@@ -27,6 +26,7 @@ import { plantLegacyReopen, fixture } from './fixtures.ts';
 import { clockedCli, staleRecordPlant, treeDigest } from './helpers.ts';
 import { legacyRigPublicationCli } from './legacy-rig-publication.ts';
 import { meshEdits } from './mesh-edit-fixture.ts';
+import { retainRigPublicationGeneration } from './publication-generation-fixture.ts';
 import { EXAMPLE_NOW, EXAMPLE_REOPEN_AT } from '../scripts/example-time.ts';
 
 const directories: string[] = [];
@@ -71,8 +71,7 @@ async function published(checkpoint = '3-rig-review', n = 1, role: 'owner' | 'de
     advanceCommand(['direction-review', root]);
   }
   if (generation === 2) {
-    prepareLiveManifest(root, { ...projectAt(root), inputs: [] }, n);
-    expect(republishCommand([String(n), root, '--reason', 'Include the original painting.'], testClock.now()).exit).toBe(0);
+    retainRigPublicationGeneration(root, projectAt(root), testClock.now());
   }
   const hidden = temporary('create-act-hidden-');
   // Existing fetch-only fixtures omit the actual host state path.
@@ -1323,11 +1322,67 @@ test('g2 publication still refuses a mismatched package identity without writing
 });
 
 
-test('a retained g1 identity selects its exact manifest after republishing', async () => {
+test('a retained g1 identity still selects its exact manifest when g2 exists', async () => {
   const { root, act } = await published('3-rig-review', 1, 'owner', 'Approved.', 'approved', 2);
   const previous = { ...act, source: { ...act.source, package: { id: 'create-v1', revision: 'v1' } } };
   expect(() => assertReviewActSource(root, projectAt(root), decodeReviewAct(JSON.stringify(previous)))).not.toThrow();
 });
+
+test('a historical rig with config_lost and a retained g2 still checks and ingests the stored verdict', async () => {
+  const root = temporary('create-act-config-lost-');
+  cpSync(join(import.meta.dir, '../templates/example-chain/checkpoints/3-rig-review'), root, { recursive: true });
+  testClock.set(EXAMPLE_REOPEN_AT);
+  const project = projectAt(root);
+  const version = objects(project.versions)[0]!;
+  const loss = { note: 'The synthetic build config did not survive.', source: 'Synthetic archive inventory.' };
+  version.pre_interview = true;
+  version.original_n = 'archive-1';
+  version.original_verdicts = [];
+  version.config_lost = loss;
+  version.provenance = null;
+  delete version.built_with;
+  const reviewPackage = version.review_package as JsonObject;
+  delete reviewPackage.config;
+  reviewPackage.files = objects(reviewPackage.files).filter(file => file.path !== 'config.json');
+  rmSync(join(root, 'evidence/v1/config.json'));
+  rmSync(join(root, 'derived/review/v1/config.json'));
+  putProject(root, project);
+  const diagnostics = (candidate?: JsonObject) => {
+    const checked = checkProject(root, candidate);
+    const findings = (rows: Finding[]) => rows.map(({ code, path }) => ({ code, path }));
+    return { stage: checked.effective_stage, refusals: findings(checked.refusals), warnings: findings(checked.warnings) };
+  };
+  const expected = { stage: 'rig-review', refusals: [], warnings: [] };
+  expect(diagnostics()).toEqual(expected);
+  const generation = retainRigPublicationGeneration(root, project, testClock.now());
+  expect(diagnostics()).toEqual(expected);
+  const malformed = structuredClone(project);
+  objects(malformed.versions)[0]!.config_lost = { ...loss, source: '' };
+  expect(diagnostics(malformed)).toEqual({ ...expected,
+    refusals: [{ code: 'PRE_INTERVIEW_CONFIG_LOST_MALFORMED', path: 'versions[v1].config_lost' }],
+  });
+
+  const words = 'Keep the historical rig for comparison and revise the motion in the next build.';
+  const { act } = await published('3-rig-review', 1, 'owner', words, 'changes-requested', 1, false, { root, rigVersion: 1 });
+  expect(act.source.package).toEqual({ id: 'create-v1', revision: 'v1-g2' });
+  const binding = readWriterBinding(root)!;
+  const { bytes } = await fetchReviewAct(reviewActTransport(root, act.actId));
+  expect(readAcknowledgedPublication(root, binding.jobId, act.publicationId)?.result.path).toBe(generation.manifest.path);
+  const result = await command(root, act.actId);
+  expect({ exit: result.exit, stderr: result.stderr }).toEqual({ exit: 0, stderr: '' });
+  const recorded = projectAt(root);
+  expect(reviewVerdictReceipts(recorded)).toContainEqual(expect.objectContaining({ actId: act.actId, bytes, sha256: jobHash(bytes) }));
+  expect(objects(recorded.versions)[0]).toMatchObject({
+    config_lost: loss, publication_generations: [generation],
+    verdicts: [expect.objectContaining({ review: 'rig-review', verdict: 'bounced', verbatim: `[general]\n${words}` })],
+  });
+  for (const file of [generation.supersedes, generation.manifest]) {
+    expect(jobHash(readFileSync(join(root, file.path)))).toBe(file.sha256);
+  }
+  expect(diagnostics()).toEqual({ ...expected,
+    warnings: [{ code: 'FEEDBACK_OPEN', path: 'versions[v1].verdicts[0]' }],
+  });
+}, 20_000);
 
 async function publishedComposed(extraValue?: Parameters<typeof published>[8]) {
   const f = composeFixture();

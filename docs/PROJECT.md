@@ -101,8 +101,8 @@ write time and is never stored. Findings match by code and path with
 multiplicity, so a carried code at a new path is new, and the refusal names only
 the new code. `signoff`, `step-status`, `pause`, `resume`, `amend`,
 `draft-rig` and `review` follow this rule; the interview, plan, scene, direction, correction,
-`rig-version`, `version config-lost` and `version outputs-lost` writers already did. Each writer's own
-pre-checks are unchanged, and `check` still reports every carried refusal.
+and `rig-version` writers already did. Each writer's own pre-checks are
+unchanged, and `check` still reports every carried refusal.
 `advance` still needs 0 refusals: it is the stage boundary. A check that stops
 early (an unreadable record, `SCHEMA_UNKNOWN`, `STAGE_UNKNOWN`) read nothing
 after that point, so it gives no baseline to any writer above: each one refuses
@@ -1196,19 +1196,14 @@ that disagrees with the table is `PRE_INTERVIEW_VERDICT_MISMATCH`.
 
 Every historical version lists its frozen `outputs[]` with project-relative
 `path`, `sha256` and `bytes`. The check reads every file and compares its hash
-and size. If frozen outputs did not survive, declare
-`outputs_lost: { note, source, recorded }` via
-`rig-create version outputs-lost <n> --note <text> --source <text>`, keeping any
-outputs still readable with their recorded sha256 in `outputs` (`outputs: []` when
-none survived) and moving the missing ones into `recorded: [{ path, sha256 }]`
-alongside what was lost and the source record that says so. Both
-`note` and `source` must be nonempty strings. Earlier `{ note, source }`
-declarations beside `outputs: []` without `recorded` remain valid, so no contract
-date is added. A loss declaration without `recorded` beside nonempty `outputs`,
-a `recorded` entry overlapping `outputs` or readable on disk, or `outputs_lost`
-on a create-built version is refused (`PRE_INTERVIEW_OUTPUTS_LOST_MALFORMED`). If
-no output is lost (every recorded output is readable on disk with its sha256),
-the writer refuses (`OUTPUTS_LOST_HAS_OUTPUTS`) and names the readable outputs.
+and size. An existing `outputs_lost: { note, source, recorded }` declaration
+retains the missing `{ path, sha256 }` bindings in `recorded`, the surviving
+bindings in `outputs` (`outputs: []` when none survived), and the explanation
+and its source. Both `note` and `source` must be nonempty strings. Earlier
+`{ note, source }` declarations beside `outputs: []` remain valid. A loss
+declaration without `recorded` beside nonempty `outputs`, a `recorded` entry
+overlapping `outputs` or readable on disk, or `outputs_lost` on a create-built
+version is refused (`PRE_INTERVIEW_OUTPUTS_LOST_MALFORMED`).
 Handoff refuses a selected rig with `outputs_lost`
 as `PRE_INTERVIEW_OUTPUTS_LOST`, and post records cannot use it as their rig
 basis (`POST_ON_UNACCEPTED_RIG`). All
@@ -1219,10 +1214,10 @@ For a lost build config, first recover the producer version from that version's
 own source record and put it in `built_with["@rig-c/parts"]`. A version's
 producer is recorded from its own source record, never inferred from neighbours.
 A producer older than 2.4.0 receives `CG_GATES_PREDATE` on a CG rig.
-If the config did not survive, declare `config_lost: { note, source }` with
-nonempty strings explaining the loss and naming its source. This requires
-`pre_interview: true` and absent or null `provenance.config`. A CG rig receives
-`CG_GATES_CONFIG_LOST` instead of `CG_GATES_UNREAD`, preserving the check exit
+An existing `config_lost: { note, source }` declaration remains valid on a
+`pre_interview: true` version with absent or null `provenance.config`. Both
+strings must be nonempty and explain the loss and name its source. A CG rig
+receives `CG_GATES_CONFIG_LOST` instead of `CG_GATES_UNREAD`, preserving the check exit
 when the rest of the record passes. A known old producer and a declared config
 loss receive both warnings. The declaration is also available when the source
 names no producer version. Handoff refuses a selected rig with this declaration
@@ -1266,18 +1261,18 @@ perform the following migration on its own decision record.
    with `note`. Preserve carried `on_items[]` and map them to the interview's
    item ids. Recover dates from dated evidence without inventing them.
 4. First record any producer version named by each version's own source in
-   `built_with`; never infer it from neighbouring versions. Restore the build
-   config and its provenance binding if it survived. Otherwise declare
-   `config_lost: { note, source }` explaining the loss and its source; this
-   version cannot authorize post work. `rig-create version config-lost <n> --note <text> --source <text>`
-   writes this declaration.
+   `built_with`; never infer it from neighbouring versions. Preserve valid
+   `config_lost` and `outputs_lost` declarations already on the version,
+   including the earlier `{ note, source }` output-loss shape beside `outputs: []`.
+   Restore the build config and its provenance binding if it survived. If the
+   source documents a lost config, retain `config_lost: { note, source }` as
+   part of that imported history. A version with that declaration cannot
+   authorize post work.
    Restore each frozen output and record its actual `path`, `sha256` and
-   `bytes`. When some or all frozen outputs did not survive, declare `outputs_lost`
-   with the known loss in `note` and its record in `source`;
-   `rig-create version outputs-lost <n> --note <text> --source <text>` keeps
-   any readable outputs in `outputs` (`outputs: []` when none survived) and
-   moves the missing `{ path, sha256 }` bindings into
-   `outputs_lost.recorded`. Check that all
+   `bytes`. For documented output loss in the imported history, `outputs_lost`
+   retains the known loss in `note` and its record in `source`. Keep any readable
+   outputs in `outputs` (`outputs: []` when none survived). The `recorded` form
+   retains the missing `{ path, sha256 }` bindings. Check that all
    `answers_feedback` and `rig_version` references use the new `n`, including
    references from create-built entries. Retain acceptance stills and genuine
    stage sign-offs. The flag

@@ -10,7 +10,7 @@ import { answered, asArray, collectItems, collectSignoffs, collectionQuestion, l
 import { draftFileUnavailable } from './drafts.ts';
 import { collectReopens, liveSignoff } from './reopen.ts';
 import { latestPartsApproval, partsApprovalIdentity, rigPartsApproval, structurePathIsIgnored } from './structure.ts';
-import { CHOICE_ORDER_SPEC, approvalStageOfGuide, hasStageOrder, interviewStageOfGuide, stageIndex } from './stages.ts';
+import { CHOICE_ORDER_SPEC, approvalStageOfGuide, hasStageOrder, interviewStageOfGuide, stageIndex, stepPlanValue } from './stages.ts';
 import { WAYPOINT_ASKS } from './waypoints.ts';
 import type { Json, JsonObject } from './templates.ts';
 
@@ -438,6 +438,8 @@ export function checkChoices(ctx: Ctx): void {
     if (item.state.state === 'user' || item.state.state === 'delegated') answers.push({ answer: item.state.answer, path: item.path, current: true });
     for (const { answer, path, current } of answers) {
       if (answer.choice !== undefined) { try { validateChoice(ctx.dir, ctx.project, item, answer, legacyScene(ctx, path)); } catch (e) { ctx.refusals.push(finding(e, path)); } }
+      // A step plan's value is delegated without an option set (docs/INTERVIEW.md § Step plans).
+      else if (current && stepPlanValue(ctx.project, item, answer)) continue;
       else if (current && itemAdopted !== null) {
         // An inherited collection answer is historical evidence, never a fabricated member click.
         const inherited = isObject(item.raw) && item.raw.basis === 'inherited';

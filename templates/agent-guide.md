@@ -10,7 +10,7 @@ One painting; one rig and its takes.
 
 After an accepted post is bounced, record the owner's correction with `amend direction-review`.
 
-Stale pins: `rig-create packages upgrade --by <operator>`.
+Stale pins: `packages upgrade --by <operator>`.
 
 Declare the painting: `init --painting <file> --origin <words>` or
 `input add <path> --painting --origin <words>`. `project.json.painting` binds
@@ -18,8 +18,8 @@ one input, survives restart and checks sibling artwork; optional on older record
 
 ## The order, and what you may not do
 
-`interview` → `plan-approved` → `parts` → `parts-review` (the parts, by eye) →
-`rigging-interview` → `rigging` → `rig-review` (the rig, still frame) → `post-interview` → `post` →
+`interview` → `plan-approved` → `parts` → `parts-review` (parts, by eye) →
+`rigging-interview` → `rigging` → `rig-review` (rig, still frame) → `post-interview` → `post` →
 `direction-review` → `accepted`. Any stage can become `paused`.
 
 - Only human `signoffs[]` advance `stage` or pass plan checkpoints.
@@ -31,11 +31,12 @@ one input, survives restart and checks sibling artwork; optional on older record
 
 ## The user's four steps
 
-1. **Parts and meshes**. Ask framing/source; review a labelled draft's parts and mesh/chest structure. `parts-review` records its Review API response.
+Per step, `plan propose` a page of plain sentences in `owner.language`: summary; what and why by area; left out; 2–3 direction questions. `plan feedback` logs replies; no gate.
+
+1. **Parts and meshes**. Review a labelled draft's parts and mesh/chest structure. `parts-review` records its Review API response.
    The latest receipt must approve the draft for `structure-snapshot --draft <id>`
    and `signoff parts-review --draft <id> --structure-file <f>`; record component triage with `diff-classes --diff-report <p> --by agent` ({{DRAFTS_LINK}}).
-2. **Rigging interview**. Ask fresh bones, deformation, physics and motion
-   against approved parts/structure; use interview-options/answer/decision.
+2. **Rigging interview**. Plan bones, deformation, physics, motion on approved parts/structure.
 3. **Rig and animation**. Keep rig feedback.
    Ingest: `review <version> --from-review <actId>`.
 4. **Direction**. Copy owner `value.compose` into Parts' scene and compose to green.
@@ -45,7 +46,7 @@ one input, survives restart and checks sibling artwork; optional on older record
    Ingest `review <post> --from-review <actId>`, then `job open --plan` for
    record-page sign-off (source-linked Review).
 
-Use `advance <stage>` and `step-status <id>` (`rig-create --help`).
+Use `advance <stage>`, `step-status <id>`.
 `advance parts-review` needs `--parts-check <report> --parts <assembled dir>`,
 refusing {{PARTS_CHECK_LINK}}.
 In `parts`, record an `intake-report` preflight and offer its choice, both advisory: {{INTAKE_LINK}}.
@@ -71,7 +72,7 @@ Successful closes end it; share a new URL on reopen.
 
 - `job close` ends/retires the job after a pin/hook bump (`--retire-refused` archives failed publications).
 - `job close --discard-acts <reason> --by agent` (or `--by <owner> --owner-chat <file> --said-at <ISO> --relayed-by <operator>`) records the discard.
-- `job open`/`job reconcile` can archive an offline replaced-root job (`job open` opens a new URL).
+- `job open`/`job reconcile` archive an offline replaced-root job.
 
 ## Before you ask, plan or show
 

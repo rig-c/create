@@ -93,6 +93,8 @@ ${INPUT_CLI}  rig-create init <dir> [--no-install]              create a project
   rig-create signoff <stage> --from-review <actId> [<project dir>]
   rig-create signoff <stage> --by <who> [--steps <id,id,...>] [--verbatim-file <file>] [<project dir>]
                                                     record a signature without moving the stage
+  rig-create plan propose <step> --file <plan.md> --by <drafter> [<project dir>]
+                                                    propose one plan for a whole step; feedback attaches with plan feedback
   rig-create plan add|revise|remove|replace <id> --by <drafter> [<project dir>]
                                                     draft steps and retain replaced definitions
   rig-create advance <stage> [<project dir>]

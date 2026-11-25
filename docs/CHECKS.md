@@ -482,7 +482,7 @@ Exit `1`. Each names its object in `path`.
 | `PLAN_REPLACED_ORDER` | a history entry predates an earlier entry | preserve append order and restore the recorded dates |
 | `PLAN_REPLACED_DUPLICATE` | two entries share `step.id` and `at` | retain unique history identities and retry with the current clock |
 | `PLAN_REPLACED_SIGNOFF` | a signature's hash for a replaced id matches neither the current step nor its retained history | restore the signed step and its replacement history |
-| `PLAN_OPTION_INVALID` | plan CLI arguments are missing, repeated or malformed (exit 2) | use plan add, revise, remove or replace with the documented fields and drafter |
+| `PLAN_OPTION_INVALID` | plan CLI arguments are missing, repeated or malformed, or plan propose/feedback names no step (exit 2) | use plan propose, feedback, add, revise, remove or replace with the documented fields and drafter |
 | `PLAN_STEP_INVALID` | plan writer sees no steps list, a duplicate add id, no unique revise/remove/replace target or a replace that changes the phase | restore the plan and use the appropriate action and id |
 | `PLAN_WRITE_CONFLICT` | another plan write holds the project lock, or project bytes change during validation | finish or recover the active writer, reload the project and retry |
 | `STEP_MALFORMED` | a step has no string `id`, a `phase` other than `rig` / `post`, or an id used twice | fix the step |
@@ -1278,10 +1278,10 @@ direction-review signature binds an accepted verdict and its version's reviewed 
 
 | Code | Fires when | Clear it by |
 | --- | --- | --- |
-| `SIGNOFF_ANSWERS_UNANSWERED` | The writer's covered `rests_on` item is absent, unanswered or unresolved | Answer the named item before signing |
+| `SIGNOFF_ANSWERS_UNANSWERED` | The writer's covered `rests_on` item is absent, unanswered or unresolved, and no current step plan covers it (a covered item binds that plan's step and sha256) | Answer the named item, or propose its step plan, before signing |
 | `SIGNOFF_ANSWERS_MISSING` | A current-era live approval has no answer hash map or omits an expected item | Sign the named stage again |
 | `SIGNOFF_ANSWERS_MISSING_LEGACY` | A pre-contract live approval lacks a complete answer hash map | Preserve history and bind the next approval |
-| `SIGNOFF_ANSWERS_STALE` | A live approval's bound item is missing, unresolved or its answer revision differs | Complete any missing or unresolved answer. After a correction, use `next` to re-sign each affected approval against the current answer |
+| `SIGNOFF_ANSWERS_STALE` | A live approval's bound item is missing, unresolved or its answer revision differs (for a plan-covered item: the current step plan's sha256 differs) | Complete any missing or unresolved answer. After a correction, use `next` to re-sign each affected approval against the current answer |
 
 ## Forward stage and step progress
 
@@ -1972,3 +1972,17 @@ the retained scene and every consumed character and plate to registered bytes.
 | `DIRECTION_COMPOSE_PLACEMENT` | report placement/plate hashes disagree, the report lacks a valid `rig_size`, reported character shift differs from the shift implied by that rig size and the cited offset, scale and canvas, compiled stage differs from the cited canvas, or recorded `compose.clipped_bounds` / report `clipped_bounds` differs from the compose-run `placement` | retain the matching Parts report and compiled model from a new compose of the cited scene |
 | `DIRECTION_COMPOSE_LOOP` | take.loop or cited post_timing.value.loop is not true | record a repeating timing choice and take.loop:true; producer green proves closure |
 | `DIRECTION_COMPOSE_DURATION` | the model lacks a single compiled `idle` animation, or `take.duration` differs from the scene idle duration, compiled idle duration, cited timing seconds or common end when tracks are present | align those declarations, compose and write a new post |
+
+## Step plans
+
+One plan per user step, proposed at once ([INTERVIEW.md § Step plans](INTERVIEW.md#step-plans)).
+Feedback is discussion; no code here fires because a plan has none.
+
+| Code | Fires when | Remedy |
+| --- | --- | --- |
+| `STEP_PLAN_INVALID` | `interview.step_plans` is not a list, or an entry lacks the schema, a known step, a path inside the project, a sha256, bytes, `inputs[]` of `{path, sha256}`, `by`, an ISO `at` or a `feedback` list | restore the writer's record or propose the plan again with plan propose |
+| `STEP_PLAN_FEEDBACK_INVALID` | a feedback entry is neither relayed owner chat nor a Review comment with words, comment id, a human `by`, `relayed_by` and an ISO `said_at` no later than `at` | record the person's words with plan feedback |
+| `STEP_PLAN_FILE_INVALID` | plan propose names a plan file or `--input` that is not a readable file inside the project folder, or an empty plan | keep the file in the project folder and write the plan before proposing it |
+| `STEP_PLAN_MISSING` | plan feedback names a step with no proposed plan, or a `--sha256` no entry of that step has; interview-decision `--value-file` names a question whose step has no plan | propose the plan first, or name the hash of the plan the words were about |
+| `STEP_PLAN_STALE` (WARN) | the current plan file or one of its bound inputs no longer matches its recorded sha256 | propose the plan again with plan propose so feedback binds the current content |
+| `STEP_PLAN_VALUE_UNSAID` (WARN) | a step-plan value (`source: "step plan"`) has a `plan_quote` that is not in the current plan file of its step, whitespace collapsed | say the value in plain words in the plan, propose it again, and record the value with interview-decision `--plan-quote-file` |

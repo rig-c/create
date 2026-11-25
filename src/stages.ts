@@ -149,8 +149,81 @@ export function isOpenInterviewArrivalStage(stage: string): boolean {
 
 export function silentInterviewItems(project: JsonObject, items: readonly Item[], stage: string): Item[] {
   const splitOrder = hasStageOrder(project);
-  return items.filter(item => item.state.state === 'silent'
+  return items.filter(item => item.state.state === 'silent' && !coveredByStepPlan(project, item)
     && interviewStageOfGuide(item.id, item.kind === 'post', splitOrder) === stage);
+}
+
+/** The user's steps a step plan is proposed for (docs/INTERVIEW.md § Step plans). */
+export const PLAN_STEPS = ['parts', 'rigging', 'motion', 'direction'] as const;
+export type PlanStep = typeof PLAN_STEPS[number];
+export const STEP_PLAN_SCHEMA = 'rig-create/step-plan@1';
+
+/** Which step plan answers a question: by the split order's placement, whatever order the project uses. */
+export function planStepOfGuide(id: string, post = false): PlanStep {
+  if (post) return 'direction';
+  if (id === 'motion') return 'motion';
+  return interviewStageOfGuide(id, false, true) === 'interview' ? 'parts' : 'rigging';
+}
+
+/** The latest proposal recorded for one step, if any; check validates its shape. */
+export function currentStepPlan(project: JsonObject, step: PlanStep): JsonObject | undefined {
+  const interview = project.interview;
+  if (interview === null || typeof interview !== 'object' || Array.isArray(interview)) return undefined;
+  const plans = interview.step_plans;
+  if (!Array.isArray(plans)) return undefined;
+  return plans.filter((entry): entry is JsonObject => entry !== null && typeof entry === 'object' && !Array.isArray(entry)
+    && entry.schema === STEP_PLAN_SCHEMA && entry.step === step).at(-1);
+}
+
+/** A question whose step has a proposed plan needs no per-question answer. */
+export function coveredByStepPlan(project: JsonObject, item: Pick<Item, 'id' | 'kind'>): boolean {
+  return currentStepPlan(project, planStepOfGuide(item.id, item.kind === 'post')) !== undefined;
+}
+
+export const STEP_PLAN_SOURCE = 'step plan';
+
+/**
+ * Every code site that reads an interview answer's value (or its date), by file and question.
+ * A question listed here needs a recorded value even when a step plan covers it: the agent
+ * records it with interview-decision --by agent (INTERVIEW.md § Step plans). Pinned by
+ * tests/step-plans.test.ts, which fails by name on a reader that is not listed.
+ * `empty` says what goes wrong when the question has no value.
+ */
+export const INTERVIEW_VALUE_READERS: readonly { question: string; file: string; empty: string }[] = [
+  { question: 'rig_type', file: 'ask-coverage.ts', empty: 'game_logic-only asks are treated as not applicable' },
+  { question: 'rig_type', file: 'cg-gates.ts', empty: 'a full-screen (CG) project skips the CG gates' },
+  { question: 'rig_type', file: 'choices.ts', empty: 'applicable asks fall back to the non-game_logic branch' },
+  { question: 'rig_type', file: 'choice-writers.ts', empty: 'a step-plan value records the non-game_logic asks' },
+  { question: 'assemble', file: 'ask-coverage.ts', empty: 'the projection and ground asks are refused as unanswered' },
+  { question: 'assemble', file: 'assemble-answers.ts', empty: 'projection and ground are not compared with config.json' },
+  { question: 'assemble', file: 'choices.ts', empty: 'the ground ask applies only when a set offers a visible projection' },
+  { question: 'turn', file: 'rig-version.ts', empty: 'no depth step is required, so a head turn is never built' },
+  { question: 'meshes', file: 'structure.ts', empty: 'a build with a structure delta is refused (no meshes answer date)' },
+  { question: 'camera_depth', file: 'direction.ts', empty: 'direction write refuses DIRECTION_CITATION' },
+  { question: 'camera_depth', file: 'direction-compose.ts', empty: 'composed direction has no camera citation' },
+  { question: 'post_timing', file: 'direction.ts', empty: 'direction write refuses DIRECTION_CITATION' },
+  { question: 'post_timing', file: 'direction-compose.ts', empty: 'composed direction has no timing values' },
+  { question: 'post_composition', file: 'compose-value.ts', empty: 'composed values have no candidates' },
+  { question: 'post_composition', file: 'direction-compose.ts', empty: 'composed direction has no composition values' },
+  { question: 'post_composition', file: 'next.ts', empty: 'next prints no scene command citation' },
+  { question: 'post_composition', file: 'scene-authority.ts', empty: 'scene write refuses SCENE_CITATION_MISSING' },
+  { question: 'post_composition', file: 'scene.ts', empty: 'scene check finds no citable answer' },
+  { question: 'post_composition', file: 'stage-progress.ts', empty: 'composeChoice is false, so post progress treats the project as having no compose value' },
+];
+
+/** The questions whose value code reads; every other covered question stays unanswered under a plan. */
+export const VALUE_QUESTIONS: readonly string[] = [...new Set(INTERVIEW_VALUE_READERS.map(reader => reader.question))];
+
+/** A delegated value the agent recorded under the current plan of the question's step (no option set). */
+export function stepPlanValue(project: JsonObject, item: Pick<Item, 'id' | 'kind'>, answer: JsonObject): boolean {
+  if (answer.source !== STEP_PLAN_SOURCE || answer.delegated !== true || !VALUE_QUESTIONS.includes(item.id)) return false;
+  const binding = answer.step_plan;
+  if (binding === null || typeof binding !== 'object' || Array.isArray(binding)) return false;
+  const step = planStepOfGuide(item.id, item.kind === 'post');
+  const interview = project.interview;
+  const plans = interview !== null && typeof interview === 'object' && !Array.isArray(interview) && Array.isArray(interview.step_plans) ? interview.step_plans : [];
+  return binding.step === step && plans.some(entry => entry !== null && typeof entry === 'object' && !Array.isArray(entry)
+    && entry.schema === STEP_PLAN_SCHEMA && entry.step === step && entry.sha256 === binding.sha256);
 }
 
 /** Answers use interview membership, including framing ids that are not executable steps. */

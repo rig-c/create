@@ -61,7 +61,7 @@ Share the URL once. Publish via bound writers or reuse `--draft|--rig|--question
 Reused opens exit. The page updates in place.
 After asking, run `job acts --wait` in the background, ingest its command, advance, republish.
 `job acts [--json]` lists each pending act's verdict, comments and `words`, even when ingest is refused.
-Comment-only acts (`act@10`, no verdict): `comment --from-review <actId>` records `comments[i]`, bound by content hash.
+Comment acts (`act@10`, no verdict): `comment --from-review <actId>` records `comments[i]`, bound by content hash.
 Plan-picture pin `["rig-review-comment/1", mode, "reference", referenceId, referenceHash, x, y, w, h]` (integer pixels, Y down, `w=h=0` for a point): match `referenceHash` to `referenceId`'s `sha256` in publication `files`, crop `x,y,w,h`.
 With all picks ingested, complete the plan, follow `next` for `signoff <stage> --from-picks`; keep the plan page for other answers.
 Keep the job host up across bound writes; if it stopped, run `job open` again with the same reviewer/role and URL, then `job reconcile`.

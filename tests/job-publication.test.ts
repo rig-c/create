@@ -14,7 +14,7 @@ import { attachCreateJob, closeCreateJob, openCreateJob, openDraftPublication, o
 import { reportOwnerSubmitRefusal } from '../src/job-refusal.ts';
 import { acquireJobLock, cancelUncommittedIntent, enqueuePublication, failPublication, JOB_BINDING_FILE, jobHash, jobHostStateRoot, jobPrivateRoot, pendingPublications, publicationVersionHash, readAcknowledgedPublication, readWriterBinding, reconcilePublication, writePrivateJson } from '../src/job-outbox.ts';
 import { jobRuntimeExecArgv, prepareVersionIntent } from '../src/job-writer.ts';
-import { draftPublicationContext, draftPublishedContext, loadedPartsIdentity, partsEnumerator, prepareDraftManifest, prepareLiveManifest, readPublished, readRecordPublished } from '../src/job-publication.ts';
+import { draftPublicationContext, draftPublishedContext, liveManifestPath, loadedPartsIdentity, partsEnumerator, prepareDraftManifest, prepareLiveManifest, readPublished, readRecordPublished } from '../src/job-publication.ts';
 import { checkProject, collectItems, formatReport } from '../src/check.ts';
 import { interviewAnswerCommand, interviewOptionsCommand } from '../src/choice-writers.ts';
 import { structureSnapshotCommand } from '../src/structure-snapshot.ts';
@@ -22,6 +22,7 @@ import { diffClassesCommand } from '../src/diff-classes.ts';
 import { advanceCommand } from '../src/progress-writers.ts';
 import { refuse } from '../src/refusal.ts';
 import type { JsonObject } from '../src/templates.ts';
+import { retainPublicationGeneration, retainRigPublicationGeneration } from './publication-generation-fixture.ts';
 import { parsePassedTestNames, SOURCE_ONLY_TESTS, validateSourceOnlyList } from './source-only.ts';
 
 const roots: string[] = [];
@@ -1480,61 +1481,38 @@ function generationSetup(): { root: string; project: JsonObject } {
   return { root, project };
 }
 
-// Generation checks exercise the same function used by checkProject and the writer.
-test('republish appends a painting generation, freezes the legacy and rig, and publishes g2', async () => {
-  const { republishCommand } = await import('../src/republish.ts');
-  const { liveManifestPath } = await import('../src/job-publication.ts');
+test('opening a retained rig g2 seals its manifest and preserves both generations and the rig', async () => {
   const { root, project } = generationSetup();
-  const path = prepareLiveManifest(root, { ...project, inputs: [] }, 1);
-  const legacy = readFileSync(join(root, path));
-  const rig = readFileSync(join(root, 'derived/review/v1/out/check/build/skeleton.model.json'));
-  expect(republishCommand(['1', root, '--reason', 'Carry the original painting.'], now).exit).toBe(0);
-  const record = JSON.parse(readFileSync(join(root, 'project.json'), 'utf8'));
-  expect(liveManifestPath(root, record, 1)).toBe('review-live-v1-g2.json');
-  expect(prepareLiveManifest(root, record, 1)).toBe('review-live-v1-g2.json');
-  expect(readFileSync(join(root, path))).toEqual(legacy);
-  expect(readFileSync(join(root, 'derived/review/v1/out/check/build/skeleton.model.json'))).toEqual(rig);
-  const generation = record.versions[0].publication_generations[0];
-  expect(generation).toMatchObject({ generation: 2, supersedes: { generation: 1, path, sha256: jobHash(legacy) }, at: new Date(now).toISOString(), reason: 'Carry the original painting.' });
-  const context = await readPublished({ root, record: { path: 'project.json', sha256: jobHash(readFileSync(join(root, 'project.json'))) }, result: { path: generation.manifest.path, selector: { kind: 'rig', version: 1 } } });
-  expect(context.files).toContainEqual({ path: generation.manifest.path, sha256: generation.manifest.sha256 });
+  const { supersedes, manifest } = retainRigPublicationGeneration(root, project, now);
+  const model = 'derived/review/v1/out/check/build/skeleton.model.json';
+  const paths = [supersedes.path, manifest.path, model];
+  const before = paths.map(path => readFileSync(join(root, path)));
+
+  expect(liveManifestPath(root, project, 1)).toBe(manifest.path);
+  expect(liveManifestPath(root, project, 1, { id: 'create-v1', revision: 'v1' })).toBe(supersedes.path);
+  expect(prepareLiveManifest(root, project, 1)).toBe(manifest.path);
+  const context = await readPublished({ root,
+    record: { path: 'project.json', sha256: jobHash(readFileSync(join(root, 'project.json'))) },
+    result: { path: manifest.path, selector: { kind: 'rig', version: 1 } } });
+  expect(context.files).toContainEqual(manifest);
   const host = await openCreateJob(root, { id: 'reviewer', role: 'owner' }, now);
   hosts.push(host);
   const lines = await openDraftPublication(root, host, now, undefined, '1');
-  expect(lines).toContain(`job: rig v1 published (publication ${host.session.status().publication!.publicationId})`);
-  expect(host.session.status().publication?.source).toMatchObject({ selector: { kind: 'rig', version: 1 } });
-  const before = readFileSync(join(root, 'project.json'));
-  expect(() => republishCommand(['1', root, '--reason', 'Duplicate.'], now)).toThrow(expect.objectContaining({ code: 'PUBLICATION_GENERATION_DUPLICATE' }));
-  expect(readFileSync(join(root, 'project.json'))).toEqual(before);
-  expect(checkProject(root, record, { now, readOnly: true }).refusals.map(f => f.code)).not.toContain('PUBLICATION_GENERATION_INVALID');
-  record.versions[0].publication_generations[0].supersedes.sha256 = '0'.repeat(64);
-  expect(checkProject(root, record, { now, readOnly: true }).refusals.map(f => f.code)).toContain('PUBLICATION_GENERATION_INVALID');
+  const publication = host.session.status().publication!;
+  expect(lines).toContain(`job: rig v1 published (publication ${publication.publicationId})`);
+  expect(publication.source).toMatchObject({ selector: { kind: 'rig', version: 1 }, package: { id: 'create-v1', revision: 'v1-g2' } });
+  expect(paths.map(path => readFileSync(join(root, path)))).toEqual(before);
 });
 
-test('republish refuses missing painting and an already referenced legacy before writing', async () => {
-  const { republishCommand } = await import('../src/republish.ts');
+test('check refuses a retained rig g2 with a mismatched predecessor hash', () => {
   const { root, project } = generationSetup();
-  prepareLiveManifest(root, project, 1);
-  const before = readFileSync(join(root, 'project.json'));
-  expect(() => republishCommand(['1', root, '--reason', 'Duplicate.'], now)).toThrow(expect.objectContaining({ code: 'PUBLICATION_GENERATION_DUPLICATE' }));
-  expect(readFileSync(join(root, 'project.json'))).toEqual(before);
-  project.inputs = [];
-  writeFileSync(join(root, 'project.json'), JSON.stringify(project));
-  const noPainting = readFileSync(join(root, 'project.json'));
-  expect(() => republishCommand(['1', root, '--reason', 'Missing.'], now)).toThrow(expect.objectContaining({ code: 'PUBLICATION_PAINTING_MISSING' }));
-  expect(readFileSync(join(root, 'project.json'))).toEqual(noPainting);
-  expect(existsSync(join(root, 'review-live-v1-g2.json'))).toBe(false);
-});
-
-test('a refused generation leaves record and existing target bytes unchanged', async () => {
-  const { republishCommand } = await import('../src/republish.ts');
-  const { root, project } = generationSetup();
-  prepareLiveManifest(root, { ...project, inputs: [] }, 1);
-  writeFileSync(join(root, 'review-live-v1-g2.json'), 'preserve');
-  const before = readFileSync(join(root, 'project.json'));
-  expect(() => republishCommand(['1', root, '--reason', 'Conflict.'], now)).toThrow(expect.objectContaining({ code: 'PUBLICATION_GENERATION_INVALID' }));
-  expect(readFileSync(join(root, 'project.json'))).toEqual(before);
-  expect(readFileSync(join(root, 'review-live-v1-g2.json'), 'utf8')).toBe('preserve');
+  const { supersedes } = retainRigPublicationGeneration(root, project, now);
+  const generationFindings = () => checkProject(root, project, { now, readOnly: true }).refusals
+    .filter(f => f.path === 'versions[v1].publication_generations')
+    .map(({ code, path }) => ({ code, path }));
+  expect(generationFindings()).toEqual([]);
+  supersedes.sha256 = '0'.repeat(64);
+  expect(generationFindings()).toEqual([{ code: 'PUBLICATION_GENERATION_INVALID', path: 'versions[v1].publication_generations' }]);
 });
 
 test('an uncommitted replacement intent is discarded against the previous version hash', async () => {
@@ -1672,147 +1650,56 @@ for (const [defect, code] of [
   });
 }
 
-test('#690 republish requires stage asks when updating the open page', async () => {
-  const ask = { kind: 'review-verdict', stage: 'rig-review' } as const;
-  const open = async (root: string) => {
-    const host = await openCreateJob(root, { id: 'reviewer', role: 'owner' }, now);
-    hosts.push(host);
-    await openDraftPublication(root, host, now, undefined, '1');
-    return host;
-  };
-
-  // The separate writer process must consult the live host over the bound API.
-  const republish = async (root: string, n: number) => {
-    const child = Bun.spawn([process.execPath, ...jobRuntimeExecArgv(), join(import.meta.dir, '../src/cli.ts'),
-      'republish', String(n), root, '--reason', 'Publish retained evidence.'], { stdout: 'pipe', stderr: 'pipe' });
-    const [stdout, stderr, exit] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
-    return { exit, stdout, code: /^rig-create: ([A-Z_]+):/.exec(stderr)?.[1] };
-  };
-
-  const refused = async (root: string, host: JobOwnerHost, n: number, paths: string[]) => {
-    const before = paths.map(path => readFileSync(join(root, path)));
-    const opened = host.session.status();
-    const result = await republish(root, n);
-    const status = host.session.status();
-    return { ...result,
-      recordAndLegacyUnchanged: paths.every((path, i) => readFileSync(join(root, path)).equals(before[i]!)),
-      g2Exists: existsSync(join(root, `review-live-v${n}-g2.json`)),
-      outbox: pendingPublications(root, true),
-      publicationUnchanged: status.publication?.publicationId === opened.publication?.publicationId,
-      generation: status.generation,
-      pending: status.pending,
-    };
-  };
-
-  const { root, project } = scenePostSetup('painting', true);
-  const rigPath = prepareLiveManifest(root, { ...project, inputs: [] }, 1);
-  const postPath = prepareLiveManifest(root, project, 2);
-  const postManifest = JSON.parse(readFileSync(join(root, postPath), 'utf8'));
-  delete postManifest.scene;
-  writeFileSync(join(root, postPath), `${JSON.stringify(postManifest, null, 2)}\n`);
-  const host = await open(root);
-  const rigOpened = host.session.status();
-  expect(rigOpened.publication?.source.selector).toEqual({ kind: 'rig', version: 1 });
-  expect(rigOpened.pending.map(item => item.subject)).toEqual([ask]);
-  expect(await refused(root, host, 2, ['project.json', rigPath, postPath])).toEqual({ exit: 1, stdout: '', code: 'JOB_ASK_PENDING',
-    recordAndLegacyUnchanged: true, g2Exists: false, outbox: [], publicationUnchanged: true,
-    generation: rigOpened.generation, pending: rigOpened.pending,
-  });
-
-  const updated = await republish(root, 1);
-  const status = host.session.status();
-  const publication = status.publication!;
-  expect(updated).toMatchObject({ exit: 0, code: undefined });
-  expect(publication.publicationId).not.toBe(rigOpened.publication?.publicationId);
-  expect(publication.generation).toBeGreaterThan(rigOpened.publication!.generation);
-  expect(publication.source.selector).toEqual({ kind: 'rig', version: 1 });
-  expect(existsSync(join(root, 'review-live-v1-g2.json'))).toBe(true);
-  expect(status.pending).toContainEqual(expect.objectContaining({ publicationId: publication.publicationId, subject: ask }));
-
-  // The signed post-stage checkpoint has a retained rig and no remaining rig asks.
-  const signedRoot = realpathSync(mkdtempSync(join(tmpdir(), 'create-askless-republish-')));
-  roots.push(signedRoot);
-  cpSync(join(import.meta.dir, '../templates/example-chain/checkpoints/4-direction-post'), signedRoot, { recursive: true });
-  const signedProject = JSON.parse(readFileSync(join(signedRoot, 'project.json'), 'utf8')) as JsonObject;
-  const signedPath = prepareLiveManifest(signedRoot, { ...signedProject, inputs: [] }, 1);
-  const signedHost = await open(signedRoot);
-  const signedOpened = signedHost.session.status();
-  expect(signedOpened.publication?.source.selector).toEqual({ kind: 'rig', version: 1 });
-  expect(signedOpened.pending).toEqual([]);
-  expect(await refused(signedRoot, signedHost, 1, ['project.json', signedPath])).toEqual({
-    exit: 1, stdout: '', code: 'JOB_PUBLICATION_ASK_REQUIRED',
-    recordAndLegacyUnchanged: true, g2Exists: false, outbox: [], publicationUnchanged: true,
-    generation: signedOpened.generation, pending: [],
-  });
-  expect(updated.stdout).toContain(publication.publicationId);
-  expect(updated.stdout).toContain('review-verdict rig-review');
-}, 25_000);
-
-test.each(['empty', 'painting'] as const)('post republish adds only scene and revision, preserving %s references and g1 identity', async references => {
-  const { republishCommand } = await import('../src/republish.ts');
-  const { liveManifestPath } = await import('../src/job-publication.ts');
+function sceneGenerationSetup(references: 'empty' | 'painting' = 'painting') {
   const f = scenePostSetup(references, true);
-  const path = prepareLiveManifest(f.root, f.project, 2);
-  const legacy = JSON.parse(readFileSync(join(f.root, path), 'utf8'));
-  delete legacy.scene;
-  const old = Buffer.from(`${JSON.stringify(legacy, null, 2)}\n`);
-  writeFileSync(join(f.root, path), old);
-  expect(prepareLiveManifest(f.root, f.project, 2)).toBe(path);
-  expect(readFileSync(join(f.root, path))).toEqual(old);
-  expect(republishCommand(['2', f.root, '--reason', 'Publish the retained scene.'], now).exit).toBe(0);
-  const record = JSON.parse(readFileSync(join(f.root, 'project.json'), 'utf8')) as JsonObject;
-  const generationPath = 'review-live-v2-g2.json';
-  expect(liveManifestPath(f.root, record, 2)).toBe(generationPath);
-  expect(liveManifestPath(f.root, record, 2, { id: 'create-v2', revision: 'v2' })).toBe(path);
-  expect(prepareLiveManifest(f.root, record, 2)).toBe(generationPath);
-  expect(JSON.parse(readFileSync(join(f.root, generationPath), 'utf8'))).toEqual({ ...legacy, revision: 'v2-g2', scene: f.scenePath });
-  expect(readFileSync(join(f.root, path))).toEqual(old);
-  const context = await f.read(generationPath);
-  for (const file of [f.entry, ...f.plates]) expect(context.files).toContainEqual({ path: file.path, sha256: file.sha256 });
-  expect(checkProject(f.root, record, { now, readOnly: true }).refusals.map(f => f.code)).not.toContain('PUBLICATION_GENERATION_INVALID');
-  const before = readFileSync(join(f.root, 'project.json'));
-  expect(() => republishCommand(['2', f.root, '--reason', 'Duplicate.'], now)).toThrow(expect.objectContaining({ code: 'PUBLICATION_GENERATION_DUPLICATE' }));
-  expect(readFileSync(join(f.root, 'project.json'))).toEqual(before);
+  const previous = { schema: 'rig-review/1', id: 'create-v2', revision: 'v2', title: 'post v2 (rig v1)',
+    model: 'derived/review/v1/out/check/build/skeleton.model.json', direction: f.directionPath,
+    references: references === 'empty' ? [] : [
+      { id: 'original-painting', label: 'Original painting', type: 'image', path: 'inputs/painting.png', width: 128, height: 128 },
+    ],
+    animations: [], checkpoints: [], authoring: [] };
+  const current = { ...previous, revision: 'v2-g2', scene: f.scenePath };
+  const { supersedes, manifest } = retainPublicationGeneration(f.root, f.project, 2, previous, current, now);
+  return { ...f, current, supersedes, manifest };
+}
+
+test.each(['empty', 'painting'] as const)('a retained post g2 seals the scene and preserves %s references and g1 identity', async references => {
+  const f = sceneGenerationSetup(references);
+  const paths = ['project.json', f.supersedes.path, f.manifest.path];
+  const before = paths.map(path => readFileSync(join(f.root, path)));
+  expect(liveManifestPath(f.root, f.project, 2)).toBe(f.manifest.path);
+  expect(liveManifestPath(f.root, f.project, 2, { id: 'create-v2', revision: 'v2' })).toBe(f.supersedes.path);
+  expect(prepareLiveManifest(f.root, f.project, 2)).toBe(f.manifest.path);
+  const context = await f.read(f.manifest.path);
+  for (const file of [f.manifest, f.entry, ...f.plates]) {
+    expect(context.files).toContainEqual({ path: file.path, sha256: file.sha256 });
+  }
+  expect(paths.map(path => readFileSync(join(f.root, path)))).toEqual(before);
+  expect(checkProject(f.root, f.project, { now, readOnly: true }).refusals.map(f => f.code))
+    .not.toContain('PUBLICATION_GENERATION_INVALID');
 });
 
-test.each(['references', 'model', 'direction', 'title', 'extra'] as const)('post generation refuses an additional %s delta by name', async key => {
-  const { republishCommand } = await import('../src/republish.ts');
-  const { liveManifestPath } = await import('../src/job-publication.ts');
-  const f = scenePostSetup('painting', true);
-  const path = prepareLiveManifest(f.root, f.project, 2);
-  const legacy = JSON.parse(readFileSync(join(f.root, path), 'utf8'));
-  delete legacy.scene;
-  writeFileSync(join(f.root, path), `${JSON.stringify(legacy, null, 2)}\n`);
-  republishCommand(['2', f.root, '--reason', 'Publish the retained scene.'], now);
-  const record = JSON.parse(readFileSync(join(f.root, 'project.json'), 'utf8')) as JsonObject;
-  const generationPath = 'review-live-v2-g2.json';
-  const manifest = JSON.parse(readFileSync(join(f.root, generationPath), 'utf8')) as JsonObject;
-  manifest[key] = key === 'references' ? [] : 'unexpected';
-  const bytes = Buffer.from(`${JSON.stringify(manifest, null, 2)}\n`);
-  writeFileSync(join(f.root, generationPath), bytes);
-  const history = (record.versions as JsonObject[])[1]!.publication_generations as JsonObject[];
-  (history[0]!.manifest as JsonObject).sha256 = jobHash(bytes);
-  expect(() => liveManifestPath(f.root, record, 2)).toThrow(expect.objectContaining({ code: 'PUBLICATION_GENERATION_INVALID' }));
+test.each(['references', 'model', 'direction', 'title', 'extra'] as const)('retained post g2 refuses an additional %s delta by name', key => {
+  const f = sceneGenerationSetup();
+  const changed = { ...f.current, [key]: key === 'references' ? [] : 'unexpected' };
+  const bytes = Buffer.from(`${JSON.stringify(changed, null, 2)}\n`);
+  writeFileSync(join(f.root, f.manifest.path), bytes);
+  f.manifest.sha256 = jobHash(bytes);
+  expect(() => liveManifestPath(f.root, f.project, 2)).toThrow(expect.objectContaining({ code: 'PUBLICATION_GENERATION_INVALID' }));
 });
 
-test('post generation refuses truncated direction bytes with PUBLICATION_GENERATION_INVALID', async () => {
-  const { republishCommand } = await import('../src/republish.ts');
-  const { liveManifestPath } = await import('../src/job-publication.ts');
-  const f = scenePostSetup('painting', true);
-  const path = prepareLiveManifest(f.root, f.project, 2);
-  const legacy = JSON.parse(readFileSync(join(f.root, path), 'utf8'));
-  delete legacy.scene;
-  writeFileSync(join(f.root, path), `${JSON.stringify(legacy, null, 2)}\n`);
-  republishCommand(['2', f.root, '--reason', 'Publish the retained scene.'], now);
-  const recordBytes = readFileSync(join(f.root, 'project.json'));
-  const record = JSON.parse(recordBytes.toString('utf8')) as JsonObject;
-  const generation = readFileSync(join(f.root, 'review-live-v2-g2.json'));
-  writeFileSync(join(f.root, f.directionPath), '{"schema":');
-  expect(() => liveManifestPath(f.root, record, 2)).toThrow(expect.objectContaining({ code: 'PUBLICATION_GENERATION_INVALID' }));
-  expect(readFileSync(join(f.root, 'project.json'))).toEqual(recordBytes);
-  expect(readFileSync(join(f.root, 'review-live-v2-g2.json'))).toEqual(generation);
+test('retained post g2 refuses truncated direction bytes with PUBLICATION_GENERATION_INVALID', () => {
+  const f = sceneGenerationSetup();
+  const paths = ['project.json', f.supersedes.path, f.manifest.path];
+  const before = paths.map(path => readFileSync(join(f.root, path)));
+  const truncated = Buffer.from('{"schema":');
+  writeFileSync(join(f.root, f.directionPath), truncated);
+  expect(() => liveManifestPath(f.root, f.project, 2)).toThrow(expect.objectContaining({ code: 'PUBLICATION_GENERATION_INVALID' }));
+  const post = (f.project.versions as JsonObject[])[1]!;
+  (post.provenance as JsonObject).direction = { path: f.directionPath, sha256: jobHash(truncated) };
+  expect(() => liveManifestPath(f.root, f.project, 2)).toThrow(expect.objectContaining({ code: 'PUBLICATION_GENERATION_INVALID' }));
+  expect(paths.map(path => readFileSync(join(f.root, path)))).toEqual(before);
 });
-
 
 test('#535 same-id registration replaces only an orphaned retained draft manifest', async () => {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'create-draft-orphan-')));

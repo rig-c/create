@@ -1,7 +1,6 @@
 #!/usr/bin/env bun
 import { OWNER_CHAT_FLAGS, OWNER_CHAT_USAGE } from './owner-chat.ts';
 import { packagesCommand } from './packages-upgrade.ts';
-import { republishCommand } from './republish.ts';
 import { DIFF_CLASSES_HELP, diffClassesCommand } from './diff-classes.ts';
 import { CHECKPOINT_EVIDENCE_HELP, checkpointEvidenceCommand, checkpointTableCommand } from './checkpoint-evidence-writer.ts';
 import { partsReviewCommand } from './parts-review.ts';
@@ -36,7 +35,6 @@ import { RIG_VERSION_HELP, rigVersionCommand } from './rig-version.ts';
 import { RECORD_HELP, recordCommand } from './record.ts';
 import { DERIVED_HELP, derivedCommand } from './prepared-inputs.ts';
 import { SPLIT_CAPTIONS_HELP, splitCaptionsCommand } from './split-captions.ts';
-import { VERSION_HELP, versionCommand } from './config-lost.ts';
 import { jobRuntimeCommand, takePendingNotices, takePublishedLines } from './job-writer.ts';
 import { NEXT_HELP, nextCommand } from './next.ts';
 import { parseOwnerLanguage } from './owner-language.ts';
@@ -54,7 +52,6 @@ export const BOUND_WRITE_HELP = 'Keep the job host up across bound writes; if it
 const HELP = `rig-create — create and run a rig project
 
 Usage:
-  rig-create republish <rig> [<dir>] --reason <words>
   rig-create job open [<dir>] --reviewer <id> --role owner|delegate [--draft <id> | --rig <n> | --questions | --question <question>... | --plan]
   rig-create job acts [<dir>] [--json] [--wait [--timeout-ms N]]
                                               list finalized acts and their ingest commands
@@ -129,10 +126,6 @@ ${INPUT_CLI}  rig-create init <dir> [--no-install]              create a project
                                                     record the current rig output and rename it into outputs/rig/
   rig-create split-captions [<project dir|project.json>] [--config <file>]
                                                     generate caption data from the config and split.parts
-  rig-create version config-lost <n> --note <text> --source <text> [<dir>]
-                                                    record a pre-interview version's lost build config
-  rig-create version outputs-lost <n> --note <text> --source <text> [<dir>]
-                                                    record a pre-interview version's lost frozen outputs
   rig-create packages upgrade [<dir>] --by <operator>  update release pins with checked history
   rig-create --help                                 show this help
   rig-create --version                              show the version
@@ -217,8 +210,6 @@ ${RIG_VERSION_HELP}
 ${RECORD_HELP}
 
 ${SPLIT_CAPTIONS_HELP}
-
-${VERSION_HELP}
 `;
 
 /**
@@ -287,7 +278,6 @@ function initCommand(args: string[], now: number): string {
 /** Subcommands by name. */
 const COMMANDS: Record<string, Command> = {
   packages: packagesCommand,
-  republish: republishCommand,
   input: inputCommand,
   init: initCommand,
   'owner-language': ownerLanguageCommand,
@@ -327,7 +317,6 @@ const COMMANDS: Record<string, Command> = {
 
   derived: derivedCommand,
   'split-captions': splitCaptionsCommand,
-  version: versionCommand,
 };
 
 /**

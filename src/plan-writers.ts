@@ -1,6 +1,6 @@
 import { collectBarAmendments } from './plan-bar-amendments.ts';
 import { checkpointEnabled, checkpointGeneration, checkpointRequired, collectCheckpointWithdrawals,
-  planGenerationStart, planStepCompleted, planStepHasLiveApproval, planStepReplacementAuthorized } from './plan-history.ts';
+  planStepCompleted } from './plan-history.ts';
 import { readVerbatim } from './record-input.ts';
 import { acquireBoundJobWrite } from './job-writer.ts';
 import { closeSync, openSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
@@ -10,7 +10,7 @@ import { asArray, checkProject, isObject } from './check.ts';
 import { readProject } from './feedback.ts';
 import { refuse, USAGE_EXIT } from './refusal.ts';
 import { baselineOf, newFindings } from './refusal-baseline.ts';
-import { approvalStageOfStep, hasStageOrder, stageOfStep } from './stages.ts';
+import { approvalStageOfStep, hasStageOrder } from './stages.ts';
 import { stepHash } from './step-hash.ts';
 import type { JsonObject } from './templates.ts';
 
@@ -26,7 +26,8 @@ export const PLAN_HELP = `plan add|revise|remove|replace <id> [<project dir>] --
   Revise also accepts --reason <text> alone to re-date the same definition after reviewing its answers.
   Write --does, --produces, --bar and --reason in the owner's declared language.
   Add and revise stamp the current step's drafted_at. Revise/remove/replace retain the full previous step in plan.replaced[].
-  Amend at the step's approval stage or earlier to lapse its live signature. A same-id replacement of completed work requires plan replace and an amendment after completion.
+  Any step may be revised, removed or replaced, signed or completed; no amendment is required.
+  Under a signed plan, a new or replaced step starts with checkpoint null and needs the owner's checkpoint answer (CHECKPOINT_UNANSWERED).
   Dates follow approval ownership: parts/legacy rig update drafted_at and drafted_by,
   production rigging updates rigging_drafted_at, and post preserves plan dates.
   Each candidate passes check's refusal delta before writing.`;
@@ -112,19 +113,6 @@ export function planCommand(args: string[], now: number): { stdout: string; exit
     const matches = steps.filter(step => isObject(step) && step.id === id);
     const previous = matches[0];
     if (action === 'add' ? matches.length !== 0 : matches.length !== 1) refuse('PLAN_STEP_INVALID', `plan.steps[${id}]: ${action === 'add' ? 'id already exists' : 'no unique current step'}; use a distinct id for add or an existing id for revise/remove/replace`);
-    // Adding an id with retained completed work needs a removal authorized by a later human amendment.
-    // Replace runs the same rule on the history its own removal produces.
-    const refuseUnauthorizedReAdd = (history: JsonObject): void => {
-      if (!asArray((history.plan as JsonObject).replaced).some((entry, index) => {
-        if (!isObject(entry) || !isObject(entry.step) || entry.step.id !== id) return false;
-        const after = planGenerationStart(history, id, index);
-        const before = Date.parse(String(entry.at));
-        return planStepCompleted(history, entry.step, after, before)
-          && !(entry.action === 'removed' && patch.phase === entry.step.phase && planStepReplacementAuthorized(history, entry.step, now, after, before));
-      })) return;
-      refuse('PLAN_STEP_DONE', `plan.steps[${id}]: completed work is retained in plan.replaced; record a human amendment at the step's approval stage or earlier after its completion, then keep the same id and phase (plan replace, or plan add once the old definition is removed)`);
-    };
-    if (action === 'add') refuseUnauthorizedReAdd(project);
     const at = new Date(now).toISOString();
     if (amendingBar) {
       const findings: import('./check.ts').Finding[] = [];
@@ -138,9 +126,8 @@ export function planCommand(args: string[], now: number): { stdout: string; exit
         return { stdout: json ? JSON.stringify(replay, null, 2) : `plan: bar ${id} already amended`, exit: 0 };
       }
       if (!previous || !['rig', 'post'].includes(String(previous.phase))
-        || stageOfStep(previous.phase as 'rig' | 'post', id!) !== project.stage
         || planStepCompleted(project, previous) || typeof previous.bar !== 'string' || !previous.bar.trim()) {
-        refuse('BAR_AMENDMENT_SCOPE', `plan.steps[${id}]: amendment needs one unfinished step with a bar in the current execution stage; preserve other stages and use the matching step`);
+        refuse('BAR_AMENDMENT_SCOPE', `plan.steps[${id}]: amendment needs one unfinished step with a bar; use the matching step`);
       }
       plan.bar_amendments = [...journal, { schema: 'rig-create/bar-amendment@1', step: structuredClone(previous),
         sha256: stepHash(previous), generation, amended_bar: amendedBar, by: opts['--by']!, at, reason, verbatim }];
@@ -156,20 +143,14 @@ export function planCommand(args: string[], now: number): { stdout: string; exit
         return { stdout: json ? JSON.stringify(replay, null, 2) : `plan: checkpoint ${id} already withdrawn`, exit: 0 };
       }
       if (!previous || !['rig', 'post'].includes(String(previous.phase))
-        || stageOfStep(previous.phase as 'rig' | 'post', id!) !== project.stage
         || planStepCompleted(project, previous) || !checkpointEnabled(previous) || !checkpointRequired(project, previous, now)) {
-        refuse('CHECKPOINT_WITHDRAWAL_SCOPE', `plan.steps[${id}]: withdrawal needs one enabled unfinished checkpoint in the current execution stage; preserve other stages and use the matching step`);
+        refuse('CHECKPOINT_WITHDRAWAL_SCOPE', `plan.steps[${id}]: withdrawal needs one enabled unfinished checkpoint; use the matching step`);
       }
       plan.checkpoint_withdrawals = [...journal, { schema: 'rig-create/checkpoint-withdrawal@1', step: structuredClone(previous),
         sha256: stepHash(previous), generation, by: opts['--by']!, at: new Date(now).toISOString(), reason, verbatim }];
     } else {
       if (previous !== undefined) {
         if (previous.phase !== 'rig' && previous.phase !== 'post') refuse('PLAN_STEP_INVALID', `plan.steps[${id}].phase: restore rig or post before drafting`);
-        const stage = approvalStageOfStep(previous.phase, id!, hasStageOrder(project));
-        if (planStepHasLiveApproval(project, previous)) {
-          refuse('PLAN_STEP_SIGNED', `plan.steps[${id}]: a live ${stage} signature binds this step; record a human amendment with amend ${stage} before revising or removing it`);
-        }
-        if (action === 'revise' && planStepCompleted(project, previous)) refuse('PLAN_STEP_DONE', `plan.steps[${id}]: completed work cannot be revised; use plan replace with the same phase, after a later human amendment at ${stage} or earlier`);
         if (action === 'replace' && patch.phase !== previous.phase) refuse('PLAN_STEP_INVALID', `plan.steps[${id}].phase: replace keeps the phase ${String(previous.phase)}; use the same phase`);
       }
       if (previous !== undefined) {
@@ -180,7 +161,6 @@ export function planCommand(args: string[], now: number): { stdout: string; exit
         const index = steps.indexOf(previous);
         if (action === 'revise') steps[index] = { ...previous, ...patch, drafted_at: at };
         else steps.splice(index, 1);
-        if (action === 'replace') refuseUnauthorizedReAdd(structuredClone(next));
       }
       if (action === 'add' || action === 'replace') steps.push({ id: id!, ...patch, checkpoint: null, status: 'pending', drafted_at: at });
       if (action === 'add' || action === 'replace' || (action === 'revise' && patch.order !== undefined)) {

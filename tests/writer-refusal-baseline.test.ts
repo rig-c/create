@@ -77,13 +77,6 @@ test.each(writes)('%s succeeds on a record that already carries an unrelated ref
   expect(unplanted(read(planted))).toEqual(read(clean));
 });
 
-test('a write that adds a refusal is refused with only the new code and leaves the record unchanged', () => {
-  tick();
-  const dir = chain('3-rig-review', true);
-  refused(dir, 'SIGNOFF_AHEAD_OF_STAGE', () => sign(dir, 'accepted'));
-  expect(refusals(dir)).toEqual([PLANTED]);
-});
-
 test('advance still requires check to pass: a carried refusal blocks the stage boundary', () => {
   const clean = chain('3-rig-review', false);
   acceptRig(clean);

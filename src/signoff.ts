@@ -275,8 +275,6 @@ function recordSignoff(stage: string, positional: string[], opts: Record<string,
     if (missing.length) refuse('SIGNOFF_PICKS_PLAN_INCOMPLETE', `project.json.plan.steps: add the required steps ${missing.join(', ')} before signing ${stage}`);
   }
   if ((review !== undefined && isRecordInterviewSignoff(review.act)) || (picks && stage === 'interview')) assertInterviewRecordSignable(project, asRead);
-  const existingLag = asRead.refusals.find(f => f.code === 'STAGE_LAGGING');
-  if (existingLag !== undefined) refuse(existingLag.code, existingLag.message);
   if (!Array.isArray(project.signoffs)) refuse('SIGNOFF_MALFORMED', 'signoffs must be a list');
   const checkpointId = opts['--checkpoint'];
   if (checkpointId !== undefined) {

@@ -178,7 +178,7 @@ test.each(['rig', 'post'] as const)('#561 %s answer is recordable, then check an
   expect(sign().code).toBe(0);
   const signed = read(root);
   expect(obj(obj(arr(signed.signoffs).at(-1)).step_hashes)[id]).toBe(stepHash(step(signed, id)));
-  expect(checkProject(root).refusals).toEqual([expect.objectContaining({ code: 'STAGE_LAGGING' })]);
+  expect(checkProject(root).refusals).toEqual([]);
 }, 30_000);
 
 test('#561 stale steps block approval while the post interview continues', () => {
@@ -276,11 +276,6 @@ test('#561 a recorded reopen restores chronology for previously signed stale and
   write(root, project);
   testClock.set(TEST_NOW);
   expect(chronology(checkProject(root))).toEqual([]);
-  const edited = structuredClone(project);
-  step(edited, 'camera').does = 'Change the signed synthetic definition.';
-  expect(checkProject(root, edited).refusals).toContainEqual(expect.objectContaining({
-    code: 'STEP_EDITED_AFTER_SIGNOFF', path: 'plan.steps[camera]',
-  }));
 
   // Persist a historical reopen because the current writer uses amendments.
   plantLegacyReopen(root, 'post-interview');
@@ -296,7 +291,7 @@ test('#561 a recorded reopen restores chronology for previously signed stale and
   expect(stepHash(step(retained, 'timing'))).toBe(hashes.timing as string);
 });
 
-test('#561 a completed step stays immutable after an owner amendment and next replaces it with its full definition', async () => {
+test('#561 after an owner amendment next replaces a completed step with its full definition', async () => {
   const root = join(tempDir("create-561-completed-step's-"), 'project');
   const project = completedRemesh(root);
   const env = { ...Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined)),
@@ -350,10 +345,6 @@ test('#561 a completed step stays immutable after an owner amendment and next re
   const command = move.command!;
   expect(command).toMatch(/^rig-create plan replace bones .* --phase rig .* --checkpoint-proposed false$/);
   expect(next.moves.some(move => move.review_act?.kind === 'signoff')).toBe(false);
-  const before = readFileSync(file(root));
-  expect(run('plan', 'revise', id, '--by', 'agent', '--reason', 'Keep the existing synthetic definition.'))
-    .toMatchObject({ code: 1, stderr: expect.stringContaining('PLAN_STEP_DONE') });
-  expect(readFileSync(file(root))).toEqual(before);
 
   testClock.set(TEST_NOW + 3_000);
   const bin = tempDir();
@@ -445,12 +436,11 @@ test('#561 approving an uncovered rig step leaves a stale step repairable', () =
     expect.objectContaining({ code: STALE, path: 'plan.steps[bones]' }),
     expect.objectContaining({ code: 'CHECKPOINT_UNANSWERED', path: 'plan.steps[bones].checkpoint' }),
     expect.objectContaining({ code: 'DELEGATION_UNDECIDED', path: 'plan.steps[meshes].checkpoint' }),
-    expect.objectContaining({ code: 'STAGE_LAGGING' }),
   ]);
 
   testClock.set(T0 + 3_000);
   expect(run('plan', 'revise', 'bones', '--by', 'agent', '--reason', 'Reviewed the recorded bones guide.')).toMatchObject({ code: 0, stderr: '' });
-  expect(checkProject(root).refusals).toEqual([expect.objectContaining({ code: 'STAGE_LAGGING' })]);
+  expect(checkProject(root).refusals).toEqual([]);
   const project = read(root);
   expect(obj(obj(arr(project.signoffs).at(-1)).step_hashes).motion).toBe(stepHash(step(project, 'motion')));
 });

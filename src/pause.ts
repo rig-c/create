@@ -40,7 +40,7 @@ function latestEvent(project: JsonObject): { at: number; stage: string; from: st
 
 /**
  * Where a paused project resumes by the writer: the stage its latest pause left or, when it was paused by
- * hand, the stage its latest recorded move reached (the stage STAGE_SKIPPED requires after the resume).
+ * hand, the stage its latest recorded move reached.
  */
 export function pausedFrom(project: JsonObject): string {
   const latest = latestEvent(project);

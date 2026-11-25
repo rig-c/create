@@ -285,7 +285,7 @@ describe('an answer replaced after a version was built', () => {
 
   test('the old answer in history[] still resolves the earlier versions\' quotes', () => {
     // The step that ran on the old answer is sent back for a re-sign (its own check); provenance adds nothing.
-    expect(codes(checkProject(fixture((p) => { supersede(waypoint(p, 'meshes'), 'guide', NEW_MESHES); })))).toEqual(['SIGNOFF_ANSWERS_STALE', 'SIGNOFF_ANSWERS_STALE', 'GUIDE_CHANGED_UNSIGNED']);
+    expect(codes(checkProject(fixture((p) => { supersede(waypoint(p, 'meshes'), 'guide', NEW_MESHES); })))).toEqual(['SIGNOFF_ANSWERS_STALE', 'SIGNOFF_ANSWERS_STALE']);
   });
 
   test('outer marks around an older answer identify its history field on refusal', () => {
@@ -325,7 +325,7 @@ describe('an answer replaced after a version was built', () => {
       ],
       source: 'chat',
     };
-    expect(codes(checkProject(fixture((p) => { supersede(waypoint(p, 'seethrough'), 'guide', own); })))).toEqual(['SIGNOFF_ANSWERS_STALE', 'SIGNOFF_ANSWERS_STALE', 'GUIDE_CHANGED_UNSIGNED']);
+    expect(codes(checkProject(fixture((p) => { supersede(waypoint(p, 'seethrough'), 'guide', own); })))).toEqual(['SIGNOFF_ANSWERS_STALE', 'SIGNOFF_ANSWERS_STALE']);
   });
 });
 

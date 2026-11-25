@@ -185,8 +185,9 @@ test.each([['default', []], ['explicit', ['--structure-file', structure]]] as co
     return refusals;
   };
   expect(packageFindings(projected)).toEqual([]);
+  // #981: packaged parts are no longer compared with the parts approval.
   packageManifest.sha256 = previousSha;
-  expect(packageFindings(projected).map(finding => finding.code)).toEqual(['REVIEW_PACKAGE_PARTS_MISMATCH']);
+  expect(packageFindings(projected)).toEqual([]);
 
   const movedClock = structuredClone(signed);
   (movedClock.signoffs as JsonObject[]).at(-1)!.at = iso(signedAt + 1);
@@ -200,7 +201,7 @@ test.each([['default', []], ['explicit', ['--structure-file', structure]]] as co
   expect(readFileSync(file(root))).toEqual(committed);
 });
 
-test('a paused project must resume before amending changed parts or carrying their approval', async () => {
+test('a paused project must resume before carrying a changed parts approval', async () => {
   const { root, binding } = fixture();
   const { act } = await retainVerdict(root, binding);
   const words = join(root, 'pause-words.txt');
@@ -208,11 +209,8 @@ test('a paused project must resume before amending changed parts or carrying the
   const human = ['--by', 'synthetic-owner', '--verbatim-file', words];
   expect(signoffCommand(['paused', root, ...human], reviewedAt + 1).exit).toBe(0);
   expect(pauseCommand([root, ...human], reviewedAt + 2).exit).toBe(0);
-  refuses(root, 'AMENDMENT_TARGET_INVALID', () => amendCommand(amendmentArgs(root), amendedAt));
   expect(resumeCommand(['rigging', root, ...human], reviewedAt + 3).exit).toBe(0);
   expect(amendCommand(amendmentArgs(root), amendedAt).exit).toBe(0);
-  // The stored stage remains rigging while the effective stage is parts-review.
-  refuses(root, 'AMENDMENT_TARGET_INVALID', () => amendCommand(amendmentArgs(root), amendedAt + 1));
   expect(signoffCommand(['paused', root, ...human], amendedAt + 2).exit).toBe(0);
   expect(pauseCommand([root, ...human], amendedAt + 3).exit).toBe(0);
   refuses(root, 'PARTS_REVIEW_FOLD_NOT_READY', () => sign(root, act.actId));
@@ -373,11 +371,10 @@ test('cross-draft identical parts carry approval and pass real rig-version regis
   refuses(root, 'PARTS_VERDICT_DRAFT_MISMATCH', () => sign(root, act.actId));
 
   const register = rigRegistration(root);
-  refuses(root, 'REVIEW_PACKAGE_PARTS_MISMATCH', () => register('derived/drafts/chain/input'));
-  expect(existsSync(join(root, 'outputs/v2'))).toBe(false);
   const result = register(targetParts);
   expect(result.exit).toBe(0);
-  expect(JSON.parse(result.stdout)).toMatchObject({ n: 2, accepted_parts: partsApprovalIdentity(signature),
+  expect(JSON.parse(result.stdout).accepted_parts).toBeUndefined();
+  expect(JSON.parse(result.stdout)).toMatchObject({ n: 2,
     registration: { check_report: { path: 'evidence/v2/registration/check.json', spec: 'rig-parts-check/1' } } });
   expect(readFileSync(join(root, 'outputs/v2/out/parts.json'))).toEqual(readFileSync(join(root, targetManifest)));
   expect(checkProject(root, undefined, { now: signedAt + 1000 }).refusals).toEqual([]);

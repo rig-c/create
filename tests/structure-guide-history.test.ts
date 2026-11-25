@@ -158,30 +158,3 @@ test('meshes choice renewal preserves approved v1 structure delta and interview 
   expect(JSON.stringify(arr(read(dir).versions)[0])).toBe(frozenV1);
 });
 
-test('a post-renewal rig without B approval remains refused and rig registration leaves bytes unchanged', () => {
-  const dir = retainedDelta(), shown = prepareRenewal(dir);
-  testClock.set('2026-11-26T00:00:01Z'); answerQuestion(dir, shown);
-  // A later build must not borrow the retained A approval to cover the new B answer.
-  const p = read(dir); arr(p.versions).push(version(dir, 2, '2026-11-26T00:00:02Z')); save(dir, p);
-  testClock.set('2026-11-26T00:00:03Z');
-  expect(checkProject(dir).refusals.filter(f => f.code === 'STRUCTURE_DECISIONS_CONFLICT').map(f => f.path))
-    .toEqual(['versions[v2].provenance.config']);
-  cpSync(join(import.meta.dir, 'fixtures/rig-registration'), join(dir, 'source'), { recursive: true });
-  put(dir, 'source/config.json', JSON.stringify({ key: 'synthetic', meshes: { torso: { density: 20 } }, requirements: 'requirements.json' }));
-  put(dir, 'source/requirements.json', JSON.stringify({ spec: 'spine-parts-requirements/1', fps: 4, requirements: [], setup_painting: { required: true } }));
-  put(dir, 'source/adapter.json', '[]');
-  cpSync(join(dir, 'derived/drafts/b/input'), join(dir, 'source/parts'), { recursive: true });
-  put(dir, 'source/at-source.json', JSON.stringify({ finished_at: '2026-11-26T00:00:02Z' }));
-  put(dir, 'source/citations.json', JSON.stringify({ meshes: [{ entry: 'torso', guide: 'meshes', quote: 'Synthetic meshes answer after viewing the approved parts and structure.', asks: ['bend'] }] }));
-  put(dir, 'source/run.json', JSON.stringify({ spec: 'rigc-run/1', package: { name: 'rig-c', version: '3.4.1' }, command: 'build', started_at: '2026-11-26T00:00:02.000Z', finished_at: '2026-11-26T00:00:02.000Z', inputs: [{ role: 'rig', path: 'rig/rig.json', sha256: '1'.repeat(64) }, { role: 'motion', path: 'rig/motion.json', sha256: '2'.repeat(64) }], outputs: [{ path: 'build/skeleton.model.json', sha256: '2'.repeat(64) }] }));
-  const before = readFileSync(join(dir, 'project.json'));
-  try {
-    rigVersionCommand(['3', dir, '--parts', 'source/parts', '--rig', 'source/rig', '--build', 'source/build', '--idle', 'source/idle',
-      '--config', 'source/config.json', '--path-adapter', 'source/adapter.json', '--compile-report', 'source/compile-report.json',
-      '--toolchain-lock', 'source/package-lock.json', '--run-record', 'source/run.json', '--at-source', 'source/at-source.json',
-      '--at-pointer', '/finished_at', '--citations', 'source/citations.json', '--by', 'registrant']);
-    throw Error('expected refusal');
-  }
-  catch (error) { expect(error).toBeInstanceOf(Refusal); expect((error as Refusal).code).toBe('STRUCTURE_DECISIONS_CONFLICT'); }
-  expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
-});

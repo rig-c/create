@@ -159,29 +159,10 @@ describe('pause and resume refusals leave the bytes unchanged', () => {
     refused(dir, 'RESUME_STAGE_MISMATCH', () => resume(dir, 'parts'));
     refused(dir, 'ADVANCE_MALFORMED', () => { tick(); advanceCommand(['parts', dir]); });
     resume(dir, 'plan-approved');
-    expect(checkProject(dir).refusals.map(f => f.code)).toEqual(['STAGE_LAGGING']);
-    refused(dir, 'STAGE_LAGGING', () => signPaused(dir));
+    // #981: a resumed stage behind its signatures no longer lags.
+    expect(checkProject(dir).refusals).toEqual([]);
   });
 
-  test('resume candidate validation retains a lag owned by a later signature', () => {
-    const dir = chain('0b-plan-pending');
-    signPaused(dir); pause(dir); signStage(dir, 'plan-approved');
-    const paused = read(dir);
-    // A synthetic later signature isolates the lag decision from the earlier
-    // SIGNOFF_AHEAD_OF_STAGE refusal that the writer will report first.
-    paused.signoffs = [...arr(paused.signoffs), {
-      stage: 'parts-review', checkpoint: null, at: testClock.iso(), by: 'owner', verbatim: 'Later synthetic signature.',
-    }];
-    save(dir, paused);
-    tick();
-    const candidate: JsonObject = { ...paused, stage: 'plan-approved', pauses: [...arr(paused.pauses), {
-      from_stage: 'paused', stage: 'plan-approved', at: testClock.iso(), by: 'owner', verbatim: 'Resume the synthetic project.',
-    }] };
-    const strict = checkProject(dir, candidate).refusals;
-    expect(strict.map(f => [f.code, f.path])).toContainEqual(['STAGE_LAGGING', 'stage']);
-    expect(checkCandidate(dir, candidate, { now: testClock.now(), resumeStage: 'plan-approved' }).refusals).toEqual(strict);
-    refused(dir, 'SIGNOFF_AHEAD_OF_STAGE', () => resume(dir, 'plan-approved'));
-  });
 });
 
 describe('leaving a pause another way', () => {
@@ -226,20 +207,5 @@ describe('check reads pauses[]', () => {
     const dir = chain('1-parts-verdict');
     const p = read(dir); p.pauses = {}; save(dir, p);
     expect(checkProject(dir).refusals.map(f => [f.code, f.path])).toEqual([['PAUSE_MALFORMED', 'pauses']]);
-  });
-  test('a hand resume to another stage is still STAGE_SKIPPED, as before pauses[] existed', () => {
-    const dir = chain('3-rig-review');
-    signPaused(dir); pause(dir);
-    const p = read(dir); p.stage = 'post-interview'; save(dir, p);
-    const skipped = (): string[][] => {
-      const report = checkProject(dir);
-      return [...report.refusals.map(f => ['refusal', f.code]), ...report.warnings.map(f => ['warning', f.code])].filter(([, code]) => code === 'STAGE_SKIPPED');
-    };
-    // The example's events predate STAGE_PROGRESS_SINCE, so the hand move is dated by them and WARNs,
-    // for the latest-move mismatch and for the signature window, exactly as without pauses[].
-    const withPauses = skipped();
-    expect(withPauses).toEqual([['warning', 'STAGE_SKIPPED'], ['warning', 'STAGE_SKIPPED']]);
-    delete p.pauses; save(dir, p);
-    expect(skipped()).toEqual(withPauses);
   });
 });

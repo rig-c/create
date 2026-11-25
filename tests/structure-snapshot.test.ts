@@ -118,7 +118,7 @@ test('#543 an exact edited set with the current accepted parts verdict signs and
   expect(checkProject(dir).refusals.map(f => f.code)).not.toContain('DRAFT_EDITED_PART_UNBOUND');
 });
 
-test('#543 receipts without an owner verdict do not authorize the edited set or the next stage', () => {
+test('#543 receipts without an owner verdict do not sign the edited set', () => {
   const dir = setup('synthetic retouch A');
   const project = read(dir);
   project.review_acts = arr(project.review_acts).filter(raw => obj(raw).draft_id !== 'shape');
@@ -126,18 +126,16 @@ test('#543 receipts without an owner verdict do not authorize the edited set or 
   const before = readFileSync(join(dir, 'project.json'));
   expect(snapshot(dir).exit).toBe(0);
   refused(() => partsSign(dir), 'PARTS_VERDICT_RECEIPT_REQUIRED');
-  refused(() => advanceCommand(['rigging-interview', dir]), 'ADVANCE_UNAUTHORIZED');
   expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
   expect(existsSync(join(dir, OUT))).toBe(true);
 });
 
-test('#543 a newer changes-requested verdict keeps the edited set from signing or advancing', () => {
+test('#543 a newer changes-requested verdict keeps the edited set from signing', () => {
   const dir = setup('synthetic retouch A');
   recordPartsReceipt(dir, 'shape', testClock.now() + 1, 'changes-requested');
   const before = readFileSync(join(dir, 'project.json'));
   expect(snapshot(dir).exit).toBe(0);
   refused(() => partsSign(dir), 'PARTS_VERDICT_LATEST_NOT_APPROVED');
-  refused(() => advanceCommand(['rigging-interview', dir]), 'ADVANCE_UNAUTHORIZED');
   expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
 });
 
@@ -163,7 +161,6 @@ test('#543 an accepted verdict for one edited set cannot be recorded for a draft
     testClock.now(), { runCli: reviewStdout(response) }), 'PARTS_VERDICT_DRAFT_MISMATCH');
   expect(snapshot(other).exit).toBe(0);
   refused(() => partsSign(other), 'PARTS_VERDICT_RECEIPT_REQUIRED');
-  refused(() => advanceCommand(['rigging-interview', other]), 'ADVANCE_UNAUTHORIZED');
   expect(readFileSync(join(other, 'project.json'))).toEqual(before);
   expect(readFileSync(join(dir, 'inputs/retouched', file))).toEqual(original);
 });

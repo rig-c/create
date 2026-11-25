@@ -1,27 +1,22 @@
-import { recordedPartsVerdict, recordedPartsFinding } from './parts-verdict-record.ts';
-import reviewPackage from '@rig-c/review/package.json';
 import { configInputReferences, configInputsLegacy, DIRECTORY_INPUT_RECEIPT, plateReceiptSpec, receiptSpec, type ConfigInputsWarning } from './config-inputs.ts';
 import { DirectionError, objects as directionObjects, readDirection } from './direction.ts';
 /** Frozen producer inputs in review's fixed discovery layout (create#38). */
 import { createHash } from 'node:crypto';
 import { closeSync, openSync, mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { existsSync, lstatSync, readFileSync, readdirSync, realpathSync } from './check-reads.ts';
-import { dirname, isAbsolute, join, posix, relative, resolve, sep } from 'node:path';
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 
 import { asArray, isObject, readJsonObject, type Ctx } from './check.ts';
-import { draftFileUnavailable, draftVersionFindings } from './drafts.ts';
+import { draftVersionFindings } from './drafts.ts';
 import { assembleOnlyDraftPath, assembleOnlyDraftTarget, assertDraftHasRig } from './draft-layout.ts';
 import { Refusal, refuse, USAGE_EXIT } from './refusal.ts';
 import { assertRigVersionDate, rigVersionDateFinding } from './rig-version-date.ts';
-import { registeredDepthPartsMatch } from './rig-version.ts';
-import { rigPartsApproval, retainedJson } from './structure.ts';
 import { beginJobProgress } from './job-writer.ts';
 import type { Json, JsonObject } from './templates.ts';
 
 const hash = (bytes: Buffer): string => createHash('sha256').update(bytes).digest('hex');
 export const BUILD_IDENTITY_SINCE = '2026-11-06T00:00:00Z';
-export const PART_FILE_IDENTITY_SINCE = '2026-11-06T00:00:00Z';
 
 /** Compare declared identities even when regenerable package bytes are absent. */
 function checkBuildIdentity(ctx: Pick<Ctx, 'dir' | 'project' | 'refusals' | 'warnings'>, version: JsonObject, record: JsonObject): void {
@@ -36,45 +31,7 @@ function checkBuildIdentity(ctx: Pick<Ctx, 'dir' | 'project' | 'refusals' | 'war
   if (typeof config.sha256 === 'string' && isObject(record.config) && typeof record.config.sha256 === 'string' && config.sha256 !== record.config.sha256) {
     mismatch('REVIEW_PACKAGE_CONFIG_MISMATCH', 'config', config.sha256, record.config.sha256);
   }
-  const approval = rigPartsApproval(ctx.project, version, Number.isFinite(at) ? at : Infinity);
-  if (!approval) return;
-  const approvalPath = `signoffs[${asArray(ctx.project.signoffs).indexOf(approval)}]`;
-  const finding = recordedPartsFinding(ctx.dir, ctx.project, approval, approvalPath);
-  if (finding) {
-    if (finding.code === 'PARTS_VERDICT_FILE_LEGACY' && version.accepted_parts === undefined) {
-      if (!ctx.warnings.some(existing => existing.code === finding.code && existing.path === finding.path)) ctx.warnings.push(finding);
-    } else findings.push({ code: 'REVIEW_PACKAGE_PARTS_UNREAD', path: `${path}.files[out/parts.json]`,
-      message: `${path}.files[out/parts.json]: accepted parts receipt cannot be read (${finding.code}: ${finding.message}); compare the Review version that recorded the act (not carried by API act receipts) with the current @rig-c/review ${reviewPackage.version} reader. For an act parsing failure, register with a Review version that parses that act, or wait until support lands; preserve the retained bytes. For missing or changed evidence, restore its recorded API response and selected draft before packaging this version` });
-    return;
-  }
-  recordedPartsVerdict(ctx.dir, ctx.project, approval.draft_id, approval.evidence, { requireAvailable: false });
-  const draft = asArray(ctx.project.drafts).find(draft => isObject(draft) && draft.id === approval.draft_id) as JsonObject;
-  const parts = draft.parts as JsonObject;
-  const files = asArray(parts.files).filter(isObject);
-  const manifest = files.find(file => file.path === `${parts.path}/parts.json`);
-  const packaged = asArray(record.files).find(f => isObject(f) && f.path === 'out/parts.json');
-  if (isObject(manifest) && typeof manifest.sha256 === 'string' && isObject(packaged) && typeof packaged.sha256 === 'string' && manifest.sha256 !== packaged.sha256
-    && !registeredDepthPartsMatch(ctx.dir, version, manifest.sha256, packaged.sha256)) {
-    mismatch('REVIEW_PACKAGE_PARTS_MISMATCH', 'files[out/parts.json]', manifest.sha256, packaged.sha256);
-  }
-  if (!isObject(manifest) || typeof manifest.path !== 'string') return;
-  const legacy = version.accepted_parts === undefined && (!Number.isFinite(at) || at < Date.parse(PART_FILE_IDENTITY_SINCE));
-  if (draftFileUnavailable(ctx.dir, manifest.path, `derived/drafts/${String(draft.id)}`)) return;
-  const declaration = retainedJson(ctx.dir, manifest);
-  const painting = isObject(declaration.painting_in_rig) && typeof declaration.painting_in_rig.path === 'string'
-    ? posix.join(String(parts.path), declaration.painting_in_rig.path) : undefined;
-  for (const image of files) {
-    if (!isObject(image) || typeof image.path !== 'string' || typeof image.sha256 !== 'string' || image === manifest || image.path === painting) continue;
-    const name = posix.join('out', posix.relative(posix.dirname(manifest.path), image.path));
-    const file = asArray(record.files).find(f => isObject(f) && f.path === name);
-    const actual = isObject(file) && typeof file.sha256 === 'string' ? file.sha256 : 'missing';
-    if (actual === image.sha256) continue;
-    const field = `${path}.files[${name}]`;
-    (legacy ? ctx.warnings : ctx.refusals).push({
-      code: legacy ? 'REVIEW_PACKAGE_PART_FILE_LEGACY' : 'REVIEW_PACKAGE_PART_FILE_MISMATCH', path: field,
-      message: `${field}: package sha256 ${actual} differs from accepted part ${image.path} sha256 ${image.sha256}; preserve the package and record a new version from the reviewed part files`,
-    });
-  }
+  // The packaged parts are not compared with a parts approval (#981): parts may change and the rig is rebuilt from them.
 }
 const word = (s: string): string => `'${s.replaceAll("'", "'\\''")}'`;
 const packagePath = (n: number): string => `derived/review/v${n}`;

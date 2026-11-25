@@ -4,7 +4,7 @@ import os from 'node:os';
 import { dirname, join, posix, relative, resolve, sep } from 'node:path';
 import { readPlatePainting, readSourceMask } from '@rig-c/parts/src/plate.ts';
 import { TURN_OPTIONS, TURN_QUESTION } from '../src/waypoints.ts';
-import { DEPTH_MAP_BINDING_SINCE, RIG_PARTS_APPROVAL_SINCE, depthPlanFindings, depthPlanMoves, registeredDepthPartsMatch, rigRegistrationFindings, turnExtraGroup, turnExtraGroupMoves } from '../src/rig-version.ts';
+import { DEPTH_MAP_BINDING_SINCE, depthPlanFindings, depthPlanMoves, registeredDepthPartsMatch, rigRegistrationFindings, turnExtraGroup, turnExtraGroupMoves } from '../src/rig-version.ts';
 import { RIG_CHECK_REPORT_SINCE } from '../src/rig-check-report.ts';
 import { checkProject as checkRecordProject } from '../src/check.ts';
 import { checkProject, rigVersionCommand, testClock } from './clock.ts';
@@ -19,6 +19,8 @@ import { framedRigPin } from './comment-anchor-shapes.ts';
 import { openCreateJob, reconcileCreateJob } from '../src/job-host.ts';
 import { acquireJobLock, jobHash, jobHostStateRoot, jobPrivateRoot, pendingPublications, readWriterBinding } from '../src/job-outbox.ts';
 import { readRecordPublished } from '../src/job-publication.ts';
+/** Retired accepted-parts contract date (#981): kept as a fixture time only. */
+const RIG_PARTS_APPROVAL_SINCE = '2026-11-19T00:00:00Z';
 
 const roots: string[] = [];
 const frozen = join(import.meta.dir, 'fixtures/rig-registration');
@@ -247,11 +249,12 @@ test('#752 a plain visible build still passes without a figure mask', () => {
   expect(rigVersionCommand(register).exit).toBe(0);
 });
 
-test('frozen registration without a live parts approval refuses on the contract date', () => {
+test('#981 frozen registration without a parts approval registers', () => {
   const f = setup();
   testClock.set(new Date(RIG_PARTS_APPROVAL_SINCE));
-  refused(f.args, 'RIG_PARTS_APPROVAL_REQUIRED');
-  expect(existsSync(join(f.dir, 'outputs/v1'))).toBe(false);
+  rigVersionCommand(f.args);
+  expect(existsSync(join(f.dir, 'outputs/v1'))).toBe(true);
+  expect(rigRegistrationFindings(f.dir, f.load())).toEqual([]);
 });
 
 /** A synthetic retained Review response and structure snapshot for the exact frozen parts. */
@@ -518,36 +521,18 @@ describe('#573 frozen Parts check report', () => {
   });
 });
 
-test('frozen registration refuses parts bytes that differ from the newer bound approval', () => {
+test('#981 frozen registration builds from parts bytes that differ from the newer approval', () => {
   const f = setup();
   const frozenParts = f.args[f.args.indexOf('--parts') + 1]!;
   approveFrozenParts(f.dir, f.load(), f.args);
   const manifest = `${frozenParts}/parts.json`;
   writeFileSync(join(f.dir, manifest), Buffer.concat([readFileSync(join(f.dir, manifest)), Buffer.from(' ')]));
-  f.args[f.args.indexOf('--parts') + 1] = frozenParts;
   testClock.set(new Date(RIG_PARTS_APPROVAL_SINCE));
-  refused(f.args, 'REVIEW_PACKAGE_PARTS_MISMATCH');
-  expect(existsSync(join(f.dir, 'outputs/v1'))).toBe(false);
+  rigVersionCommand(f.args);
+  expect(existsSync(join(f.dir, 'outputs/v1'))).toBe(true);
 });
 
-test('frozen registration refuses structure conflicts against the newer bound approval', () => {
-  const f = setup();
-  approveFrozenParts(f.dir, f.load(), f.args);
-  const project = f.load();
-  const approval = obj(arr(project.signoffs)[0]);
-  const binding = obj(approval.structure);
-  const path = String(binding.path);
-  const snapshot = JSON.parse(readFileSync(join(f.dir, path), 'utf8'));
-  snapshot.entries = [{ path: '/meshes/rectangle', value: null }];
-  put(f.dir, path, snapshot);
-  binding.sha256 = jobHash(readFileSync(join(f.dir, path)));
-  put(f.dir, 'project.json', project);
-  // Keep the approval valid while the frozen producer config overrides its declaration.
-  put(f.dir, 'source/config.json', { key: 'synthetic', requirements: 'requirements.json', meshes: { rectangle: { grid: 4 } } });
-  testClock.set(new Date(RIG_PARTS_APPROVAL_SINCE));
-  refused(f.args, 'STRUCTURE_DECISIONS_CONFLICT');
-  expect(existsSync(join(f.dir, 'outputs/v1'))).toBe(false);
-});
+
 
 function setupProvenancePointers() {
   const base = setup();
@@ -1532,16 +1517,12 @@ describe('frozen rig registration', () => {
     expect(checkProject(dir, project).refusals.map(f => f.code)).toContain(code);
   });
 
-  test('a reopen before registration refuses the cited old bound, but a later reopen preserves history', () => {
+  test('#981 a reopen before registration does not refuse the build, and a later reopen preserves history', () => {
     const { dir, args, load } = setup();
     const project = load();
     project.reopens = [{ stage: 'interview', from_stage: 'rig-review', by: 'user', at: '2026-11-07T07:47:00Z', verbatim: 'Reopen', steps_before: [] }];
     put(dir, 'project.json', project);
-    const before = readFileSync(join(dir, 'project.json'));
-    refused(args, 'RIG_BUILD_BEFORE_REOPEN');
-    expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
-    project.reopens = [];
-    put(dir, 'project.json', project);
+    // #981: a reopen no longer bounds a build; the rig registers over it.
     rigVersionCommand(args);
     const registered = load();
     registered.reopens = [{ stage: 'interview', from_stage: 'rig-review', by: 'user', at: '2099-01-01T00:00:00Z', verbatim: 'Reopen later', steps_before: [],
@@ -2567,7 +2548,7 @@ describe('#812/#929 live rig feedback', () => {
           expect(recorded.feedback_route).toMatchObject({ item: 'motion', comment_index: 1, verbatim: words });
           expect(receipt().feedback_route).toEqual(recorded.feedback_route!);
           expect(receipt().bytes).toBe(exported);
-          expect(checkProject(dir).refusals.map(f => f.code)).toEqual(['SIGNOFF_ANSWERS_STALE', 'GUIDE_CHANGED_UNSIGNED']);
+          expect(checkProject(dir).refusals.map(f => f.code)).toEqual(['SIGNOFF_ANSWERS_STALE']);
         }
         return;
       }
@@ -2659,7 +2640,8 @@ describe('#812/#929 live rig feedback', () => {
       expect(recordBytes()).toEqual(afterRoute);
       await refusedRoute('REVIEW_FEEDBACK_ROUTE_CONFLICT', '--item', 'bones:not-asked');
       const next = await cli('next', dir, '--json');
-      expect(arr(next.refusals).map(row => obj(row).code)).toContain('GUIDE_CHANGED_UNSIGNED');
+      // #981: GUIDE_CHANGED_UNSIGNED is gone; the interview's own staleness (#983) still asks for the re-sign.
+      expect(arr(next.refusals).map(row => obj(row).code)).toContain('SIGNOFF_ANSWERS_STALE');
       const human = arr(next.moves).map(obj).filter(move => move.role === 'human');
       expect(human).toHaveLength(1);
       expect(human[0]?.command).toContain('signoff plan-approved');
@@ -2881,12 +2863,13 @@ describe('#514 producer depth bindings in frozen registration', () => {
 
   test('#559 current bound registration passes and retained tampering refuses in every era', () => {
     const { dir, args, load } = boundDepthSetup();
-    const approval = approveFrozenParts(dir, load(), args);
+    approveFrozenParts(dir, load(), args);
     testClock.set(new Date(DEPTH_MAP_BINDING_SINCE));
     rigVersionCommand(args);
     expect(rigRegistrationFindings(dir, load())).toEqual([]);
     const project = load(), version = obj(arr(project.versions)[0]), registration = obj(version.registration);
-    expect(version.accepted_parts).toEqual(approval);
+    // #981: registration no longer binds the parts approval.
+    expect(version.accepted_parts).toBeUndefined();
     const binding = obj(arr(obj(registration.depth).map_bindings)[0]);
     writeFileSync(join(dir, String(binding.path)), '{}\n');
     registration.at = '2026-11-18T23:59:59Z';

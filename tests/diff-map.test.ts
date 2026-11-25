@@ -128,8 +128,6 @@ describe('B0 normal writer and both producer layouts', () => {
     expect(signResult.code).toBe(0);
     const signed = JSON.parse(signResult.stdout) as JsonObject;
     expect(signed.diff_map).toBeUndefined();
-    // Signed after STAGE_PROGRESS_SINCE, the lagging stage is a refusal until advance moves it.
-    expect(checkProject(dir).refusals.map(f => f.code)).toContain('STAGE_LAGGING');
     declareDiffPainting(dir);
     advanceCommand(['rigging', dir]);
     const report = checkProject(dir);

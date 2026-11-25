@@ -523,8 +523,8 @@ At rigging-interview and post-interview, record the answer first, then revise
 each earlier step that rests on it before running `job open --plan`. Compare
 the step with the effective guide's recorded `at` even when owner chat carries
 an earlier `said_at`. For previously completed work, `next` asks for an owner
-amendment when needed, then prints the paired remove and add commands that
-retain the completed definition and execution history.
+amendment when needed, then prints the `plan replace` command that retains
+the completed definition and execution history.
 
 After recording every pick, run `interview --check`, then `job open --plan`
 for the interview signature. The grouped, single-set and interview-signature routes are supported by

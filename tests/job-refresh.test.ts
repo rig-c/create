@@ -329,7 +329,7 @@ test.each(['approved', 'changes-requested'] as const)('#557 one parts %s act ing
       kind: 'parts-verdict', spec: verdict.schema });
     expect(signatures[0]!.structure).toEqual({ path: 'evidence/structure-chain.json', sha256: jobHash(readFileSync(join(root, 'evidence/structure-chain.json'))) });
     expect(nextProject(root, testClock.now()).moves.some(move => move.review_act?.kind === 'signoff' && move.review_act.stage === 'parts-review')).toBe(false);
-    expect(checkProject(root).refusals.map(row => row.code)).toEqual(['STAGE_LAGGING']);
+    expect(checkProject(root).refusals.map(row => row.code)).toEqual([]);
     const saved = readFileSync(join(root, 'project.json'));
     expectExit0(await cli(root, ['parts-review', root, '--from-review', String(verdict.actId)]));
     expect(readFileSync(join(root, 'project.json'))).toEqual(saved);
@@ -502,7 +502,6 @@ test('#712A cloned rigging approval cannot sign or authorize a parts-review adva
   const words = join(clone, 'parts-signoff-words.txt');
   writeFileSync(words, 'Approve the synthetic parts.\n');
   await refuses(['signoff', 'parts-review', clone, '--draft', MESH_DRAFT, '--by', 'user', '--verbatim-file', words], 'PARTS_VERDICT_RECEIPT_REQUIRED');
-  await refuses(['advance', 'rigging-interview', clone], 'ADVANCE_UNAUTHORIZED');
 
   // A copied record can also point explicitly at the wrong receipt. The public
   // advance must verify the evidence even when the ledger contains a signoff row.
@@ -744,7 +743,7 @@ test('#557 parts-review retouch lifecycle rejects once, records a real edited dr
   expect(folded.reopens).toEqual(initial.reopens);
   expect(readFileSync(join(root, 'evidence/structure-chain.json'))).toEqual(oldStructure);
   expect(readFileSync(join(root, 'evidence/diff-components.json'))).toEqual(oldDiff);
-  expect(checkProject(root).refusals.map(finding => finding.code)).toEqual(['STAGE_LAGGING']);
+  expect(checkProject(root).refusals.map(finding => finding.code)).toEqual([]);
   expect(checkProject(root).holes ?? []).toEqual([]);
   const final = trace('new-approval-folded');
   expect(final.moves.some(move => move.review_act?.kind === 'signoff' && move.review_act.stage === 'parts-review')).toBe(false);
@@ -776,7 +775,7 @@ test('legacy approved unsigned parts refresh preserves JOB_RECORD_MOVED and the 
   expectExit0(await cli(root, ['signoff', 'parts-review', root, '--from-review', String(signed.actId), '--structure-file', 'evidence/structure-chain.json', '--json']));
   expect((read(root).signoffs as JsonObject[]).at(-1)).toMatchObject({ stage: 'parts-review', checkpoint: null, by: 'user',
     verbatim: `[general]\n${WORDS}`, draft_id: 'chain', source: `review act ${String(signed.jobId)}/${String(signed.actId)}` });
-  expect(checkProject(root).refusals.map(row => row.code)).toEqual(['STAGE_LAGGING']);
+  expect(checkProject(root).refusals.map(row => row.code)).toEqual([]);
 }, REFRESH_FLOW_TIMEOUT_MS);
 
 test('rig-review verdict -> ingest -> job open refresh -> UI signoff -> ingest preserves rig selector, updates projectHash, and keeps stale/authority guards', async () => {
@@ -897,7 +896,7 @@ test('rig-review verdict -> ingest -> job open refresh -> UI signoff -> ingest p
   }
 
   const report = checkProject(root, undefined, { now: Date.now() });
-  expect(report.refusals.map(f => f.code)).toEqual(['STAGE_LAGGING']);
+  expect(report.refusals.map(f => f.code)).toEqual([]);
   expect(report.holes ?? []).toEqual([]);
 }, REFRESH_FLOW_TIMEOUT_MS);
 
@@ -1081,7 +1080,7 @@ test('#574 fresh rig approval folds one signature, preserves words, replays byte
     verbatim: `[general]\n${WORDS}`, source: `review act ${String(act.jobId)}/${String(act.actId)}`, target: { version: 1 } });
   expect((saved.review_acts as JsonObject[]).at(-1)!.signoff).toBe((saved.signoffs as JsonObject[]).length - 1);
   expect(reviewActFindings(saved)).toEqual([]);
-  expect(checkProject(root).refusals.map(f => f.code)).toEqual(['STAGE_LAGGING']);
+  expect(checkProject(root).refusals.map(f => f.code)).toEqual([]);
   expect(nextProject(root, testClock.now()).moves.some(move => move.review_act?.kind === 'signoff' && move.review_act.stage === 'rig-review')).toBe(false);
   const bytes = readFileSync(join(root, 'project.json'));
   expectExit0(await cli(root, ['review', '1', root, '--from-review', String(act.actId), '--json']));

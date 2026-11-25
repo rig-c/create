@@ -176,7 +176,7 @@ Bun.spawnSync = (args, options) => original([args[0], '--preload', import.meta.p
   return { stdout, stderr, exit };
 }
 
-test('#888 signoff rig-review, advance and handoff require acceptance of the latest live rig', async () => {
+test('#888 signoff rig-review and handoff require acceptance of the latest live rig', async () => {
   const root = temporary('create-latest-rig-');
   const checkpoint = join(import.meta.dir, '../templates/example-chain/checkpoints/3-rig-review');
   cpSync(checkpoint, root, { recursive: true });
@@ -277,10 +277,10 @@ test('#888 signoff rig-review, advance and handoff require acceptance of the lat
   checkBlocked(staleSignoff);
   expect(staleSignoff.stderr).toContain('review 2 --verdict accepted --review rig-review');
   checkBlocked(cli(root, sign(root, 1)));
-  checkRefused(cli(root, ['handoff', root]), 'RIG_REVIEW_UNSIGNED');
+  checkBlocked(cli(root, ['handoff', root]));
 
-  // A pre-existing signature satisfies the prerequisite for the downstream guards.
-  checkBlocked(cli(signed, ['advance', 'post-interview', signed]));
+  // #981: advance no longer waits for an acceptance; handoff still binds the accepted latest rig (#984/#985).
+  success(signed, ['advance', 'post-interview', signed]);
   checkBlocked(cli(signed, ['handoff', signed]));
 
   await accept(root, 2);
@@ -375,7 +375,7 @@ for (const separate of [false, true]) test(`#578 reopened v2 ${separate ? 'separ
   } });
   expect((saved.versions as JsonObject[])[1]!.verdicts).toEqual([expect.objectContaining({ review: 'rig-review', verdict: 'accepted' })]);
   expect(reviewActFindings(saved)).toEqual([]);
-  expect(checkProject(root).refusals.map(f => f.code)).toEqual(['STAGE_LAGGING']);
+  expect(checkProject(root).refusals.map(f => f.code)).toEqual([]);
   const next = nextProject(root, testClock.now());
   expect(next.moves.some(move => move.command?.startsWith('rig-create advance post-interview'))).toBe(true);
   expect(next.moves.some(move => move.review_act?.stage === 'rig-review' && move.review_act.kind === 'signoff')).toBe(false);

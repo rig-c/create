@@ -5,13 +5,10 @@ import { asArray, asString, collectItems, collectSignoffs, isObject, loadCollect
 import { DIRECTION_SCENE_SINCE } from './direction.ts';
 import { DIRECTION_COMPOSE_SPEC } from './direction-compose.ts';
 import { currentScene as currentSceneEntry, SceneError, sceneCurrentAt } from './scene.ts';
-import { LEGACY_STAGES, PARTS_REVIEW_SINCE, PAUSED_STAGE, SKIPPED_WHEN_NO_POST, STAGES, hasStageOrder, stageIndex, stageOfStep, type StageSpec } from './stages.ts';
+import { LEGACY_STAGES, PARTS_REVIEW_SINCE, PAUSED_STAGE, STAGES, stageIndex, stageOfStep, type StageSpec } from './stages.ts';
 import { amendmentResetsStep, collectAmendments } from './amend.ts';
 import { collectReopens, liveSignoff } from './reopen.ts';
 import type { Json, JsonObject } from './templates.ts';
-
-/** Dates the authorizing stage-level signature, including a signature earlier on landing day. */
-export const STAGE_PROGRESS_SINCE = '2026-11-08T00:00:00Z';
 
 /** Dates a history link break by the earliest recorded event the unrecorded move must follow. */
 export const PROGRESS_HISTORY_SINCE = '2026-11-08T00:00:00Z';
@@ -71,126 +68,39 @@ function resolveSignoff(project: JsonObject, identity: Json | undefined): JsonOb
   return matches.length === 1 ? matches[0] : undefined;
 }
 
-/** Re-signing an earlier plan does not revoke later live approvals. Reopen/amend owns revocation. */
-export function stageWindow(ctx: Ctx): { minimum: string; maximum: string; signoff: Ctx['signoffs'][number] | undefined } {
-  const order = (hasStageOrder(ctx.project) ? STAGES : LEGACY_STAGES).filter(s =>
-    !(ctx.predatesPartsReview !== null && ['parts', 'parts-review'].includes(s.id))
-    && !(postNotPassed(ctx) && SKIPPED_WHEN_NO_POST.includes(s.id)));
-  const latest = furthestStageSignoff(ctx.signoffs.filter(s => order.some(stage => stage.id === s.stage)));
-  const start = latest === undefined ? 0 : Math.min(order.findIndex(s => s.id === latest.stage) + 1, order.length - 1);
-  let end = start;
-  while (order[end]?.closed_by === 'bar') {
-    const spec = order[end]!;
-    const steps = ctx.steps.filter(s => ctx.predatesPartsReview !== null
-      ? s.phase === spec.phase : stageOfStep(s.phase, s.id) === spec.id);
-    if (steps.length === 0 || steps.some(s => s.record.status !== 'done')) break;
-    end++;
-  }
-  return { minimum: order[start]!.id, maximum: order[Math.min(end, order.length - 1)]!.id, signoff: latest };
-}
-
-export function checkStageProgress(ctx: Ctx, forwardWrite = false, resumeStage?: string): void {
-  if (ctx.stage === PAUSED_STAGE) return;
-  // Amend retains the stored stage while its approvals lapse, so only the recorded-move check applies (PROJECT.md).
-  const amended = ctx.effectiveStage !== ctx.stage;
-  const current = stageIndex(ctx.stage);
-  const frontier = furthestStageSignoff(ctx.signoffs);
-  const unreadable = ctx.signoffs.find(s => s.stage === frontier?.stage && s.checkpoint === null && !Number.isFinite(s.at));
-  if (!amended && unreadable !== undefined) {
-    ctx.refusals.push({ code: 'STAGE_SIGNOFF_DATE_INVALID', path: `signoffs[${unreadable.index}].at`, message: `signoffs[${unreadable.index}].at: frontier approval needs a readable date; restore its original date before advancing` });
-    return;
-  }
-  const since = Date.parse(STAGE_PROGRESS_SINCE);
-  const moves = [
-    ...asArray(ctx.project.advances).filter(isObject).map((record, index) => ({ record, advance: true, index })),
-    ...asArray(ctx.project.reopens).filter(isObject).map((record, index) => ({ record, advance: false, index })),
-  ].filter(move => move.record.from_stage !== move.record.stage && Number.isFinite(Date.parse(String(move.record.at))))
-    .sort((a, b) => Date.parse(String(b.record.at)) - Date.parse(String(a.record.at)) || Number(a.advance) - Number(b.advance) || b.index - a.index);
-  const latestMove = moves[0];
-  if (latestMove === undefined ? ctx.stage !== 'interview' : latestMove.record.stage !== ctx.stage) {
-    // The unrecorded move is no older than the latest recorded move and the stage's arrival authority:
-    // the latest stage-level signature at the furthest stage before the current one. It is live, or on an
-    // amended project retained, since amend voids the approvals that dated the arrival.
-    const earlier = (amended ? collectSignoffs(ctx.project, []) : ctx.signoffs).filter(s => s.checkpoint === null && stageIndex(s.stage) >= 0 && stageIndex(s.stage) < current);
-    const arrivalStage = Math.max(...earlier.map(s => stageIndex(s.stage)));
-    const arrival = earlier.filter(s => stageIndex(s.stage) === arrivalStage);
-    const dates = [
-      ...(latestMove === undefined ? [] : [Date.parse(String(latestMove.record.at))]),
-      ...(arrival.length === 0 ? [] : [arrival.every(s => Number.isFinite(s.at)) ? Math.max(...arrival.map(s => s.at)) : NaN]),
-    ];
-    const movedAt = dates.length === 0 ? NaN : Math.max(...dates);
-    const finding = { code: 'STAGE_SKIPPED', path: 'stage', message: `stage: ${ctx.stage} differs from its latest recorded move (${latestMove === undefined ? 'none' : String(latestMove.record.stage)}); use advance for the next authorized stage or reopen the unfinished stage` };
-    (forwardWrite || !(movedAt < since) ? ctx.refusals : ctx.warnings).push(finding);
-  }
-  if (amended) return;
-  const window = stageWindow(ctx);
-  const code = current < stageIndex(window.minimum) ? 'STAGE_LAGGING'
-    : current > stageIndex(window.maximum) ? 'STAGE_SKIPPED' : null;
-  if (code === null) return;
-  const authority = window.signoff === undefined ? 'the unsigned interview' : `signoffs[${window.signoff.index}]`;
-  const at = window.signoff?.at ?? NaN;
-  const refused = forwardWrite || at >= since || !Number.isFinite(at);
-  // Resume records the pause exit. The target's own closing signature still needs a normal advance.
-  if (refused && !forwardWrite && code === 'STAGE_LAGGING'
-    && ctx.stage === resumeStage && window.signoff?.stage === resumeStage) return;
-  const finding = { code, path: 'stage', message: `stage: ${ctx.stage} is outside ${window.minimum} through ${window.maximum} authorized by ${authority}; use advance for the next authorized stage or reopen the unfinished stage` };
-  (refused ? ctx.refusals : ctx.warnings).push(finding);
-}
-
 /** The stage order an advance entry's `order` names. */
 export function advanceOrder(order: Json | undefined): readonly StageSpec[] {
   return order === 'pre-parts' ? LEGACY_STAGES.filter(s => !['parts', 'parts-review'].includes(s.id))
     : order === 'legacy' ? LEGACY_STAGES : STAGES;
 }
 
-/** The signed stage whose stage-level signoff authorizes a move from `from`: itself, or the last signed stage before a bar stage. */
-export function moveOwner(order: readonly StageSpec[], from: Json | undefined): string | undefined {
-  const index = order.findIndex(s => s.id === from);
-  return index < 0 ? undefined : order.slice(0, index + 1).filter(s => s.closed_by === 'signoff').at(-1)?.id;
-}
-
-/** Advances are history, separate from reopen cutoffs. Their reference must witness the recorded move. */
+/** Advances are history: a shape check only. Any stage may follow any other; signoff is the live signature at the move, or null. */
 export function checkAdvances(ctx: Ctx): void {
   const push = (path: string, why: string): void => {
-    ctx.refusals.push({ code: 'ADVANCE_MALFORMED', path, message: `${path}: ${why}; preserve the original forward move and its authorizing signoff` });
+    ctx.refusals.push({ code: 'ADVANCE_MALFORMED', path, message: `${path}: ${why}; preserve the original move` });
   };
   if (ctx.project.advances !== undefined && !Array.isArray(ctx.project.advances)) push('advances', 'must be a list');
   for (const [index, entry] of asArray(ctx.project.advances).entries()) {
     const path = `advances[${index}]`;
-    // An advance records the signoff it rests on. Entries written before that carry the mover's by and verbatim, both or neither.
+    // Entries written before the signoff identity carry the mover's by and verbatim, both or neither.
     if (!isObject(entry) || ['stage', 'from_stage', 'at'].some(k => asString(entry[k]) === null)
       || ('by' in entry || 'verbatim' in entry) && ['by', 'verbatim'].some(k => asString(entry[k]) === null)
       || !Number.isFinite(Date.parse(String(entry.at))) || (entry.source !== undefined && typeof entry.source !== 'string')
       || typeof entry.post_not_passed !== 'boolean'
-      || !isSignoffIdentity(entry.signoff) || !Array.isArray(entry.signoffs_before)
+      || !(entry.signoff === null || isSignoffIdentity(entry.signoff)) || !Array.isArray(entry.signoffs_before)
       || !entry.signoffs_before.every(isSignoffIdentity)
       || !Array.isArray(entry.steps_before)) { push(path, 'needs reopen-shaped fields and stable signoff identities'); continue; }
-    const order = advanceOrder(entry.order);
-    const from = order.findIndex(s => s.id === entry.from_stage);
-    const target = order.findIndex(s => s.id === entry.stage);
-    const noPost = entry.from_stage === 'post-interview' && entry.stage === 'accepted' && entry.post_not_passed === true;
-    const at = Date.parse(String(entry.at));
-    const cutoffs = collectReopens(ctx.project, []).filter(r => r.at <= at);
-    const authority = furthestStageSignoff(collectSignoffs(ctx.project, []).filter(s => asArray(entry.signoffs_before).some(identity => matchesSignoff(identity, s.record)) && s.at <= at && liveSignoff(cutoffs, s.stage, s.at)));
-    const firstPlan = collectSignoffs(ctx.project, []).filter(s => s.stage === 'plan-approved' && s.checkpoint === null).map(s => s.at);
-    const historicalOrder = entry.order !== 'pre-parts' || Math.min(...firstPlan) < Date.parse(PARTS_REVIEW_SINCE);
-    const signature = resolveSignoff(ctx.project, entry.signoff);
-    const owner = moveOwner(order, entry.from_stage);
     if (entry.steps_before.some(s => !isObject(s) || typeof s.id !== 'string' || !['rig', 'post'].includes(String(s.phase)) || (s.status !== undefined && !STEP_STATUSES.includes(s.status as typeof STEP_STATUSES[number])))) push(path, 'steps_before must retain step ids, phases and original statuses');
-    if (typeof entry.by === 'string' && (entry.by.trim() === '' || entry.by.toLowerCase() === 'agent') || from < 0 || target <= from
-      || !['legacy', 'split', 'pre-parts'].includes(String(entry.order)) || !historicalOrder
-      || (target !== from + 1 && !noPost) || !isObject(signature) || signature.checkpoint !== null
-      || typeof signature.by !== 'string' || signature.by.toLowerCase() === 'agent'
-      || !(Date.parse(String(signature.at)) <= Date.parse(String(entry.at)))
-      || signature.stage !== owner || authority === undefined || !matchesSignoff(entry.signoff, authority.record)) push(path, 'invalid human move or authorizing signature');
+    if (stageIndex(String(entry.stage)) < 0 || stageIndex(String(entry.from_stage)) < 0
+      || !['legacy', 'split', 'pre-parts'].includes(String(entry.order))) push(path, 'needs a recorded order and stages of that order');
+    // A recorded signoff identity must still name a recorded signoff (integrity, not authority).
+    if (entry.signoff !== null && resolveSignoff(ctx.project, entry.signoff) === undefined) push(path, 'signoff names no recorded signoff');
   }
 }
 
 /**
  * pauses[] is the pause and resume writers' own history, kept apart from advances[] and reopens[], so the
- * move linkage and the latest-move rule read exactly what they read before it existed: a resume back to the
- * paused-from stage leaves the latest recorded move matching stage, and a resume anywhere else is STAGE_SKIPPED.
- * Only the shape is checked here; the field did not exist before, so no earlier record is refused.
+ * move linkage reads exactly what it read before it existed. Only the shape is checked here; the field did not exist before, so no earlier record is refused.
  */
 export function checkPauses(ctx: Ctx): void {
   const push = (path: string, why: string): void => {
@@ -218,22 +128,6 @@ export function checkPauses(ctx: Ctx): void {
         push(path, 'signoff must be the { stage, checkpoint, at } identity of a human paused sign-off dated at or before it');
       }
     } else if (from !== PAUSED_STAGE || stageIndex(String(entry.stage)) < 0) push(path, 'must enter paused from a stage, or leave paused for a stage in the order');
-  }
-}
-
-/** Snapshot bars remain historical facts even when the current plan is reopened or replaced. */
-export function checkAdvanceBars(ctx: Ctx): void {
-  for (const [index, entry] of asArray(ctx.project.advances).entries()) {
-    if (!isObject(entry) || !Array.isArray(entry.steps_before)) continue;
-    const order = entry.order === 'split' ? STAGES : LEGACY_STAGES;
-    const bar = order.find(s => s.id === entry.from_stage);
-    if (bar?.closed_by !== 'bar') continue;
-    const unfinished = entry.steps_before.some(raw => isObject(raw)
-      && (entry.order === 'pre-parts' ? raw.phase === bar.phase
-        : (raw.phase === 'rig' || raw.phase === 'post') && stageOfStep(raw.phase, String(raw.id)) === bar.id)
-      && raw.status !== 'done');
-    if (unfinished) ctx.refusals.push({ code: 'ADVANCE_MALFORMED', path: `advances[${index}].steps_before`,
-      message: `advances[${index}].steps_before: the execution stage had unfinished steps at the move; restore its original completed bar and use advance` });
   }
 }
 
@@ -366,7 +260,8 @@ export function stepStatusFollows(from: Json | undefined, to: Json | undefined, 
   const a = STEP_STATUSES.indexOf(from as StepStatus);
   const b = STEP_STATUSES.indexOf(to as StepStatus);
   if (a < 0 || b < 0) return false;
-  return b === a + 1 || (checkpointRequired === false && from === 'in-progress' && to === 'done');
+  // #981: a done step may run again (done → in-progress) without an amendment; dependency decides what is rebuilt.
+  return b === a + 1 || (checkpointRequired === false && from === 'in-progress' && to === 'done') || (from === 'done' && to === 'in-progress');
 }
 
 /** The status the writers propose next; a step without a checkpoint skips at-checkpoint. */
@@ -374,6 +269,7 @@ export function nextStepStatus(from: string, checkpointRequired: boolean): StepS
   const index = STEP_STATUSES.indexOf(from as StepStatus);
   if (index < 0) return undefined;
   if (!checkpointRequired && from === 'in-progress') return 'done';
+  if (from === 'done') return 'in-progress';
   return STEP_STATUSES[index + 1];
 }
 
@@ -388,7 +284,7 @@ export function statusTransitionFinding(entry: JsonObject, path: string): Findin
   }
   if (!stepStatusFollows(entry.from_status, entry.status, entry.checkpoint_required) || typeof entry.checkpoint_required !== 'boolean' || typeof entry.by !== 'string' || entry.by.trim() === ''
     || !Number.isFinite(Date.parse(String(entry.at))) || (entry.signoff !== null && !isSignoffIdentity(entry.signoff))) {
-    return { code: 'STEP_STATUS_TRANSITION', path, message: `${path}: record by, at, boolean checkpoint_required and one forward pending → in-progress → at-checkpoint → done transition (in-progress → done when checkpoint_required is false) with a checkpoint signoff identity or null; use step-status` };
+    return { code: 'STEP_STATUS_TRANSITION', path, message: `${path}: record by, at, boolean checkpoint_required and one forward pending → in-progress → at-checkpoint → done transition (in-progress → done when checkpoint_required is false, done → in-progress to run the step again) with a checkpoint signoff identity or null; use step-status` };
   }
   return null;
 }
@@ -406,9 +302,6 @@ export function checkStepStatusHistory(ctx: Ctx): void {
       const finding = statusTransitionFinding(isObject(raw) ? raw : {}, entryPath);
       if (finding !== null) { ctx.refusals.push(finding); continue; }
       const entry = raw as JsonObject;
-      if (entry.status === 'done' && entry.checkpoint_required === true && entry.signoff === null) {
-        ctx.refusals.push({ code: 'STEP_STATUS_SIGNOFF', path: entryPath, message: `${entryPath}: checkpointed done needs its authorizing signoff identity; record the human checkpoint with step-status` });
-      }
       if (entry.signoff === null) continue;
       const signature = resolveSignoff(ctx.project, entry.signoff);
       const allowed = [stageOfStep(step.phase, step.id)];

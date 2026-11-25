@@ -3,10 +3,12 @@ import { materializeFixture, arr, obj, retimeFixture } from './fixtures.ts';
 import { PARTS_REVIEW_SINCE } from '../src/stages.ts';
 import { afterEach, expect, test } from 'bun:test';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { Refusal } from '../src/refusal.ts';
-import { checkReviewPackages, PART_FILE_IDENTITY_SINCE, reviewPackageCommand } from '../src/review-package.ts';
+import { checkReviewPackages, reviewPackageCommand } from '../src/review-package.ts';
+/** Retired part-identity contract date (#981): kept as a fixture time only. */
+const PART_FILE_IDENTITY_SINCE = '2026-11-06T00:00:00Z';
 import type { JsonObject } from '../src/templates.ts';
 import { EXAMPLE_DIFF_REPORT } from './diff-fixture.ts';
 import { clockedCli, tempDir } from './helpers.ts';
@@ -109,34 +111,6 @@ function refusal(action: () => void): Refusal {
   throw new Error('expected a named refusal');
 }
 
-for (const state of ['changed', 'missing'] as const) test(`package refuses a ${state} listed part before publishing, including retries`, () => {
-  const dir = setup();
-  const expected = sha(readFileSync(join(dir, 'build/parts/torso.png')));
-  if (state === 'changed') put(dir, 'build/parts/torso.png', 'changed synthetic torso\n');
-  else rmSync(join(dir, 'build/parts/torso.png'));
-  const before = readFileSync(join(dir, 'project.json'));
-  let message: string | undefined;
-  for (let retry = 0; retry < 2; retry++) {
-    const error = refusal(() => packageRig(dir));
-    expect(error.code).toBe('REVIEW_PACKAGE_PART_FILE_MISMATCH');
-    expect(error.message).toContain('out/parts/torso.png');
-    expect(error.message).toContain(expected);
-    expect(error.message).toContain(state === 'missing' ? 'missing' : sha('changed synthetic torso\n'));
-    message ??= error.message;
-    expect(error.message).toBe(message);
-    expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
-    expect(existsSync(join(dir, 'derived/review/v1'))).toBe(false);
-    expect(readdirSync(join(dir, 'derived/review'))).toEqual([]);
-    expect(existsSync(join(dir, 'project.json.review-package.lock'))).toBe(false);
-  }
-});
-
-test('manifest drift retains its existing code', () => {
-  const dir = setup();
-  put(dir, 'build/parts.json', '{"parts":[]}\n');
-  expect(refusal(() => packageRig(dir)).code).toBe('REVIEW_PACKAGE_PARTS_MISMATCH');
-});
-
 test('honest files pass package, acceptance, signoff and handoff through public writers', () => {
   const dir = setup();
   packageRig(dir);
@@ -146,70 +120,6 @@ test('honest files pass package, acceptance, signoff and handoff through public 
   expect(checked(dir).refusals).toEqual([]);
   expect(checked(dir).warnings).toEqual([]);
   expect(JSON.parse(handoffCommand([dir, '--json']).stdout).rig_version).toBe(1);
-});
-
-for (const state of ['changed', 'missing'] as const) for (const at of ['2026-11-05T23:59:59.999Z', PART_FILE_IDENTITY_SINCE]) test(`part identity cutoff is fixed at creation, ${state}, ${at}`, () => {
-  const dir = setup(at);
-  if (state === 'changed') put(dir, 'build/parts/torso.png', 'changed synthetic torso\n');
-  else rmSync(join(dir, 'build/parts/torso.png'));
-  if (at === PART_FILE_IDENTITY_SINCE) {
-    expect(refusal(() => packageRig(dir)).code).toBe('REVIEW_PACKAGE_PART_FILE_MISMATCH');
-  } else {
-    packageRig(dir);
-    const result = checked(dir);
-    expect(result.refusals).toEqual([]);
-    expect(result.warnings.map(f => f.code)).toEqual(['REVIEW_PACKAGE_PART_FILE_LEGACY']);
-    accept(dir);
-    sign(dir);
-    expect(JSON.parse(handoffCommand([dir, '--json']).stdout).rig_version).toBe(1);
-  }
-});
-
-for (const boundary of ['check', 'absent-package', 'acceptance', 'signoff', 'handoff'] as const) test(`${boundary} detects independently recorded stable cohorts`, () => {
-  // Both cohorts exist before any signature or package binding. Equal event times are fixed from creation.
-  const dir = setup(PART_FILE_IDENTITY_SINCE, false, true);
-  packageRig(dir);
-  if (boundary === 'handoff' || boundary === 'signoff') accept(dir);
-  if (boundary === 'handoff') sign(dir);
-  approveParts(dir);
-  if (boundary === 'absent-package') rmSync(join(dir, 'derived/review/v1'), { recursive: true });
-  const before = readFileSync(join(dir, 'project.json'));
-  if (boundary === 'check' || boundary === 'absent-package') {
-    expect(checkProject(dir).refusals.map(f => f.code)).toContain('REVIEW_PACKAGE_PART_FILE_MISMATCH');
-  } else {
-    const actions = {
-      acceptance: () => accept(dir),
-      signoff: () => sign(dir),
-      handoff: () => { handoffCommand([dir, '--json']); },
-    };
-    expect(refusal(actions[boundary]).code).toBe('REVIEW_PACKAGE_PART_FILE_MISMATCH');
-    expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
-  }
-});
-
-
-test('acceptance scopes the part gate to its selected version', () => {
-  const dir = setup(PART_FILE_IDENTITY_SINCE, false);
-  // Initialize a separate, stable build cohort before either package is written.
-  for (const path of ['parts.json', 'parts/background.png', 'parts/torso.png', 'parts/lantern.png',
-    'rig/rig.json', 'rig/motion.json', 'rig/mesh_report.json', 'check/build/skeleton.model.json']) {
-    put(dir, `other-build/${path}`, readFileSync(join(dir, 'build', path)));
-  }
-  put(dir, 'other-build/parts/torso.png', 'distinct second cohort\n');
-  const project = load(dir);
-  const first = (project.versions as JsonObject[])[0]!;
-  (project.versions as JsonObject[]).push({ ...structuredClone(first), n: 2 });
-  put(dir, 'project.json', JSON.stringify(project));
-  packageRig(dir);
-  reviewPackageCommand(['2', dir, '--config', 'frozen/config.json', '--from', 'other-build']);
-  approveParts(dir);
-  expect(checked(dir).refusals.map(f => [f.code, f.path])).toEqual([
-    ['REVIEW_PACKAGE_PART_FILE_MISMATCH', 'versions[v2].review_package.files[out/parts/torso.png]'],
-  ]);
-  accept(dir);
-  const before = readFileSync(join(dir, 'project.json'));
-  expect(refusal(() => sign(dir)).code).toBe('RIG_VERSION_UNACCEPTED');
-  expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
 });
 
 for (const artifact of ['parts/torso.png', 'parts.json']) for (const boundary of ['acceptance', 'handoff']) test(`${boundary} refuses post-write package drift: ${artifact}`, () => {
@@ -238,22 +148,6 @@ test('an unreadable rig date cannot authorize a drifted part', () => {
   try { packageRig(dir); } catch (caught) { error = caught; }
   expect(error).toBeInstanceOf(Refusal);
   expect((error as Refusal).code).toBe('RIG_VERSION_AT_INVALID');
-  expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
-});
-
-for (const boundary of ['acceptance', 'handoff']) test(`${boundary} propagates manifest identity disagreement without global gating`, () => {
-  const dir = setup(PART_FILE_IDENTITY_SINCE, false);
-  // The alternate manifest exists before packaging and before its approval is recorded.
-  put(dir, 'build/parts.json', '{"parts":[]}\n');
-  packageRig(dir);
-  accept(dir);
-  sign(dir);
-  approveParts(dir);
-  const before = readFileSync(join(dir, 'project.json'));
-  expect(refusal(() => {
-    if (boundary === 'acceptance') accept(dir);
-    else handoffCommand([dir, '--json']);
-  }).code).toBe('REVIEW_PACKAGE_PARTS_MISMATCH');
   expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
 });
 
@@ -315,23 +209,11 @@ for (const at of ['2026-11-02', '2026-11-06T12:00:00+02:00', '2026-11-06T23:30:0
   expect(handoffCommand([dir, '--json']).exit).toBe(0);
 });
 
-test('a date-only cutoff day enforces part identity at UTC midnight', () => {
-  const dir = setup('2026-11-06');
-  expect(Date.parse('2026-11-06')).toBe(Date.parse(PART_FILE_IDENTITY_SINCE));
-  put(dir, 'build/parts/torso.png', 'distinct cutoff-day torso\n');
-  const before = readFileSync(join(dir, 'project.json'));
-  expect(refusal(() => packageRig(dir)).code).toBe('REVIEW_PACKAGE_PART_FILE_MISMATCH');
-  expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
-});
-
-test('opaque CLI source paths still refuse a planted accepted image mismatch', () => {
+for (const state of ['changed parts', 'changed manifest'] as const) test(`#981 a rig packages from ${state} that differ from the parts approval`, () => {
   const dir = setup();
-  const receipt = (load(dir).review_acts as JsonObject[]).find(receipt => receipt.schema === 'rig-create/parts-verdict-cli@1')!;
-  const response = JSON.parse(readFileSync(join(dir, String((receipt.evidence as JsonObject).path)), 'utf8')) as JsonObject;
-  expect(((response.source as JsonObject).files as JsonObject[]).every(file => file.path === undefined)).toBe(true);
-  put(dir, 'build/parts/torso.png', 'synthetic mismatched accepted image');
-  const before = readFileSync(join(dir, 'project.json'));
-  const error = refusal(() => packageRig(dir));
-  expect(error.code).toBe('REVIEW_PACKAGE_PART_FILE_MISMATCH');
-  expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
+  if (state === 'changed parts') put(dir, 'build/parts/torso.png', 'edited synthetic torso\n');
+  else put(dir, 'build/parts.json', '{"parts":[]}\n');
+  packageRig(dir);
+  expect(checked(dir).refusals).toEqual([]);
+  expect(checked(dir).warnings).toEqual([]);
 });

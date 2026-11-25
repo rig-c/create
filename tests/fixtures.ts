@@ -2,7 +2,6 @@ import { DIRECTION_SCENE_SINCE } from '../src/direction.ts';
 import { DIFF_MAP_AGENT_SINCE } from '../src/diff-map.ts';
 import { isSignoffIdentity, matchesSignoff } from '../src/stage-progress.ts';
 import { approvalStageOfStep, hasStageOrder, LEGACY_STAGES, STAGES, stageIndex, stageOfStep } from '../src/stages.ts';
-import { expect } from 'bun:test';
 import { selectAnswerHashes } from '../src/signoff-answers.ts';
 import { asArray, collectItems, isObject, loadCollection, postNotPassed } from '../src/check.ts';
 import { acceptedReviewVerdict } from '../src/review.ts';
@@ -378,7 +377,6 @@ export function resignAfterChange(dir: string, eventAt = '2030-01-01T00:00:00Z')
       signoffCommand([stage, dir, ...(ids.size ? ['--steps', [...ids].join(',')] : []), '--by', 'user', '--verbatim-file', words]);
       const signed = JSON.parse(readFileSync(file, 'utf8')) as JsonObject;
       if (signed.stage === stage) {
-        expect(checkProject(dir).refusals.map(f => f.code)).toContain('STAGE_LAGGING');
         const order = hasStageOrder(signed) ? STAGES : LEGACY_STAGES;
         const noPost = stage === 'post-interview' && postNotPassed({ items: collectItems(signed, { collection: loadCollection(dir) }) });
         const target = noPost ? 'accepted' : order[order.findIndex(s => s.id === stage) + 1]!.id;

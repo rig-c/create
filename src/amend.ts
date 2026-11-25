@@ -252,13 +252,11 @@ export function amendCommand(args: string[], now: number): { stdout: string; exi
     by: opts['--by'], at: new Date(now).toISOString(), verbatim: '', changes: [],
   };
   if (opts['--source'] !== undefined) entry.source = opts['--source'];
-  const riggingDraft = opts['--kind'] === 'draft' && project.stage === 'rigging';
+  // A draft amendment may be recorded at any stage (#981). With a live parts approval at rigging, its changed bytes are verified.
+  const riggingDraft = opts['--kind'] === 'draft' && project.stage === 'rigging' && latestPartsApproval(project, now) !== undefined;
   if (opts['--kind'] === 'interview-answer'
     && !collectItems(project, { collection: loadCollection(dir, project) }).some(item => item.id === opts['--target'] || item.path === opts['--target'])) {
     refuse('AMENDMENT_TARGET_INVALID', `amendments.target: interview-answer ${opts['--target']} names no question of this interview; name the changed answer by its question id or answer path`);
-  }
-  if (opts['--kind'] === 'draft' && project.stage !== 'parts-review' && !riggingDraft) {
-    refuse('AMENDMENT_TARGET_INVALID', 'amendments.target: review a draft correction at parts-review or amend changed parts at rigging');
   }
   const chat = readOwnerChat(opts, opts['--by'], now, 'amendments');
   if (chat) {
@@ -281,9 +279,6 @@ export function amendCommand(args: string[], now: number): { stdout: string; exi
     }
   });
   if (riggingDraft) {
-    if (checkProject(dir, project, { now, readOnly: true }).effective_stage !== 'rigging') {
-      refuse('AMENDMENT_TARGET_INVALID', 'amendments.target: a rigging draft amendment needs effective rigging; resume the current review stage before amending');
-    }
     const draft = asArray(project.drafts).filter(isObject).find(draft => draft.id === opts['--target'])!;
     assertDraftAmendmentChanges(draft, entry.changes, 'amendments.changes');
     const parts = draft.parts as JsonObject;
@@ -318,8 +313,7 @@ export function amendCommand(args: string[], now: number): { stdout: string; exi
     for (const step of lapsed) {
       const id = String(step.id);
       const path = `plan.steps[${id}]`;
-      if (approvals.some(signoff => signoff.steps === null || signoff.steps.includes(id))
-        && asRead.refusals.some(finding => finding.code === 'GUIDE_CHANGED_UNSIGNED' && finding.path === path)) staleSteps.add(path);
+      if (approvals.some(signoff => signoff.steps === null || signoff.steps.includes(id))) staleSteps.add(path);
     }
   }
   // Lapsing the stale approval exposes draft chronology. Keep that check refusal

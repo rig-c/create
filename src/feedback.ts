@@ -555,8 +555,7 @@ function appendRoutedFeedback(items: readonly Item[], version: number, verdict: 
 function verdictCandidateFinding(dir: string, before: JsonObject, candidate: JsonObject, now: number, route?: FeedbackRoute) {
   const findings = newRefusals(dir, before, candidate, { now });
   if (!route) return findings[0];
-  const steps = isObject(candidate.plan) ? asArray(candidate.plan.steps).filter(isObject) : [];
-  const affected = guideSignoffMatcher(steps, new Set([route.item]));
+  const affected = guideSignoffMatcher(new Set([route.item]));
   // The new addition deliberately lapses the affected answer and step approvals until the owner re-signs.
   return findings.find(finding => !affected(finding));
 }

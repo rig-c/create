@@ -5,7 +5,8 @@ import { join } from 'node:path';
 
 import { Refusal } from '../src/refusal.ts';
 import { SIGNOFF_TARGET_SINCE } from '../src/signoff-target.ts';
-import { STAGE_PROGRESS_SINCE } from '../src/stage-progress.ts';
+/** The retired stage-order contract date (#981), kept as a fixture clock anchor. */
+const STAGE_PROGRESS_SINCE = '2026-11-08T00:00:00Z';
 import { stageIndex } from '../src/stages.ts';
 import type { Json, JsonObject } from '../src/templates.ts';
 import { checkProject, versionCommand } from './clock.ts';

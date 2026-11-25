@@ -49,7 +49,7 @@ test.each([
     ],
   });
   const resumedNext: NextReport = JSON.parse(run(['next', '--json']));
-  expect(resumedNext.refusals.map(f => [f.code, f.field])).toEqual([['STAGE_LAGGING', 'stage']]);
+  expect(resumedNext.refusals).toEqual([]);
   expect(resumedNext.moves).toContainEqual(expect.objectContaining({
     role: 'agent', command: expect.stringContaining('rig-create advance parts '),
   }));

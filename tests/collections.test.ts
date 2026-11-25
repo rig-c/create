@@ -377,13 +377,12 @@ describe('pins', () => {
 });
 
 describe('collection --check on the record', () => {
-  test('a collection past interview with an unanswered question and no sign-off is refused by name', () => {
+  test('a collection past interview with an unanswered question is refused by name', () => {
     const dir = initCollection();
     editCollection(dir, (c) => {
       c.stage = 'plan-approved';
     });
     const report = checkCollection(dir);
-    expect(report.refusals.some((f) => f.code === 'STAGE_UNSIGNED' && f.message.includes("past 'interview'"))).toBe(true);
     expect(report.refusals.some((f) => f.code === 'COLLECTION_ITEM_SILENT' && f.path === 'interview.questions[reference_member].answer')).toBe(true);
   });
 

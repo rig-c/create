@@ -9,16 +9,16 @@ import { beginJobProgress } from './job-writer.ts';
 import { collectReopens, liveSignoff } from './reopen.ts';
 import { refuse, USAGE_EXIT } from './refusal.ts';
 import { findingKey, newFindings, carriedRefusals } from './refusal-baseline.ts';
-import { collectAmendments } from './amend.ts';
-import { LEGACY_STAGE_VALUES, PARTS_REVIEW_SINCE, PAUSED_STAGE, STAGE_VALUES, hasStageOrder, isOpenInterviewArrivalStage, silentInterviewItems, stageIndex, stageOfStep } from './stages.ts';
-import { advanceOrder, furthestStageSignoff, isSignoffIdentity, moveOwner, nextStepStatus, signoffIdentity, statusTransitionFinding, stepStatusFollows, STEP_STATUSES } from './stage-progress.ts';
+import { LEGACY_STAGE_VALUES, PARTS_REVIEW_SINCE, STAGE_VALUES, hasStageOrder, isOpenInterviewArrivalStage, silentInterviewItems, stageIndex, stageOfStep } from './stages.ts';
+import { furthestStageSignoff, isSignoffIdentity, nextStepStatus, signoffIdentity, statusTransitionFinding, stepStatusFollows, STEP_STATUSES } from './stage-progress.ts';
 import { isPartsCheckMove, partsCheckLines, partsCheckRecord } from './parts-check.ts';
 import type { JsonObject } from './templates.ts';
 
 export const PROGRESS_HELP = `advance:
   <stage> [<project dir>] [--source <text>] [--parts-check <report> --parts <assembled dir>]
-  Move one authorized stage forward and append advances[] with its stable signoff identity.
-  The person's signoff is the move's authority; advance takes no --by or words of its own.
+  Move the project to any stage and append advances[]. No sign-off is required; when a live
+  stage-level signoff exists, the entry records its stable identity, else signoff is null.
+  advance takes no --by or words of its own.
   parts -> parts-review requires both: a passing rig-parts check-parts report written
   with --out <project>/evidence (a clone does not carry derived/) and the
   project-relative assembled root it was run on.
@@ -27,8 +27,7 @@ step-status:
   Record pending -> in-progress -> at-checkpoint -> done and status_history[];
   a step without a checkpoint may go from in-progress straight to done.
   The optional note is verbatim UTF-8, 1–1,000 bytes, with no controls except newline.
-  A checkpointed done needs a live human checkpoint signature.
-  An amended project also runs steps in the check's effective stage, keeping its stored stage.
+  A step may change status in any stage; no checkpoint signature is required.
 Both accept --json and validate the complete candidate before writing.`;
 
 function options(args: string[], command: string): { positional: string[]; opts: Record<string, string>; json: boolean } {
@@ -83,25 +82,16 @@ export function advanceCommand(args: string[], now: number): { stdout: string; e
     const { file, project } = readProject(dir);
     const history: Finding[] = [];
     const reopens = collectReopens(project, history);
-    const latest = furthestStageSignoff(collectSignoffs(project, history).filter(s => liveSignoff(reopens, s.stage, s.at)));
-    if (latest !== undefined && !Number.isFinite(latest.at)) refuse('STAGE_SIGNOFF_DATE_INVALID', `signoffs[${latest.index}].at: frontier approval needs a readable date; restore its original date before advancing`);
-    if (latest === undefined) refuse('ADVANCE_UNAUTHORIZED', 'stage: no live stage-level human signoff authorizes a move; sign the current stage first');
+    const latest = furthestStageSignoff(collectSignoffs(project, history).filter(s => liveSignoff(reopens, s.stage, s.at) && Number.isFinite(s.at)));
     const preParts = !hasStageOrder(project) && stageIndex(String(project.stage)) > stageIndex('parts-review')
       && collectSignoffs(project, []).some(s => s.stage === 'plan-approved' && s.checkpoint === null && s.at < Date.parse(PARTS_REVIEW_SINCE));
     const steps = asArray(isObject(project.plan) ? project.plan.steps : undefined).filter(isObject);
     // The entry records the signoff it rests on and no person's words: the authority is that signature.
     const entry: JsonObject = { stage: positional[0]!, from_stage: project.stage ?? null, at: new Date(now).toISOString(),
       post_not_passed: postNotPassed({ items: collectItems(project, { collection: loadCollection(dir) }) }),
-      order: preParts ? 'pre-parts' : hasStageOrder(project) ? 'split' : 'legacy', signoffs_before: asArray(project.signoffs).filter(isObject).map(signoffIdentity).filter(isSignoffIdentity), signoff: signoffIdentity(latest.record),
+      order: preParts ? 'pre-parts' : hasStageOrder(project) ? 'split' : 'legacy', signoffs_before: asArray(project.signoffs).filter(isObject).map(signoffIdentity).filter(isSignoffIdentity), signoff: latest === undefined ? null : signoffIdentity(latest.record),
       steps_before: steps.map(s => ({ id: s.id ?? null, phase: s.phase ?? null, ...(s.status === undefined ? {} : { status: s.status }) })) };
     if (opts['--source'] !== undefined) entry.source = opts['--source'];
-    // A live signature at an earlier stage is not this move's authority; name the stage to sign, not the candidate.
-    // A malformed signoff or reopen may be that signature, so the candidate check names it instead.
-    const order = advanceOrder(entry.order);
-    const owner = moveOwner(order, entry.from_stage);
-    if (history.length === 0 && owner !== undefined && order.findIndex(s => s.id === latest.stage) < order.findIndex(s => s.id === owner)) {
-      refuse('ADVANCE_UNAUTHORIZED', `stage: no live ${owner} signoff authorizes the move from ${String(entry.from_stage)}; the latest live stage signoff is ${latest.stage} (signoffs[${latest.index}]); record rig-create signoff ${owner} first, then advance`);
-    }
     if (project.advances !== undefined && !Array.isArray(project.advances)) refuse('ADVANCE_MALFORMED', 'advances: must be a list; preserve existing history');
     const checkPath = `advances[${asArray(project.advances).length}].parts_check`;
     const report = opts['--parts-check'];
@@ -139,17 +129,6 @@ export function stepStatusCommand(args: string[], now: number): { stdout: string
   const matches = asArray(isObject(project.plan) ? project.plan.steps : undefined).filter((s): s is JsonObject => isObject(s) && s.id === positional[0]);
   const step = matches[0];
   if (matches.length !== 1 || step === undefined || (step.phase !== 'rig' && step.phase !== 'post')) refuse('STEP_STATUS_TRANSITION', `plan.steps[${positional[0]}]: no unique executable step; restore the plan before step-status`);
-  const stage = stageOfStep(step.phase, String(step.id));
-  // Amend retains project.stage while its approvals lapse; the work resumes at the check's effective stage (PROJECT.md).
-  const resumes = project.stage !== PAUSED_STAGE && collectAmendments(project, []).length > 0
-    ? checkProject(dir, structuredClone(project), { now }).effective_stage : null;
-  const running = resumes !== null && resumes !== project.stage ? [String(project.stage), resumes] : [String(project.stage)];
-  const oldOrder = !hasStageOrder(project) && running.includes('rigging') && collectSignoffs(project, []).some(s => s.stage === 'plan-approved' && s.at < Date.parse(PARTS_REVIEW_SINCE));
-  if (!running.includes(stage) && !(oldOrder && step.phase === 'rig')) {
-    refuse('STEP_STATUS_TRANSITION', running.length > 1
-      ? `plan.steps[${positional[0]}]: runs in ${stage}; the amended project resumes at ${String(resumes)} (stage ${String(project.stage)} retained); sign the lapsed approvals and finish the earlier bars first`
-      : `plan.steps[${positional[0]}]: runs in ${stage}, current stage is ${String(project.stage)}; advance to its execution stage first`);
-  }
   const enabled = checkpointRequired(project, step, now);
   const entry: JsonObject = { from_status: step.status ?? 'pending', status: positional[1]!, by: opts['--by']!, at: new Date(now).toISOString(), checkpoint_required: enabled, signoff: null };
   if (opts['--note-file'] !== undefined) {
@@ -168,17 +147,20 @@ export function stepStatusCommand(args: string[], now: number): { stdout: string
   if (from >= 0 && !stepStatusFollows(entry.from_status, entry.status, enabled)) {
     const next = nextStepStatus(String(entry.from_status), enabled);
     refuse('STEP_STATUS_TRANSITION', next === undefined
-      ? `plan.steps[${positional[0]}].status: ${String(entry.from_status)} is the last status, so ${String(entry.status)} cannot follow it; to run the step again record a human amendment with rig-create amend ${stage}`
-      : `plan.steps[${positional[0]}].status: ${String(entry.status)} cannot follow ${String(entry.from_status)}; statuses move one at a time through ${STEP_STATUSES.join(' → ')}${enabled ? '' : ' (a step without a checkpoint may go from in-progress straight to done)'}, so record rig-create step-status ${String(step.id)} ${next} next`);
+      ? `plan.steps[${positional[0]}].status: ${String(entry.status)} cannot follow ${String(entry.from_status)}; record a known status`
+      : `plan.steps[${positional[0]}].status: ${String(entry.status)} cannot follow ${String(entry.from_status)}; statuses move one at a time through ${STEP_STATUSES.join(' → ')}${enabled ? '' : ' (a step without a checkpoint may go from in-progress straight to done)'} and a done step may return to in-progress, so record rig-create step-status ${String(step.id)} ${next} next`);
   }
   const invalid = statusTransitionFinding(entry, `plan.steps[${positional[0]}].status_history`);
   if (invalid !== null) refuse(invalid.code, invalid.message);
   if (entry.status === 'done' && enabled) {
+    // A live checkpoint signoff, when one exists, is recorded; done no longer waits for one (#981).
     const reopens = collectReopens(project, []);
-    const signature = collectSignoffs(project, []).filter(s => s.checkpoint === step.id && (s.stage === stage || (oldOrder && s.stage === 'rigging'))
-      && liveSignoff(reopens, s.stage, s.at) && s.at <= Date.parse(String(entry.at))).sort((a, b) => b.at - a.at || b.index - a.index)[0];
-    if (signature === undefined) refuse('CHECKPOINT_UNSIGNED', `plan.steps[${positional[0]}]: done requires its live human checkpoint signoff; record signoff ${stage} --checkpoint ${String(step.id)} first`);
-    entry.signoff = signoffIdentity(signature.record);
+    const legacy = collectSignoffs(project, []).some(s => s.stage === 'plan-approved' && s.checkpoint === null && s.at < Date.parse(PARTS_REVIEW_SINCE) && s.at <= now);
+    const stages = [stageOfStep(step.phase, String(step.id)), ...(legacy ? [stageOfStep(step.phase, '')] : [])];
+    const signature = collectSignoffs(project, []).filter(s => s.checkpoint === step.id && stages.includes(s.stage)
+      && typeof s.record.by === 'string' && s.record.by.toLowerCase() !== 'agent'
+      && liveSignoff(reopens, s.stage, s.at) && s.at <= now).sort((a, b) => b.at - a.at || b.index - a.index)[0];
+    if (signature !== undefined) entry.signoff = signoffIdentity(signature.record);
   }
   if (step.status_history !== undefined && !Array.isArray(step.status_history)) refuse('STEP_STATUS_TRANSITION', `plan.steps[${positional[0]}].status_history: must be a list; preserve existing history`);
   step.status_history = [...asArray(step.status_history), entry];

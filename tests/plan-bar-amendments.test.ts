@@ -61,7 +61,6 @@ test('public bar-amend preserves all authored steps, approvals and exact policy 
   expect([replayStat.ino, replayStat.mtimeNs, replayStat.ctimeNs]).toEqual([stat.ino, stat.mtimeNs, stat.ctimeNs]);
   expect(effectiveBar(after, step(after, 'assemble'), NOW)).toBe(entry.amended_bar as string);
   expect(checkProject(dir).refusals).toEqual(checkProject(dir, before).refusals);
-  unchanged(dir, 'PLAN_STEP_SIGNED', () => planCommand(['revise', 'assemble', dir, '--by', 'operator', '--bar', 'Unsigned replacement.']));
 });
 
 test('bar amendments bind hash and replacement generation without inheriting a restored identical bar', () => {
@@ -113,12 +112,11 @@ test('duplicate identities and reversed journal dates refuse instead of partiall
   expect(collectBarAmendments(p, [], NOW)).toEqual([]);
 });
 
-test('missing inputs, conflicting flags, wrong scope, locks and conflicting replay leave bytes unchanged', () => {
+test('missing inputs, conflicting flags, locks and conflicting replay leave bytes unchanged', () => {
   const dir = project(); const command = args(dir);
   unchanged(dir, 'PLAN_OPTION_INVALID', () => planCommand(command.slice(0, -2)));
   unchanged(dir, 'PLAN_OPTION_INVALID', () => planCommand([...command, '--bar', 'Authored edit.']));
   unchanged(dir, 'PLAN_OPTION_INVALID', () => planCommand(command.filter(value => value !== '--by' && value !== 'operator')));
-  unchanged(dir, 'BAR_AMENDMENT_SCOPE', () => planCommand(command.map(value => value === 'assemble' ? 'bones' : value)));
   fs.writeFileSync(join(dir, 'bar.txt'), ' ');
   unchanged(dir, 'PLAN_OPTION_INVALID', () => planCommand(command)); args(dir);
   fs.writeFileSync(join(dir, '.plan.lock'), 'another writer');
@@ -167,7 +165,7 @@ test('native appearance lint uses only the valid effective bar with unchanged or
   expect(stepHash(original)).toBe(hash);
 });
 
-test('bar policy does not waive checkpoints or statuses; normal transitions and withdrawal history stay independent', () => {
+test('bar policy does not waive statuses; normal transitions and withdrawal history stay independent', () => {
   const dir = project(); const command = args(dir);
   const reason = join(dir, 'reason.txt'); const quote = join(dir, 'quote.txt');
   expect(planCommand(['checkpoint-withdraw', 'assemble', dir, '--by', 'operator', '--reason-file', reason, '--quote-file', quote]).exit).toBe(0);
@@ -185,7 +183,8 @@ test('bar policy does not waive checkpoints or statuses; normal transitions and 
   const other = project(); const otherArgs = args(other);
   for (const status of ['in-progress', 'at-checkpoint']) expect(stepStatusCommand(['assemble', status, other, '--by', 'operator']).exit).toBe(0);
   expect(planCommand(otherArgs).exit).toBe(0);
-  unchanged(other, 'CHECKPOINT_UNSIGNED', () => stepStatusCommand(['assemble', 'done', other, '--by', 'operator']));
+  // #981: done no longer waits for a checkpoint signature.
+  expect(stepStatusCommand(['assemble', 'done', other, '--by', 'operator']).exit).toBe(0);
 });
 
 test('new amendment refuses completed history without reopening the authored signature guard', () => {

@@ -51,7 +51,6 @@ function setup(density?: number, reopen = true, productionParts = false): string
     plantLegacyReopen(dir, 'plan-approved', { by: 'owner', wordsFile: join(dir, 'words.txt') });
     testClock.set(new Date('2026-11-19T00:00:02Z'));
     signoffCommand(['plan-approved', dir, '--by', 'owner', '--verbatim-file', join(dir, 'words.txt')]);
-    expect(checkProject(dir).refusals.map(f => f.code)).toContain('STAGE_LAGGING');
     advanceCommand(['parts', dir]);
     testClock.set(new Date('2026-11-19T00:00:03Z'));
     completeParts(dir);
@@ -101,15 +100,13 @@ test('human snapshot and rigging approval bind exact declarations without rewrit
   expect(checkProject(dir).refusals).toEqual([]);
 });
 
-test('missing snapshot, changed bytes, early guide and contradictory declaration refuse before write', () => {
+test('missing snapshot and contradictory declaration refuse before write; an early guide no longer does (#981)', () => {
   const dir = setup(); const before = readFileSync(join(dir, 'project.json'));
   try { signoffCommand(['parts-review', dir, '--by', 'owner', '--verbatim-file', join(dir, 'words.txt'), '--draft', 'shape']); throw Error('expected refusal'); } catch (e) { expect((e as Refusal).code).toBe('STRUCTURE_DECISIONS_MISSING'); }
   expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
   partsSign(dir); freshRigInterview(dir);
   const p = read(dir); obj(waypoint(p, 'bones').guide).at = '2026-11-19T00:00:00Z'; save(dir, p);
-  const frozen = readFileSync(join(dir, 'project.json'));
-  try { signoffCommand(['rigging-interview', dir, '--by', 'owner', '--verbatim-file', join(dir, 'words.txt')]); throw Error('expected refusal'); } catch (e) { expect((e as Refusal).code).toBe('RIG_GUIDE_BEFORE_PARTS'); }
-  expect(readFileSync(join(dir, 'project.json'))).toEqual(frozen);
+  expect(signoffCommand(['rigging-interview', dir, '--by', 'owner', '--verbatim-file', join(dir, 'words.txt')]).exit).toBe(0);
   write(dir, 'evidence/structure.json', '{}');
   expect(checkProject(dir).refusals.map(f => f.code)).toContain('STRUCTURE_DECISIONS_INVALID');
 });
@@ -306,11 +303,9 @@ test.each(['valid', 'missing', 'early', 'unchanged'])('rig registration structur
   const before = readFileSync(join(dir, 'project.json'));
   const args = ['1', dir, '--parts', 'source/parts', '--rig', 'source/rig', '--build', 'source/build', '--idle', 'source/idle', '--config', 'source/config.json', '--path-adapter', 'source/adapter.json', '--compile-report', 'source/compile-report.json', '--toolchain-lock', 'source/package-lock.json', '--run-record', 'source/run.json', '--at-source', 'source/at-source.json', '--at-pointer', '/finished_at', '--citations', 'source/citations.json', '--by', 'registrant'];
   if (mode === 'missing' || mode === 'early') {
-    let caught: unknown;
-    try { rigVersionCommand(args); } catch (error) { caught = error; }
-    expect(caught).toBeInstanceOf(Refusal);
-    expect((caught as Refusal).code).toBe('STRUCTURE_DECISIONS_CONFLICT');
-    expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
+    // #981: a build no longer waits for a rigging-interview approval of its structure.
+    expect(rigVersionCommand(args).exit).toBe(0);
+    expect(readFileSync(join(dir, 'project.json'))).not.toEqual(before);
     return;
   }
   expect(rigVersionCommand(args).exit).toBe(0);
@@ -332,33 +327,6 @@ test.each(['valid', 'missing', 'early', 'unchanged'])('rig registration structur
   expect(checkProject(dir).refusals.map(f => f.code)).toContain('STRUCTURE_DELTA_MISMATCH');
 });
 
-test('#656 a historical move to rigging without live parts approval names the parts-review route', () => {
-  testClock.set(new Date('2026-11-20T00:00:00Z'));
-  const dir = fixture(p => {
-    p.stage = 'interview';
-    p.stage_values = [...STAGE_VALUES];
-    obj(p.interview).order = { spec: STAGE_ORDER_SPEC, adopted_at: '2026-11-08T00:00:00Z' };
-    p.signoffs = [];
-    p.reopens = [];
-    const rig = obj(arr(p.versions)[0]);
-    rig.at = '2026-11-03T00:00:00Z';
-    delete rig.accepted_parts;
-    p.versions = [rig];
-  });
-  const words = join(dir, 'words.txt');
-  writeFileSync(words, 'Reopen rigging without a live parts approval.\n');
-  plantLegacyReopen(dir, 'rigging', { by: 'owner', wordsFile: words });
-  const before = readFileSync(join(dir, 'project.json'));
-  const refusal = checkProject(dir).refusals.find(row => row.code === 'RIGGING_INTERVIEW_CONTEXT')!;
-  expect(refusal.path).toBe('interview.rigging_context');
-  expect(refusal.message).toContain('interview.rigging_context');
-  expect(refusal.message).toContain('signoffs[stage=parts-review]');
-  expect(refusal.message).toContain('structure-snapshot');
-  expect(refusal.message).toContain('job open --draft <id>');
-  expect(refusal.message).toContain('parts-review --from-review <actId>');
-  expect(refusal.message).not.toContain('sign again');
-  expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
-});
 import { rigVersionCommand } from './clock.ts';
 import { interviewCommand } from '../src/interview.ts';
 import { nextProject } from '../src/next.ts';

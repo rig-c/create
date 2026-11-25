@@ -470,13 +470,11 @@ async function generate(root: string, scratch: string, inputs: Map<string, Buffe
       host.stop();
       host = undefined;
 
-      const signedProject = readFileSync(join(root, 'project.json'));
-      const blocked = await create('plan', 'revise', 'composition', '--by', 'agent', '--does', 'Change the signed composition.');
-      if (blocked.exit !== 1 || !blocked.stderr.includes('PLAN_STEP_SIGNED:')
-        || !readFileSync(join(root, 'project.json')).equals(signedProject)) {
-        throw Error(`Expected PLAN_STEP_SIGNED and unchanged project.json: ${blocked.stderr}`);
-      }
-      console.log('PLAN_STEP_SIGNED: project.json unchanged');
+      // A signed step is replanned without an amendment (#981); probe it on a copy so this run's record is unchanged.
+      const probeRoot = join(scratch, 'replan-signed');
+      cpSync(root, probeRoot, { recursive: true });
+      requireSuccess(await execute('rig-create', ['plan', 'revise', 'composition', '--by', 'agent', '--does', 'Change the signed composition.'], probeRoot, ++now));
+      console.log('plan revise on a signed step: written without an amendment');
 
       const revised = structuredClone(composition);
       (revised.compose as JsonObject).idle_tracks = [];
@@ -537,9 +535,7 @@ async function generate(root: string, scratch: string, inputs: Map<string, Buffe
       host = undefined;
       const stale = JSON.parse((await create('interview', '--check', '--json')).stdout) as typeof checked;
       if (!stale.refusals.some(finding => finding.code === 'SIGNOFF_ANSWERS_STALE'
-        && finding.path.endsWith('.answer_hashes[post_composition]'))
-        || !stale.refusals.some(finding => finding.code === 'GUIDE_CHANGED_UNSIGNED'
-          && finding.path === 'plan.steps[composition]')) throw Error(JSON.stringify(stale));
+        && finding.path.endsWith('.answer_hashes[post_composition]'))) throw Error(JSON.stringify(stale));
       await write('amend', 'post-interview', '--kind', 'interview-answer', '--target', 'post_composition', '--change', setPath, ...ownerChat());
       const awaitingPlan = JSON.parse((await create('interview', '--check', '--json')).stdout) as typeof checked;
       if (!awaitingPlan.refusals.some(finding => finding.code === 'PLAN_STEP_PREDATES_ANSWER'

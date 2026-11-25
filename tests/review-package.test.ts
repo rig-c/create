@@ -50,7 +50,7 @@ function checked(dir: string) {
 }
 
 describe('frozen review package', () => {
-  test('a selected package keeps the full verdict history needed by its Parts approval', () => {
+  test('#981 a selected package is checked without reading the Parts approval', () => {
     const dir = exampleFixture(() => {}, 'example-project.json');
     roots.push(dirname(dir));
     const project = JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')) as JsonObject;
@@ -76,7 +76,8 @@ describe('frozen review package', () => {
       return ctx.refusals;
     };
     expect(refusals(project)).toEqual([]);
-    expect(refusals({ ...project, versions: [version(project, 2)] }).map(finding => finding.code)).toEqual(['REVIEW_PACKAGE_PARTS_UNREAD']);
+    // #981: a package is no longer compared with the approved parts, so a lone v2 needs no v1 verdict history.
+    expect(refusals({ ...project, versions: [version(project, 2)] })).toEqual([]);
 
     history.review_package = {};
     expect(refusals(project).map(({ code, path }) => [code, path])).toEqual([
@@ -86,9 +87,7 @@ describe('frozen review package', () => {
 
     const partsApproval = (project.signoffs as JsonObject[]).find(row => row.stage === 'parts-review')!;
     appendFileSync(join(dir, String(obj(partsApproval.evidence).path)), '\n');
-    expect(refusals(project, 2).map(({ code, path }) => [code, path])).toEqual([
-      ['REVIEW_PACKAGE_PARTS_UNREAD', 'versions[v2].review_package.files[out/parts.json]'],
-    ]);
+    expect(refusals(project, 2)).toEqual([]);
   });
 
   test('copied parts trees replace historical SVG declarations without re-reading absent files', () => {
@@ -127,33 +126,6 @@ describe('frozen review package', () => {
       expect(existsSync(join(dir, 'derived/review/v1'))).toBe(false);
     }
   });
-  test('an unreadable verdict cannot silence a parts mismatch after acceptance', () => {
-    const dir = exampleFixture(() => {}, 'example-project.json');
-    roots.push(dirname(dir));
-    const project = JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')) as JsonObject;
-    const pkg = obj(version(project, 1).review_package);
-    const changed = '{"parts":[]}\n';
-    (pkg.files as JsonObject[]).find(file => file.path === 'out/parts.json')!.sha256 = sha(changed);
-    put(dir, 'derived/review/v1/out/parts.json', changed);
-    put(dir, 'project.json', JSON.stringify(project));
-    expect(checked(dir).refusals.map(f => f.code)).toEqual(['REVIEW_PACKAGE_PARTS_MISMATCH']);
-    const approval = (JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')).signoffs as JsonObject[]).find(entry => entry.stage === 'parts-review')!;
-    appendFileSync(join(dir, String(obj(approval.evidence).path)), '\n');
-    expect(checked(dir).refusals.map(f => f.code)).toEqual(['REVIEW_PACKAGE_PARTS_UNREAD', 'REVIEW_PACKAGE_PARTS_UNREAD']);
-    expect(checkProject(dir).refusals.map(f => f.code)).toContain('REVIEW_PACKAGE_PARTS_UNREAD');
-  });
-  test('an unreadable verdict before SINCE warns instead of refusing', () => {
-    const dir = exampleFixture(project => {
-      for (const raw of project.versions as JsonObject[]) raw.at = '2026-11-02T00:00:00Z';
-      for (const raw of project.signoffs as JsonObject[]) raw.at = '2026-11-01T00:00:00Z';
-    }, 'example-project.json');
-    roots.push(dirname(dir));
-    const approval = (JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')).signoffs as JsonObject[]).find(entry => entry.stage === 'parts-review')!;
-    appendFileSync(join(dir, String(obj(approval.evidence).path)), '\n');
-    const result = checked(dir);
-    expect(result.refusals).toEqual([]);
-    expect(result.warnings.map(f => f.code)).toEqual(['REVIEW_PACKAGE_PARTS_UNREAD', 'REVIEW_PACKAGE_PARTS_UNREAD']);
-  });
   test('unknown build dates compare both identities against the latest approval as WARNs', () => {
     const dir = exampleFixture(project => {
       for (const raw of project.versions as JsonObject[]) raw.at = 'unknown';
@@ -161,9 +133,9 @@ describe('frozen review package', () => {
     roots.push(dirname(dir));
     const result = checked(dir);
     expect(result.refusals.map(f => f.code)).toEqual(['RIG_VERSION_AT_INVALID', 'RIG_VERSION_AT_INVALID']);
-    expect(result.warnings.map(f => f.code)).toEqual(['REVIEW_PACKAGE_CONFIG_MISMATCH', 'REVIEW_PACKAGE_PARTS_UNREAD', 'REVIEW_PACKAGE_CONFIG_MISMATCH', 'REVIEW_PACKAGE_PARTS_UNREAD']);
+    expect(result.warnings.map(f => f.code)).toEqual(['REVIEW_PACKAGE_CONFIG_MISMATCH', 'REVIEW_PACKAGE_CONFIG_MISMATCH']);
   });
-  for (const [field, code] of [['config', 'REVIEW_PACKAGE_CONFIG_MISMATCH'], ['parts', 'REVIEW_PACKAGE_PARTS_MISMATCH']] as const) {
+  for (const [field, code] of [['config', 'REVIEW_PACKAGE_CONFIG_MISMATCH']] as const) {
     test(`names a planted ${field} build mismatch in an otherwise passing signed example`, () => {
       const dir = exampleFixture(() => {}, 'example-project.json');
       roots.push(dirname(dir));
@@ -198,7 +170,7 @@ describe('frozen review package', () => {
     roots.push(dirname(dir));
     const result = checked(dir);
     expect(result.refusals).toEqual([]);
-    expect(result.warnings.map(f => f.code)).toEqual(['REVIEW_PACKAGE_CONFIG_MISMATCH', 'PARTS_VERDICT_FILE_LEGACY', 'REVIEW_PACKAGE_CONFIG_MISMATCH']);
+    expect(result.warnings.map(f => f.code)).toEqual(['REVIEW_PACKAGE_CONFIG_MISMATCH', 'REVIEW_PACKAGE_CONFIG_MISMATCH']);
   });
   test('the public package writer refuses a different config before publishing or recording', () => {
     const dir = exampleFixture(() => {}, 'example-project.json');
@@ -240,14 +212,14 @@ describe('frozen review package', () => {
     const dir = exampleFixture(() => {}, 'legacy-example-project.json', {}, true);
     roots.push(dirname(dir));
     const report = checkProject(dir);
-    expect(report.refusals.map(f => f.code)).toEqual(['SIGNOFF_TARGET_MISSING', 'SIGNOFF_TARGET_MISSING', 'SIGNOFF_ANSWERS_MISSING', 'SIGNOFF_ANSWERS_MISSING', 'SIGNOFF_ANSWERS_MISSING', 'SIGNOFF_ANSWERS_MISSING', 'PARTS_VERDICT_RECEIPT_REQUIRED', 'STAGE_SKIPPED', 'REVIEW_PACKAGE_CONFIG_MISMATCH', 'REVIEW_PACKAGE_PARTS_UNREAD', 'REVIEW_PACKAGE_CONFIG_MISMATCH', 'REVIEW_PACKAGE_PARTS_UNREAD', 'DIRECTION_SCENE_REQUIRED', 'DIRECTION_SCENE_REQUIRED']);
+    expect(report.refusals.map(f => f.code)).toEqual(['SIGNOFF_TARGET_MISSING', 'SIGNOFF_TARGET_MISSING', 'SIGNOFF_ANSWERS_MISSING', 'SIGNOFF_ANSWERS_MISSING', 'SIGNOFF_ANSWERS_MISSING', 'SIGNOFF_ANSWERS_MISSING', 'PARTS_VERDICT_RECEIPT_REQUIRED', 'REVIEW_PACKAGE_CONFIG_MISMATCH', 'REVIEW_PACKAGE_CONFIG_MISMATCH', 'DIRECTION_SCENE_REQUIRED', 'DIRECTION_SCENE_REQUIRED']);
     expect(report.warnings.map(f => f.code)).toEqual(['QUESTION_SET_STALE', 'RIGGING_INTERVIEW_PAINTING_LEGACY', 'STAGE_ORDER_LEGACY', 'INPUT_WRITER_MISSING', 'CHOICE_ANSWERS_LEGACY', 'CORRECTION_PATH_LEGACY', 'OWNER_LANGUAGE_MISSING']);
   });
   test('stripping a raw legacy package warns and still refuses the other build mismatch', () => {
     const dir = exampleFixture((project) => { delete version(project, 1).review_package; }, 'legacy-example-project.json', {}, true);
     roots.push(dirname(dir));
     const report = checkProject(dir);
-    expect(report.refusals.map(f => f.code)).toEqual(['SIGNOFF_TARGET_MISSING', 'SIGNOFF_TARGET_MISSING', 'SIGNOFF_ANSWERS_MISSING', 'SIGNOFF_ANSWERS_MISSING', 'SIGNOFF_ANSWERS_MISSING', 'SIGNOFF_ANSWERS_MISSING', 'PARTS_VERDICT_RECEIPT_REQUIRED', 'STAGE_SKIPPED', 'REVIEW_PACKAGE_CONFIG_MISMATCH', 'REVIEW_PACKAGE_PARTS_UNREAD', 'DIRECTION_SCENE_REQUIRED', 'DIRECTION_SCENE_REQUIRED']);
+    expect(report.refusals.map(f => f.code)).toEqual(['SIGNOFF_TARGET_MISSING', 'SIGNOFF_TARGET_MISSING', 'SIGNOFF_ANSWERS_MISSING', 'SIGNOFF_ANSWERS_MISSING', 'SIGNOFF_ANSWERS_MISSING', 'SIGNOFF_ANSWERS_MISSING', 'PARTS_VERDICT_RECEIPT_REQUIRED', 'REVIEW_PACKAGE_CONFIG_MISMATCH', 'DIRECTION_SCENE_REQUIRED', 'DIRECTION_SCENE_REQUIRED']);
     expect(report.warnings.map((finding) => finding.code)).toEqual(['QUESTION_SET_STALE', 'RIGGING_INTERVIEW_PAINTING_LEGACY', 'REVIEW_PACKAGE_MISSING', 'STAGE_ORDER_LEGACY', 'INPUT_WRITER_MISSING', 'CHOICE_ANSWERS_LEGACY', 'CORRECTION_PATH_LEGACY', 'OWNER_LANGUAGE_MISSING']);
   });
   test('removing a raw legacy package warns and keeps declared build mismatches visible', () => {
@@ -255,7 +227,7 @@ describe('frozen review package', () => {
     roots.push(dirname(dir));
     rmSync(join(dir, 'derived/review/v1'), { recursive: true });
     const report = checkProject(dir);
-    expect(report.refusals.map(f => f.code)).toEqual(['SIGNOFF_TARGET_MISSING', 'SIGNOFF_TARGET_MISSING', 'SIGNOFF_ANSWERS_MISSING', 'SIGNOFF_ANSWERS_MISSING', 'SIGNOFF_ANSWERS_MISSING', 'SIGNOFF_ANSWERS_MISSING', 'PARTS_VERDICT_RECEIPT_REQUIRED', 'STAGE_SKIPPED', 'REVIEW_PACKAGE_CONFIG_MISMATCH', 'REVIEW_PACKAGE_PARTS_UNREAD', 'REVIEW_PACKAGE_CONFIG_MISMATCH', 'REVIEW_PACKAGE_PARTS_UNREAD', 'DIRECTION_SCENE_REQUIRED', 'DIRECTION_SCENE_REQUIRED']);
+    expect(report.refusals.map(f => f.code)).toEqual(['SIGNOFF_TARGET_MISSING', 'SIGNOFF_TARGET_MISSING', 'SIGNOFF_ANSWERS_MISSING', 'SIGNOFF_ANSWERS_MISSING', 'SIGNOFF_ANSWERS_MISSING', 'SIGNOFF_ANSWERS_MISSING', 'PARTS_VERDICT_RECEIPT_REQUIRED', 'REVIEW_PACKAGE_CONFIG_MISMATCH', 'REVIEW_PACKAGE_CONFIG_MISMATCH', 'DIRECTION_SCENE_REQUIRED', 'DIRECTION_SCENE_REQUIRED']);
     expect(report.warnings.map((finding) => finding.code)).toEqual(['QUESTION_SET_STALE', 'RIGGING_INTERVIEW_PAINTING_LEGACY', 'REVIEW_PACKAGE_MISSING', 'STAGE_ORDER_LEGACY', 'INPUT_WRITER_MISSING', 'CHOICE_ANSWERS_LEGACY', 'CORRECTION_PATH_LEGACY', 'OWNER_LANGUAGE_MISSING']);
     expect(report.warnings.find(f => f.code === 'REVIEW_PACKAGE_MISSING')?.message).toContain("--config 'evidence/v1/review-config.json' --from 'outputs/v1/out'");
   });

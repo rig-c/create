@@ -3,21 +3,18 @@ import { createHash } from 'node:crypto';
 import { readFileSync, realpathSync } from './check-reads.ts';
 import { isAbsolute, relative, resolve, sep } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
-import { asArray, collectItems, collectSignoffs, isObject, loadCollection, type Finding } from './check.ts';
+import { asArray, collectSignoffs, isObject, type Finding } from './check.ts';
 import { draftFileUnavailable } from './drafts.ts';
 import { IGNORED_DIRS } from './init.ts';
 import { latestPartsVerdictStatus, recordedPartsVerdict } from './parts-verdict-record.ts';
 import { collectReopens, liveSignoff } from './reopen.ts';
-import { hasStageOrder, interviewStageOfGuide, stageIndex } from './stages.ts';
+import { hasStageOrder, stageIndex } from './stages.ts';
 import type { Json, JsonObject } from './templates.ts';
 
 export const STRUCTURE_SCHEMA = 'rig-create/structure-decisions@0';
 const hash = (b: Buffer): string => createHash('sha256').update(b).digest('hex');
-const add = (out: Finding[], code: string, path: string, why: string, missingPartsApproval = false): void => {
-  const remedy = missingPartsApproval
-    ? 'no live parts-review approval is recorded in signoffs[stage=parts-review]; advance through parts to parts-review, retain the draft structure decisions with structure-snapshot, publish the labelled draft with job open --draft <id>, and record the approval with parts-review --from-review <actId> (or signoff parts-review)'
-    : 'review the labelled draft, retain its exact structure decisions, and sign again';
-  out.push({ code, path, message: `${path}: ${why}; ${remedy}` });
+const add = (out: Finding[], code: string, path: string, why: string): void => {
+  out.push({ code, path, message: `${path}: ${why}; review the labelled draft, retain its exact structure decisions, and sign again` });
 };
 
 export function retainedJson(dir: string, binding: Json | undefined): JsonObject {
@@ -120,20 +117,11 @@ export function validateStructureSnapshot(dir: string, project: JsonObject, draf
   } catch (error) { add(errors, 'STRUCTURE_DECISIONS_INVALID', at, error instanceof Error ? error.message : String(error)); return null; }
 }
 
-/** Resolve shared context outside the answer union, ready for later choice-answer schemas. */
+/** Resolve shared context outside the answer union, ready for later choice-answer schemas. No parts approval is required (#981): without one the context is null. */
 export function riggingContext(dir: string, project: JsonObject, at: string, errors: Finding[]): JsonObject | null {
   const review = latestPartsApproval(project);
-  if (review === undefined || typeof review.at !== 'string' || !Number.isFinite(Date.parse(review.at)) || !isObject(review.evidence) || !(Date.parse(at) >= Date.parse(review.at))) {
-    add(errors, 'RIGGING_INTERVIEW_CONTEXT', 'interview.rigging_context', 'a live dated parts review must precede the rigging interview', review === undefined); return null;
-  }
+  if (review === undefined || typeof review.at !== 'string' || !Number.isFinite(Date.parse(review.at)) || !isObject(review.evidence) || !(Date.parse(at) >= Date.parse(review.at))) return null;
   if (checkStructure(dir, project, review, 'signoffs[parts-review]', errors) === null) return null;
-  for (const item of collectItems(project, { collection: loadCollection(dir) })) {
-    if (interviewStageOfGuide(item.id, item.kind === 'post', true) !== 'rigging-interview' || item.state.state === 'silent') continue;
-    const state = item.state;
-    if (state.state !== 'user' && state.state !== 'delegated') continue;
-    const when = typeof state.answer.at === 'string' ? Date.parse(state.answer.at) : NaN;
-    if (!Number.isFinite(when) || when < Date.parse(review.at) || when > Date.parse(at)) add(errors, 'RIG_GUIDE_BEFORE_PARTS', item.path, 'fresh rig guides must follow the accepted parts and precede their approval; preserve earlier answers as history');
-  }
   return { accepted_parts: partsApprovalIdentity(review)!, structure: review.structure as Json };
 }
 
@@ -184,20 +172,13 @@ export function checkRiggingContext(dir: string, project: JsonObject, effectiveS
   const checkLegacyBuild = ordered && stageIndex(effectiveStage) >= stageIndex('rigging-interview');
   const interview = isObject(project.interview) ? project.interview : {};
   if (ordered && (!isObject(interview.order) || typeof interview.order.adopted_at !== 'string' || !Number.isFinite(Date.parse(interview.order.adopted_at)))) add(errors, 'RIGGING_INTERVIEW_CONTEXT', 'interview.order', 'order adoption needs a clock date');
-  const reopens = collectReopens(project, []);
-  const approvals = collectSignoffs(project, []).filter(s => ordered && s.stage === 'rigging-interview' && s.checkpoint === null && liveSignoff(reopens, s.stage, s.at));
-  for (const approval of approvals.sort((a, b) => b.at - a.at || b.index - a.index).slice(0, 1)) {
-    const context = riggingContext(dir, project, String(approval.record.at), errors);
-    if (context !== null && (!isDeepStrictEqual(approval.record.accepted_parts, context.accepted_parts) || !isDeepStrictEqual(approval.record.structure, context.structure))) add(errors, 'RIGGING_INTERVIEW_CONTEXT', `signoffs[${approval.index}]`, 'approval does not bind the current parts review and structure');
-  }
-  if (checkLegacyBuild && review === undefined) add(errors, 'RIGGING_INTERVIEW_CONTEXT', 'interview.rigging_context', 'review parts before asking rigging questions', true);
   // Bind production config declarations, not geometry. Historical pre-adoption builds remain history.
   const adoptedAt = isObject(interview.order) ? Date.parse(String(interview.order.adopted_at)) : NaN;
   for (const version of asArray(project.versions)) {
     if (!isObject(version) || version.kind !== 'rig' || (version.accepted_parts === undefined && (!checkLegacyBuild || !(Date.parse(String(version.at)) >= adoptedAt)))) continue;
     const historicalReview = rigPartsApproval(project, version);
-    if (historicalReview === undefined && version.accepted_parts !== undefined) continue; // Registration owns the invalid binding.
-    if (historicalReview === undefined) { add(errors, 'RIGGING_INTERVIEW_CONTEXT', `versions[v${String(version.n)}]`, 'no parts structure approval was live when this rig was built', true); continue; }
+    // Registration owns an invalid binding; a rig may also be built without a parts approval (#981).
+    if (historicalReview === undefined) continue;
     const snapshot = checkStructure(dir, project, historicalReview, `versions[v${String(version.n)}].structure`, errors);
     if (snapshot === null) continue;
     const provenance = isObject(version.provenance) ? version.provenance : {};
@@ -206,10 +187,8 @@ export function checkRiggingContext(dir: string, project: JsonObject, effectiveS
     try { config = retainedJson(dir, provenance.config); } catch { continue; }
     const delta = structureDelta(snapshot, config);
     const path = `versions[v${String(version.n)}].provenance`;
-    if (delta.length > 0 && !acceptsStructureDelta(project, historicalReview, Date.parse(String(version.at)))) {
-      errors.push({ code: 'STRUCTURE_DECISIONS_CONFLICT', path: `${path}.config`, message: `${path}.config: mesh/chest declaration overrides the person-approved structure; answer the rigging meshes guide and sign off rigging-interview, then rebuild the rig after that sign-off; or renew parts-review and rebuild` });
-      continue;
-    }
+    // A structure change not covered by a later rigging-interview signoff is recorded by no delta (#981).
+    if (delta.length > 0 && !acceptsStructureDelta(project, historicalReview, Date.parse(String(version.at)))) continue;
     if ((delta.length > 0 || provenance.structure_delta !== undefined) && !isDeepStrictEqual(provenance.structure_delta, delta)) {
       add(errors, 'STRUCTURE_DELTA_MISMATCH', `${path}.structure_delta`, 'recorded delta differs from the snapshot and retained version config; register the rig again');
       continue;

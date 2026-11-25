@@ -143,7 +143,6 @@ test('@6 sealed record checkpoint ingests and replays after normal withdrawal', 
 
 test('a passed checkpoint act records the checkpoint sign-off and its receipt, checks clean and replays without writing', () => {
   const { dir, at } = bound();
-  expect(checkProject(dir).refusals.map((r) => r.code)).toContain('CHECKPOINT_UNSIGNED');
   const act = checkpointAct(dir, at);
   const result = ingest(dir, act, ['--json']);
   expect(result.exit).toBe(0);

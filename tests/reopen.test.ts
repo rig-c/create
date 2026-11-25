@@ -50,23 +50,19 @@ describe('legacy stage reopen history', () => {
     expect(codes(dir)).toEqual([]);
     expect(checkProject(dir).warnings.map(f => f.code)).toEqual(['QUESTION_SET_STALE', 'PARTS_VERDICT_FILE_LEGACY', 'RIGGING_INTERVIEW_PAINTING_LEGACY', 'STAGE_ORDER_LEGACY', 'INPUT_WRITER_MISSING', 'CHOICE_ANSWERS_LEGACY', 'CORRECTION_PATH_LEGACY',
       ...Array<string>(5).fill('REOPEN_SIGNOFF_LAPSED'), 'REOPEN_VERDICT_LAPSED', 'REOPEN_VERDICT_LAPSED']);
-    step(p, 'bones').status = 'done'; save(dir, p);
-    expect(codes(dir)).toContain('PARTS_REVIEW_UNSIGNED');
   });
 
   test('ahead signatures are valid with a historical stage witness', () => {
     const dir = fixture(p => { p.stage = 'parts'; p.signoffs = arr(p.signoffs).filter(s => obj(s).stage !== 'direction-review'); });
-    expect(codes(dir)).toContain('SIGNOFF_AHEAD_OF_STAGE');
     reopen(dir);
     expect(codes(dir)).toEqual([]);
   });
 
-  test('forward movement requires fresh signoffs; old signoffs never count', () => {
+  test('#981 a forward move after a reopen is no stage refusal; old acceptances still do not hand off', () => {
     const dir = fixture(); reopen(dir);
     const p = read(dir); p.stage = 'post'; save(dir, p);
-    expect(codes(dir)).toContain('STAGE_UNSIGNED');
-    expect(codes(dir)).toContain('PARTS_REVIEW_UNSIGNED');
-    refusal(() => handoff(dir, null), 'RIG_REVIEW_UNSIGNED');
+    expect(codes(dir)).toEqual([]);
+    refusal(() => handoff(dir, null), 'RIG_VERSION_UNACCEPTED');
   });
 
   test('old accepted rig is history even with a fresh verdict; new rig is required', () => {
@@ -105,7 +101,6 @@ describe('legacy stage reopen history', () => {
   test.each(['agent', 'AGENT'])('planted %s reopen is refused and grants no supersession', by => {
     const dir = fixture(p => { p.stage = 'parts'; p.reopens = [{ stage: 'parts', from_stage: 'post', by, at: '2026-11-20T00:00:00Z', verbatim: 'no', steps_before: [] }]; });
     expect(codes(dir)).toContain('SIGNOFF_NOT_HUMAN');
-    expect(codes(dir)).toContain('SIGNOFF_AHEAD_OF_STAGE');
     refusal(() => handoff(dir, null), 'SIGNOFF_NOT_HUMAN');
   });
 

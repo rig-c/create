@@ -131,8 +131,8 @@ test('a fresh rig version published in rig-review folds its approval into the di
   const signature = (read(root).signoffs as JsonObject[]).at(-1)!;
   expect(signature).toMatchObject({ stage: 'rig-review', checkpoint: null, by: 'user', verbatim: `[general]\n${WORDS}`, at: verdict.at,
     source: `review act ${host.session.jobId}/${verdict.actId}`, target: { version: 1 } });
-  // The signature authorizes the next stage; the separate advance writer records the move.
-  expect(codes(root)).toEqual(['STAGE_LAGGING']);
+  // The separate advance writer records the move; the stage no longer lags behind a signature (#981).
+  expect(codes(root)).toEqual([]);
 });
 
 test('a draft published at an enabled parts checkpoint carries it, and the passed act is the checkpoint sign-off', async () => {

@@ -17,7 +17,6 @@ const comment = '  Increase the idle motion slightly.\r\n';
 const approval = 'Approve the updated motion guide.\n';
 const expectedRefusals = [
   { code: 'SIGNOFF_ANSWERS_STALE', path: 'signoffs[4].answer_hashes[motion]' },
-  { code: 'GUIDE_CHANGED_UNSIGNED', path: 'plan.steps[motion]' },
 ];
 
 function readJson(path: string): JsonObject {

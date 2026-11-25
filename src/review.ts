@@ -29,7 +29,7 @@ import { assembleOnlyDraftTarget, assertDraftHasRig, readAssembleOnlyDraftTarget
 import { checkPreInterview } from './pre-interview.ts';
 import { refuse, USAGE_EXIT } from './refusal.ts';
 import { collectReopens, liveSignoff, reopenIndex, reopenTime, type Reopen } from './reopen.ts';
-import { PAUSED_STAGE, RIG_REVIEW, stageIndex } from './stages.ts';
+import { RIG_REVIEW, stageIndex } from './stages.ts';
 import type { Json, JsonObject } from './templates.ts';
 
 /** The part of `interview --check`'s context this module reads and writes. */
@@ -292,25 +292,6 @@ export function checkReviews(ctx: ReviewCtx): void {
     if (problem !== null) push('POST_ON_UNACCEPTED_RIG', `${post.path}.rig_version`, problem);
   }
 
-  // Past rig-review, the rig the project stands on is the latest one, and it is accepted.
-  const reviewIdx = stageIndex(RIG_REVIEW);
-  const cur = stageIndex(ctx.effectiveStage);
-  if (ctx.effectiveStage !== PAUSED_STAGE && cur > reviewIdx) {
-    const latest = latestRig(versions);
-    const lapsed = latest === null ? lapsedAcceptance(ctx.project, versions) : null;
-    if (lapsed !== null) {
-      push('RIG_VERSION_UNACCEPTED', 'versions', `stage is past rig-review on a lapsed acceptance: ${lapsed}, at rig-review`);
-    } else if (latest === null) {
-      push('RIG_VERSION_UNACCEPTED', 'versions', `stage is past rig-review, but versions[] has no rig version for the review to have accepted`);
-    } else if (latest.accepted === null) {
-      push(
-        'RIG_VERSION_UNACCEPTED',
-        latest.path,
-        `rig v${latest.n} is the latest rig version and has no accepted rig-review verdict, but the stage is past rig-review; a rig change after rig-review is a new first review — the stage goes back to rig-review`,
-      );
-    }
-  }
-
   // The current post version is on the current accepted rig; older post versions are history.
   const accepted = latestAccepted(versions);
   const currentPost = versions.posts.filter(p => p.live).reduce<PostVersion | null>((a, p) => (a === null || p.n > a.n ? p : a), null);
@@ -358,13 +339,8 @@ export function handoff(projectDirArg: string, rig: number | null, now: number):
   const first = historyRefusals[0];
   if (first !== undefined) refuse(first.code, first.message);
 
-  const reopens = collectReopens(record, historyRefusals);
+  collectReopens(record, historyRefusals);
   if (historyRefusals[0] !== undefined) refuse(historyRefusals[0].code, historyRefusals[0].message);
-  const signed = asArray(record.signoffs).some(
-    (s) => isObject(s) && liveSignoff(reopens, RIG_REVIEW, Date.parse(asString(s.at) ?? '')) && s.stage === RIG_REVIEW && (s.checkpoint ?? null) === null && isHuman(asString(s.by)) && asString(s.verbatim) !== null,
-  );
-  if (!signed) refuse('RIG_REVIEW_UNSIGNED', `no human { "stage": "rig-review" } sign-off: no rig version has been handed to post-production`);
-
   const versions = readVersions(record);
   const accepted = latestAccepted(versions);
   const latest = latestRig(versions);
@@ -407,7 +383,7 @@ export const HANDOFF_HELP = `handoff:
   --rig <n>        refuse unless rig version <n> is the one post work may run on
   --json           print the hand-off as JSON (rig_version, accepted, still)
   Post-production tooling runs this first. Exit 0 prints the accepted rig version; exit 1 is a named refusal
-  (RIG_REVIEW_UNSIGNED, RIG_VERSION_UNACCEPTED, RIG_ACCEPTED_WITHOUT_STILL, POST_ON_UNACCEPTED_RIG, POST_ON_SUPERSEDED_RIG).`;
+  (RIG_VERSION_UNACCEPTED, RIG_ACCEPTED_WITHOUT_STILL, POST_ON_UNACCEPTED_RIG, POST_ON_SUPERSEDED_RIG).`;
 
 export function handoffCommand(args: string[], now: number): { stdout: string; exit: number } {
   let json = false;

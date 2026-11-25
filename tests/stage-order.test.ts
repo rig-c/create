@@ -33,18 +33,6 @@ test('source interview can finish with later rig guides and plan absent', () => 
   expect(checkProject(dir).refusals).toEqual([]);
 });
 
-test('early production execution cannot use a parts plan approval as rigging approval', () => {
-  const dir = fixture(p => {
-    obj(p.interview).order = { spec: STAGE_ORDER_SPEC, adopted_at: '2026-11-05T00:00:00Z' };
-    p.stage_values = [...STAGE_VALUES]; p.stage = 'parts'; p.versions = [];
-    retainSignoffs(p, s => ['interview', 'plan-approved', 'parts'].includes(String(obj(s).stage)));
-    for (const raw of arr(obj(p.plan).steps)) obj(raw).status = 'pending';
-    step(p, 'bones').status = 'done';
-  });
-  expect(checkProject(dir).refusals.map(f => f.code)).toContain('RIGGING_INTERVIEW_UNSIGNED');
-});
-
-
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { Refusal } from '../src/refusal.ts';

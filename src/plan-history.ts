@@ -118,11 +118,11 @@ export function checkReplacedSignoffs(project: JsonObject, entries: JsonObject[]
           && (other.steps === null || other.steps.includes(id))
           && (otherAt > at || (otherAt === at && other.index > signature.index));
       })) continue;
-      const allowed = live ? candidates.filter(step => steps.includes(step)) : candidates;
-      if (isObject(hashes) && allowed.some(step => stepHash(step) === hashes[id])) continue;
+      // A signed step may be replanned; the signed definition must stay retained in plan.replaced (#981).
+      if (isObject(hashes) && candidates.some(step => stepHash(step) === hashes[id])) continue;
       const path = `signoffs[${signature.index}].step_hashes[${id}]`;
       refusals.push({ code: 'PLAN_REPLACED_SIGNOFF', path,
-        message: `${path}: does not match ${live ? 'the current step' : 'a current or retained previous step'}; restore the signed step and its replacement history, or record a human amendment before replanning` });
+        message: `${path}: does not match a current or retained previous step; restore the signed step and its replacement history` });
     }
   }
 }

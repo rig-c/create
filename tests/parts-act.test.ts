@@ -335,7 +335,7 @@ test('bound draft publishes ready evidence and atomically signs from one approva
   const replay = expectCliOk(await cli(root, ['parts-review', '--from-review', act.actId, '--json']));
   expect(replay.stdout).toBe(first.stdout);
   expect(readFileSync(join(root, 'project.json'))).toEqual(bytes);
-  expect(checkProject(root, undefined, { now: Date.now() }).refusals.map(finding => finding.code)).toEqual(['STAGE_LAGGING']);
+  expect(checkProject(root, undefined, { now: Date.now() }).refusals.map(finding => finding.code)).toEqual([]);
 }, MULTI_SPAWN_TIMEOUT_MS);
 
 test('legacy owner-shaped producer verdict retains the structure and signoff gate', async () => {
@@ -351,7 +351,7 @@ test('legacy owner-shaped producer verdict retains the structure and signoff gat
     '--rig', 'derived/drafts/chain/out/rig.json', '--mesh-report', 'derived/drafts/chain/out/mesh_report.json', '--painting', 'derived/drafts/chain/input/painting_in_rig.png', '--verdict', 'evidence/owner-verdict.json'], Date.now());
   prepareSignoff(root, 'evidence/owner-verdict.json');
   sign(root, 'evidence/owner-verdict.json');
-  expect(checkProject(root, undefined, { now: Date.now() }).refusals.map(finding => finding.code)).toEqual(['STAGE_LAGGING']);
+  expect(checkProject(root, undefined, { now: Date.now() }).refusals.map(finding => finding.code)).toEqual([]);
 });
 
 for (const [verdict, part, mesh] of [
@@ -612,7 +612,7 @@ test('retained parts approval survives real rigging signoff checkpoint changes a
   const after = ((read(root).plan as JsonObject).steps as JsonObject[]).find(step => step.id === 'bones')!;
   expect(after.checkpoint).not.toBeNull();
   expect(stepHash(after)).not.toBe(hash);
-  expect(checkProject(root, undefined, { now: Date.now() }).refusals.map(finding => finding.code)).toEqual(['STAGE_LAGGING']);
+  expect(checkProject(root, undefined, { now: Date.now() }).refusals.map(finding => finding.code)).toEqual([]);
   const image = act.source.parts!.images.find(row => row.role === 'part')!;
   writeFileSync(join(root, 'derived/drafts/chain/input', image.path), Buffer.from('synthetic changed image'));
   expect(checkProject(root, undefined, { now: Date.now() }).refusals.map(finding => finding.code)).toContain('REVIEW_ACT_SOURCE_STALE');
@@ -1133,7 +1133,7 @@ test('historical approved UI receipt stays unsigned on replay and accepts the ol
   const project = read(root);
   expect((project.signoffs as JsonObject[]).at(-1)).toMatchObject({ source: `review act ${act.jobId}/${separate.actId}`, stage: 'parts-review' });
   expect(reviewActFindings(project)).toEqual([]);
-  expect(checkProject(root, undefined, { now: Date.now() }).refusals.map(f => f.code)).toEqual(['STAGE_LAGGING']);
+  expect(checkProject(root, undefined, { now: Date.now() }).refusals.map(f => f.code)).toEqual([]);
 }, SINGLE_ACT_TIMEOUT_MS);
 
 for (const verdict of ['approved', 'changes-requested'] as const) {

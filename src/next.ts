@@ -86,6 +86,7 @@ import { latestPartsApproval, partsApprovalIdentity } from './structure.ts';
 import { resolveAgentCitationSpec } from './scene-authority.ts';
 import { DIRECTION_COMPOSE_SPEC } from './direction-compose.ts';
 import { missingDirectionStepApprovals } from './direction.ts';
+import { withStaleOutputs } from './next-stale.ts';
 
 export const NEXT_SCHEMA = 'rig-create/next@1';
 
@@ -1404,7 +1405,7 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
     const step = steps.find(step => finding.path === `plan.steps[${String(step.id)}]`);
     return step ? [{ finding, step }] : [];
   });
-  const next = deriveNextProject(dir, project, report, now, steps, staleSteps);
+  const next = withStaleOutputs(dir, project, report.warnings, deriveNextProject(dir, project, report, now, steps, staleSteps), shellWord);
   // Every stage shows the repairs. Approval gating uses only the steps that approval covers.
   const revisionMoves = staleSteps.map(({ finding, step }): NextMove => {
     if (planStepCompleted(project, step)) {

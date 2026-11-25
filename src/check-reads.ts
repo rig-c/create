@@ -39,6 +39,13 @@ export function checkReadScope(): { readonly roots: readonly string[]; readonly 
   return session === null ? null : { roots: session.roots, inside: depth > 0 };
 }
 
+/** Run an external producer reader whose entry files were already noted through this module. */
+export function withExternalCheckRead<T>(run: () => T): T {
+  depth++;
+  try { return run(); }
+  finally { depth--; }
+}
+
 /** The project-relative path of `absolute`, or null outside the roots and in an unrecorded subtree. */
 export function projectRelative(roots: readonly string[], absolute: string): string | null {
   for (const root of roots) {

@@ -379,8 +379,7 @@ export function generateExampleRemesh(destination: string): Record<string, Buffe
         '--check-report', join(producer, 'check/check.json'), '--run-record', runRecord, '--at-source', runRecord, '--at-pointer', '/finished_at',
         '--citations', join(producer, 'citations.json'), '--by', 'agent']);
     }
-    // Declared seed: the still the user accepts v3 on. Its writer is a displayed review-tool act (review --from-review),
-    // which a deterministic generator cannot record.
+    // Declared seed: retain a historical setup still to exercise its readers.
     {
       const project = load();
       const v3 = asArray(project.versions).filter(isObject).find(version => version.n === 3)!;

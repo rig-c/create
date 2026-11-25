@@ -103,18 +103,8 @@ describe('post on an unaccepted rig', () => {
   });
 });
 
-describe('the rig review rests on a still frame', () => {
-  test('an acceptance with no still-frame evidence is refused by name', () => {
-    const r = checkProject(fixture((p) => (version(p, 2).evidence = [])));
-    expect(withCode(r, 'RIG_ACCEPTED_WITHOUT_STILL').map((f) => f.path)).toEqual(['versions[v2].verdicts[0]']);
-  });
-
-  test('an evidence entry without kind "still" does not count', () => {
-    const r = checkProject(fixture((p) => delete obj(arr(version(p, 2).evidence)[0]).kind));
-    expect(codes(r)).toEqual(['RIG_ACCEPTED_WITHOUT_STILL']);
-  });
-
-  test('a still on a moving camera, without a frame or with a bad hash is malformed, and does not count', () => {
+describe('historical rig still evidence', () => {
+  test('a still on a moving camera, without a frame or with a bad hash is malformed', () => {
     for (const [field, value] of [
       ['camera', 'push_in'],
       ['frame', null],
@@ -122,7 +112,6 @@ describe('the rig review rests on a still frame', () => {
     ] as const) {
       const r = checkProject(fixture((p) => (obj(arr(version(p, 2).evidence)[0])[field] = value)));
       expect(withCode(r, 'STILL_MALFORMED').map((f) => f.path)).toEqual(['versions[v2].evidence[0]']);
-      expect(codes(r)).toContain('RIG_ACCEPTED_WITHOUT_STILL');
     }
   });
 
@@ -184,11 +173,19 @@ describe('rig-create handoff', () => {
     expect(cli(['handoff', '--rig', '5', dir], dir, env).code).toBe(0);
   });
 
-  test('an acceptance with no still frame is not handed off', () => {
+  test('an accepted rig without a still passes interview check and hands off', () => {
     const dir = fixture((p) => (version(p, 2).evidence = []));
-    const r = cli(['handoff', dir], dir, env);
-    expect(r.code).toBe(1);
-    expect(r.stderr).toStartWith('rig-create: RIG_ACCEPTED_WITHOUT_STILL:');
+    const check = cli(['interview', '--check', dir, '--json'], dir, env);
+    expect(check.code).toBe(0);
+    expect(JSON.parse(check.stdout).refusals).toEqual([]);
+    const json = cli(['handoff', dir, '--json'], dir, env);
+    expect(json.code).toBe(0);
+    const result = JSON.parse(json.stdout);
+    expect(result).toMatchObject({ ok: true, rig_version: 2 });
+    expect(result).not.toHaveProperty('still');
+    const plain = cli(['handoff', dir], dir, env);
+    expect(plain.code).toBe(0);
+    expect(plain.stdout).not.toContain('still frame');
   });
 
   test('usage errors exit 2', () => {

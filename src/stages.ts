@@ -91,7 +91,7 @@ export function stageIndex(id: string): number {
 
 /**
  * The two reviews and the version kind each one accepts (PROJECT.md § Stages):
- * `rig-review` accepts one `kind: "rig"` version on its still frame, and post
+ * `rig-review` accepts one `kind: "rig"` version, and post
  * work runs only on it; `direction-review` accepts one `kind: "post"` version.
  * A verdict's `review` names one of these keys.
  */

@@ -398,8 +398,8 @@ export function generateExampleChain(destination: string): Record<string, Buffer
       evidence: [{ kind: 'still', ...binding('evidence/setup.png'), camera: 'fixed', frame: 'setup' }],
       verdicts: [], answers_feedback: [], review_origin: null, provenance: { config: binding('evidence/v1/config.json'), sections } };
     // Declared seed. rig-version can now feed the direction post (create#297), but this producer cannot feed rig-version:
-    // it has no rigc render idle directory (frames.json), no rigc build --report build-report/1, and the accepted v1 needs
-    // a still whose writer is a displayed review-tool act, which a seed may not carry (seeds hold no bindings).
+    // it has no rigc render idle directory (frames.json) or rigc build --report build-report/1.
+    // The setup evidence models a historical rig still.
     seed('versions[]', version, 'docs/PROJECT.md:580,595', ['review-package', '1'], p => { p.versions = [...asArray(p.versions), version]; });
     writer(['review-package', '1', '--config', 'evidence/v1/config.json', '--from', 'outputs/v1/out']);
     advance('rig-review');

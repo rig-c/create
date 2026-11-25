@@ -19,7 +19,7 @@ one input, survives restart and checks sibling artwork; optional on older record
 ## The order, and what you may not do
 
 `interview` → `plan-approved` → `parts` → `parts-review` (parts, by eye) →
-`rigging-interview` → `rigging` → `rig-review` (rig, still frame) → `post-interview` → `post` →
+`rigging-interview` → `rigging` → `rig-review` (rig) → `post-interview` → `post` →
 `direction-review` → `accepted`. Any stage can become `paused`.
 
 - Only human `signoffs[]` advance `stage` or pass plan checkpoints.

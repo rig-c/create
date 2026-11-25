@@ -203,15 +203,26 @@ Other edges the code shows:
 
 - Every node keeps `built_from: [{path, sha256}]` (§1.3).
 - A node is **stale** when either is true:
-  - a `built_from` path now hashes differently;
+  - a `built_from` path is missing or now hashes differently — except the
+    `current.parts` config entry when `outputs/parts/rig/parts.json` still has
+    its recorded sha256 and carries `assembly_config`, where Create calls `assemblyConfigChanges` from
+    `@rig-c/parts/assembly-reading` and marks parts stale only when the config
+    is missing, unreadable, or `assemblyConfigChanges` returns changed field
+    names (a legacy `parts.json` without `assembly_config` keeps the whole-file
+    sha256 comparison);
   - any node upstream of it is stale.
 - The transitive rule matters. Changing parts changes the `parts.json` hash,
-  so the rig is stale directly. Motion still names the old rig model hash,
-  which is unchanged until the rig is rebuilt, so motion is stale only through
-  the rig.
-- Hashes come from the files' bytes. Stage, date and number play no part.
+  so the rig is stale directly; changing an assembly-read field in the config
+  marks parts stale and, through it, the rig. Motion still names the old rig
+  model hash, which is unchanged until the rig is rebuilt, so motion is stale
+  only through the rig.
+- Hashes come from the files' bytes (and for `current.parts`' config edge, from
+  Parts' published `assembly_config` reading). Stage, date and number play no
+  part.
 - `check` reports a stale node as WARN `OUTPUT_STALE` (new code). The message
-  names the node, the changed input and the command that rebuilds it.
+  names the node, the changed input (including the changed assembly config
+  fields or config read error on `current.parts`) and the command that rebuilds
+  it.
   **Choice:** WARN, never a refusal. Reason: #980 point 1, nothing waits on
   anything; staleness is information.
 - `next` lists stale nodes upstream-first, with the recorded rebuild command
@@ -308,7 +319,7 @@ Source column:
 | 17 | Draft reuse across a restart | `src/draft-reuse.ts:41-54`, `:168-195` | earlier `project.json` by sha256 | **git** (already its first route); the retained copy is not written | Its stated reason, check's closure "without git" (`:168`), was for Review's snapshot; comments no longer need a closure check |
 | 18 | `restart` | `src/restart.ts:35-54` | earlier `project.json` | **git**, unchanged | Already git-only |
 | 19 | Previous-draft view in Review | `src/job-publication.ts:1131-1159` (`previousPartsApproval`, `src/structure.ts:71-86`) | recomposite of the last approved draft | **git**: the recomposite at the commit before the last `record parts` | The recomposite sits in `outputs/parts/`, which is tracked; "previous" means the previous commit, not the previous approval |
-| 20 | Review still and act attachments | `src/feedback.ts:707-709`, `:773-780` (written at `:491`); `src/review-bust.ts:83-92` | `evidence/v<N>/<sha256>.png` and chest act sidecars | **retained** `evidence/comments/<sha256>.<ext>` | Review made these bytes and the project holds no other copy, so content-addressed retention is the only route; no number |
+| 20 | Review act sidecars and historical still attachments | Verdict ingestion in `src/feedback.ts` and the chest reader in `src/review-bust.ts` | Act JSON under `evidence/v<N>/` and `evidence/drafts/<id>/`, with PNGs in historical records | **retained** `evidence/comments/<sha256>.<ext>` | New verdict ingestion retains the act JSON only. Historical still attachments preserve the original Review bytes. |
 | 21 | Parts act receipts and Review reads | `src/parts-review.ts:132`; `src/review-read.ts:158-160` | `evidence/review-acts/<hash>.json`, `evidence/review-reads/<sha256>.json` | **retained** for old records; not written for new | Verdict receipts leave with #982 |
 | 22 | Fix-ledger regression against the previous draft | `src/fix-ledger.ts:263-317` | predecessor draft's ledger report rows | **record**: `current.parts.ledger` keeps the report binding and the passed-row set it replaced | The regression gate is correctness and must not depend on git being present |
 | 23 | Feedback answered by a later version | `src/feedback.ts:181`; `src/direction-writers.ts:41` | earlier version's verdict index | deleted | Comment threads carry this (#982) |

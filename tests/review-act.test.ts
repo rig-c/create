@@ -1653,13 +1653,18 @@ test('#982 an old verdict act still decodes unchanged, and the comment route ref
   expect(result.exit).toBe(0);
 }, 90_000);
 
-test('#982 a comment act carrying chest landmarks refuses COMMENT_CARRIER_UNSUPPORTED before writing', async () => {
+test('#982 a comment act carrying chest landmarks records the comment with WARN COMMENT_CARRIER_UNSUPPORTED', async () => {
   const view = await publishedChest();
   const source = view.act.source as unknown as JsonObject;
   const chest = (view.act.value as unknown as JsonObject).chestLandmarks as JsonObject[];
   const bytes = JSON.stringify(commentOnlyAct(view, 'comment-chest', [{ kind: 'chest-landmarks', file: source.model as JsonObject, chestLandmarks: chest }]));
-  const before = readFileSync(join(view.root, 'project.json'));
-  expect(() => commentCommand(['--from-review', 'comment-chest', view.root], testClock.now(), { fetch: () => ({ bytes }) }))
-    .toThrow(expect.objectContaining({ code: 'COMMENT_CARRIER_UNSUPPORTED' }));
-  expect(readFileSync(join(view.root, 'project.json'))).toEqual(before);
+  const before = JSON.parse(readFileSync(join(view.root, 'project.json'), 'utf8')) as JsonObject;
+  const result = commentCommand(['--from-review', 'comment-chest', view.root, '--json'], testClock.now(), { fetch: () => ({ bytes }) });
+  expect(result.exit).toBe(0);
+  const out = JSON.parse(result.stdout) as { warnings?: { code: string }[]; corrections: number };
+  expect(out.warnings?.map(w => w.code)).toEqual(['COMMENT_CARRIER_UNSUPPORTED']);
+  expect(out.corrections).toBe(0);
+  const after = JSON.parse(readFileSync(join(view.root, 'project.json'), 'utf8')) as JsonObject;
+  expect((after.comments as JsonObject[]).length).toBe(((before.comments as JsonObject[] | undefined) ?? []).length + 1);
+  expect(after.corrections).toEqual(before.corrections);
 }, 90_000);

@@ -90,9 +90,6 @@ export function commentCommand(args: string[], now: number, hooks: CommentHooks 
       const result = { comment: `comments[${String(receipt.comment)}]`, replayed: true };
       return { stdout: json ? JSON.stringify(result, null, 2) : `comment: ${act.actId} already recorded at ${result.comment}`, exit: 0 };
     }
-    if (act.value.carriers?.some(carrier => carrier.kind === 'chest-landmarks')) {
-      refuse('COMMENT_CARRIER_UNSUPPORTED', `project.json.comments: act ${act.actId} carries chest landmarks; rig-parts bust-landmarks reads only a rig-review/act@9 verdict, so this carrier cannot be applied yet. Withdraw the act with rig-create job withdraw-act ${act.actId} and the owner's relayed words, or wait for a Parts release that reads act@10 carriers`);
-    }
     const index = asArray(project.comments).length;
     const path = `comments[${index}]`;
     const checked = checkedCommentCommit(root, act, path, hooks.gitShow);
@@ -112,7 +109,11 @@ export function commentCommand(args: string[], now: number, hooks: CommentHooks 
     renameSync(temporary, file);
     committed = true;
     const corrections = asArray(next.corrections).filter(row => isObject(row) && row.source === commentSource(act)).length;
-    const warnings = checked.warning ? [checked.warning] : [];
+    const warnings: CommentFinding[] = checked.warning ? [checked.warning] : [];
+    if (act.value.carriers?.some(carrier => carrier.kind === 'chest-landmarks')) {
+      warnings.push({ code: 'COMMENT_CARRIER_UNSUPPORTED', path,
+        message: `${path}: act ${act.actId} carries chest landmarks; the comment is recorded, but rig-parts bust-landmarks reads only a rig-review/act@9 verdict, so the carrier is not applied. Apply it once a Parts release reads act@10 carriers` });
+    }
     progress?.('Review comment recorded');
     const result = { comment: path, entry, corrections, ...(warnings.length ? { warnings } : {}) };
     return { stdout: json ? JSON.stringify(result, null, 2)

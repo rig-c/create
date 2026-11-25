@@ -17,6 +17,7 @@ import { IGNORED_DIRS } from './init.ts';
 import type { Json, JsonObject } from './templates.ts';
 
 export const PARTS_CHECK_SPEC = 'rig-parts-parts-check/1';
+export const PARTS_CHECK_FILE = 'parts-check.json';
 
 /** Dates the parts-check requirement by the advance's own `at`. */
 export const PARTS_CHECK_SINCE = '2026-11-08T00:00:00Z';
@@ -191,14 +192,14 @@ function staleness(dir: string, partsRoot: string, inputs: JsonObject[]): string
  * the report's spec and shape, the copied fields, and a passing report. At the move only: the report
  * matches the parts under `parts` on disk now. The first failing rule is the finding.
  */
-export function partsCheckFindings(dir: string, record: Json | undefined, path: string, atMove: boolean): Finding[] {
+export function partsCheckFindings(dir: string, record: Json | undefined, path: string, atMove: boolean, read?: () => Buffer): Finding[] {
   const invalid = (why: string): Finding[] => [finding('PARTS_CHECK_INVALID', path, why, `record the report through advance; ${RUN}`)];
   if (!isObject(record) || Object.keys(record).length !== RECORD_KEYS.length || !RECORD_KEYS.every(key => key in record)) {
     return invalid(`must have exactly ${RECORD_KEYS.join(', ')}`);
   }
   if (!literal(record.parts)) return invalid('parts must be the literal project-relative assembled root');
   if (typeof record.sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(record.sha256)) return invalid('sha256 must be the report bytes\' sha256');
-  const bytes = readPartsCheckBytes(dir, record.path, `${path}.path`);
+  const bytes = read ? read() : readPartsCheckBytes(dir, record.path, `${path}.path`);
   if (!Buffer.isBuffer(bytes)) return [bytes];
   if (sha256(bytes) !== record.sha256) {
     return [finding('PARTS_CHECK_CHANGED', `${path}.sha256`, `${String(record.path)} no longer hashes to the recorded sha256`, 'restore the retained report bytes the move recorded; a new check is recorded by a new parts → parts-review move')];
@@ -226,8 +227,8 @@ export function partsCheckFindings(dir: string, record: Json | undefined, path: 
 }
 
 /** The writer's copy of the report: path and sha256 of its bytes, and spec, exit_code, holes and reported as written. */
-export function partsCheckRecord(dir: string, reportPath: string, partsRoot: string, path: string): { record: JsonObject } | { refusal: Finding } {
-  const bytes = readPartsCheckBytes(dir, reportPath, `${path}.path`);
+export function partsCheckRecord(dir: string, reportPath: string, partsRoot: string, path: string, read?: () => Buffer): { record: JsonObject } | { refusal: Finding } {
+  const bytes = read ? read() : readPartsCheckBytes(dir, reportPath, `${path}.path`);
   if (!Buffer.isBuffer(bytes)) return { refusal: bytes };
   const report = parseReport(bytes);
   if (report === null) return { refusal: finding('PARTS_CHECK_UNREAD', `${path}.path`, `${reportPath} is not a JSON object`, RUN) };

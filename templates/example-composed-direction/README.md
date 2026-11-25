@@ -26,7 +26,7 @@ bun scripts/generate-composed-direction-fixture.ts "$project"
 bun src/cli.ts interview --check "$project" --json
 ```
 
-Each run records new Review IDs and timestamps. These runtime differences are outside the input seal. Parts 2.53.0 wrote an absolute output path into the sealed compose check report; the pinned Parts 2.56.0 writes it location-independent ([Parts #1492](https://github.com/rig-c/parts/issues/1492)).
+Each run records new Review IDs and timestamps. These runtime differences are outside the input seal. Parts 2.53.0 wrote an absolute output path into the sealed compose check report; the pinned Parts 2.57.0 writes it location-independent ([Parts #1492](https://github.com/rig-c/parts/issues/1492)).
 
 Keep the generated project layout, including `derived/drafts/composed/`. Copying the entire project with its paths intact works. Flattening the draft into the project root puts `config.json` and `out/` where Review discovers them as a producer handoff. In that layout, `out/` lacks the handoff's expected `parts.json` and `rig/`. The retained snapshot omits the unbound directory, so its reviewed-source identity differs from the live one. Review refuses with `JOB_SOURCE_UNRETAINABLE`, which Create reports under `JOB_PUBLISH_PENDING`. Leaving the draft nested lets post v2 publish through its recorded closure.
 

@@ -34,7 +34,7 @@ export interface MeshEditEntry {
 }
 
 /** The fields this seam consumes from a finalized act whose source the caller has bound. */
-export interface MeshEditAct {
+export type MeshEditAct = {
   readonly schema: 'rig-review/act@8';
   readonly kind: 'review-verdict';
   readonly actId: string;
@@ -45,6 +45,21 @@ export interface MeshEditAct {
     readonly meshEdits: readonly MeshEditEntry[];
     readonly comments?: readonly unknown[];
   };
+} | {
+  /** act@10 mesh carrier (#982): the act@8 payload unchanged, with no verdict. */
+  readonly schema: 'rig-review/act@10';
+  readonly kind: 'comments';
+  readonly actId: string;
+  readonly source: { readonly sourceHash: string };
+  readonly value: { readonly meshEdits: readonly MeshEditEntry[]; readonly comments?: readonly unknown[] };
+};
+
+/** A finalized mesh edit: an act@8 Request changes, or an act@10 comment carrying mesh edits. */
+export function isMeshEditAct(act: { readonly schema: string; readonly kind: string; readonly value: object }): boolean {
+  const value = act.value as { stage?: unknown; verdict?: unknown; meshEdits?: unknown };
+  if (!Array.isArray(value.meshEdits) || value.meshEdits.length === 0) return false;
+  if (act.schema === 'rig-review/act@10') return act.kind === 'comments';
+  return act.schema === 'rig-review/act@8' && act.kind === 'review-verdict' && value.stage === 'rig-review' && value.verdict === 'changes-requested';
 }
 
 export interface MeshEditPaths {
@@ -140,9 +155,8 @@ export function applyMeshEdits(
   act: MeshEditAct,
   pathsFor: (entry: MeshEditEntry, priorResults: readonly MeshEditResult[]) => MeshEditPaths,
 ): readonly MeshEditResult[] {
-  if (act.schema !== 'rig-review/act@8' || act.kind !== 'review-verdict' || act.value.stage !== 'rig-review'
-    || act.value.verdict !== 'changes-requested' || act.value.meshEdits.length === 0) {
-    refuse('REVIEW_ACT_INVALID', 'act.value.meshEdits: expected a finalized act@8 rig-review Request changes with at least one mesh edit; request the edit in the live Review job');
+  if (!isMeshEditAct(act)) {
+    refuse('REVIEW_ACT_INVALID', 'act.value.meshEdits: expected a finalized act@8 rig-review Request changes or an act@10 comment with at least one mesh edit; request the edit in the live Review job');
   }
   const apply = loadRemeshApi(projectDir);
   const results: MeshEditResult[] = [];

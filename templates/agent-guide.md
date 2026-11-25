@@ -59,19 +59,18 @@ Preserve history/dates; adopt choices explicitly.
 Start `job open <dir> --reviewer <id> --role owner` in the background; add a selector when ready.
 Share the URL once. Publish via bound writers or reuse `--draft|--rig|--question|--plan`.
 Reused opens exit. The page updates in place.
-After asking, run `rig-create job acts --wait` in the background, ingest its command, advance and republish.
+After asking, run `job acts --wait` in the background, ingest its command, advance, republish.
 `job acts [--json]` lists each pending act's verdict, comments and `words`, even when ingest is refused.
-Plan-picture pin `["rig-review-comment/1", mode, "reference", referenceId, referenceHash, x, y, w, h]` (integer pixels, Y down, `w=h=0` for a point): look up `referenceId` in the publication's `files`, check `referenceHash` equals that entry's `sha256`, then crop `x,y,w,h`.
-With all picks ingested, complete the plan and follow `next` for `signoff <stage> --from-picks`; keep the plan page for other answers.
+Comment acts (`act@10`, no verdict): `comment --from-review <actId>` records `comments[i]`, bound by content hash.
+Plan-picture pin `["rig-review-comment/1", mode, "reference", referenceId, referenceHash, x, y, w, h]` (integer pixels, Y down, `w=h=0` for a point): match `referenceHash` to `referenceId`'s `sha256` in publication `files`, crop `x,y,w,h`.
+With all picks ingested, complete the plan, follow `next` for `signoff <stage> --from-picks`; keep the plan page for other answers.
 Keep the job host up across bound writes; if it stopped, run `job open` again with the same reviewer/role and URL, then `job reconcile`.
-Legacy package-only host: ingest pending acts, run `job close` once, then ask a question/plan.
+Legacy package-only host: ingest pending acts, `job close` once, then ask a question/plan.
 
-Use `job withdraw-act <actId>` with owner-chat flags to keep the page.
-Successful closes end it; share a new URL on reopen.
+`job withdraw-act <actId>` (owner-chat flags) keeps the page; a close ends it; reopen shares a new URL.
 
-- `job close` ends/retires the job after a pin/hook bump (`--retire-refused` archives failed publications).
-- `job close --discard-acts <reason> --by agent` (or `--by <owner> --owner-chat <file> --said-at <ISO> --relayed-by <operator>`) records the discard.
-- `job open`/`job reconcile` archive an offline replaced-root job.
+- `job close` ends/retires the job after a pin/hook bump (`--retire-refused` archives failed publications); `job open`/`job reconcile` archive offline replaced-root jobs.
+- `job close --discard-acts <reason> --by agent` (or `--by <owner>` with owner-chat flags) records the discard.
 
 ## Before you ask, plan or show
 

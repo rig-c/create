@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { cpSync, existsSync, linkSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { JOB_CHEST_LANDMARKS_ACT_SCHEMA, JOB_COMMENTS_ACT_SCHEMA, projectComments, startJobHost, type JobComment, type JobOwnerHost, type JobVerdict } from '@rig-c/review/job-host';
+import { JOB_CHEST_LANDMARKS_ACT_SCHEMA, JOB_COMMENT_ONLY_ACT_SCHEMA, JOB_COMMENTS_ACT_SCHEMA, projectComments, startJobHost, type JobComment, type JobOwnerHost, type JobVerdict } from '@rig-c/review/job-host';
 import { collectItems, type Finding } from '../src/check.ts';
 import { main } from '../src/cli.ts';
 import { optionContext } from '../src/choices.ts';
@@ -13,6 +13,7 @@ import { currentJobIdentity, partsEnumerator, prepareLiveManifest, readPublished
 import { assertReviewActSource, decodeReviewAct, decodeReviewResponse, fetchReviewAct, REVIEW_ACT_ACTOR_SINCE, reviewActFindings, reviewActTransport, reviewActVerbatim } from '../src/review-act.ts';
 import { directionPin, existingShapes, framedRigPin, HISTORICAL_DIRECTION_VALUE, TIME_ONLY_BASIS } from './comment-anchor-shapes.ts';
 import { pendingMeshDeltaRevision } from '../src/corrections.ts';
+import { commentCommand } from '../src/comment-act.ts';
 import { republishCommand } from '../src/republish.ts';
 import { readVersions } from '../src/review.ts';
 import { formatNext, nextProject } from '../src/next.ts';
@@ -1099,6 +1100,8 @@ function fetchAdapter(root: string, act: { jobId: string }, raw: string | (() =>
 
 /** A comments fixture binds the actual published files and captured still. */
 function commentsVerdict(act: Awaited<ReturnType<typeof published>>['act'], n: 1 | 2 = 1): JsonObject {
+  // act@10 answers no ask; this fixture copies an ask act, so narrow by schema before reading askId.
+  if (act.schema === JOB_COMMENT_ONLY_ACT_SCHEMA) throw new Error('commentsVerdict copies an ask act');
   return {
     schema: JOB_COMMENTS_ACT_SCHEMA, kind: 'review-verdict', jobId: act.jobId, actId: 'comments-verdict',
     askId: act.askId, publicationId: act.publicationId, authority: act.authority as unknown as JsonObject,
@@ -1600,3 +1603,68 @@ test('#1136 the scalar label for every existing comment shape is unchanged', () 
     expect(projectComments(structuredClone(comments) as unknown as JobComment[])).toBe(recorded[id]!);
   }
 });
+
+/** A finalized act@10 on the displayed publication of `view`: no ask, no still, no verdict (#982). */
+function commentOnlyAct(view: { act: { jobId: string; publicationId: string; at: string; authority: unknown; source: unknown } }, actId: string, carriers: JsonObject[]): JsonObject {
+  return { schema: JOB_COMMENT_ONLY_ACT_SCHEMA, actId, jobId: view.act.jobId, publicationId: view.act.publicationId, kind: 'comments',
+    authority: view.act.authority as JsonObject, at: view.act.at, source: view.act.source as JsonObject,
+    value: { comments: [{ text: 'Move the torso hull out a little.' }], carriers } };
+}
+
+test('#982 a comment act carrying mesh edits records the corrections with no verdict', async () => {
+  testClock.set(EXAMPLE_REOPEN_AT);
+  const root = temporary('create-comment-mesh-');
+  cpSync(join(import.meta.dir, '../templates/example-chain/checkpoints/3-rig-review'), root, { recursive: true });
+  const initial = projectAt(root);
+  const provenance = (initial.versions as JsonObject[])[0]!.provenance as JsonObject;
+  const { path, sha256 } = provenance.config as JsonObject;
+  provenance.config = { path, sha256, bytes: readFileSync(join(root, String(path))).length };
+  putProject(root, initial);
+  const view = await published('3-rig-review', 1, 'owner', '', 'changes-requested', 1, false, { root, rigVersion: 1 });
+  const source = view.act.source as unknown as JsonObject;
+  const edits = meshEdits(root, source);
+  const act = commentOnlyAct(view, 'comment-mesh', [{ kind: 'mesh-edits', file: source.model as JsonObject, meshEdits: edits }]);
+  const verdictsBefore = (projectAt(root).versions as JsonObject[])[0]!.verdicts;
+  const bytes = JSON.stringify(act);
+  const result = JSON.parse(commentCommand(['--from-review', 'comment-mesh', root, '--json'], testClock.now(), { fetch: () => ({ bytes }) }).stdout);
+  expect(result).toMatchObject({ comment: 'comments[0]', corrections: 1 });
+  const project = projectAt(root);
+  expect((project.versions as JsonObject[])[0]!.verdicts).toEqual(verdictsBefore);
+  const corrections = (project.corrections as JsonObject[]).filter(row => row.source === `review act ${act.jobId}/comment-mesh`);
+  expect(corrections).toHaveLength(1);
+  expect(corrections[0]).toMatchObject({ by: 'user', verbatim: '[general]\nMove the torso hull out a little.',
+    artifact: { kind: 'mesh-delta', actId: 'comment-mesh', payloadSha256: edits[0]!.sha256 } });
+  expect((project.comments as JsonObject[])[0]!.carriers).toEqual([{ kind: 'mesh-edits', file: source.model, edits: 1 }]);
+  expect(checkProject(root, project).refusals).toEqual([]);
+  expect(reviewActFindings({ ...project, corrections: [] }).map(finding => finding.code)).toEqual(['REVIEW_ACT_LEDGER_INVALID']);
+  // The verdict writer refuses the comment act by name.
+  expect(() => decodeReviewAct(bytes)).toThrow(expect.objectContaining({ code: 'REVIEW_ACT_KIND_MISMATCH' }));
+}, 90_000);
+
+test('#982 an old verdict act still decodes unchanged, and the comment route refuses it by schema', async () => {
+  const view = await published();
+  const bytes = view.host.session.readActExport(view.act.actId, false).toString('utf8');
+  const decoded = decodeReviewAct(bytes);
+  expect(decoded.schema as string).toBe(view.act.schema as string);
+  expect(decoded.value).toMatchObject({ verdict: 'approved' });
+  expect(() => decodeReviewAct(bytes, 'comments')).toThrow(expect.objectContaining({ code: 'REVIEW_ACT_SCHEMA_UNSUPPORTED' }));
+  const result = await command(view.root, view.act.actId);
+  expect(result.stderr).toBe('');
+  expect(result.exit).toBe(0);
+}, 90_000);
+
+test('#982 a comment act carrying chest landmarks records the comment with WARN COMMENT_CARRIER_UNSUPPORTED', async () => {
+  const view = await publishedChest();
+  const source = view.act.source as unknown as JsonObject;
+  const chest = (view.act.value as unknown as JsonObject).chestLandmarks as JsonObject[];
+  const bytes = JSON.stringify(commentOnlyAct(view, 'comment-chest', [{ kind: 'chest-landmarks', file: source.model as JsonObject, chestLandmarks: chest }]));
+  const before = JSON.parse(readFileSync(join(view.root, 'project.json'), 'utf8')) as JsonObject;
+  const result = commentCommand(['--from-review', 'comment-chest', view.root, '--json'], testClock.now(), { fetch: () => ({ bytes }) });
+  expect(result.exit).toBe(0);
+  const out = JSON.parse(result.stdout) as { warnings?: { code: string }[]; corrections: number };
+  expect(out.warnings?.map(w => w.code)).toEqual(['COMMENT_CARRIER_UNSUPPORTED']);
+  expect(out.corrections).toBe(0);
+  const after = JSON.parse(readFileSync(join(view.root, 'project.json'), 'utf8')) as JsonObject;
+  expect((after.comments as JsonObject[]).length).toBe(((before.comments as JsonObject[] | undefined) ?? []).length + 1);
+  expect(after.corrections).toEqual(before.corrections);
+}, 90_000);

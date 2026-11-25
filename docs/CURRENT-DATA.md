@@ -203,15 +203,26 @@ Other edges the code shows:
 
 - Every node keeps `built_from: [{path, sha256}]` (§1.3).
 - A node is **stale** when either is true:
-  - a `built_from` path now hashes differently;
+  - a `built_from` path is missing or now hashes differently — except the
+    `current.parts` config entry when `outputs/parts/rig/parts.json` still has
+    its recorded sha256 and carries `assembly_config`, where Create calls `assemblyConfigChanges` from
+    `@rig-c/parts/assembly-reading` and marks parts stale only when the config
+    is missing, unreadable, or `assemblyConfigChanges` returns changed field
+    names (a legacy `parts.json` without `assembly_config` keeps the whole-file
+    sha256 comparison);
   - any node upstream of it is stale.
 - The transitive rule matters. Changing parts changes the `parts.json` hash,
-  so the rig is stale directly. Motion still names the old rig model hash,
-  which is unchanged until the rig is rebuilt, so motion is stale only through
-  the rig.
-- Hashes come from the files' bytes. Stage, date and number play no part.
+  so the rig is stale directly; changing an assembly-read field in the config
+  marks parts stale and, through it, the rig. Motion still names the old rig
+  model hash, which is unchanged until the rig is rebuilt, so motion is stale
+  only through the rig.
+- Hashes come from the files' bytes (and for `current.parts`' config edge, from
+  Parts' published `assembly_config` reading). Stage, date and number play no
+  part.
 - `check` reports a stale node as WARN `OUTPUT_STALE` (new code). The message
-  names the node, the changed input and the command that rebuilds it.
+  names the node, the changed input (including the changed assembly config
+  fields or config read error on `current.parts`) and the command that rebuilds
+  it.
   **Choice:** WARN, never a refusal. Reason: #980 point 1, nothing waits on
   anything; staleness is information.
 - `next` lists stale nodes upstream-first, with the recorded rebuild command

@@ -1,12 +1,14 @@
 /**
  * `current.<kind>`: one current output per kind (docs/CURRENT-DATA.md §1.3), and staleness by content hash (§2.2).
- * A node is stale when a `built_from` path now hashes differently, or when a node upstream of it is stale.
+ * A node is stale when a `built_from` path now hashes differently (for `current.parts`' config edge, when Parts'
+ * `assemblyConfigChanges` against `outputs/parts/rig/parts.json` is non-empty), or when a node upstream of it is stale.
  * A producer run record is provenance, not product: an output-set hash leaves it out, and no `built_from` names it (§4.1).
  */
+import { assemblyConfigChanges } from '@rig-c/parts/assembly-reading';
 import { createHash } from 'node:crypto';
 import { join, posix } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
-import { existsSync, lstatSync, readdirSync, readFileSync } from './check-reads.ts';
+import { existsSync, lstatSync, readdirSync, readFileSync, realpathSync, withExternalCheckRead } from './check-reads.ts';
 import { asArray, isObject, type Finding } from './check.ts';
 import { runArgvProblem } from './run-record.ts';
 import type { Json, JsonObject } from './templates.ts';
@@ -158,6 +160,9 @@ export function currentShapeFindings(kind: CurrentKind, node: Json | undefined):
   return findings;
 }
 
+const PARTS_MANIFEST = 'outputs/parts/rig/parts.json';
+type AssemblyManifest = Parameters<typeof assemblyConfigChanges>[1];
+
 /** The hash a `built_from` path has now: a file's sha256, or an output root's output-set hash; undefined when absent. */
 function currentHash(dir: string, path: string): string | undefined {
   try {
@@ -166,6 +171,83 @@ function currentHash(dir: string, path: string): string | undefined {
     if (!lstatSync(join(dir, path)).isFile()) return undefined;
     return sha256(readFileSync(join(dir, path)));
   } catch { return undefined; }
+}
+
+function hashStaleWhy(dir: string, binding: JsonObject): string | undefined {
+  const now = currentHash(dir, String(binding.path));
+  if (now === binding.sha256) return undefined;
+  return `${String(binding.path)} ${now === undefined ? 'is missing' : `now hashes ${now.slice(0, 12)}, recorded ${String(binding.sha256).slice(0, 12)}`}`;
+}
+
+function regularProjectFile(dir: string, rel: string): string | undefined {
+  try {
+    const file = join(dir, rel);
+    if (realpathSync(file) !== join(realpathSync(dir), rel) || !lstatSync(file).isFile()) return undefined;
+    return file;
+  } catch { return undefined; }
+}
+
+/**
+ * Identify the `current.parts.built_from` entry that `record parts` bound from `--config`:
+ * `record parts` verifies `sha256(config) === run.config.sha256` before sorting `built_from`,
+ * and disambiguates any hash tie by excluding the assemble `run.inputs[]` paths.
+ */
+function partsConfigPath(dir: string, node: JsonObject): string | undefined {
+  const runPath = isObject(node.run) && typeof node.run.path === 'string' ? node.run.path : undefined;
+  if (!runPath) return undefined;
+  let run: Json;
+  try {
+    const file = regularProjectFile(dir, runPath);
+    if (!file) return undefined;
+    run = JSON.parse(readFileSync(file, 'utf8')) as Json;
+  } catch { return undefined; }
+  if (!isObject(run) || !isObject(run.config) || typeof run.config.sha256 !== 'string') return undefined;
+  const configSha = run.config.sha256;
+  const matches = asArray(node.built_from)
+    .filter((entry): entry is JsonObject => isObject(entry) && entry.sha256 === configSha && typeof entry.path === 'string');
+  if (matches.length === 1) return String(matches[0]!.path);
+  if (matches.length === 0 || !Array.isArray(run.inputs)) return undefined;
+  const inputPaths = new Set<string>();
+  for (const input of run.inputs) {
+    if (!isObject(input) || typeof input.path !== 'string') continue;
+    const raw = posix.normalize(input.path);
+    inputPaths.add(raw);
+    if (input.role === 'full' || input.role === 'head') {
+      inputPaths.add(raw === '.' ? 'layers.json' : `${raw}/layers.json`);
+    }
+  }
+  const nonInputs = matches.filter(entry => !inputPaths.has(String(entry.path)));
+  return nonInputs.length === 1 ? String(nonInputs[0]!.path) : undefined;
+}
+
+/** The recorded parts.json's assembly reading; undefined (whole-file hash) unless its bytes match the `files[]` entry recorded for it. */
+function partsAssemblyManifest(dir: string, node: JsonObject): AssemblyManifest | undefined {
+  try {
+    const file = regularProjectFile(dir, PARTS_MANIFEST);
+    if (!file) return undefined;
+    const recorded = asArray(node.files).find((f): f is JsonObject => isObject(f) && f.path === PARTS_MANIFEST);
+    const bytes = readFileSync(file);
+    if (recorded === undefined || createHash('sha256').update(bytes).digest('hex') !== recorded.sha256) return undefined;
+    const parsed = JSON.parse(bytes.toString('utf8')) as Json;
+    if (!isObject(parsed) || parsed.assembly_config === undefined) return undefined;
+    return parsed as unknown as AssemblyManifest;
+  } catch { return undefined; }
+}
+
+function partsConfigStaleWhy(dir: string, binding: JsonObject, manifest: AssemblyManifest | undefined): string | undefined {
+  // Legacy parts.json has no assembly_config, where assemblyConfigChanges returns []; keep whole-file sha256 there.
+  if (manifest === undefined) return hashStaleWhy(dir, binding);
+  const path = String(binding.path);
+  const file = regularProjectFile(dir, path);
+  if (!file) return `${path} is missing`;
+  try { readFileSync(file); } catch { return `${path} is missing`; }
+  try {
+    const changes = withExternalCheckRead(() => assemblyConfigChanges(file, manifest));
+    return changes.length === 0 ? undefined : `${path} assembly config changed (${changes.join(', ')})`;
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    return `${path} is unreadable (${detail})`;
+  }
 }
 
 /**
@@ -183,14 +265,18 @@ export function currentFindings(dir: string, project: JsonObject, warnings: Find
     refusals.push(...shape);
     if (!shape.length) nodes.set(key as CurrentKind, node as JsonObject);
   }
-  // Direct staleness: a built_from path now hashes differently.
+  // Direct staleness: a built_from path now hashes differently (or, for current.parts' config, its assembly reading changed).
   const changed = new Map<CurrentKind, string>();
   for (const [kind, node] of nodes) {
+    const configPath = kind === 'parts' ? partsConfigPath(dir, node) : undefined;
+    const manifest = configPath === undefined ? undefined : partsAssemblyManifest(dir, node);
     for (const entry of asArray(node.built_from)) {
       const binding = entry as JsonObject;
-      const now = currentHash(dir, String(binding.path));
-      if (now !== binding.sha256) {
-        changed.set(kind, `${String(binding.path)} ${now === undefined ? 'is missing' : `now hashes ${now.slice(0, 12)}, recorded ${String(binding.sha256).slice(0, 12)}`}`);
+      const why = configPath !== undefined && String(binding.path) === configPath
+        ? partsConfigStaleWhy(dir, binding, manifest)
+        : hashStaleWhy(dir, binding);
+      if (why !== undefined) {
+        changed.set(kind, why);
         break;
       }
     }

@@ -81,9 +81,19 @@ of that also exists under `outputs/`.
 
 **Choice:** `.gitignore` becomes `/outputs/*` with `!/outputs/parts/` in
 place of `/outputs/` (`src/init.ts:22`). Reason: the parts tree is in the
-tracked class (§4.1). A child of an ignored directory cannot be un-ignored. The
-first `record` writer on an older project makes this one-line change and
-commits it with its own paths.
+tracked class (§4.1). A child of an ignored directory cannot be un-ignored.
+On an older project, the first `record` writer makes this change under three
+conditions (HQ ruling, Appendix B Q5):
+
+- it changes only the line `/outputs/` and nothing else in the file;
+- it commits `.gitignore` with its own paths, in the same commit;
+- it prints one line naming the change:
+  `gitignore: /outputs/ -> /outputs/* !/outputs/parts/`.
+
+If the line `/outputs/` is not found, because the file was edited by hand, the
+writer changes nothing in `.gitignore` and raises WARN `GITIGNORE_PATTERN_ABSENT`.
+It then records as usual, and `outputs/parts/` stays ignored until the pattern
+is fixed by hand.
 
 ### 1.3 How a rebuild replaces an output
 
@@ -156,7 +166,7 @@ in Pilot A and 180,108 KB in Pilot B (inventory F2b, F2c). Under this design
 | `review-live-v<N>.json`, `review-live-v<N>-g2.json` (`src/job-publication.ts:803`, `src/republish.ts:29`) | one `review-live.json`, rewritten per publication (§5.5) |
 | `evidence/v<N>/<sha256>.png` stills (`src/feedback.ts:707-709`) | `evidence/comments/<sha256>.<ext>`, content-addressed (§3.2 row 20) |
 | `evidence/draft-reuse/<sha256>.json` (`src/draft-reuse.ts:17`, `:168-195`) | not written; `--reuse` goes with drafts |
-| collection `outputs/v<N>/` (`src/pins-check.ts:267`) | `outputs/collection/` current (open question 3) |
+| collection `outputs/v<N>/` (`src/pins-check.ts:267`) | unchanged in #985; a separate card (Appendix B Q3) |
 
 Old projects keep their folders, and readers stay for them (§6).
 
@@ -236,13 +246,22 @@ becomes one `comments[]` entry:
 { "id": "…", "at": "…", "by": "…", "words": "…", "pins": [ … ],
   "saw": [{ "path": "outputs/rig/check/build/skeleton.model.json", "sha256": "…" }],
   "record": { "sha256": "<project.json bytes the publication carried>", "commit": "<project commit, or null>" },
-  "attachments": [{ "path": "evidence/comments/<sha256>.png", "sha256": "…" }] }
+  "attachments": [{ "path": "evidence/comments/<sha256>.png", "sha256": "…" }],
+  "carriers": [ … ] }
 ```
 
 - `saw` is the list of files that were on screen, as Review declares them
   (#1226: "bound by content hash to the files that were on screen").
 - `record.commit` is the commit the publication was made from (§4.2: the
-  publish writer commits first).
+  publish writer commits first). It is `null` when that commit was not made:
+  no work tree (`PROJECT_NOT_IN_GIT`) or a failed commit
+  (`PROJECT_COMMIT_FAILED`). The comment is still recorded, bound by `saw` and
+  `record.sha256`.
+- `carriers` is optional: mesh edits, chest landmarks and similar payloads that
+  travel with a comment (rig-c/review#1225 step 2). There is no verdict field.
+- The exact shape is one contract document agreed with the review tower:
+  `saw[{path, sha256}]`, record hash, commit, `comments[]`, optional
+  `carriers[]`, no verdict. Code waits on HQ's sign (Appendix B Q2).
 - A comment **pins nothing**. There is no copy, no refusal when a `saw` file
   changes, and no lapse.
 - Its status is computed when it is read:
@@ -297,7 +316,7 @@ Source column:
 | 25 | Checkpoint before/after pair | `src/checkpoint-evidence.ts:34-56` | producer-supplied pair | producer bytes as today, or **git** for a tracked "before" | rig-c/review#1225 step 2 makes it an ordinary comparison |
 | 26 | Config provenance readers over `versions[]` | `src/provenance.ts:286-290`; `src/cg-gates.ts:146`; `src/setup-painting.ts:18-29`; `src/assemble-answers.ts:43-47`; `src/figure-mask.ts:80-98` | each version's config | **current** `current.rig` (one entry); `versions[]` kept for old | Same rules, one subject |
 | 27 | Post option context | `src/choices.ts:189-198` | latest live rig version and its parts | **current** `current.rig`, `current.parts` | No "latest accepted" to find |
-| 28 | Collection pins | `src/pins-check.ts:83-135`, `:262-267` | member and collection `outputs/v<N>/` bytes | **current** member hashes plus member commit (open question 3) | Same rule as comments |
+| 28 | Collection pins | `src/pins-check.ts:83-135`, `:262-267` | member and collection `outputs/v<N>/` bytes | unchanged in #985: the reader and `--member name=version` are kept; a separate card (Appendix B Q3) | HQ ruling: collections are out of #985 |
 | 29 | Review's retained snapshot | `@rig-c/review` `job-source.ts:1273-1300` (inventory F1b row 1) | its own copy | Review side, unchanged by this card | Comments no longer depend on it |
 
 Every row in inventory F1c and every "previous" reader found in `src/` is listed
@@ -328,7 +347,9 @@ deterministic command rebuilds from tracked files.
 | Comment attachments (Review stills, chest acts) | made by a person in Review; no other copy | not separately measured (**unknown**) |
 
 Model-run intermediates move from ignored `derived/` into
-`outputs/parts/sources/`, where git tracks them.
+`outputs/parts/sources/`, where git tracks them. HQ ruled them tracked (Appendix B
+Q6). The PR that moves them records what one re-run adds to `.git`, measured
+after `git gc`.
 
 **Untracked outputs: rebuilt from tracked files by the recorded command.**
 
@@ -338,9 +359,11 @@ Model-run intermediates move from ignored `derived/` into
 | `outputs/motion/` (idle render) | Pilot A: 74,948 KB; Pilot B: 2,324 KB | **unknown** |
 | `outputs/direction/` (compose tree) | Pilot A: 109,052 KB (one post) | **unknown** |
 
-The first slice of #985 builds each of these twice from one commit and
-compares the hashes. If an output's two builds differ, it moves to the tracked
-class, and its bytes in this table are what each rebuild then adds to git.
+Nothing here is declared reproducible on this document's word (HQ ruling,
+Appendix B Q1). The first slice of #985 builds the rig, the idle render and the
+compose tree twice from one commit, on a clone, and compares the hashes.
+Anything that differs is tracked at its measured size, and that PR corrects
+this table.
 
 ### 4.2 Create commits by itself
 
@@ -378,6 +401,13 @@ How it commits:
   (`docs/PROJECT.md:36-38`).
 - A failed commit keeps the written record. It raises WARN
   `PROJECT_COMMIT_FAILED` with the exact command to run.
+- **A failed commit never blocks looking at the work.** `job open` commits the
+  publication closure first. If that commit fails, it raises WARN
+  `PROJECT_COMMIT_FAILED` and publishes anyway. If there is no work tree, it
+  raises WARN `PROJECT_NOT_IN_GIT` and publishes anyway. Either way the
+  publication carries no commit, and every comment made on it records
+  `record.commit: null` (§3.1). Reason: #980 point 2. Review is for looking,
+  and a git failure is not a reason to stop a person from looking.
 
 Commit message:
 
@@ -390,10 +420,9 @@ stale: motion, direction                               ← what this change made
 create: @rig-c/create <version>
 ```
 
-**Choice:** no persona or agent trailer from Create. It uses the configured
-git identity, or `rig-create@localhost` when there is none (`src/init.ts:25`).
-Reason: AGENTS.md invariant 8 and the rule that product artifacts carry no
-persona. Open question 4 covers agent attribution.
+Create commits with the configured git identity only, or
+`rig-create@localhost` when none is configured (`src/init.ts:25`). It adds no
+trailer and has no flag to pass one through (HQ ruling, Appendix B Q4).
 
 ### 4.3 Growth
 
@@ -428,12 +457,35 @@ otherwise.
 
 Going back is a commit:
 
-1. `git checkout <commit> -- specs outputs/parts project.json`. Any paths may
-   be named.
-2. `record` runs again on whatever is now stale.
+1. Restore the step data from an earlier commit: `specs/` and `outputs/parts/`.
+   `project.json` is **not** restored, so comments, inputs and the ledger
+   recorded since then are kept.
+2. `record <kind> --from outputs/<kind>` rebinds the restored tree in place.
+   When `--from` is the current folder, the writer swaps nothing and only
+   re-hashes it. Then `record` runs again on whatever is now stale.
 3. Create commits the result.
 
 History only grows. Nothing is renumbered, and no comment loses its meaning.
+
+**The agent never composes git by hand for this.** A read-only reader prints
+the line. **Choice:** a reader, `rig-create history [<dir>] [--json]`, not a
+writer. Reason: it only runs `git log` over the commits Create made and writes
+nothing. It lists one entry per Create commit that changed step data, newest
+first:
+
+```text
+7d40c2e1  2026-11-25T09:12:04Z  parts: add eyelid_l, eyelid_r
+  back: git -C '<dir>' checkout 7d40c2e1 -- specs outputs/parts && rig-create next '<dir>'
+```
+
+- The subject line is the commit subject from §4.2.
+- The `back:` line is the exact command. It restores the tracked step data of
+  that commit and then runs `next`.
+- `next` names `record parts --from outputs/parts`, the rebind in place, and
+  then the stale rebuilds upstream-first (§2.2).
+- `next` prints the same `back:` line when the owner's request names a step.
+  When no commit holds step data, or there is no work tree, `history` prints
+  nothing and raises WARN `PROJECT_NOT_IN_GIT`.
 
 ### 4.5 Rejected alternatives
 
@@ -480,7 +532,7 @@ records that still hold `versions[]` (§6).
 | `draft-rig <id>`, `--reuse`, `--reuse-record` | `src/cli.ts:108-111`; `src/drafts.ts:359-370` | `record parts` / `record rig`; reuse deleted |
 | `signoff … --version` | `src/signoff.ts:91`, `:203` | deleted (#981) |
 | `version config-lost <n>`, `version outputs-lost <n>` | `src/cli.ts:122`, `:124`; `src/config-lost.ts` | writers deleted; old readers kept |
-| `collection pin --member name=version` | `src/cli.ts:76`; `src/pins-check.ts:262-267` | `--member name` pins current hashes (open question 3) |
+| `collection pin --member name=version` | `src/cli.ts:76`; `src/pins-check.ts:262-267` | kept in #985; a separate card (Appendix B Q3) |
 
 ### 5.3 CHECKS.md codes
 
@@ -507,8 +559,8 @@ Line numbers are `docs/CHECKS.md` rows.
 | `RIG_DEPTH_BINDING_MISSING` and kin | 1958-1960 | kept; path `current.rig.depth` |
 | `DIRECTION_COMPOSE_INVENTORY` | 2014 | kept, against `outputs/direction/` |
 | `JOB_PUBLICATION_STALE`, `REVIEW_ACT_SOURCE_STALE`, `REVIEW_ACT_VERSION_UNVERIFIED`, `PREVIOUS_DRAFT_UNAVAILABLE` | 51, 99, 107, 69 | act-side codes follow #982; `PREVIOUS_DRAFT_UNAVAILABLE` becomes "no earlier parts commit" |
-| collection `PIN_STALE`, `OUTPUT_CHANGED` | 696, 714 | kept; bound by hash (open question 3) |
-| New: `OUTPUT_STALE` (WARN), `CURRENT_MALFORMED`, `RECORD_*`, `PROJECT_NOT_IN_GIT` (WARN), `PROJECT_COMMIT_FAILED` (WARN), `VERSION_AFTER_CURRENT` (§6) | — | rows added in #985 |
+| collection `PIN_STALE`, `OUTPUT_CHANGED` | 696, 714 | kept unchanged in #985 (Appendix B Q3) |
+| New: `OUTPUT_STALE` (WARN), `CURRENT_MALFORMED`, `RECORD_*`, `PROJECT_NOT_IN_GIT` (WARN), `PROJECT_COMMIT_FAILED` (WARN), `GITIGNORE_PATTERN_ABSENT` (WARN, §1.2), `VERSION_AFTER_CURRENT` (§6) | — | rows added in #985 |
 
 `PACKAGE_UPGRADE_*` (1921-1929) and `RELEASE_TAG_VERSION_MISMATCH` (1943) are
 about package versions, not records. They are unchanged.
@@ -571,10 +623,42 @@ A project with `versions[]` and `outputs/v<N>/` keeps opening and building.
 - **Once `current` exists,** `versions[]` is history. These findings become
   WARN, so the old folders may be deleted: `RIG_REGISTRATION_FILE_INVALID`,
   `REVIEW_PACKAGE_CHANGED`, `DIRECTION_IDLE_HASH`, `DIRECTION_COMPOSE_INVENTORY`.
-- **`CURRENT_DATA_SINCE`** is the #985 landing day at 00:00Z. A `versions[]` or
-  `drafts[]` entry dated from it refuses as `VERSION_AFTER_CURRENT`. Earlier
-  entries are untouched. Before that PR lands, `check` runs on every live pilot
-  (AGENTS.md invariant 3).
+- **`CURRENT_DATA_SINCE` and `VERSION_AFTER_CURRENT` apply only to a project
+  that already has `current`.**
+  - `CURRENT_DATA_SINCE` is the #985 landing day at 00:00Z.
+  - On a project with `current`, a `versions[]` or `drafts[]` entry dated from
+    it refuses as `VERSION_AFTER_CURRENT`. Earlier entries are untouched.
+  - A project without `current` never meets this refusal, whatever its dates.
+  - Before that PR lands, `check` runs on every live pilot (AGENTS.md
+    invariant 3).
+
+  Why a project without `current` cannot reach it:
+
+  1. **The only call site.** The check sits beside the version readers in
+     `checkProject`, after
+     `refusals.push(...rigRegistrationFindings(dir, project, warnings, collection))`
+     (`src/check.ts:1067`).
+  2. **The guard.** The function's first line is
+     `if (!isObject(project.current)) return [];`. That is the guard. Nothing
+     below it runs on a record without `current`, so no date comparison
+     happens.
+  3. **No old-process writer writes `current`.** Those writers append only to
+     `versions[]` and `drafts[]`:
+     - `rig-version`: `src/rig-version.ts:1703`;
+     - `direction write`: `src/direction-writers.ts:117`;
+     - `draft-rig`: `src/drafts.ts:499`.
+
+     Only `record <kind>` and `record <kind> --adopt` write `current` (§1.3,
+     this section).
+  4. **No call is implicit.** `next` offers `--adopt` as a move. It never runs
+     it, and no other writer calls `record`.
+  5. **A finishing run never gets the code.** The run finishing under the old
+     process stays on its pinned release (#980 "Out of scope"; rig-c/review#1226
+     "Constraints"). That release has no `record` command and no
+     `VERSION_AFTER_CURRENT` code.
+
+  A test in #985 pins this. A clone of a `versions[]`-only record, with entries
+  dated after `CURRENT_DATA_SINCE`, checks with no `VERSION_AFTER_CURRENT`.
 - A run already at its finishing stage under the old process completes as it
   is, and gets no release from this card (#980 "Out of scope").
 
@@ -601,8 +685,10 @@ These are measured duplicates and copies that this design stops writing (invento
 - parts at 1,372–3,196 KB per current set, counted once per changed file;
 - model-run layers and maps, 44,180–74,000 KB per pilot, that are ignored today.
 
-The net per pilot is **unknown** until the §4.1 determinism check decides
-whether the rig build, idle render and compose tree are tracked.
+The net per pilot is **unknown** until two numbers are measured: the §4.1
+determinism check, which settles whether the rig build, idle render and compose
+tree are tracked, and the `.git` growth after `gc` for one model re-run
+(Appendix B Q6).
 
 ---
 
@@ -624,7 +710,7 @@ reports disk before and after (#980 "Verification").
    These are the same bytes without the second copy, and the package check
    stays only for old records.
 4. **Add `current` and `record <kind>`,** with per-writer commits, the
-   `.gitignore` change and `--adopt`. Delete `rig-version`, `draft-rig`,
+   `.gitignore` change, `--adopt` and the read-only `history` reader (§4.4). Delete `rig-version`, `draft-rig`,
    numbered `direction write`, `scene write --rig`, `handoff`, `--answers`, and
    the `v<N>` path builders (`src/direction.ts:35`, `src/direction-compose.ts:15-16`,
    `src/scene.ts:18`, `src/review-package.ts:80`). Switch `next` to `record`.
@@ -696,9 +782,9 @@ a new post and its verdict (inventory C7 row 4; `src/amend.ts:178-207`;
 record (`src/restart.ts:23-32`).
 
 **Going back.** If the owner says "no blinking after all", the agent runs
-`git checkout <commit before step 1> -- specs outputs/parts`. Then it runs
-`record` on what is stale, and the result is a new commit. Nothing is deleted
-from history.
+`rig-create history` and copies the `back:` line of the commit before step 1
+(§4.4). `next` then names the rebind and the stale rebuilds, and each `record`
+commits. Nothing is deleted from history.
 
 ---
 
@@ -741,23 +827,31 @@ document disposes of the file. Package-version hits are listed as out of scope.
 | `src/plan-history.ts`, `src/plan-bar-amendments.ts` | 2, 2 | not a record version: plan step generations (`plan.replaced`); #983 |
 | `src/pins.ts`, `src/packages-upgrade.ts`, `src/package-upgrades.ts`, `src/collection.ts` | 1 each | package versions; out of scope |
 
-## Appendix B. Open questions
+## Appendix B. HQ's answers to the open questions
 
-1. **Determinism.** Whether rig compile, idle render and compose are
-   byte-reproducible is **unknown**. §8 slice 1 measures it. If one is not
-   reproducible, it moves to the tracked class, and the bytes in §4.1 become a
-   per-rebuild git cost.
-2. **Comment act shape.** `saw[]` and `record {sha256, commit}` must match the
-   rig-c/review#1226 contract, which both towers sign before code.
-3. **Collections.** Pinning a member by its current hashes and commit, instead
-   of `--member name=version`, changes the collection record. This needs HQ's
-   ruling on scope (this card or a separate one).
-4. **Attribution.** Create's own commits carry no agent trailer. If HQ wants
-   agent attribution on them, Create needs a `--trailer` pass-through from the
-   operator.
-5. **`.gitignore` rewrite.** Is it acceptable for the first `record` on an
-   older project to rewrite `/outputs/` to `/outputs/*` + `!/outputs/parts/`
-   and commit that change?
-6. **Model-run intermediates in git.** This design tracks see-through layers
-   and depth maps (44,180–74,000 KB per pilot, ignored today). Confirm that
-   cost against re-running the model on a clone.
+1. **Reproducibility.**
+   - #985 slice 1 builds the rig, idle render and compose tree twice from one
+     commit, on a clone, and compares hashes.
+   - Anything that differs is tracked at its measured size, and §4.1 is
+     corrected in that PR.
+   - Nothing is declared reproducible on this document's word.
+2. **Comment shape.**
+   - One contract document with the review tower: `saw[{path, sha256}]`, record
+     hash, commit, `comments[]`, optional `carriers[]`, no verdict.
+   - Code waits on HQ's sign.
+3. **Collections.**
+   - A separate card, out of #985.
+   - #985 leaves collections working as today: the reader and
+     `--member name=version` are kept (§1.4, §3.2 row 28, §5.2, §5.3).
+4. **Attribution.**
+   - No trailer and no pass-through.
+   - Create commits with the configured git identity only (§4.2).
+5. **`.gitignore` rewrite.**
+   - Acceptable only if it changes that one pattern, is committed with the
+     writer's own paths, and the writer prints one line naming the change.
+   - If the pattern is not found, because the file was hand-edited, the writer
+     raises WARN `GITIGNORE_PATTERN_ABSENT` and changes nothing (§1.2).
+6. **Model-run layers, depth maps and figure mask.**
+   - Tracked.
+   - The PR records what one re-run adds to `.git` after `gc`, measured (§4.1,
+     §7).

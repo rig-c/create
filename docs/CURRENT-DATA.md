@@ -204,8 +204,8 @@ Other edges the code shows:
 - Every node keeps `built_from: [{path, sha256}]` (§1.3).
 - A node is **stale** when either is true:
   - a `built_from` path is missing or now hashes differently — except the
-    `current.parts` config entry when `outputs/parts/rig/parts.json` carries
-    `assembly_config`, where Create calls `assemblyConfigChanges` from
+    `current.parts` config entry when `outputs/parts/rig/parts.json` still has
+    its recorded sha256 and carries `assembly_config`, where Create calls `assemblyConfigChanges` from
     `@rig-c/parts/assembly-reading` and marks parts stale only when the config
     is missing, unreadable, or `assemblyConfigChanges` returns changed field
     names (a legacy `parts.json` without `assembly_config` keeps the whole-file

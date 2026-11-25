@@ -536,6 +536,34 @@ test('editing an assembly-read config field (or making the config unreadable or 
   expect(missing[0]!.message).toContain(`${CONFIG} is missing`);
 });
 
+test('a parts.json replaced after record does not vouch for the config: the whole-file hash decides', () => {
+  const dir = project();
+  rewriteProducerPartsManifest(dir, manifest => {
+    delete manifest.assembly_config;
+    manifest.assembly_config = assemblyConfigReading(
+      join(dir, CONFIG),
+      manifest as unknown as Parameters<typeof assemblyConfigReading>[1],
+    ) as unknown as JsonObject;
+  });
+  expect(record(dir).exit).toBe(0);
+
+  // Edit an assembly-read field, then overwrite the recorded parts.json with a reading of the edited config (a newer assemble, not recorded).
+  const cfg = JSON.parse(readFileSync(join(dir, CONFIG), 'utf8')) as JsonObject;
+  (cfg.assemble as JsonObject).rig_scale = 0.5;
+  write(dir, CONFIG, `${JSON.stringify(cfg, null, 2)}\n`);
+  const manifestPath = 'outputs/parts/rig/parts.json';
+  const manifest = JSON.parse(readFileSync(join(dir, manifestPath), 'utf8')) as JsonObject;
+  manifest.assembly_config = assemblyConfigReading(
+    join(dir, CONFIG),
+    manifest as unknown as Parameters<typeof assemblyConfigReading>[1],
+  ) as unknown as JsonObject;
+  write(dir, manifestPath, JSON.stringify(manifest));
+
+  const stale = checkProject(dir).warnings.filter(f => f.code === 'OUTPUT_STALE' && f.path === 'current.parts');
+  expect(stale).toHaveLength(1);
+  expect(stale[0]!.message).toContain(`${CONFIG} now hashes`);
+});
+
 test('legacy parts.json without assembly_config falls back to whole-file sha256 comparison', () => {
   const dir = project();
   rewriteProducerPartsManifest(dir, manifest => {

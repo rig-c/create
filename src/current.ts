@@ -220,11 +220,15 @@ function partsConfigPath(dir: string, node: JsonObject): string | undefined {
   return nonInputs.length === 1 ? String(nonInputs[0]!.path) : undefined;
 }
 
-function partsAssemblyManifest(dir: string): AssemblyManifest | undefined {
+/** The recorded parts.json's assembly reading; undefined (whole-file hash) unless its bytes match the `files[]` entry recorded for it. */
+function partsAssemblyManifest(dir: string, node: JsonObject): AssemblyManifest | undefined {
   try {
     const file = regularProjectFile(dir, PARTS_MANIFEST);
     if (!file) return undefined;
-    const parsed = JSON.parse(readFileSync(file, 'utf8')) as Json;
+    const recorded = asArray(node.files).find((f): f is JsonObject => isObject(f) && f.path === PARTS_MANIFEST);
+    const bytes = readFileSync(file);
+    if (recorded === undefined || createHash('sha256').update(bytes).digest('hex') !== recorded.sha256) return undefined;
+    const parsed = JSON.parse(bytes.toString('utf8')) as Json;
     if (!isObject(parsed) || parsed.assembly_config === undefined) return undefined;
     return parsed as unknown as AssemblyManifest;
   } catch { return undefined; }
@@ -265,7 +269,7 @@ export function currentFindings(dir: string, project: JsonObject, warnings: Find
   const changed = new Map<CurrentKind, string>();
   for (const [kind, node] of nodes) {
     const configPath = kind === 'parts' ? partsConfigPath(dir, node) : undefined;
-    const manifest = configPath === undefined ? undefined : partsAssemblyManifest(dir);
+    const manifest = configPath === undefined ? undefined : partsAssemblyManifest(dir, node);
     for (const entry of asArray(node.built_from)) {
       const binding = entry as JsonObject;
       const why = configPath !== undefined && String(binding.path) === configPath

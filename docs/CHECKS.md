@@ -2003,8 +2003,9 @@ writes `current.parts` and renames the producer's folder, normally
 `outputs/parts.next/`, into `outputs/parts/`. It reads `run.json` (`rig-run/1`,
 command `assemble`) and `check/parts-check.json` (`rig-parts-parts-check/1`)
 from the producer folder, taking `built_from` from `--config` (matched by sha256
-against `run.config`) and `run.inputs[]` (binding `<dir>/layers.json` when a
-See-through input names `<dir>`). A malformed, stale-against-`rig/` or red
+against `run.config`) and `run.inputs[]` (resolved against `--from` first and the
+project root second, binding `<dir>/layers.json` when a project-root See-through
+input names `<dir>`). A malformed, stale-against-`rig/` or red
 `parts-check.json` refuses with the parts-check reader's own code
 (`PARTS_CHECK_INVALID`, `PARTS_CHECK_STALE`, `PARTS_CHECK_FAILED`; § Parts-stage
 check at the parts → parts-review move).
@@ -2036,7 +2037,7 @@ source exposure refuses under `RIG_CHECK_BAR_FAILED` or `RIG_CHECK_LINE_UNMET`
 | --- | --- | --- |
 | `RECORD_USAGE` | the kind is not `parts` or `rig`, `--from` or `--config` is absent, or an option is unknown or repeated | run `record parts [<dir>] --from <producer out> --config <rig config>` or `record rig [<dir>] --from <producer out> --config <rig config>` |
 | `RECORD_BUSY` | another record writer holds the project lock | let it finish and retry |
-| `RECORD_FROM_INVALID` | `--from` is outside the project, inside `outputs/<kind>/`, not a real folder, or holds a symlink or other non-regular entry | point `--from` at the producer's folder inside the project, normally `outputs/<kind>.next` |
+| `RECORD_FROM_INVALID` | `--from` is outside the project, is neither `outputs/<kind>` nor a sibling folder beside `outputs/<kind>/`, is not a real folder, or holds a symlink or other non-regular entry | point `--from` at a folder beside `outputs/<kind>/` (normally `outputs/<kind>.next`) or `outputs/<kind>` itself |
 | `RECORD_CONFIG_MISMATCH` | `--config` is outside the project, inside the output, not a regular file, or its sha256 differs from the config the `rig-run/1` record or the `rig-run/2` build record names | pass the config the parts or rig output was built from, kept under `specs/rig/` |
 | `RECORD_RUN_INVALID` | a run record is missing or malformed, has the wrong spec or command, lacks `inputs` for `assemble`, mixes conflicting run records or producer versions, or one of its outputs is missing from the folder or differs from its sha256 | re-run the producer into the folder and record again |
 | `RECORD_INPUT_CHANGED` | a producer run input (`rig-run/1` `assemble` `inputs[]`, or `rigc-run/1` or `rigc-run/2` `inputs[]`) is missing, resolves outside the project, or now differs from the sha256 the producer read (inside the folder, a mixed tree across runs) (including when `rig` was rerun without rebuilding Core, or `assemble` was run outside the project root) | run `rig-parts assemble` from the project root or rebuild with `rigc` and `rig-parts check` into the folder, then record again |

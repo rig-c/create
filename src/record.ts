@@ -25,15 +25,15 @@ import type { JsonObject } from './templates.ts';
 export const RECORD_HELP = `record:
   rig-create record parts [<dir>] --from <producer out> --config <rig config> [--by <who>] [--json]
                  record the producer's parts output as current.parts and rename it into outputs/parts/ (the old tree is
-                 deleted after). <producer out> is a folder inside the project, normally outputs/parts.next, holding the
-                 parts assemble output with run.json (rig-run/1) and check/parts-check.json (rig-parts-parts-check/1).
-                 --config must be the config the run names by sha256. --by defaults to agent.
+                 deleted after). <producer out> must be a folder beside outputs/parts/ (normally outputs/parts.next) or
+                 outputs/parts itself, holding the parts assemble output with run.json (rig-run/1) and check/parts-check.json
+                 (rig-parts-parts-check/1). --config must be the config the run names by sha256. --by defaults to agent.
   rig-create record rig [<dir>] --from <producer out> --config <rig config> [--by <who>] [--json]
                  record the producer's rig output as current.rig and rename it into outputs/rig/ (the old tree is deleted
-                 after). <producer out> is a folder inside the project, normally outputs/rig.next, holding the parts rig
-                 output with run.json (rig-run/1) or build-run.json (rig-run/2), check/check.json (rig-parts-check/1),
-                 check/build/ with its run.json (rigc-run/1), and optional check/check-run.json (rig-run/2) and render-run.json
-                 (rigc-run/2). --config must be the config the run names by sha256. --by defaults to agent.`;
+                 after). <producer out> must be a folder beside outputs/rig/ (normally outputs/rig.next) or outputs/rig itself,
+                 holding the parts rig output with run.json (rig-run/1) or build-run.json (rig-run/2), check/check.json
+                 (rig-parts-check/1), check/build/ with its run.json (rigc-run/1), and optional check/check-run.json (rig-run/2)
+                 and render-run.json (rigc-run/2). --config must be the config the run names by sha256. --by defaults to agent.`;
 
 type RecordableKind = 'parts' | 'rig';
 
@@ -137,41 +137,64 @@ function recordPartsInputs(
   run: JsonObject,
   builtFrom: { path: string; sha256: string }[],
 ): void {
-  const checkInput = (resolved: string, expectedSha256: string, where: string): void => {
-    if (!resolved || resolved === '.' || resolved.startsWith('..') || posix.isAbsolute(resolved)) {
-      refuse('RECORD_INPUT_CHANGED', `${where}: resolves outside the project; run rig-parts assemble from the project root on inputs inside the project and record again`);
+  const insideProject = (path: string): boolean =>
+    Boolean(path) && path !== '.' && !path.startsWith('..') && !posix.isAbsolute(path)
+    && path.split('/').every(part => part !== '' && part !== '.' && part !== '..');
+
+  const matchesHash = (candidate: string, expectedSha256: string): boolean => {
+    if (!insideProject(candidate)) return false;
+    try { return sha256(readFileSync(literalFile(dir, candidate))) === expectedSha256; }
+    catch { return false; }
+  };
+
+  const policyRefusal = (candidate: string, where: string): { code: string; message: string } | undefined => {
+    if (candidate === from || candidate.startsWith(`${from}/`) || candidate === root || candidate.startsWith(`${root}/`)) {
+      return { code: 'RECORD_BUILT_FROM_INVALID', message: `${where}: ${candidate} lies inside the parts output; keep assemble inputs outside ${root}/ and record again` };
     }
-    if (resolved === from || resolved.startsWith(`${from}/`) || resolved === root || resolved.startsWith(`${root}/`)) {
-      refuse('RECORD_BUILT_FROM_INVALID', `${where}: ${resolved} lies inside the parts output; keep assemble inputs outside ${root}/ and record again`);
+    if (!builtFromNameAllowed(candidate)) {
+      return { code: 'RECORD_BUILT_FROM_INVALID', message: `${where}: a run record is provenance and never a built_from input; name the product file assemble read` };
     }
-    if (!builtFromNameAllowed(resolved)) {
-      refuse('RECORD_BUILT_FROM_INVALID', `${where}: a run record is provenance and never a built_from input; name the product file assemble read`);
-    }
-    let bytes: Buffer | undefined;
-    try { bytes = readFileSync(literalFile(dir, resolved)); } catch { bytes = undefined; }
-    if (bytes === undefined || sha256(bytes) !== expectedSha256) {
-      refuse('RECORD_INPUT_CHANGED', `${where}: ${resolved} is missing or now differs from the sha256 assemble read; run rig-parts assemble from the project root and record again`);
-    }
-    if (!builtFrom.some(entry => entry.path === resolved)) builtFrom.push({ path: resolved, sha256: expectedSha256 });
+    return undefined;
   };
 
   for (const input of run.inputs as JsonObject[]) {
-    const rawPath = posix.normalize(String(input.path));
-    const where = `${from}/${RUN_RECORD_NAME} input ${String(input.role)} ${String(input.path)}`;
-    if (!rawPath || rawPath.startsWith('..') || posix.isAbsolute(rawPath)) {
-      refuse('RECORD_INPUT_CHANGED', `${where}: resolves outside the project; run rig-parts assemble from the project root on inputs inside the project and record again`);
+    const rawInput = String(input.path);
+    const expectedSha256 = String(input.sha256);
+    const where = `${from}/${RUN_RECORD_NAME} input ${String(input.role)} ${rawInput}`;
+    // New convention (parts#1555): path is relative to --out and already names <dir>/layers.json for a See-through directory.
+    const fromCandidate = posix.normalize(posix.join(from, rawInput));
+    // Old convention (Parts <= 2.56.0): path is relative to cwd, naming <dir> with the sha256 of <dir>/layers.json.
+    const rawRoot = posix.normalize(rawInput);
+    let rootIsDir = false;
+    if (rawRoot === '.') rootIsDir = true;
+    else if (insideProject(rawRoot)) {
+      try { rootIsDir = realpathSync(join(dir, rawRoot)) === join(realpathSync(dir), rawRoot) && lstatSync(join(dir, rawRoot)).isDirectory(); }
+      catch { rootIsDir = false; }
     }
-    let isDir = false;
-    if (rawPath === '.') isDir = true;
-    else {
-      try { isDir = realpathSync(join(dir, rawPath)) === join(realpathSync(dir), rawPath) && lstatSync(join(dir, rawPath)).isDirectory(); }
-      catch { isDir = false; }
+    const rootCandidate = (input.role === 'full' || input.role === 'head') && rootIsDir
+      ? (rawRoot === '.' ? 'layers.json' : `${rawRoot}/layers.json`)
+      : rawRoot;
+
+    const candidates = fromCandidate === rootCandidate ? [fromCandidate] : [fromCandidate, rootCandidate];
+    let bound = false;
+    let rejected: { code: string; message: string } | undefined;
+    for (const candidate of candidates) {
+      if (!matchesHash(candidate, expectedSha256)) continue;
+      const problem = policyRefusal(candidate, where);
+      if (!problem) {
+        if (!builtFrom.some(entry => entry.path === candidate)) builtFrom.push({ path: candidate, sha256: expectedSha256 });
+        bound = true;
+        break;
+      }
+      rejected ??= problem;
     }
-    // rig-parts assemble records a See-through directory as path: <dir> with the sha256 of <dir>/layers.json (parts src/runstamp.ts).
-    const resolved = (input.role === 'full' || input.role === 'head') && isDir
-      ? (rawPath === '.' ? 'layers.json' : `${rawPath}/layers.json`)
-      : rawPath;
-    checkInput(resolved, String(input.sha256), where);
+    if (!bound) {
+      if (rejected) refuse(rejected.code, rejected.message);
+      refuse(
+        'RECORD_INPUT_CHANGED',
+        `${where}: neither ${fromCandidate} (from ${from}) nor ${rootCandidate} (from project root) matches the sha256 assemble read; run rig-parts assemble from the project root on inputs inside the project and record again`,
+      );
+    }
   }
 }
 
@@ -199,7 +222,7 @@ export function recordCommand(args: string[], now: number): CommandResult {
   const root = outputRoot(kind);
   const from = projectPath(dir, options['--from']!, '--from', 'RECORD_FROM_INVALID', kind);
   const config = projectPath(dir, options['--config']!, '--config', 'RECORD_CONFIG_MISMATCH', kind);
-  if (from !== root && (from.startsWith(`${root}/`) || root.startsWith(`${from}/`))) {
+  if (posix.dirname(from) !== posix.dirname(root)) {
     refuse('RECORD_FROM_INVALID', `record ${kind} --from ${from}: name a folder beside ${root}/, normally ${root}.next, or ${root} itself`);
   }
   if (config === from || config.startsWith(`${from}/`) || config.startsWith(`${root}/`)) {

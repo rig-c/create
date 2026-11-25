@@ -140,7 +140,7 @@ export function selectSignoffTarget(dir: string, project: JsonObject, stage: str
     const onTarget = (f: Finding): boolean => f.path === targetPath || f.path.startsWith(`${targetPath}.`);
     const refusals = ctx.refusals.filter(onTarget);
     const mask = refusals.find(f => f.code.startsWith('FIGURE_MASK_')
-      || ['REVIEW_PACKAGE_PART_FILE_MISMATCH', 'RIG_VERSION_AT_INVALID'].includes(f.code));
+      || f.code === 'RIG_VERSION_AT_INVALID');
     if (mask) refuse(mask.code, mask.message);
     if (refusals.length || ctx.warnings.some(w => onTarget(w) && w.code === 'REVIEW_PACKAGE_MISSING')) fail('review package is missing or differs from its recorded binding');
   }

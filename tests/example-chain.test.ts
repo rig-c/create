@@ -8,7 +8,6 @@ import { collectItems } from '../src/check.ts';
 import { nextProject } from '../src/next.ts';
 import { optionContext, sha256 } from '../src/choices.ts';
 import { stepHash } from '../src/step-hash.ts';
-import { STAGE_PROGRESS_SINCE } from '../src/stage-progress.ts';
 import { checkProject, interviewAnswerCommand, interviewOptionsCommand, signoffCommand, testClock } from './clock.ts';
 import { clockedCli, ownerChatArgs } from './helpers.ts';
 
@@ -224,9 +223,10 @@ test('the finished chain binds its own approved parts, package model and signed 
   }
 });
 
+// #981: packaged parts are no longer compared with the parts approval; the package integrity guard still binds them.
 test.each([
-  ['out/parts.json', 'REVIEW_PACKAGE_PARTS_MISMATCH'],
-  ['out/parts/torso.png', 'REVIEW_PACKAGE_PART_FILE_MISMATCH'],
+  ['out/parts.json', 'REVIEW_PACKAGE_CHANGED'],
+  ['out/parts/torso.png', 'REVIEW_PACKAGE_CHANGED'],
 ])('the chain actually exercises the identity guard for %s', (path, code) => {
   const candidate = readProject();
   const pkg = (candidate.versions as JsonObject[])[0]!.review_package as JsonObject;
@@ -474,9 +474,9 @@ test.each(['0a-interview-options', '0b-plan-pending', '1-parts-verdict', '2-rigg
       expect(result.exitCode).toBe(0);
     }
     const report = checkProject(dir);
-    const current = testClock.now() >= Date.parse(STAGE_PROGRESS_SINCE);
-    expect(report.refusals.map(f => f.code)).toEqual(current ? ['STAGE_LAGGING'] : []);
-    expect(report.warnings.map(f => f.code)).toEqual(current ? [] : ['STAGE_LAGGING']);
+    // #981: a stage that lags its signoffs is no longer a finding; the pending advance is the agent's next move.
+    expect(report.refusals.map(f => f.code)).toEqual([]);
+    expect(report.warnings.map(f => f.code)).toEqual([]);
   } finally { rmSync(dir, { recursive: true }); }
 }, 30_000);
 

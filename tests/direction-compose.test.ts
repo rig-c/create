@@ -615,7 +615,7 @@ test('direction@3 retains a bounced post citation when the owner re-answers comp
   const answer = JSON.parse(interviewAnswerCommand(['post_composition', dir, '--set', setPath, '--sha256', directionHash(bytes),
     '--by', 'user', '--pick', 'post_composition=keep'])) as JsonObject;
   expect(answer.verbatim).not.toBe(priorAnswer.verbatim);
-  expect(checkProject(dir).refusals.map(finding => finding.code)).toEqual(['SIGNOFF_ANSWERS_STALE', 'GUIDE_CHANGED_UNSIGNED']);
+  expect(checkProject(dir).refusals.map(finding => finding.code)).toEqual(['SIGNOFF_ANSWERS_STALE']);
   expect(directionCommand(['check', '5', dir]).exit).toBe(0);
   expect(() => assertDirectionApproval(dir, load(), 'direction-review', 5)).toThrow(expect.objectContaining({ code: 'DIRECTION_COMPOSE_CITATION' }));
 

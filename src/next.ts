@@ -45,16 +45,14 @@ import { checkCollection, collectionDirOf } from './pins-check.ts';
 import { carriedRefusals, findingKey, newFindings } from './refusal-baseline.ts';
 import { Refusal, refuse, USAGE_EXIT } from './refusal.ts';
 import { reopenLapseWarnings } from './reopen-lapses.ts';
-import { collectReopens, directionReviewClosed, liveSignoff, type Reopen } from './reopen.ts';
+import { collectReopens, liveSignoff, type Reopen } from './reopen.ts';
 import { acceptedReviewVerdict, humanReviewVerdicts, latestAccepted, readVersions } from './review.ts';
 import { SIGNOFF_TARGET_KINDS } from './review-act.ts';
 import { bustLandmarkCommands } from './review-bust.ts';
 import {
-  advanceOrder,
   directionReviewPostState,
   furthestStageSignoff,
   isSignoffIdentity,
-  moveOwner,
   nextStepStatus,
   signoffIdentity,
   stepStatusFollows,
@@ -754,9 +752,8 @@ function candidateAdvance(
   const history: Finding[] = [];
   const reopens = collectReopens(clone, history);
   const latest = furthestStageSignoff(
-    collectSignoffs(clone, history).filter(s => liveSignoff(reopens, s.stage, s.at)),
+    collectSignoffs(clone, history).filter(s => liveSignoff(reopens, s.stage, s.at) && Number.isFinite(s.at)),
   );
-  if (latest === undefined || !Number.isFinite(latest.at)) return null;
   const preParts =
     !hasStageOrder(clone) &&
     stageIndex(String(clone.stage)) > stageIndex('parts-review') &&
@@ -771,22 +768,13 @@ function candidateAdvance(
     post_not_passed: postNotPassed({ items: collectItems(clone, { collection: loadCollection(dir) }) }),
     order: preParts ? 'pre-parts' : hasStageOrder(clone) ? 'split' : 'legacy',
     signoffs_before: asArray(clone.signoffs).filter(isObject).map(signoffIdentity).filter(isSignoffIdentity),
-    signoff: signoffIdentity(latest.record),
+    signoff: latest === undefined ? null : signoffIdentity(latest.record),
     steps_before: steps.map(s => ({
       id: s.id ?? null,
       phase: s.phase ?? null,
       ...(s.status === undefined ? {} : { status: s.status }),
     })),
   };
-  const order = advanceOrder(entry.order);
-  const owner = moveOwner(order, entry.from_stage);
-  if (
-    history.length === 0 &&
-    owner !== undefined &&
-    order.findIndex(s => s.id === latest.stage) < order.findIndex(s => s.id === owner)
-  ) {
-    return null;
-  }
   if (clone.advances !== undefined && !Array.isArray(clone.advances)) return null;
   const checkPath = `advances[${asArray(clone.advances).length}].parts_check`;
   if (isPartsCheckMove(entry)) {
@@ -882,6 +870,14 @@ function nextStageInOrder(project: JsonObject, currentStage: string): string | n
   if (idx < 0 || idx + 1 >= order.length) return null;
   const candidate = order[idx + 1]!;
   return candidate === PAUSED_STAGE ? null : candidate;
+}
+
+/** The current stage is at or before the furthest live stage-level signoff in the project's order. */
+function stageSignedThrough(project: JsonObject, stage: string): boolean {
+  const reopens = collectReopens(project, []);
+  const latest = furthestStageSignoff(collectSignoffs(project, []).filter(s => liveSignoff(reopens, s.stage, s.at)));
+  const order: readonly string[] = hasStageOrder(project) ? STAGE_VALUES : LEGACY_STAGE_VALUES;
+  return latest !== undefined && order.includes(stage) && order.indexOf(stage) <= order.indexOf(latest.stage);
 }
 
 function resolveLaggingAdvance(
@@ -1475,11 +1471,10 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
         act: 'Record the parts change using the owner’s exact words.' }] };
   }
 
-  const laggingAdvance = report.refusals.some(r => r.code === 'STAGE_LAGGING')
+  // A signed current stage is not refused (#981); next still offers the move to the stage after it.
+  const laggingAdvance = stageSignedThrough(project, stage)
     ? resolveLaggingAdvance(dir, project, stage, now)
     : null;
-  const isResolvableLagging = (finding: Finding): boolean =>
-    finding.code === 'STAGE_LAGGING' && (laggingAdvance !== null || (stage === 'post' && !directionReviewPostState(dir, project, now).ready));
 
   const depthFinding = effectiveStage === 'rigging-interview'
     ? [...report.refusals, ...report.warnings].find(finding => finding.code === 'RIG_DEPTH_PLAN_MISSING') : undefined;
@@ -1491,7 +1486,7 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
   const scopedStale = new Set(staleSteps.filter(({ step }) => !phaseApproval || stepCoveredByApproval(project, step, effectiveStage))
     .map(({ finding }) => finding));
   const blockingRefusals = report.refusals.filter(r => r.code === 'PLAN_STEP_PREDATES_ANSWER' ? scopedStale.has(r)
-    : !isOpenInterviewTodo(r, effectiveStage) && !isResolvableLagging(r));
+    : !isOpenInterviewTodo(r, effectiveStage));
   const registrations = plateInputMoves(dir, project, allItems, now);
   if (blockingHoles.length > 0 || blockingRefusals.length > 0) {
     const signoffs = asArray(project.signoffs);
@@ -1669,15 +1664,6 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
             moves.push(...questions);
             continue;
           }
-        }
-        // Earlier acceptance still closes authoring after a bounce.
-        if (directionReviewClosed(project)) {
-          const target = 'amendments[target.stage=direction-review]';
-          addAwait(target);
-          moves.push({ role: 'human', field: 'amendments', awaits: target,
-            command: `rig-create amend direction-review ${shellWord(dir)} --kind '<kind>' --target '<artifact id>' --change '<project-relative file>' --by '<human>' --verbatim-file '<words file>'`,
-            act: 'record the human amendment and its changed artifact before writing the replacement post' });
-          continue;
         }
         const missingApprovals = missingDirectionStepApprovals(project, allItems);
         if (missingApprovals.length > 0) {

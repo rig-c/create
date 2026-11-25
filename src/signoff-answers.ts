@@ -16,12 +16,9 @@ export function staleSignoffAnswer(finding: Finding): { index: number; id: strin
   return match ? { index: Number(match[1]), id: match[2]! } : undefined;
 }
 
-/** The two findings a guide change can introduce on its answer and dependent steps. */
-export function guideSignoffMatcher(steps: readonly JsonObject[], ids: ReadonlySet<string>): (finding: Finding) => boolean {
-  const affected = new Set(steps.filter(step => asArray(step.rests_on).some(id => typeof id === 'string' && ids.has(id)))
-    .map(step => `plan.steps[${String(step.id)}]`));
-  return finding => finding.code === 'GUIDE_CHANGED_UNSIGNED' ? affected.has(finding.path)
-    : ids.has(staleSignoffAnswer(finding)?.id ?? '');
+/** The finding a guide change can introduce on the signoffs that hashed its answer. */
+export function guideSignoffMatcher(ids: ReadonlySet<string>): (finding: Finding) => boolean {
+  return finding => ids.has(staleSignoffAnswer(finding)?.id ?? '');
 }
 
 function retained(value: Json, interview: boolean): Json {

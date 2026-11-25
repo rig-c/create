@@ -60,19 +60,15 @@ folder answers.
 `rig-review` → `post-interview` → `post` → `direction-review` → `accepted`,
 plus `paused`.
 
-**A stage moves only on a human `signoffs[]` entry**: the stage it closes, who,
-when, and the words used. A plan checkpoint is signed the same way, with
-`checkpoint` naming the plan step. An agent may draft, propose, build and
-measure in any stage; it may not move `stage` forward or pass a checkpoint by
-itself. Reason: the stages exist to put a person's eyes before each piece of
-work that is expensive to redo; an agent that could advance them would be
-grading its own work.
+**No approval gates a write, build or publish (#981).** `advance` moves
+`stage` to any stage of the order without a sign-off, and any step may run in
+any stage. When the agent wants a go-ahead it asks in chat. Older records keep
+their `signoffs[]` and still open, check and build; the table's last column
+describes how the old process closed each stage.
 
 A project is *in* a stage while that stage's work happens; the sign-off named
-in the last column ends it and moves the project to the next. The order and
-which stages end on a sign-off are written once, in `src/stages.ts`;
-`rig-create interview --check` refuses a stage moved past a missing sign-off
-([CHECKS.md](CHECKS.md)).
+in the last column used to end it. The order is written once, in
+`src/stages.ts`; dependency, not stage, decides what is rebuilt.
 
 | Stage | User step | What happens | Ends with |
 | --- | --- | --- | --- |
@@ -81,7 +77,7 @@ which stages end on a sign-off are written once, in `src/stages.ts`;
 | `parts` | 1 | The rig steps that make the parts run: `seethrough` and `assemble`. At a step whose checkpoint is on, work stops until `{ "stage": "parts", "checkpoint": "<step id>" }` is signed (the split, [below](#split-approval-is-a-plan-checkpoint)). Only a labelled draft may contain proposed bones/weights for mesh/chest inspection; production rigging remains forbidden. | Every step it runs is `done`, `assemble`'s bar including the parts check passing on the assembled parts. |
 | `parts-review` | 1 | **The parts are reviewed before any production rig is built** ([below](#the-parts-are-reviewed-before-rigging)): the user looks at the assembled parts in rig-review's parts view. Changes-requested is corrected here at `parts-review`, with a new draft and fresh agent evidence; it does not send the project back to `parts`. | `{ "stage": "parts-review" }`, signed by a person, carrying the approved parts verdict as `evidence`. |
 | `rigging-interview` | 2 | Ask bones, meshes, constraints and motion while viewing the approved parts and structure; draft their rigging plan. | The human signs `rigging-interview`, binding accepted parts and structure. |
-| `rigging` | 3 | The remaining rig steps run in order (`bones`, `meshes`, `constraints`, `motion`); each config section cites its guide (`versions[].provenance`). At a step whose checkpoint is on, work stops until `{ "stage": "rigging", "checkpoint": "<step id>" }` is signed. It does not start without the `parts-review` sign-off (`PARTS_REVIEW_UNSIGNED`), nor on a verdict that is missing, not approved or no longer the parts on disk (`PARTS_VERDICT_*`). | The last rig step's bar is met. |
+| `rigging` | 3 | The remaining rig steps run in order (`bones`, `meshes`, `constraints`, `motion`); each config section cites its guide (`versions[].provenance`). At a step whose checkpoint is on, work stops until `{ "stage": "rigging", "checkpoint": "<step id>" }` is signed. | The last rig step's bar is met. |
 | `rig-review` | 1 → 3 | **First review, on a still frame**: the rig alone, fixed camera, no post-production — seams, cuts, physics and motion played in place. Feedback is recorded verbatim with `on_items`; a bounce makes a new rig version. | The user accepts one rig version: an `accepted` verdict with `review: "rig-review"` on it, resting on its still frame, and `{ "stage": "rig-review" }` signed ([below](#the-rig-review-rests-on-a-still-frame)). |
 | `post-interview` | 2 | The post items (camera and 2.5D, timing, composition) are asked, and the post steps (`phase: "post"`) drafted from them. | The user signs `{ "stage": "post-interview" }` — guides and post steps together. |
 | `post` | 2 | Post-production on the accepted rig version (`versions[].kind: "post"`, `rig_version` naming it); post tooling asks `rig-create handoff` first ([below](#the-hand-off-to-post-production)). | The last post step's bar is met. |
@@ -106,9 +102,7 @@ multiplicity, so a carried code at a new path is new, and the refusal names only
 the new code. `signoff`, `step-status`, `pause`, `resume`, `amend`,
 `draft-rig` and `review` follow this rule; the interview, plan, scene, direction, correction,
 `rig-version`, `version config-lost` and `version outputs-lost` writers already did. Each writer's own
-pre-checks are unchanged (`signoff` still refuses a carried lag, and a carried
-`GUIDE_CHANGED_UNSIGNED` on a step it covers), and `check` still reports every
-carried refusal.
+pre-checks are unchanged, and `check` still reports every carried refusal.
 `advance` still needs 0 refusals: it is the stage boundary. A check that stops
 early (an unreadable record, `SCHEMA_UNKNOWN`, `STAGE_UNKNOWN`) read nothing
 after that point, so it gives no baseline to any writer above: each one refuses
@@ -158,7 +152,7 @@ parts → parts-review move).
 steps_before, signoff, signoffs_before, order, post_not_passed, parts_check? }`,
 with `parts_check { path, sha256, spec, parts, exit_code, holes, reported }` on
 a `parts` → `parts-review` move, copied from the report and bound by its sha256. The clock supplies `at`,
-and `signoff` is the stable `{ stage, checkpoint, at }` identity of the human approval the move rests on.
+and `signoff` is the stable `{ stage, checkpoint, at }` identity of the live stage-level signature at the move, or `null` when there is none; it authorizes nothing.
 Entries written before advance stopped taking words also carry the mover's `by` and UTF-8 `verbatim`;
 they stay valid when both are strings and `by` is not `agent`.
 `steps_before` retains each step id, required phase and original status so a historical bar exit still requires completed work after replanning.
@@ -174,29 +168,17 @@ the furthest closing stage supplies the frontier, using its latest signature
 by time and then array position. Reopen and amendment rules still invalidate
 approvals. An earlier re-signature leaves the later live stage target unchanged.
 
-From `STAGE_PROGRESS_SINCE`, stage must match the latest stage-changing advance or reopen (or the initial stage without either). A mismatch is dated by the later of that move and the latest live signature at the furthest stage before the current one, so a hand move made before the contract stays a WARN after later sign-offs. An advance retains the stable signature that authorized it at that time, so later same-stage re-signatures preserve that move.
+No stage order is enforced (#981): an advance may name any stage of the
+recorded order, and no signature is required.
 
-The checker pins both lag and skip from `STAGE_PROGRESS_SINCE`, dated by the
-authorizing stage-level signature. Earlier readable dates WARN with the same codes. An unreadable frontier
-date refuses with `STAGE_SIGNOFF_DATE_INVALID`. New advance writes enforce
-lag and skip independently of signature age. Signoff retains its existing conditional, scoped candidate checks.
-Its additional progress guard rejects a pre-existing refusal-level lag and
-new candidate progress refusals. It permits only the lag introduced by its own
-new frontier signature, awaiting the separate advance writer. Legacy WARN lag
-remains permitted at signoff. A target can move only one ordered stage at a
-time, including a permitted bar exit or the declared no-post route.
-
-`step-status` runs in the step's execution stage and records one transition
+`step-status` runs in any stage and records one transition
 through `pending` (also the absent status), `in-progress`, `at-checkpoint`,
 then `done`. A step whose checkpoint is off goes from `in-progress` straight
 to `done`; `at-checkpoint` stays allowed for it, and a checkpointed step keeps
-the hop. On an amended project the execution stage may also be the check's
-`effective_stage` (Forward amendments), so the reset steps can be redone while
-the stored stage is retained. On a legacy-order project whose plan was approved before
-`PARTS_REVIEW_SINCE`, rig steps also run in `rigging`. That route grants no
-authority of its own: the writer's candidate check still refuses a started
-step without a live covering stage-level approval (`STEP_RUN_UNAPPROVED`), and
-a `plan-approved` checkpoint signature is refused (`SIGNOFF_UNKNOWN_CHECKPOINT`). Each step's `status_history[]` retains
+the hop. A `done` step may return to `in-progress` to run again, with no
+amendment. No checkpoint signature is required for `done`; a live checkpoint
+signoff, when one exists, is recorded as `signoff`, otherwise `signoff` is null.
+Each step's `status_history[]` retains
 `{ from_status, status, by, at, checkpoint_required, signoff }`.
 `--note-file <path>` optionally retains verbatim UTF-8 text as `note` and its byte
 sha256 as `note_sha256`. The readable file must contain 1–1,000 bytes and no
@@ -246,19 +228,11 @@ checkpoint, at }` identity of the paused sign-off, and `{ from_stage:
 "paused", stage, by, at, verbatim, source? }` for a resume. The clock
 supplies `at`. The history is kept apart from `advances[]` and `reopens[]`,
 so their linkage (`STAGE_MOVE_UNLINKED`) and the rule that `stage` equals the
-latest recorded move read the same records as before: after a resume the
-latest advance or reopen still names the stage, and a hand move to any other
-stage is still `STAGE_SKIPPED`. The check validates the shape of each entry
+latest recorded move read the same records as before. The check validates the shape of each entry
 (`PAUSE_MALFORMED`). Both writers run the complete `checkProject` candidate
 validation before writing and replace `project.json` in one rename; refused
 writes leave it byte-identical.
 
-When the current live signature authorizing progress closes the paused-from
-stage itself, `resume` can return to that stage even though its advance is
-pending. This works whether the stage was signed before or during the pause.
-`resume` records the pause exit, and the check reports `STAGE_LAGGING` until
-the next normal `advance` succeeds. A lag authorized by a later stage or any
-other new refusal still blocks resume.
 
 ### Reopening a passed stage
 
@@ -371,22 +345,8 @@ The writer leaves `project.stage` in place, sets plan steps running at or after
 the amended stage to `pending` (for `interview-answer`, only those resting on
 the answer), and retains all previous approvals and versions.
 The check's `effective_stage` is the first unfinished stage while re-approval
-is pending, bounded by the stored stage. While it differs from the stored
-stage, the check still refuses a stage that differs from its latest recorded
-move (`STAGE_SKIPPED`, same dating), but skips the signature window
-(`STAGE_LAGGING` and the window's `STAGE_SKIPPED`). The stored stage stays
-while its approvals lapse, so the window would refuse every amended record,
-the amend writer's own candidate included. Judging the window against
-`effective_stage` instead fails too: that stage passes unfinished bars before
-the amended stage, which the window stops at. Re-sign the lapsed approvals and meet
-the affected steps' bars in order. `step-status` runs a reset step when its
-execution stage is the stored stage or the `effective_stage`, which it reads from
-the same complete check, so the bars are met in order without moving `stage`.
-`effective_stage` comes from the recorded signatures and step statuses; it is not
-stored, because each re-signature or finished bar moves it. Once every lapsed
-approval is re-signed and every bar is met, `effective_stage` equals the stored
-stage again and the signature window applies as before; no `advance` is needed
-when the stored stage was already reached. Existing upstream approvals need no re-sign.
+is pending, bounded by the stored stage. No stage window is checked and
+`step-status` runs a reset step in any stage (#981).
 A rig covered by the cutoff needs a new build and acceptance before handoff.
 The writer runs the same complete candidate check before writing. Any refusal
 leaves `project.json` byte-identical. After an accepted post is bounced,
@@ -497,15 +457,13 @@ assembled parts before `rigging` starts.
 - **`parts` ends on its bar**: the parts check's gates pass on the assembled
   parts, recorded as `assemble`'s bar met (`status: "done"`). Coverage under
   occluders joins this bar from rig-c/parts#998 once it ships; until then the
-  bar is the parts check as it is. A project past `parts` with one of its steps
-  not `done` is refused (`PARTS_BAR_UNMET`). The move to `parts-review` binds
+  bar is the parts check as it is. The move to `parts-review` binds
   the passing `rig-parts check-parts` report for the assembled parts
   (`advances[].parts_check`, § Recording forward progress); its HOLE lines
   reach the person at `parts-review` and are recorded on the move.
 - **`parts-review` ends on a human sign-off**, `{ "stage": "parts-review",
-  "checkpoint": null }`, given in rig-review's parts view. Without it the stage
-  does not move to `rigging`, and no `rigging` step runs
-  (`PARTS_REVIEW_UNSIGNED`). An agent's entry does not count.
+  "checkpoint": null }`, given in rig-review's parts view. Rigging does not
+  wait for it (#981). An agent's entry does not count.
 - **The sign-off carries the verdict it rests on**: `"evidence": { "kind":
   "parts-verdict", "path": "<retained evidence>", "sha256": "<its sha256>" }`.
   Current signatures bind the immutable response retained by `parts-review`,
@@ -695,7 +653,7 @@ rig-create handoff [<project dir>] [--rig <n>] [--json]
 Post-production tooling runs this before it runs. It exits `0` and prints the
 one rig version post work may run on — the latest accepted rig version, with
 its acceptance and its still frame — and exits `1` with a named refusal when
-there is none: no `rig-review` sign-off (`RIG_REVIEW_UNSIGNED`), no accepted
+there is none (no `rig-review` sign-off is required): no accepted
 rig version or a newer rig version not yet reviewed (`RIG_VERSION_UNACCEPTED`),
 an acceptance with no still frame (`RIG_ACCEPTED_WITHOUT_STILL`). With
 `--rig <n>` it also refuses when `<n>` is not that version
@@ -1640,9 +1598,8 @@ and the live parts/structure context. Stage movement remains a separate human
 act, as for existing forward sign-offs. The filled legacy example is frozen in
 `templates/legacy-example-project.json`. Read under the current 2.16.0 pin it warns with that order warning plus
 `QUESTION_SET_STALE`, because its frozen question set remains at 2.14.1, and it is refused by the build-identity gate
-(`REVIEW_PACKAGE_CONFIG_MISMATCH` and `REVIEW_PACKAGE_PARTS_MISMATCH` on v1 and v2, plus
-`REVIEW_PACKAGE_PART_FILE_MISMATCH` for each of three approved part images missing per version), because its versions, dated after
-`BUILD_IDENTITY_SINCE`, claim configs and parts their review packages do not carry. Its rig-review and direction-review signatures also postdate `SIGNOFF_TARGET_SINCE` and lack targets, so each refuses `SIGNOFF_TARGET_MISSING`. Its interview, two plan-approved and post-interview signatures also lack answer bindings and each refuses `SIGNOFF_ANSWERS_MISSING`. Its bytes stay frozen.
+(`REVIEW_PACKAGE_CONFIG_MISMATCH` on v1 and v2), because its versions, dated after
+`BUILD_IDENTITY_SINCE`, claim configs their review packages do not carry. Its rig-review and direction-review signatures also postdate `SIGNOFF_TARGET_SINCE` and lack targets, so each refuses `SIGNOFF_TARGET_MISSING`. Its interview, two plan-approved and post-interview signatures also lack answer bindings and each refuses `SIGNOFF_ANSWERS_MISSING`. Its bytes stay frozen.
 The new `example-project.json` is a synthetic new-order narrative at 0/0.
 
 Framing and source (`seethrough`, `assemble`) are the first interview. A
@@ -2585,10 +2542,7 @@ Signatures before `PARTS_VERDICT_RECEIPT_SINCE` retain their legacy file
 bindings and WARN with `PARTS_VERDICT_FILE_LEGACY`. Check never opens their
 review-saved files. New signatures require a recorded API receipt.
 
-The downstream review-package identity gate uses the selected draft's manifest
-and image bindings. Opaque CLI source paths cannot suppress this comparison.
-A mismatched accepted image retains `REVIEW_PACKAGE_PART_FILE_MISMATCH`.
-Historical saved-file approvals WARN and skip this unavailable comparison.
+The review package is not compared with the approved parts (#981).
 
 Historical response checks keep the existing `DRAFT_RIG_UNAVAILABLE` warning
 when ignored draft artifacts cannot be read. The retained API response remains

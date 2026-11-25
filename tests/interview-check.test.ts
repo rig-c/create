@@ -221,12 +221,6 @@ describe('a plan step that rests on no answer', () => {
     expect(withCode(report, 'STEP_NOT_A_WAYPOINT').map((f) => f.path)).toEqual(['plan.steps[skeleton]']);
   });
 
-  test('a changed guide with no re-sign covering the step is refused', () => {
-    // The example's bones guide gained an addition on 11-12; the plan-approved re-sign on 11-12 covers bones and constraints. Remove it.
-    const report = checkProject(fixture((p) => { dropSignoffs(p, (s) => !(s.stage === 'plan-approved' && Array.isArray(s.steps))); }));
-    expect(withCode(report, 'GUIDE_CHANGED_UNSIGNED').map((f) => f.path).sort()).toEqual(['plan.steps[bones]', 'plan.steps[constraints]']);
-  });
-
   test('a checkpoint left null under a signed plan is refused', () => {
     const report = checkProject(fixture((p) => { step(p, 'meshes').checkpoint = null; }));
     expect(withCode(report, 'CHECKPOINT_UNANSWERED').map((f) => f.path)).toEqual(['plan.steps[meshes].checkpoint']);
@@ -234,27 +228,9 @@ describe('a plan step that rests on no answer', () => {
 });
 
 describe('a stage moved without a human sign-off', () => {
-  test('a missing stage sign-off is refused and names the stage', () => {
-    const report = checkProject(fixture((p) => { dropSignoffs(p, (s) => s.stage !== 'rig-review'); }));
-    const found = withCode(report, 'STAGE_UNSIGNED');
-    expect(found).toHaveLength(1);
-    expect(found[0]?.message).toContain('"stage": "rig-review"');
-  });
-
-  test('a step done with its checkpoint on and no checkpoint sign-off is refused by step id', () => {
-    const report = checkProject(fixture((p) => { dropSignoffs(p, (s) => !(s.stage === 'parts' && s.checkpoint === 'assemble')); }));
-    expect(withCode(report, 'CHECKPOINT_UNSIGNED').map((f) => f.path)).toEqual(['plan.steps[assemble]']);
-  });
-
   test('a sign-off by the agent is not a sign-off', () => {
     const report = checkProject(fixture((p) => { const s = signoffs(p); const first = obj(s[0]); first.by = 'agent'; }));
     expect(codes(report)).toContain('SIGNOFF_NOT_HUMAN');
-    expect(codes(report)).toContain('STAGE_UNSIGNED');
-  });
-
-  test('a sign-off for a stage later than the current one is refused', () => {
-    const report = checkProject(fixture((p) => { p.stage = 'interview'; }));
-    expect(withCode(report, 'SIGNOFF_AHEAD_OF_STAGE').length).toBeGreaterThan(0);
   });
 
   test('a checkpoint sign-off naming no step is refused', () => {
@@ -455,29 +431,9 @@ describe('review fixes: an agent decision is real and dated', () => {
     expect(withCode(report, 'DELEGATION_UNDECIDED').length).toBe(1);
     expect(withCode(report, 'DELEGATION_UNDECIDED')[0]?.path).toEndWith('.checkpoint');
   });
-
-  test('a decision rewritten after the sign-off sends its steps back', () => {
-    const report = checkProject(
-      fixture((p) => {
-        const decision = obj(obj(waypoint(p, 'assemble').guide).agent_decision);
-        decision.at = '2030-01-01T00:00:00Z';
-      }),
-    );
-    expect(withCode(report, 'GUIDE_CHANGED_UNSIGNED').length).toBeGreaterThan(0);
-  });
 });
 
 describe('pilot sign-off and step status gaps', () => {
-  test('a plan approval before its draft is refused by sign-off path', () => {
-    const report = checkProject(fixture((p) => {
-      dropSignoffs(p, (s) => !(s.stage === 'plan-approved' && Array.isArray(s.steps)));
-      signoffs(p).find((s) => s.stage === 'plan-approved')!.at = new Date(Date.parse(String(obj(p.plan).drafted_at)) - 1000).toISOString();
-    }));
-    const found = withCode(report, 'SIGNOFF_BEFORE_PLAN');
-    expect(found.map((f) => f.path)).toEqual(['signoffs[1]']);
-    expect(found[0]?.message).toContain('plan.drafted_at');
-  });
-
   test('a redraft signed again preserves the earlier approval as history', () => {
     const report = checkProject(fixture((p) => {
       const latest = signoffs(p).filter(s => s.stage === 'plan-approved').at(-1)!;
@@ -487,24 +443,8 @@ describe('pilot sign-off and step status gaps', () => {
     expect(report.ok).toBe(true);
   });
 
-  test('an unsigned redraft names the latest historical approval', () => {
-    const report = checkProject(fixture((p) => {
-      obj(p.plan).drafted_at = '2026-11-12T11:00:00Z';
-    }));
-    expect(withCode(report, 'SIGNOFF_BEFORE_PLAN').map((f) => f.path)).toEqual(['signoffs[5]']);
-  });
-
   test('an interview signature may predate the plan draft', () => {
     expect(withCode(checkProject(fixture()), 'SIGNOFF_BEFORE_PLAN')).toEqual([]);
-  });
-
-  test('a known running status before approval names pending as the remedy', () => {
-    const report = checkProject(fixture((p) => {
-      dropSignoffs(p, (s) => s.stage !== 'plan-approved');
-      step(p, 'bones').status = 'in-progress';
-    }));
-    const found = withCode(report, 'STEP_RUN_UNAPPROVED').find((f) => f.path === 'plan.steps[bones]');
-    expect(found?.message).toContain('pending');
   });
 
   test('planned is an unknown status even under a signed plan', () => {

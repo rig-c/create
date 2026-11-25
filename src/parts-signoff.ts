@@ -2,14 +2,12 @@
 import { createHash } from 'node:crypto';
 import { readFileSync, realpathSync } from './check-reads.ts';
 import { isAbsolute, relative, resolve, sep } from 'node:path';
-import { asArray, checkProject, collectSignoffs, isObject, type CheckReport, type Finding } from './check.ts';
+import { asArray, checkProject, isObject, type CheckReport, type Finding } from './check.ts';
 import { isPartsCheckMove, partsCheckFindings } from './parts-check.ts';
 import { checkDiffMap } from './diff-map.ts';
 import { latestPartsVerdictFinding, recordedPartsVerdict, type RecordedPartsVerdict } from './parts-verdict-record.ts';
 import { baselineOf, newFindings } from './refusal-baseline.ts';
 import { refuse } from './refusal.ts';
-import { collectReopens, liveSignoff } from './reopen.ts';
-import { furthestStageSignoff } from './stage-progress.ts';
 import { PARTS_REVIEW, hasStageOrder } from './stages.ts';
 import { checkStructure, structurePathIsIgnored } from './structure.ts';
 import { assertCorrectionApproval } from './correction-writers.ts';
@@ -57,9 +55,6 @@ export function bindPartsSignoff(dir: string, project: JsonObject, signoff: Json
 /** Same candidate gate for all signatures, including the folded parts signature. */
 export function assertSignoffCandidate(dir: string, asRead: CheckReport, project: JsonObject, signoff: JsonObject, covered: JsonObject[], now: number): readonly Finding[] {
   const signoffs = project.signoffs as JsonObject[];
-  const reopens = collectReopens(project, []);
-  const frontier = furthestStageSignoff(collectSignoffs(project, []).filter(s => liveSignoff(reopens, s.stage, s.at)));
-  const ownLag = signoff.checkpoint === null && frontier?.index === signoffs.length - 1;
   const candidateRefusals = checkProject(dir, project, { now, readOnly: true }).refusals;
   // This signature approves the depth plan itself: carrying its refusal is not an approval waiver.
   if (signoff.stage === 'rigging-interview' && signoff.checkpoint === null) {
@@ -72,16 +67,12 @@ export function assertSignoffCandidate(dir: string, asRead: CheckReport, project
   if (stale) refuse(stale.code, stale.message);
   // Refusals the record already carried do not block the signature (docs/PROJECT.md); a new one does.
   const fresh = new Set(newFindings(baselineOf(asRead), candidateRefusals));
-  const pendingOwnAdvance = (finding: Finding): boolean => ownLag && finding.code === 'STAGE_LAGGING';
-  const progress = candidateRefusals.find(f => ['STAGE_LAGGING', 'STAGE_SKIPPED', 'STAGE_SIGNOFF_DATE_INVALID', 'ADVANCE_MALFORMED', 'STEP_STATUS_TRANSITION', 'STEP_STATUS_SIGNOFF'].includes(f.code) && !pendingOwnAdvance(f) && fresh.has(f));
+  const progress = candidateRefusals.find(f => ['ADVANCE_MALFORMED', 'STEP_STATUS_TRANSITION', 'STEP_STATUS_SIGNOFF'].includes(f.code) && fresh.has(f));
   if (progress !== undefined) refuse(progress.code, progress.message);
   if (hasStageOrder(project) || signoff.structure !== undefined || project.amendments !== undefined) {
     const path = `signoffs[${signoffs.length - 1}]`;
     const first = candidateRefusals.find(f => {
-      if (pendingOwnAdvance(f)) return false;
       if (f.code.startsWith('SIGNOFF_ANSWERS_')) return f.path.startsWith(`${path}.`);
-      // A covered step this signature leaves unapproved is its own failure, even when the record carried it.
-      if (f.code === 'GUIDE_CHANGED_UNSIGNED') return covered.some(step => f.path === `plan.steps[${String(step.id)}]`);
       return fresh.has(f);
     });
     if (first !== undefined) refuse(first.code, first.message);
@@ -104,8 +95,6 @@ export function foldPartsSignoff(dir: string, before: JsonObject, candidate: Jso
   const later = asArray(before.advances).filter(isObject).some(move => move.stage === PARTS_REVIEW && Date.parse(String(move.at)) > Date.parse(act.at))
     || isObject(before.diff_map) && Date.parse(String(before.diff_map.at)) > Date.parse(act.at);
   if (later) refuse('REVIEW_ACT_SOURCE_STALE', 'project.json.advances/diff_map: parts verdict predates its evidence or advance; publish the ready parts-review record and ask again');
-  const lag = asRead.refusals.find(f => f.code === 'STAGE_LAGGING');
-  if (lag) refuse(lag.code, lag.message);
   if (!Array.isArray(candidate.signoffs)) refuse('SIGNOFF_MALFORMED', 'project.json.signoffs: expected a list; restore recorded signatures before ingesting the verdict');
   const structure = partsStructureSnapshot(dir, candidate, act.source.selector.id);
   if (!structure.valid) refuse('STRUCTURE_DECISIONS_MISSING', `project.json.signoffs.structure: retain the reviewed draft snapshot with structure-snapshot --draft ${act.source.selector.id} --out ${structure.path} before publishing and asking for approval`);

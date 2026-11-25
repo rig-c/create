@@ -6,7 +6,8 @@ import { stageIndex } from '../src/stages.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { checkProject, versionCommand } from './clock.ts';
 import { Refusal } from '../src/refusal.ts';
-import { STAGE_PROGRESS_SINCE } from '../src/stage-progress.ts';
+/** The retired stage-order contract date (#981), kept as a fixture clock anchor. */
+const STAGE_PROGRESS_SINCE = '2026-11-08T00:00:00Z';
 import { arr, bindFixtureAnswers, codes, fixture, framing, obj, retainSignoffs, retimeFixture, version, type Mutate } from './fixtures.ts';
 import { cli, gitEnv } from './helpers.ts';
 

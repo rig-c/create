@@ -162,7 +162,6 @@ test('rig model unavailable or mismatched is not regenerated',()=>{const f=setup
 test('stale rig refuses current post but historical reading remains possible',()=>{const f=setup();write(f.dir);const p=f.load();const rig=structuredClone(objects(p.versions)[0]!);rig.n=3;p.versions=[...objects(p.versions),rig];f.save(p);expect(checked(f.dir)).toEqual(['DIRECTION_RIG_STALE']);expect(readDirection(f.dir,p,2,false).schema).toBe('rig-create/direction@1');});
 test('handoff bootstraps direction without demanding a future document',()=>{const f=setup();expect(handoff(f.dir,1).rig_version).toBe(1);});
 test('review-package keeps post refusal instead of creating a rig package',()=>{const f=setup();write(f.dir);refuses('REVIEW_PACKAGE_VERSION_INVALID',()=>reviewPackageCommand(['2',f.dir,'--config','evidence/input.json','--from','evidence']));});
-test('live direction review blocks the direction writer',()=>{const f=setup();const p=f.load();(p.signoffs as JsonObject[]).push({stage:'direction-review',checkpoint:null,by:'user',at:new Date(testClock.now()).toISOString(),verbatim:'accept'});f.save(p);refuses('DIRECTION_REVIEW_CLOSED',()=>write(f.dir));});
 test('live approval must still bind current step hashes',()=>{const f=setup();const p=f.load();objects((p.plan as JsonObject).steps)[0]!.does='changed';f.save(p);refuses('DIRECTION_CITATION',()=>write(f.dir));});
 test('pending described correction warns and blocks both approval paths',()=>{const f=setup();write(f.dir);recordDescribed(f);const p=f.load();const ctx={dir:f.dir,project:p,refusals:[] as Finding[],warnings:[] as Finding[]};checkCorrections(ctx);expect(ctx.refusals).toEqual([]);expect(ctx.warnings.map(w=>w.code)).toEqual(['CORRECTION_OPEN']);refuses('CORRECTION_PENDING',()=>signoffCommand(['direction-review',f.dir,'--by','user','--verbatim-file',join(f.dir,'words.txt')]));refuses('CORRECTION_PENDING',()=>recordVerdict(f.dir,{version:2,review:'direction-review',verdict:'accepted',by:'user',verbatim:'accept',source:'synthetic',items:[],quotes:{},values:{}}));});
 test('removed direction patch flags refuse byte-identically and point to direction write --answers',()=>{
@@ -268,7 +267,6 @@ test('N/A fixed camera publishes through direction write and checkProject; two k
   expect(replaced.replaced).toEqual([...objects(plan.replaced), expect.objectContaining({ step, action: 'removed' })]);
   testClock.set(TEST_NOW + 24 * 60 * 60_000);
   signoffCommand(['post-interview',dir,'--by','user','--verbatim-file',join(dir,'words.txt')]);
-  expect(checkProject(dir).refusals.map(f=>f.code)).toContain('STAGE_LAGGING');
   advanceCommand(['post',dir]);
   testClock.set(TEST_NOW + 48 * 60 * 60_000);directionCommand(['--adopt',dir]);
   const p=JSON.parse(readFileSync(join(dir,'project.json'),'utf8')) as JsonObject;
@@ -314,14 +312,10 @@ test('legacy rig direction acceptances remain byte-identical while a later rig a
   expect(objects(f.load().versions).slice(0,3)).toEqual([legacy,laterLegacy,rig]);
 });
 
-test('post direction acceptance closes authoring byte-identically until reopened',()=>{
+test('#981 an accepted post direction takes a new direction version without a reopen',()=>{
   const f=setup();write(f.dir);const p=f.load();p.stage='direction-review';
   objects(p.versions).find(v=>v.n===2)!.verdicts=[{review:'direction-review',verdict:'accepted',by:'user',at:'2026-11-04T09:01:00Z',verbatim:'Accept the synthetic post'}];f.save(p);
-  const before=readFileSync(join(f.dir,'project.json'));
-  refuses('DIRECTION_REVIEW_CLOSED',()=>write(f.dir,3));
-  expect(readFileSync(join(f.dir,'project.json'))).toEqual(before);
-  expect(existsSync(join(f.dir,'evidence/direction/v3.json'))).toBe(false);
-  testClock.set(new Date('2026-11-04T09:02:00Z'));
-  plantLegacyReopen(f.dir, 'direction-review', { by: 'user', wordsFile: join(f.dir,'words.txt') });
   expect(write(f.dir,3).exit).toBe(0);
+  expect(existsSync(join(f.dir,'evidence/direction/v3.json'))).toBe(true);
+  expect(f.load().reopens).toBeUndefined();
 });

@@ -125,7 +125,7 @@ test('#562 reordered depth plan publishes and fully ingests while retaining arra
   const act = await actFor(root);
   expect(ingest(root, act).exit).toBe(0);
   expect(arr(read(root).signoffs).map(obj).at(-1)).toMatchObject({ stage: 'rigging-interview', by: 'user' });
-  expect(checkProject(root, undefined, { now }).refusals.map(finding => finding.code)).toEqual(['STAGE_LAGGING']);
+  expect(checkProject(root, undefined, { now }).refusals.map(finding => finding.code)).toEqual([]);
 });
 
 test('#562 ingest refuses a carried depth finding even when publication was bypassed', async () => {
@@ -136,10 +136,3 @@ test('#562 ingest refuses a carried depth finding even when publication was bypa
   refusesUnchanged(root, 'RIG_DEPTH_PLAN_MISSING', () => ingest(root, act));
 });
 
-test('#562 general plan publication uses the ingest candidate gate for a newly introduced refusal', () => {
-  const root = setup(2.5); const project = read(root);
-  obj(project.plan).rigging_drafted_at = new Date(now + 1000).toISOString(); save(root, project);
-  expect(checkProject(root, undefined, { now }).refusals).toEqual([]);
-  refusesUnchanged(root, 'JOB_RECORD_INCOMPLETE', () => publication(root));
-  try { publication(root); } catch (error) { expect((error as Refusal).message).toContain('SIGNOFF_BEFORE_PLAN'); }
-});

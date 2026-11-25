@@ -108,13 +108,16 @@ test('the refusal delta counts duplicate findings at the same code and path', ()
   unchanged(dir, 'STEP_BASIS_UNKNOWN', () => write(dir, 'revise', 'camera', ['--rests-on', 'unknown,other-unknown']));
 });
 
-test.each(['revise', 'remove'])('live signed %s refuses, including legacy approvals without hashes', action => {
+test('#981 a live signed revise records, including legacy approvals without hashes; removal meets the structural waypoint rule', () => {
   testClock.set('2026-11-20T00:00:00Z');
   const dir = fixture(project => {
     step(project, 'bones').status = 'pending';
     for (const signature of arr(project.signoffs)) delete obj(signature).step_hashes;
   });
-  unchanged(dir, 'PLAN_STEP_SIGNED', () => write(dir, action, 'bones', action === 'revise' ? ['--bar', 'Revised bar.'] : []));
+  write(dir, 'revise', 'bones', ['--bar', 'Revised bar.']);
+  expect(obj(arr(obj(read(dir).plan).replaced).at(-1)).action).toBe('revised');
+  testClock.set('2026-11-20T00:00:01Z');
+  unchanged(dir, 'STEP_MISSING_FOR_WAYPOINT', () => write(dir, 'remove', 'bones'));
 });
 
 test('the exact reopen cutoff releases a pending signed step and retained hashes still resolve', () => {
@@ -137,41 +140,11 @@ function isHashFor(value: Json, id: string): boolean {
   return isObject(value) && isObject(value.step_hashes) && typeof value.step_hashes[id] === 'string';
 }
 
-test('reopening a later stage leaves the earlier plan binding live', () => {
-  testClock.set('2026-11-20T00:00:00Z');
-  const dir = fixture(project => { step(project, 'bones').status = 'pending'; });
-  reopen(dir, 'post-interview');
-  unchanged(dir, 'PLAN_STEP_SIGNED', () => write(dir, 'revise', 'bones', ['--bar', 'Changed.']));
-});
-
-test('subset approvals protect only the covered step', () => {
-  const dir = draft();
-  write(dir, 'add', 'bones', fields.map(value => value === 'post' ? 'rig' : value));
-  write(dir, 'add', 'meshes', fields.map(value => value === 'post' ? 'rig' : value));
-  const project = read(dir);
-  project.signoffs = [{ stage: 'plan-approved', checkpoint: null, at: '2026-11-20T00:00:00Z', by: 'user', verbatim: 'Approve bones only.', steps: ['bones'], step_hashes: { bones: stepHash(step(project, 'bones')) } }];
-  save(dir, project);
-  unchanged(dir, 'PLAN_STEP_SIGNED', () => write(dir, 'remove', 'bones'));
-  write(dir, 'revise', 'meshes', ['--bar', 'Only the unsigned subset changes.']);
-});
-
-test('a currently done unsigned step cannot be revised and removal retains its status', () => {
+test('#981 a currently done step can be revised and the history retains its status', () => {
   const dir = draft(); write(dir, 'add', 'camera', fields);
   const project = read(dir); step(project, 'camera').status = 'done'; save(dir, project);
-  unchanged(dir, 'PLAN_STEP_DONE', () => write(dir, 'revise', 'camera', ['--bar', 'Changed.']));
-  write(dir, 'remove');
+  write(dir, 'revise', 'camera', ['--bar', 'Changed.']);
   expect(obj(obj(arr(obj(read(dir).plan).replaced)[0]).step).status).toBe('done');
-});
-
-test('the existing global drafted_at check still refuses a newly introduced stale parts approval', () => {
-  testClock.set('2026-11-20T00:00:00Z');
-  const dir = fixture(project => { step(project, 'camera').status = 'pending'; });
-  reopen(dir, 'post-interview');
-  const before = readFileSync(join(dir, 'project.json'));
-  const candidate = read(dir);
-  obj(candidate.plan).drafted_at = '2026-11-20T00:00:00.000Z';
-  expect(checkProject(dir, candidate).refusals.map(f => f.code)).toContain('SIGNOFF_BEFORE_PLAN');
-  expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
 });
 
 test.each(['legacy-example-project.json', 'example-project.json'])('post re-plan after post-interview reopen preserves both plan dates in %s', template => {
@@ -248,19 +221,17 @@ test.each([
   expect(after.post_drafted_at).toBeUndefined();
 });
 
-test('done work cannot be revised after reopen, can be removed with checkpoint history, and needs a new id', () => {
+test('#981 done work can be removed with checkpoint history and added again under its id', () => {
   testClock.set('2026-11-20T00:00:00Z');
   const dir = fixture();
   reopen(dir);
-  unchanged(dir, 'PLAN_STEP_DONE', () => write(dir, 'revise', 'camera', ['--bar', 'Changed.']));
   const before = read(dir);
   write(dir, 'remove', 'camera');
   const next = read(dir);
   expect(obj(arr(obj(next.plan).replaced)[0]).step).toEqual(step(before, 'camera'));
   expect(codes(dir)).toEqual([]);
-  unchanged(dir, 'PLAN_STEP_DONE', () => write(dir, 'add', 'camera', fields));
-  write(dir, 'add', 'camera-next', fields);
-  expect(step(read(dir), 'camera-next').status).toBe('pending');
+  write(dir, 'add', 'camera', fields);
+  expect(step(read(dir), 'camera').status).toBe('pending');
 });
 
 function rigReplacement(): { dir: string; original: JsonObject; removedStep: JsonObject; priorHistory: Json[]; flags: string[] } {
@@ -304,13 +275,12 @@ test('a removed done rig step accepts its waypoint id after a later plan-approve
   expect(codes(dir)).toEqual([]);
 });
 
-test('#674 an amendment authorizes same-id replacement of a completed step and retains its signed history', () => {
+test('#674 a completed step is replaced under the same id after an amendment and retains its signed history', () => {
   testClock.set(EXAMPLE_NOW);
   const dir = fixture(() => {}, 'example-project.json');
   const before = read(dir);
   const original = step(before, 'seethrough');
   expect(original.status).toBe('done');
-  unchanged(dir, 'PLAN_STEP_SIGNED', () => write(dir, 'remove', 'seethrough'));
 
   writeFileSync(join(dir, 'changed-input.svg'), '<svg xmlns="http://www.w3.org/2000/svg"/>\n');
   const quote = join(dir, 'amend.txt');
@@ -332,22 +302,6 @@ test('#674 an amendment authorizes same-id replacement of a completed step and r
   expect(archived.sha256).toBe(stepHash(original));
   expect(obj(arr(obj(archived.step).status_history).at(-1)).status).toBe('done');
   expect(codes(dir)).toEqual([]);
-});
-
-test.each(['absent', 'earlier', 'equal', 'later-stage', 'rig-review', 'post-interview', 'malformed', 'future'])('done rig replacement refuses %s reopen byte-identically', mode => {
-  const { dir, original, flags } = rigReplacement();
-  const project = read(dir);
-  const completion = obj(arr(original.status_history).find(event => obj(event).status === 'done')!).at as string;
-  const entry = obj(arr(project.reopens)[0]);
-  if (mode === 'absent') project.reopens = [];
-  if (mode === 'earlier') entry.at = new Date(Date.parse(completion) - 1).toISOString();
-  if (mode === 'equal') entry.at = completion;
-  if (mode === 'later-stage') entry.stage = 'parts';
-  if (mode === 'rig-review' || mode === 'post-interview') entry.stage = mode;
-  if (mode === 'malformed') entry.by = 'agent';
-  if (mode === 'future') entry.at = new Date(EXAMPLE_NOW + 86_400_000).toISOString();
-  save(dir, project);
-  unchanged(dir, 'PLAN_STEP_DONE', () => write(dir, 'add', 'seethrough', flags));
 });
 
 function postReplacement(stage = 'rig-review'): { dir: string; original: JsonObject; removedStep: JsonObject; priorHistory: Json[]; flags: string[] } {
@@ -433,36 +387,6 @@ test('after a cycle and rig-review reopen, replacing camera lets post-interview 
   expect(obj(obj(arr(obj(f.load().plan).replaced)[0]).step).does).toBe('Author direction');
 });
 
-test.each(['absent', 'earlier', 'equal', 'post', 'direction-review', 'malformed-amendment', 'malformed', 'future', 'wrong-phase'])('done post replacement refuses %s reopen byte-identically', mode => {
-  const { dir, original, flags } = postReplacement();
-  const project = read(dir);
-  const completion = obj(arr(original.status_history).find(event => obj(event).status === 'done')!).at as string;
-  const entry = obj(arr(project.reopens)[0]);
-  if (mode === 'absent') project.reopens = [];
-  if (mode === 'earlier') entry.at = new Date(Date.parse(completion) - 1).toISOString();
-  if (mode === 'equal') entry.at = completion;
-  if (mode === 'post' || mode === 'direction-review') entry.stage = mode;
-  if (mode === 'malformed-amendment') {
-    project.reopens = [];
-    project.amendments = [{ by: 'user', at: '2026-11-20T00:00:00.000Z', reason: 'Amend.', target: { stage: 'rig-review' } }];
-  }
-  if (mode === 'malformed') entry.by = 'agent';
-  if (mode === 'future') entry.at = new Date(EXAMPLE_NOW + 86_400_000).toISOString();
-  save(dir, project);
-  const addFlags = mode === 'wrong-phase' ? flags.map(value => value === 'post' ? 'rig' : value) : flags;
-  unchanged(dir, 'PLAN_STEP_DONE', () => write(dir, 'add', 'camera', addFlags));
-});
-
-test('a live plan hash cannot resolve only to removed history', () => {
-  testClock.set('2026-11-20T00:00:00Z');
-  const dir = fixture();
-  const project = read(dir);
-  obj(project.plan).replaced = [{ ...retained(step(project, 'camera')), action: 'removed' }];
-  obj(project.plan).steps = arr(obj(project.plan).steps).filter(value => obj(value).id !== 'camera');
-  save(dir, project);
-  expect(codes(dir)).toContain('PLAN_REPLACED_SIGNOFF');
-});
-
 test('replacement hash resolution preserves latest-covering approval and reopen equality', () => {
   const dir = draft(); write(dir, 'add', 'camera', fields);
   const project = read(dir);
@@ -474,9 +398,14 @@ test('replacement hash resolution preserves latest-covering approval and reopen 
   let findings: import('../src/check.ts').Finding[] = [];
   checkReplacedSignoffs(project, [entry], findings);
   expect(findings).toEqual([]);
-  project.signoffs = [signature];
+  project.signoffs = [{ ...signature, step_hashes: { camera: '0'.repeat(64) } }];
   checkReplacedSignoffs(project, [entry], findings);
   expect(findings.map(f => f.code)).toEqual(['PLAN_REPLACED_SIGNOFF']);
+  // #981: a live signature resolves to its retained definition; no amendment is needed to replan.
+  project.signoffs = [signature];
+  findings = [];
+  checkReplacedSignoffs(project, [entry], findings);
+  expect(findings).toEqual([]);
   project.reopens = [{ stage: 'post-interview', from_stage: 'post', at: signature.at, by: 'user', verbatim: 'Reopen.', steps_before: [],
     source: 'owner chat, relayed', said_at: signature.at, relayed_by: 'synthetic-relay' }];
   findings = [];

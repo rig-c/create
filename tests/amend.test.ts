@@ -76,7 +76,7 @@ describe('forward human amendments', () => {
     for (const approval of [...summary.lapsed, ...summary.upstream]) expect(printed).toContain(approval.path);
     expect(printed).toContain('keep-by-binding (0)');
     expect(printed).toContain('no binding proves independence (G7)');
-    refusal(() => handoff(dir, null), 'RIG_REVIEW_UNSIGNED');
+    refusal(() => handoff(dir, null), 'RIG_VERSION_UNACCEPTED');
   });
 
   test.each(STAGES.filter(s => s.id !== 'accepted').flatMap(s => ['legacy-example-project.json', 'example-project.json'].map(template => [s.id, template] as const))
@@ -195,7 +195,7 @@ describe('forward human amendments', () => {
     expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
     const p = read(dir);
     expect(readVersions(p).rigs.every(v => !v.live)).toBe(true);
-    refusal(() => handoff(dir, null), 'RIG_REVIEW_UNSIGNED');
+    refusal(() => handoff(dir, null), 'RIG_VERSION_UNACCEPTED');
     step(p, 'assemble').rests_on = [];
     save(dir, p);
     const invalid = readFileSync(join(dir, 'project.json'));

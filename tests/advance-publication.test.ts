@@ -202,7 +202,7 @@ test('advance rig-review on a bound job publishes the current rig and folds the 
   expect(pendingPublications(root)).toEqual([]);
 }, 30_000);
 
-test('advance direction-review on a bound job publishes the current post, asks only the verdict, ingests it, and leaves acceptance blocked', async () => {
+test('advance direction-review on a bound job publishes the current post, asks only the verdict, ingests it, and moves to accepted without a sign-off (#981)', async () => {
   const root = copy('example-chain', project => {
     project.stage = 'post';
     project.advances = (project.advances as JsonObject[]).filter(entry => entry.stage !== 'direction-review' && entry.stage !== 'accepted');
@@ -226,12 +226,9 @@ test('advance direction-review on a bound job publishes the current post, asks o
 
   const reviewed = await cli(root, ['review', '2', root, '--from-review', String(verdict.actId), '--json']);
   expect({ exit: reviewed.exit, stderr: reviewed.stderr }).toEqual({ exit: 0, stderr: '' });
-  const frozen = readFileSync(join(root, 'project.json'));
   const toAccepted = await cli(root, ['advance', 'accepted', root, '--json']);
-  expect(toAccepted.exit).toBe(1);
-  expect(toAccepted.stderr).toContain('ADVANCE_UNAUTHORIZED:');
-  expect(readFileSync(join(root, 'project.json'))).toEqual(frozen);
-  expect(read(root).stage).toBe('direction-review');
+  expect({ exit: toAccepted.exit, stderr: toAccepted.stderr }).toEqual({ exit: 0, stderr: '' });
+  expect(read(root).stage).toBe('accepted');
   expect((read(root).signoffs as JsonObject[]).some(signature => signature.stage === 'direction-review')).toBe(false);
   const report = checkProject(root, undefined, { now: Date.now() });
   expect(report.refusals).toEqual([]);

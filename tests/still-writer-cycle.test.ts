@@ -130,12 +130,10 @@ test('writer-only draft, parts approval, new producer build and displayed-still 
     expect(boundary.warnings.map(({ code, path }) => ({ code, path }))).toEqual([
       { code: 'RIG_CHECK_REPORT_MISSING', path: 'versions[v1].registration.check_report' },
     ]);
-    // src/stage-progress.ts:42-58: signing authorizes the next stage, so the
-    // only transient refusal before advance is STAGE_LAGGING. src/check.ts:550:
+    // #981: a stage behind its signoffs is no finding. src/check.ts:550:
     // arrival opens step 4's questions; it does not answer that next interview.
     command(['signoff', 'rig-review', dir, '--version', '1', '--by', 'user', '--verbatim-file', join(dir, 'approval.txt')], reviewAt + 1000);
-    expect(checkAt(reviewAt + 1000, 1).refusals.map(({ code, path }) => ({ code, path })))
-      .toEqual([{ code: 'STAGE_LAGGING', path: 'stage' }]);
+    expect(checkAt(reviewAt + 1000, 0).refusals).toEqual([]);
     command(['advance', 'post-interview', dir], reviewAt + 2000);
     expect(checkAt(reviewAt + 2000, 1).refusals.map(({ code, path }) => ({ code, path }))).toEqual([
       { code: 'INTERVIEW_INCOMPLETE', path: 'interview.post.items[camera_depth].guide' },

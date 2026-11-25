@@ -106,52 +106,19 @@ describe('plan-approved → parts → parts-review → rigging', () => {
         for (const s of arr(p.signoffs).map(obj)) if (s.stage === 'parts') s.stage = 'rigging';
       }),
     );
-    expect(codes(report).sort()).toEqual(['CHECKPOINT_UNSIGNED', 'SIGNOFF_UNKNOWN_CHECKPOINT']);
-    expect(withCode(report, 'CHECKPOINT_UNSIGNED')[0]?.message).toContain('{ "stage": "parts", "checkpoint": "assemble" }');
+    expect(codes(report)).toEqual(['SIGNOFF_UNKNOWN_CHECKPOINT']);
   });
 
-  test('neither closure: rigging with the parts steps not done and no parts-review sign-off is refused for both', () => {
-    const report = checkProject(
-      fixture((p) => {
-        atRiggingStart(p);
-        dropSignoffs(p, (s) => s.stage !== 'parts-review' && s.stage !== 'parts');
-        step(p, 'seethrough').status = 'pending';
-        step(p, 'assemble').status = 'in-progress';
-      }),
-    );
-    expect(codes(report).sort()).toEqual(['PARTS_BAR_UNMET', 'PARTS_BAR_UNMET', 'PARTS_REVIEW_UNSIGNED', 'STAGE_SKIPPED', 'STAGE_SKIPPED']);
-    expect(withCode(report, 'PARTS_BAR_UNMET').map((f) => f.path)).toEqual(['plan.steps[seethrough]', 'plan.steps[assemble]']);
-  });
-
-  test('parts met, no sign-off: refused by name, with the remedy', () => {
-    const report = checkProject(fixture((p) => { atRiggingStart(p); dropSignoffs(p, (s) => s.stage !== 'parts-review'); }));
-    expect(codes(report)).toEqual(['PARTS_REVIEW_UNSIGNED', 'STAGE_SKIPPED', 'STAGE_SKIPPED']);
-    const message = withCode(report, 'PARTS_REVIEW_UNSIGNED')[0]?.message ?? '';
-    expect(message).toContain('{ "stage": "parts-review", "checkpoint": null }');
-    expect(message).toContain("rig-review's parts view");
-  });
-
-  test('an agent-made parts-review sign-off is not one: refused as not human, and rigging is refused', () => {
+  test('an agent-made parts-review sign-off is not one: refused as not human', () => {
     const report = checkProject(
       fixture((p) => {
         atRiggingStart(p);
         for (const s of arr(p.signoffs).map(obj)) if (s.stage === 'parts-review') s.by = 'agent';
       }),
     );
-    expect(codes(report).sort()).toEqual(['PARTS_REVIEW_UNSIGNED', 'SIGNOFF_NOT_HUMAN', 'STAGE_SKIPPED', 'STAGE_SKIPPED']);
+    expect(codes(report)).toEqual(['SIGNOFF_NOT_HUMAN']);
   });
 
-  test('a rig step run before parts-review is signed is refused at that step, even while the stage has not moved', () => {
-    const report = checkProject(
-      fixture((p) => {
-        atRiggingStart(p);
-        p.stage = 'parts-review';
-        dropSignoffs(p, (s) => s.stage !== 'parts-review');
-        step(p, 'bones').status = 'done';
-      }),
-    );
-    expect(withCode(report, 'PARTS_REVIEW_UNSIGNED').map((f) => f.path)).toEqual(['plan.steps[bones]']);
-  });
 });
 
 describe('paused, with the parts stage in it', () => {
@@ -200,17 +167,6 @@ describe('paused, with the parts stage in it', () => {
     expect(codes(report)).toEqual([]);
   });
 
-  test('not paused, past parts with a parts step unfinished: still refused', () => {
-    const report = checkProject(
-      fixture((p) => {
-        atRiggingStart(p);
-        p.stage = 'parts-review';
-        dropSignoffs(p, (s) => s.stage !== 'parts-review');
-        step(p, 'assemble').status = 'in-progress';
-      }),
-    );
-    expect(withCode(report, 'PARTS_BAR_UNMET').map((f) => f.path)).toEqual(['plan.steps[assemble]']);
-  });
 });
 
 describe('a project that passed plan-approved before the stages existed', () => {
@@ -249,10 +205,10 @@ describe('a project that passed plan-approved before the stages existed', () => 
       }),
     );
     expect(codes(report)).toEqual([]);
-    expect(report.warnings.map((w) => w.code)).toEqual(['STAGE_VALUES_STALE', 'SIGNOFF_ANSWERS_MISSING_LEGACY', 'SIGNOFF_ANSWERS_MISSING_LEGACY', 'QUESTION_SET_STALE', 'STAGE_LAGGING', 'STAGE_ORDER_LEGACY', 'INPUT_WRITER_MISSING', 'CHOICE_ANSWERS_LEGACY', 'CORRECTION_PATH_LEGACY']);
+    expect(report.warnings.map((w) => w.code)).toEqual(['STAGE_VALUES_STALE', 'SIGNOFF_ANSWERS_MISSING_LEGACY', 'SIGNOFF_ANSWERS_MISSING_LEGACY', 'QUESTION_SET_STALE', 'STAGE_ORDER_LEGACY', 'INPUT_WRITER_MISSING', 'CHOICE_ANSWERS_LEGACY', 'CORRECTION_PATH_LEGACY']);
   });
 
-  test('a plan-approved sign-off dated on or after the stages arrived is not in flight: rigging without parts-review is refused', () => {
+  test('a plan-approved sign-off dated on or after the stages arrived is not in flight', () => {
     const report = checkProject(
       historicalFixture((p) => {
         inFlight(p);
@@ -260,7 +216,6 @@ describe('a project that passed plan-approved before the stages existed', () => 
         for (const s of arr(p.signoffs).map(obj)) if (s.stage === 'plan-approved') s.at = PARTS_REVIEW_SINCE;
       }),
     );
-    expect(codes(report)).toContain('PARTS_REVIEW_UNSIGNED');
     expect(report.warnings.map((w) => w.code)).not.toContain('PARTS_REVIEW_PREDATES_STAGE');
   });
 

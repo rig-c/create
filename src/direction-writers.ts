@@ -7,7 +7,6 @@ import { DIRECTION_COMPOSE_SPEC, validateComposeDirection } from './direction-co
 import { assembleOnlyDraftPath, assembleOnlyDraftTarget, assertDraftHasRig, readAssembleOnlyDraftTarget } from './draft-layout.ts';
 import { freezeCompose, rollbackComposeDirectories } from './direction-compose-writer.ts';
 import { sceneBytes, SceneError } from './scene.ts';
-import { directionReviewClosed } from './reopen.ts';
 import { refuse, USAGE_EXIT } from './refusal.ts';
 import { baselineOf, newFindings } from './refusal-baseline.ts';
 import { parseFeedbackAnswers } from './feedback.ts';
@@ -23,9 +22,6 @@ direction check <N> [<dir>] [--json]
   --file is a retained, non-ignored project-relative path.
   A bounced predecessor needs --answers <version>:<verdict> on write.`;
 function usage(why:string):never {refuse('DIRECTION_USAGE',`direction: ${why}; ${DIRECTION_HELP}`,USAGE_EXIT);}
-function openReview(project:JsonObject):void {
-  if (directionReviewClosed(project)) directionFail('DIRECTION_REVIEW_CLOSED', 'signoffs', 'record a human amendment with amend direction-review before authoring');
-}
 function ownValidation(dir:string,project:JsonObject,now:number):void {const refusals:Finding[]=[];checkDirections({dir,project,refusals},now);if(refusals[0]){const f=refusals[0];directionFail(f.code,f.path,f.message);}}
 function prospective(dir:string,before:JsonObject,next:JsonObject,now:number):void {
   const f=newFindings(baselineOf(checkProject(dir,before,{now})),checkProject(dir,next,{now}).refusals)[0];if(f)directionFail(f.code,f.path,f.message);
@@ -84,7 +80,6 @@ function command(args:string[],now:number,hooks:DirectionWriteHooks):{stdout:str
       next.direction_contract={schema:DIRECTION_CONTRACT,adopted_at:new Date(now).toISOString(),grandfathered_posts:objects(project.versions).filter(v=>v.kind==='post').map(v=>v.n as number).sort((a,b)=>a-b)};
     }else{
       if(!contract)directionFail('DIRECTION_CONTRACT_INVALID','direction_contract','adopt direction explicitly first');
-      openReview(project);
       if(objects(project.versions).some(v=>Number(v.n)>=n))directionFail('DIRECTION_VERSION','versions','new post number must be unique and later than all versions');
       const answersFeedback=parseFeedbackAnswers(project,n,answerValues);
       bytes=snapshot(opts['--file'] as string);doc=directionJson(bytes,opts['--file'] as string);

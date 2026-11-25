@@ -439,12 +439,6 @@ export function checkCollectionRecord(collection: JsonObject, stage: string, ref
   if (stage === 'paused' && !signoffs.some((s) => s.stage === 'paused')) {
     refusals.push({ code: 'PAUSED_UNSIGNED', path: 'stage', message: 'stage is paused, but no { "stage": "paused" } sign-off stopped it' });
   }
-  COLLECTION_STAGES.forEach((spec, idx) => {
-    if (idx >= cur || spec.closed_by !== 'signoff') return;
-    if (!signoffs.some((s) => s.stage === spec.id && s.checkpoint === null)) {
-      refusals.push({ code: 'STAGE_UNSIGNED', path: 'stage', message: `stage is '${stage}', past '${spec.id}', but no { "stage": "${spec.id}", "checkpoint": null } sign-off closed it` });
-    }
-  });
 
   const interview = isObject(collection.interview) ? collection.interview : {};
   const post = isObject(interview.post) ? interview.post : {};

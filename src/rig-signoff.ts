@@ -59,8 +59,6 @@ export function foldsRigVerdict(root: string, project: JsonObject, act: ReviewVe
 /** Reuse the separate writer's gates before its candidate check, against the pre-write baseline. */
 export function foldRigSignoff(root: string, candidate: JsonObject, act: ReviewVerdictAct, original: Buffer, asRead: CheckReport, now: number): void {
   if (!matchesActProjectSource(act, original)) refuse('REVIEW_ACT_SOURCE_STALE', 'project.json: rig approval predates the current record; publish the current rig-review record and ask again');
-  const lag = asRead.refusals.find(f => f.code === 'STAGE_LAGGING');
-  if (lag) refuse(lag.code, lag.message);
   if (!Array.isArray(candidate.signoffs)) refuse('SIGNOFF_MALFORMED', 'project.json.signoffs: expected a list; restore recorded signatures before ingesting the verdict');
   const selector = act.source.selector;
   if (selector?.kind !== 'rig') refuse('REVIEW_ACT_TARGET_MISMATCH', 'project.json.signoffs.target: rig approval must display a rig version; publish the current rig and ask again');

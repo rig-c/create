@@ -7,14 +7,11 @@ import type { JsonObject } from './templates.ts';
  * the review order and the post hand-off (src/review.ts) read `REVIEW_ACCEPTS`
  * below rather than naming stages themselves.
  *
- * `closed_by`:
- * - `signoff`: the stage ends only on a human `signoffs[]` entry naming it
- *   with `checkpoint: null`. A project whose `stage` is past such a stage
- *   without that entry is refused (`STAGE_UNSIGNED`).
- * - `bar`: the stage ends when the last plan step it runs meets its bar; no
- *   stage-level sign-off, but a step whose checkpoint is on needs a
- *   `{ stage, checkpoint: <step id> }` entry before the next step runs
- *   (`CHECKPOINT_UNSIGNED`).
+ * `closed_by` names how the old process closed a stage. No stage order or
+ * sign-off is enforced (#981): `advance` may move to any stage, and a step may
+ * run in any stage. Readers still use the order to label and to offer moves.
+ * - `signoff`: the old process closed the stage on a human `signoffs[]` entry.
+ * - `bar`: the stage's plan steps meet their bars.
  * - `none`: terminal.
  *
  * The rig phase runs in two `bar` stages: `parts` runs the steps that make the

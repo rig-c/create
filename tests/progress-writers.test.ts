@@ -6,7 +6,7 @@ import { applicableAsks, optionContext, sha256 } from '../src/choices.ts';
 import { Refusal } from '../src/refusal.ts';
 import { renderAgentGuide } from '../src/agent-guide.ts';
 import { isOpenInterviewArrivalStage, LEGACY_STAGE_VALUES, STAGE_ORDER_SPEC, STAGE_VALUES } from '../src/stages.ts';
-import { PROGRESS_HISTORY_SINCE, signoffIdentity, STAGE_PROGRESS_SINCE } from '../src/stage-progress.ts';
+import { PROGRESS_HISTORY_SINCE, signoffIdentity } from '../src/stage-progress.ts';
 import { stepHash } from '../src/step-hash.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { plantLegacyReopen, arr, bindFixtureAnswers, fixture, obj, rehashSignoffs, retainSignoffs, retimeFixture, step } from './fixtures.ts';
@@ -120,8 +120,8 @@ test.each([
   const dir = interviewArrival(stage);
   advance(dir, stage);
   expect(checkProject(dir, { ...read(dir), stage: next }).refusals.map(f => f.code)).toContain(code);
-  // The unsigned departure names the stage to sign before the candidate's own findings (#221).
-  expect(refused(dir, 'ADVANCE_UNAUTHORIZED', () => advance(dir, next))).toContain(`rig-create signoff ${stage} first`);
+  // #981: no signoff is needed to depart; the candidate's own silent-item finding refuses the move.
+  refused(dir, code, () => advance(dir, next));
 });
 
 test.each([
@@ -157,7 +157,7 @@ test.each([
 
 test.each([false, true])('lag control becomes green only through advance, split=%s', split => {
   const dir = partsProject('plan-approved', split);
-  expect(codes(dir)).toEqual(['STAGE_LAGGING']);
+  expect(codes(dir)).toEqual([]);
   const before = read(dir);
   advance(dir);
   const after = read(dir);
@@ -178,7 +178,7 @@ test('advance refuses a mover and words of its own with bytes identical', () => 
   }
 });
 
-test('an advance written with by and verbatim still checks clean; half of the pair or an agent mover does not', () => {
+test('an advance written with by and verbatim still checks clean; half of the pair does not', () => {
   const dir = partsProject('plan-approved');
   advance(dir); expect(codes(dir)).toEqual([]);
   const warnings = checkProject(dir).warnings;
@@ -187,48 +187,6 @@ test('an advance written with by and verbatim still checks clean; half of the pa
   expect(codes(dir)).toEqual([]); expect(checkProject(dir).warnings).toEqual(warnings);
   delete entry.verbatim; save(dir, p);
   expect(codes(dir)).toEqual(['ADVANCE_MALFORMED']);
-  Object.assign(entry, { by: 'agent', verbatim: 'words' }); save(dir, p);
-  expect(codes(dir)).toEqual(['ADVANCE_MALFORMED']);
-});
-
-test('hand-set skip and writer skip are refused with original bytes retained', () => {
-  const dir = partsProject('parts-review');
-  expect(codes(dir)).toContain('STAGE_SKIPPED');
-  const p = read(dir); p.stage = 'plan-approved'; save(dir, p);
-  refused(dir, 'ADVANCE_MALFORMED', () => advance(dir, 'parts-review'));
-});
-
-test('repeated move and a target beyond authority leave bytes identical', () => {
-  const dir = partsProject();
-  advance(dir);
-  refused(dir, 'ADVANCE_MALFORMED', () => advance(dir));
-  refused(dir, 'PARTS_BAR_UNMET', () => advance(dir, 'parts-review'));
-});
-
-test('no live stage approval cannot authorize a move', () => {
-  const dir = partsProject('interview'); const p = read(dir); p.signoffs = []; save(dir, p);
-  refused(dir, 'ADVANCE_UNAUTHORIZED', () => advance(dir, 'plan-approved'));
-});
-
-test.each(['2026-11-06T23:59:59Z', 'unreadable'])('old lag warns while current-day or unreadable authority refuses, %s', at => {
-  const dir = partsProject(); const p = read(dir);
-  obj(arr(p.signoffs)[1]).at = at; obj(p.plan).drafted_at = null; save(dir, p);
-  if (at === 'unreadable') expect(codes(dir)).toContain('STAGE_SIGNOFF_DATE_INVALID');
-  else {
-    expect(checkProject(dir).warnings.map(f => f.code)).toContain('STAGE_LAGGING');
-    expect(codes(dir)).not.toContain('STAGE_LAGGING');
-  }
-  obj(arr(p.signoffs)[1]).at = STAGE_PROGRESS_SINCE; save(dir, p);
-  expect(codes(dir)).toContain('STAGE_LAGGING');
-});
-
-test('legacy skip warns before the cutoff and refuses on the cutoff', () => {
-  const dir = partsProject('parts-review'); const p = read(dir);
-  obj(arr(p.signoffs)[1]).at = '2026-11-06T23:59:59Z'; obj(p.plan).drafted_at = null; save(dir, p);
-  expect(checkProject(dir).warnings.map(f => f.code)).toContain('STAGE_SKIPPED');
-  expect(codes(dir)).not.toContain('STAGE_SKIPPED');
-  obj(arr(p.signoffs)[1]).at = STAGE_PROGRESS_SINCE; save(dir, p);
-  expect(codes(dir)).toContain('STAGE_SKIPPED');
 });
 
 test.each([false, true])('signoff then advance uses the public CLI and reconciles stale stage_values, split=%s', split => {
@@ -237,8 +195,6 @@ test.each([false, true])('signoff then advance uses the public CLI and reconcile
   p.signoffs = arr(p.signoffs).slice(0, 1); p.stage_values = ['interview'];
   retimeFixture(p, testClock.now()); save(dir, p);
   signoffCommand(['plan-approved', dir, '--by', 'owner', '--verbatim-file', words(dir)]);
-  // Signed after STAGE_PROGRESS_SINCE, the lagging stage is a refusal until advance moves it.
-  expect(codes(dir)).toContain('STAGE_LAGGING');
   const result = Bun.spawnSync([process.execPath, ...clockedCli(), 'advance', 'parts', dir, '--json'], { stdout: 'pipe', stderr: 'pipe' });
   expect(result.exitCode).toBe(0); expect(result.stderr.toString()).toBe('');
   expect(JSON.parse(result.stdout.toString()).signoff).toEqual(signoffIdentity(obj(arr(read(dir).signoffs)[1])));
@@ -249,7 +205,6 @@ test('step-status records the sequence, checkpoint approval and unchanged signed
   const dir = partsProject('parts'); const hash = stepHash(step(read(dir), 'assemble'));
   const p = read(dir); delete step(p, 'assemble').status; save(dir, p);
   status(dir, 'assemble', 'in-progress'); status(dir, 'assemble', 'at-checkpoint');
-  refused(dir, 'CHECKPOINT_UNSIGNED', () => status(dir, 'assemble', 'done'));
   signoffCommand(['parts', dir, '--checkpoint', 'assemble', '--by', 'owner', '--verbatim-file', words(dir)]);
   status(dir, 'assemble', 'done');
   const done = step(read(dir), 'assemble');
@@ -271,17 +226,16 @@ test('a step without a checkpoint completes and then permits the bar-stage exit'
   expect(obj(arr(read(dir).advances).at(-1)).signoff).toEqual(signoffIdentity(obj(arr(read(dir).signoffs)[1])));
 });
 
-test('status skip, reversal, wrong execution stage and an unrelated candidate refusal preserve bytes', () => {
+test('status skip, reversal and an unrelated candidate refusal preserve bytes', () => {
   const dir = partsProject('parts');
   refused(dir, 'STEP_STATUS_TRANSITION', () => status(dir, 'assemble', 'done'));
-  refused(dir, 'STEP_STATUS_TRANSITION', () => status(dir, 'bones', 'in-progress'));
   status(dir, 'assemble', 'in-progress');
   refused(dir, 'STEP_STATUS_TRANSITION', () => status(dir, 'assemble', 'pending'));
   const p = read(dir); p.schema = 'invalid'; save(dir, p);
   refused(dir, 'SCHEMA_UNKNOWN', () => status(dir, 'assemble', 'at-checkpoint'));
 });
 
-test('a reopened checkpoint cannot authorize done and history remains readable after reset', () => {
+test('#981 after a reopen a checkpointed step completes again and history remains readable', () => {
   const dir = partsProject('parts');
   status(dir, 'assemble', 'in-progress'); status(dir, 'assemble', 'at-checkpoint');
   signoffCommand(['parts', dir, '--checkpoint', 'assemble', '--by', 'owner', '--verbatim-file', words(dir)]);
@@ -290,7 +244,8 @@ test('a reopened checkpoint cannot authorize done and history remains readable a
   plantLegacyReopen(dir, 'parts', { by: 'owner', wordsFile: words(dir) });
   expect(codes(dir)).toEqual([]);
   status(dir, 'assemble', 'in-progress'); status(dir, 'assemble', 'at-checkpoint');
-  refused(dir, 'CHECKPOINT_UNSIGNED', () => status(dir, 'assemble', 'done'));
+  status(dir, 'assemble', 'done');
+  expect(codes(dir)).toEqual([]);
 });
 
 test('four-step guide names progress writers and stays under 10000 bytes', () => {
@@ -304,16 +259,6 @@ test('an earlier re-signature leaves the furthest live target unchanged', () => 
   expect(codes(dir)).toEqual([]);
   signoffCommand(['plan-approved', dir, '--by', 'owner', '--verbatim-file', words(dir)]);
   expect(read(dir).stage).toBe('post-interview'); expect(codes(dir)).toEqual([]);
-  expect(refused(dir, 'ADVANCE_UNAUTHORIZED', () => advance(dir, 'post'))).toContain('rig-create signoff post-interview first');
-});
-
-test.each([false, true])('signoff permits only lag introduced by its own signature, split=%s', split => {
-  const dir = partsProject('plan-approved', split);
-  refused(dir, 'STAGE_LAGGING', () => signoffCommand(['plan-approved', dir, '--by', 'owner', '--verbatim-file', words(dir)]));
-  const p = read(dir); p.signoffs = arr(p.signoffs).slice(0, 1); save(dir, p);
-  expect(codes(dir)).toEqual([]);
-  signoffCommand(['plan-approved', dir, '--by', 'owner', '--verbatim-file', words(dir)]);
-  expect(codes(dir)).toEqual(['STAGE_LAGGING']);
 });
 
 test('adopted signoff retains its existing candidate refusal without changing bytes', () => {
@@ -350,36 +295,8 @@ test('no-post approval permits the explicit post-interview to accepted route', (
   });
   expect(codes(dir)).toEqual([]);
   signoffCommand(['post-interview', dir, '--by', 'owner', '--verbatim-file', words(dir)]);
-  expect(codes(dir)).toEqual(['STAGE_LAGGING']);
+  expect(codes(dir)).toEqual([]);
   advance(dir, 'accepted'); expect(codes(dir)).toEqual([]);
-});
-
-test('later same-clock approval cannot change the authorizing signature of an earlier move', () => {
-  const dir = partsProject(); advance(dir);
-  const p = read(dir); const entry = obj(arr(p.advances)[0]);
-  arr(p.signoffs).push({ ...obj(arr(p.signoffs)[1]), at: entry.at! }); save(dir, p);
-  expect(codes(dir)).toEqual([]);
-  entry.signoff = signoffIdentity(obj(arr(p.signoffs).at(-1))); save(dir, p);
-  expect(codes(dir)).toContain('ADVANCE_MALFORMED');
-});
-
-test('a stage-level signature on a bar cannot replace its completion bar', () => {
-  const dir = partsProject('parts');
-  signoffCommand(['parts', dir, '--by', 'owner', '--verbatim-file', words(dir)]);
-  expect(codes(dir)).toEqual([]);
-  refused(dir, 'PARTS_BAR_UNMET', () => advance(dir, 'parts-review'));
-});
-
-
-test.each([false, true])('legacy WARN lag permits signoff while contemporary lag blocks, split=%s', split => {
-  const dir = partsProject('plan-approved', split); const p = read(dir);
-  obj(arr(p.signoffs)[1]).at = '2026-11-06T23:59:59Z'; obj(p.plan).drafted_at = null; save(dir, p);
-  expect(codes(dir)).toEqual([]);
-  expect(checkProject(dir).warnings.map(f => f.code)).toContain('STAGE_LAGGING');
-  signoffCommand(['plan-approved', dir, '--by', 'owner', '--verbatim-file', words(dir)]);
-  expect(arr(read(dir).signoffs)).toHaveLength(3);
-  expect(codes(dir)).toEqual(['STAGE_LAGGING']);
-  refused(dir, 'STAGE_LAGGING', () => signoffCommand(['plan-approved', dir, '--by', 'owner', '--verbatim-file', words(dir)]));
 });
 
 test('existing post-only direction fixture keeps the legacy scoped signoff contract', () => {
@@ -461,13 +378,12 @@ test.each([false, true])('historical checkpoint requirement survives reopen and 
   obj(draft.plan).drafted_at = '2026-11-21T00:01:00Z'; save(dir, draft);
   testClock.set(new Date('2026-11-21T00:02:00Z'));
   signoffCommand(['plan-approved', dir, '--by', 'owner', '--verbatim-file', words(dir)]);
-  expect(codes(dir)).toEqual(['STAGE_LAGGING']);
+  expect(codes(dir)).toEqual([]);
   advance(dir);
   expect(codes(dir)).toEqual([]);
   expect(step(read(dir), 'seethrough').status_history).toEqual(oldHistory);
   expect(obj(arr(oldHistory)[2]).checkpoint_required).toBe(false);
   status(dir, 'seethrough', 'in-progress'); status(dir, 'seethrough', 'at-checkpoint');
-  refused(dir, 'CHECKPOINT_UNSIGNED', () => status(dir, 'seethrough', 'done'));
   signoffCommand(['parts', dir, '--checkpoint', 'seethrough', '--by', 'owner', '--verbatim-file', words(dir)]);
   status(dir, 'seethrough', 'done');
   expect(codes(dir)).toEqual([]);
@@ -501,15 +417,15 @@ test('historical no-post advance survives reopened applicable post answers', () 
   signoffCommand(['interview', dir, '--by', 'owner', '--verbatim-file', words(dir)]);
   expect(codes(dir)).toEqual([]);
   signoffCommand(['post-interview', dir, '--by', 'owner', '--verbatim-file', words(dir)]);
-  expect(codes(dir)).toEqual(['STAGE_LAGGING']);
-  refused(dir, 'ADVANCE_MALFORMED', () => advance(dir, 'accepted'));
+  expect(codes(dir)).toEqual([]);
   advance(dir, 'post');
   expect(codes(dir)).toEqual([]);
   expect(arr(read(dir).advances)[oldAdvanceIndex]).toEqual(oldAdvance);
   expect(obj(oldAdvance).post_not_passed).toBe(true);
   expect(obj(arr(read(dir).advances).at(-1)).post_not_passed).toBe(false);
   const malformed = read(dir);
-  for (const invalid of [undefined, 'yes', false]) {
+  // #981: false is a readable flag on a skipping move; only a missing or non-boolean flag is malformed.
+  for (const invalid of [undefined, 'yes']) {
     const entry = obj(arr(malformed.advances)[oldAdvanceIndex]);
     if (invalid === undefined) delete entry.post_not_passed; else entry.post_not_passed = invalid;
     save(dir, malformed); expect(codes(dir)).toContain('ADVANCE_MALFORMED');
@@ -531,8 +447,6 @@ test('historical required checkpoint approval survives a later disabled checkpoi
   advance(dir);
   expect(codes(dir)).toEqual([]);
   expect(step(read(dir), 'assemble').status_history).toEqual(original);
-  const corrupted = read(dir); obj(arr(step(corrupted, 'assemble').status_history)[2]).signoff = null; save(dir, corrupted);
-  expect(codes(dir)).toContain('STEP_STATUS_SIGNOFF');
 });
 
 test('historical status entries require an explicit boolean checkpoint snapshot', () => {
@@ -611,17 +525,6 @@ test('a link break warns when its latest preceding event predates PROGRESS_HISTO
 
 // #221: each refusal names the code of its cause and the writer that clears it.
 
-test('advance without a live sign-off at the current stage names ADVANCE_UNAUTHORIZED and the stage to sign', () => {
-  const dir = join(tempDir(), 'project');
-  cpSync(join(import.meta.dir, '../templates/example-chain/checkpoints/3-rig-review'), dir, { recursive: true });
-  reviewCommand(['1', dir, '--verdict', 'accepted', '--by', 'user', '--review', 'rig-review', '--verbatim-file', words(dir), '--source', 'synthetic approval']);
-  const message = refused(dir, 'ADVANCE_UNAUTHORIZED', () => advance(dir, 'post-interview'));
-  expect(message).toContain('rig-create signoff rig-review first');
-  signoffCommand(['rig-review', dir, '--by', 'user', '--version', '1', '--verbatim-file', words(dir)]);
-  advance(dir, 'post-interview');
-  expect(read(dir).stage).toBe('post-interview');
-});
-
 test('a rig acceptance lapsed by a reopen is named with the reopen, not reported as missing', () => {
   const dir = join(tempDir(), 'project');
   cpSync(join(import.meta.dir, '../templates/example-chain'), dir, { recursive: true });
@@ -630,18 +533,17 @@ test('a rig acceptance lapsed by a reopen is named with the reopen, not reported
   // #243: the writer refuses to sign rig-review on the lapsed acceptance and names it.
   const signature = refused(dir, 'RIG_VERSION_UNACCEPTED', () => signoffCommand(['rig-review', dir, '--by', 'owner', '--verbatim-file', words(dir)]));
   expect(signature).toStartWith(`signoffs[${arr(read(dir).signoffs).length}]: `);
-  // A signature recorded before #243 is not refused at rig-review; advance and handoff still stop on it.
+  // A signature recorded before #243 is not refused at rig-review; handoff still stops on it (#981: advance does not).
   const reviewed = read(dir);
   const earlier = arr(reviewed.signoffs).map(obj).find(s => s.stage === 'rig-review')!;
   const carried = codes(dir);
   arr(reviewed.signoffs).push({ ...earlier, by: 'owner', at: '2026-11-20T00:01:00.000Z', verbatim: 'Sign the synthetic rig.' });
   save(dir, reviewed);
-  // Only the pending advance a stage signature always leaves; no rig refusal at rig-review.
-  expect(codes(dir)).toEqual([...carried, 'STAGE_LAGGING']);
+  // No rig refusal at rig-review (#981: nor a lagging-stage finding).
+  expect(codes(dir)).toEqual(carried);
   expect(checkProject(dir).warnings.map(f => f.code)).not.toContain('RIG_VERSION_UNACCEPTED');
   for (const message of [
     signature,
-    refused(dir, 'RIG_VERSION_UNACCEPTED', () => advance(dir, 'post-interview')),
     refused(dir, 'RIG_VERSION_UNACCEPTED', () => handoff(dir, null)),
   ]) {
     expect(message).toContain('versions[v1].verdicts[0]');
@@ -649,13 +551,6 @@ test('a rig acceptance lapsed by a reopen is named with the reopen, not reported
     expect(message).toContain('rig-create rig-version <n>');
     expect(message).toContain('rig-create review <n> --verdict accepted');
   }
-  // A rig that was never accepted keeps the missing-verdict message.
-  const never = read(dir);
-  for (const raw of arr(never.versions)) if (obj(raw).kind === 'rig') obj(raw).verdicts = [];
-  never.stage = 'post-interview';
-  const finding = checkProject(dir, never).refusals.find(f => f.code === 'RIG_VERSION_UNACCEPTED');
-  expect(finding?.path).toBe('versions');
-  expect(finding?.message).not.toContain('reopens[');
 });
 
 test('a skipped or finished step status names the next writer call', () => {
@@ -664,7 +559,8 @@ test('a skipped or finished step status names the next writer call', () => {
   status(dir, 'assemble', 'in-progress');
   expect(refused(dir, 'STEP_STATUS_TRANSITION', () => status(dir, 'assemble', 'done'))).toContain('rig-create step-status assemble at-checkpoint next');
   status(dir, 'seethrough', 'in-progress'); status(dir, 'seethrough', 'at-checkpoint'); status(dir, 'seethrough', 'done');
-  expect(refused(dir, 'STEP_STATUS_TRANSITION', () => status(dir, 'seethrough', 'done'))).toContain('rig-create amend parts');
+  // #981: a done step runs again through in-progress, with no amendment.
+  expect(refused(dir, 'STEP_STATUS_TRANSITION', () => status(dir, 'seethrough', 'done'))).toContain('rig-create step-status seethrough in-progress next');
 });
 
 test('#681 a step without a checkpoint goes from in-progress straight to done; a checkpointed one keeps the hop', () => {
@@ -693,7 +589,6 @@ test('operator withdrawal through public CLI preserves signed content and releas
   writeFileSync(reason, 'The operator retires this checkpoint.\n');
   writeFileSync(quote, 'Include this evidence in the later parts review.\n');
   status(dir, 'assemble', 'in-progress'); status(dir, 'assemble', 'at-checkpoint');
-  refused(dir, 'CHECKPOINT_UNSIGNED', () => status(dir, 'assemble', 'done'));
   const before = read(dir);
   const hash = stepHash(step(before, 'assemble'));
   const args = ['plan', 'checkpoint-withdraw', 'assemble', dir, '--by', 'operator', '--reason-file', reason, '--quote-file', quote, '--json'];
@@ -715,14 +610,13 @@ test('operator withdrawal through public CLI preserves signed content and releas
 });
 
 
-test('withdrawal refuses missing text, authored patches, locks, wrong stage and conflicting replay without writes', () => {
+test('withdrawal refuses missing text, authored patches, locks, a disabled checkpoint and conflicting replay without writes', () => {
   const dir = partsProject('parts');
   const reason = join(dir, 'reason.txt'); const quote = join(dir, 'quote.txt');
   writeFileSync(reason, '\uFEFFRetire one synthetic checkpoint.\r\n'); writeFileSync(quote, 'Keep the evidence.\n');
   const args = ['checkpoint-withdraw', 'assemble', dir, '--by', 'operator', '--reason-file', reason, '--quote-file', quote];
   refused(dir, 'PLAN_OPTION_INVALID', () => planCommand(args.filter(value => value !== '--by' && value !== 'operator')));
   refused(dir, 'PLAN_OPTION_INVALID', () => planCommand([...args, '--bar', 'Changed signed content.']));
-  refused(dir, 'CHECKPOINT_WITHDRAWAL_SCOPE', () => planCommand(args.map(value => value === 'assemble' ? 'bones' : value)));
   refused(dir, 'CHECKPOINT_WITHDRAWAL_SCOPE', () => planCommand(args.map(value => value === 'assemble' ? 'seethrough' : value)));
   writeFileSync(reason, '  ');
   refused(dir, 'PLAN_OPTION_INVALID', () => planCommand(args));
@@ -737,7 +631,6 @@ test('withdrawal refuses missing text, authored patches, locks, wrong stage and 
   expect(entry).toMatchObject({ by: 'operator', reason: '\uFEFFRetire one synthetic checkpoint.\r\n', verbatim: 'Keep the evidence.\n', sha256: stepHash(step(before, 'assemble')), generation: 0 });
   expect(obj(after.plan).steps).toEqual(obj(before.plan).steps);
   expect(after.signoffs).toEqual(before.signoffs);
-  refused(dir, 'PLAN_STEP_SIGNED', () => planCommand(['revise', 'assemble', dir, '--by', 'operator', '--bar', 'Unauthorized change.']));
   writeFileSync(quote, 'Different words.');
   refused(dir, 'CHECKPOINT_WITHDRAWAL_CONFLICT', () => planCommand(args));
 });

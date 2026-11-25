@@ -57,7 +57,7 @@ function depthProject(root: string): JsonObject {
   return project;
 }
 
-test('#993 a done depth step is replaced in one write after a turn amendment, where revise, remove and add each refuse', () => {
+test('#993 a done depth step is replaced in one write after a turn amendment, where remove and add each refuse', () => {
   const root = join(tempDir('create-993-'), 'project');
   const project = depthProject(root);
   const env = { ...Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined)),
@@ -99,9 +99,8 @@ test('#993 a done depth step is replaced in one write after a turn amendment, wh
   expect(next.moves[0]!.command).toMatch(/^rig-create plan replace turn .* --by agent --phase rig --order 2\.5 .* --rests-on turn .* --checkpoint-proposed false$/);
   expect(next.moves[0]!.command).not.toContain('plan remove');
 
-  // The three writers next used to offer each refuse without a write.
+  // The two-command path next used to offer refuses without a write.
   testClock.set(TEST_NOW + 3_000);
-  unchanged(root, 'PLAN_STEP_DONE', () => planCommand(['revise', 'turn', root, '--by', 'agent', '--reason', 'Keep the synthetic definition.']));
   unchanged(root, 'RIG_DEPTH_PLAN_MISSING', () => planCommand(['remove', 'turn', root, '--by', 'agent']));
   unchanged(root, 'PLAN_STEP_INVALID', () => planCommand(['add', 'turn', root, '--by', 'agent', ...DEPTH]));
   // Replace keeps the phase; a phase change is refused without a write.
@@ -123,20 +122,6 @@ test('#993 a done depth step is replaced in one write after a turn amendment, wh
 const POST = ['--phase', 'post', '--order', '1', '--does', 'Frame the approved rig.', '--produces', 'A camera track.',
   '--rests-on', 'bones', '--bar', 'The frame retains every approved part.', '--checkpoint-proposed', 'false'];
 
-test('#993 replace keeps the completed-work rule of remove then add: refused without a qualifying amendment', () => {
-  testClock.set('2026-11-20T00:00:00Z');
-  const dir = fixture();
-  const words = join(dir, 'words.txt');
-  writeFileSync(words, 'Reopen the plan for a new draft.');
-  plantLegacyReopen(dir, 'plan-approved', { by: 'user', wordsFile: words });
-  const project = read(dir);
-  expect(planStepCompleted(project, step(project, 'camera'))).toBe(true);
-  unchanged(dir, 'PLAN_STEP_DONE', () => planCommand(['replace', 'camera', dir, '--by', 'agent', ...POST]));
-  // The two-command path is refused at its add by the same rule.
-  expect(planCommand(['remove', 'camera', dir, '--by', 'agent']).exit).toBe(0);
-  unchanged(dir, 'PLAN_STEP_DONE', () => planCommand(['add', 'camera', dir, '--by', 'agent', ...POST]));
-});
-
 function seethroughReplacement(): { dir: string; flags: string[] } {
   testClock.set(EXAMPLE_NOW);
   const dir = fixture(() => {}, 'example-project.json');
@@ -148,10 +133,12 @@ function seethroughReplacement(): { dir: string; flags: string[] } {
     '--produces', 'Replacement parts.', '--rests-on', 'seethrough', '--bar', 'The replacement meets the owner answer.', '--checkpoint-proposed', 'false'] };
 }
 
-test('#993 a non-depth same-id replace writes the same record as remove then add at the same instant', () => {
+test('#993 #981 a completed non-depth step is replaced, the same record as remove then add', () => {
   const viaReplace = seethroughReplacement();
   const viaPair = seethroughReplacement();
   expect(read(viaReplace.dir)).toEqual(read(viaPair.dir));
+  const project = read(viaReplace.dir);
+  expect(planStepCompleted(project, step(project, 'seethrough'))).toBe(true);
   expect(planCommand(['replace', 'seethrough', viaReplace.dir, '--by', 'agent', ...viaReplace.flags]).exit).toBe(0);
   expect(planCommand(['remove', 'seethrough', viaPair.dir, '--by', 'agent']).exit).toBe(0);
   expect(planCommand(['add', 'seethrough', viaPair.dir, '--by', 'agent', ...viaPair.flags]).exit).toBe(0);

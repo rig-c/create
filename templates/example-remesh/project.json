@@ -1580,15 +1580,6 @@
         "bytes": 1199,
         "pointer": "/finished_at"
       },
-      "accepted_parts": {
-        "signoff_at": "2026-11-24T00:00:33.000Z",
-        "evidence": {
-          "kind": "parts-verdict",
-          "path": "evidence/review-reads/d6964579af3968252caa2339456d59419703423f6df66e34de36e97a920d33d7.json",
-          "sha256": "d6964579af3968252caa2339456d59419703423f6df66e34de36e97a920d33d7",
-          "spec": "rig-create/parts-verdict-cli@1"
-        }
-      },
       "built_by": "agent",
       "built_with": {
         "@rig-c/parts": "2.56.0",
@@ -2052,15 +2043,6 @@
         "bytes": 1199,
         "pointer": "/finished_at"
       },
-      "accepted_parts": {
-        "signoff_at": "2026-11-24T00:00:33.000Z",
-        "evidence": {
-          "kind": "parts-verdict",
-          "path": "evidence/review-reads/d6964579af3968252caa2339456d59419703423f6df66e34de36e97a920d33d7.json",
-          "sha256": "d6964579af3968252caa2339456d59419703423f6df66e34de36e97a920d33d7",
-          "spec": "rig-create/parts-verdict-cli@1"
-        }
-      },
       "built_by": "agent",
       "built_with": {
         "@rig-c/parts": "2.56.0",
@@ -2523,15 +2505,6 @@
         "sha256": "12bb0761365accb23dac1adb37fbf5825888f86dc4f51eb57ed8fd146205ede0",
         "bytes": 1199,
         "pointer": "/finished_at"
-      },
-      "accepted_parts": {
-        "signoff_at": "2026-11-24T00:00:33.000Z",
-        "evidence": {
-          "kind": "parts-verdict",
-          "path": "evidence/review-reads/d6964579af3968252caa2339456d59419703423f6df66e34de36e97a920d33d7.json",
-          "sha256": "d6964579af3968252caa2339456d59419703423f6df66e34de36e97a920d33d7",
-          "spec": "rig-create/parts-verdict-cli@1"
-        }
       },
       "built_by": "agent",
       "built_with": {

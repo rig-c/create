@@ -74,7 +74,6 @@ describe('post on an unaccepted rig', () => {
     expect(withCode(agent, 'POST_ON_UNACCEPTED_RIG')).toHaveLength(2);
     const provisional = checkProject(fixture((p) => (obj(arr(version(p, 2).verdicts)[0]).verdict = 'provisional')));
     expect(codes(provisional)).toContain('POST_ON_UNACCEPTED_RIG');
-    expect(codes(provisional)).toContain('RIG_VERSION_UNACCEPTED');
   });
 
   test('a post version built before its rig was accepted is refused', () => {
@@ -83,11 +82,6 @@ describe('post on an unaccepted rig', () => {
       version(p, 3).at = new Date(Date.parse(acceptedAt) - 1000).toISOString();
     }));
     expect(withCode(r, 'POST_ON_UNACCEPTED_RIG').map((f) => f.path)).toEqual(['versions[v3].rig_version']);
-  });
-
-  test('a rig version built after the acceptance and not reviewed is refused once the stage is past rig-review', () => {
-    const r = checkProject(fixture((p) => addRig5(p, false)));
-    expect(withCode(r, 'RIG_VERSION_UNACCEPTED').map((f) => f.path)).toEqual(['versions[v5]']);
   });
 
   test('the same unreviewed rig at stage rig-review is the review in progress, not a refusal', () => {
@@ -169,11 +163,10 @@ describe('rig-create handoff', () => {
     expect(r.stderr).toStartWith('rig-create: POST_ON_UNACCEPTED_RIG: versions[v1]');
   });
 
-  test('no rig-review sign-off: exit 1, RIG_REVIEW_UNSIGNED', () => {
+  test('#981 no rig-review sign-off: the accepted rig still hands off', () => {
     const dir = fixture((p) => (p.signoffs = arr(p.signoffs).filter((s) => obj(s).stage !== 'rig-review')));
     const r = cli(['handoff', '--rig', '2', dir], dir, env);
-    expect(r.code).toBe(1);
-    expect(r.stderr).toStartWith('rig-create: RIG_REVIEW_UNSIGNED:');
+    expect({ code: r.code, stderr: r.stderr }).toEqual({ code: 0, stderr: '' });
   });
 
   test('a newer rig not yet reviewed: exit 1, RIG_VERSION_UNACCEPTED naming it', () => {

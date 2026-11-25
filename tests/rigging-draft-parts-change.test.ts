@@ -66,15 +66,13 @@ function recordOlderRiggingAmendment(root: string, now: number): void {
     '--change', `${preview}/config.json`, '--by', 'owner', '--verbatim-file', words], now).exit).toBe(0);
 }
 
-function expectAmendStageRefusal(root: string, now: number): void {
+// #981: the current stage no longer refuses a draft amendment; dependency decides what is rebuilt.
+function expectAmendAccepted(root: string, now: number): void {
   const words = join(root, 'draft-amendment-words.txt');
   writeFileSync(words, 'Amend the synthetic parts.\n');
-  const file = join(root, 'project.json');
-  const before = readFileSync(file);
-  expect(() => amendCommand(['parts-review', root, '--kind', 'draft', '--target', id, '--change',
+  expect(amendCommand(['parts-review', root, '--kind', 'draft', '--target', id, '--change',
     `${preview}/input/parts.json`, '--by', 'owner', '--owner-chat', words, '--said-at', new Date(now).toISOString(),
-    '--relayed-by', 'operator'], now)).toThrow(expect.objectContaining({ code: 'AMENDMENT_TARGET_INVALID' }));
-  expect(readFileSync(file)).toEqual(before);
+    '--relayed-by', 'operator'], now).exit).toBe(0);
 }
 
 test('changed model-less draft refuses job open before a write and next names the owner-chat amendment', () => {
@@ -128,7 +126,7 @@ test('a model-backed draft is outside the new amendment route', () => {
   expect(nextProject(root, EXAMPLE_NOW).refusals.map(row => row.code)).not.toContain(refusal);
 });
 
-test('a paused project keeps its resume move when its effective stage is rigging', () => {
+test('a paused project keeps its resume move when its effective stage is rigging, and a draft amendment records', () => {
   const root = fixture(true);
   recordOlderRiggingAmendment(root, EXAMPLE_NOW + 1000);
   const words = join(root, 'pause-words.txt');
@@ -143,10 +141,10 @@ test('a paused project keeps its resume move when its effective stage is rigging
   expect(next.moves.some(move => move.command?.startsWith('rig-create amend '))).toBe(false);
   expect(assertRequestedDraft(root, id, now)).toMatchObject({ stage: 'rigging', draftId: id });
   expect(inspectDraftPublication(root, readProject(root), id, [], 'rigging').rigging).toBe(true);
-  expectAmendStageRefusal(root, now);
+  expectAmendAccepted(root, now);
 });
 
-test('previous amendment redo at effective rigging cannot advertise a physical-stage draft amendment', () => {
+test('previous amendment redo at effective rigging does not advertise a physical-stage draft amendment, and one still records', () => {
   const root = fixture(true, false, 'rig-review');
   const now = EXAMPLE_NOW + 1000;
   recordOlderRiggingAmendment(root, now);
@@ -157,7 +155,7 @@ test('previous amendment redo at effective rigging cannot advertise a physical-s
   expect(next.moves.some(move => move.command?.startsWith('rig-create amend parts-review '))).toBe(false);
   expect(assertRequestedDraft(root, id, now)).toMatchObject({ stage: 'rigging', draftId: id });
   expect(inspectDraftPublication(root, readProject(root), id, [], 'rigging').rigging).toBe(true);
-  expectAmendStageRefusal(root, now);
+  expectAmendAccepted(root, now);
 });
 
 test('a historical acknowledgment on changed parts still ingests as mesh feedback and replays', async () => {

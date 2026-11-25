@@ -118,7 +118,6 @@ describe('parts-review evidence and execution checkpoints', () => {
   test('records the approved verdict hash and clears the check without hand edits', () => {
     const dir = fixture(() => {}, 'example-project.json');
     testClock.set(new Date(withdrawSignature(dir, 'parts-review')));
-    expect(checkProject(dir).refusals.map((r) => r.code)).toContain('PARTS_REVIEW_UNSIGNED');
     const result = cli(['signoff', 'parts-review', '--by', 'user', '--draft', 'example', '--structure-file', 'evidence/structure-example.json', '--verbatim-file', input(dir)], dir, gitEnv());
     expect(result).toMatchObject({ code: 0, stderr: '' });
     const signed = obj(arr(read(dir).signoffs).at(-1));
@@ -154,7 +153,6 @@ describe('parts-review evidence and execution checkpoints', () => {
 
   test.each([['rigging', 'constraints'], ['parts', 'assemble']])('signs %s checkpoint %s and clears the check', (stage, id) => {
     const dir = fixture((p) => { p.signoffs = arr(p.signoffs).filter((s) => obj(s).checkpoint !== id); });
-    expect(checkProject(dir).refusals.map((r) => r.code)).toContain('CHECKPOINT_UNSIGNED');
     expect(cli(['signoff', stage, '--checkpoint', id, '--by', 'user', '--verbatim-file', input(dir)], dir, gitEnv()).code).toBe(0);
     const signed = obj(arr(read(dir).signoffs).at(-1));
     expect(signed.checkpoint).toBe(id);

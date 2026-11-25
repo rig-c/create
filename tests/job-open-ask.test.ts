@@ -759,7 +759,7 @@ test('job open publishes the recorded draft, asks its subjects, and the page act
     draft_id: 'next', source: `review act ${String(verdict.jobId)}/${String(verdict.actId)}` });
   // The signature authorizes the next stage; the separate advance writer records the move.
   const report = JSON.parse((await cli(root, ['interview', '--check', root, '--json'])).stdout);
-  expect(report.refusals.map((finding: JsonObject) => finding.code)).toEqual(['STAGE_LAGGING']);
+  expect(report.refusals.map((finding: JsonObject) => finding.code)).toEqual([]);
   expect(report.holes ?? []).toEqual([]);
 
   // The writes changed the record, so a re-open publishes the draft again. Both the verdict and the stage are recorded, so nothing is asked.

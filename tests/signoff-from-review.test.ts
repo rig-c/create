@@ -147,7 +147,7 @@ test('advance after a review sign-off records the signoff it rests on and no wor
   });
   bindReview(dir);
   fromReview(dir, 'plan-approved', signoffAct(dir, 'plan-approved', 'sign-move'));
-  expect(codes(dir)).toContain('STAGE_LAGGING');
+  expect(codes(dir)).toEqual([]);
   advanceCommand(['parts', dir]);
   const p = read(dir); const entry = obj(arr(p.advances).at(-1));
   expect(entry.signoff).toEqual(signoffIdentity(obj(arr(p.signoffs).at(-1))));

@@ -3,7 +3,9 @@ import { cpSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { EXAMPLE_NOW } from '../scripts/example-time.ts';
 import { Refusal } from '../src/refusal.ts';
-import { DIRECTION_REVIEW_ADVANCE_SINCE, RIGGING_INTERVIEW_PAINTING_SINCE, STAGE_PROGRESS_SINCE } from '../src/stage-progress.ts';
+import { DIRECTION_REVIEW_ADVANCE_SINCE, RIGGING_INTERVIEW_PAINTING_SINCE } from '../src/stage-progress.ts';
+/** The retired stage-order contract date (#981), kept as a fixture clock anchor. */
+const STAGE_PROGRESS_SINCE = '2026-11-08T00:00:00Z';
 import { tempDir } from './helpers.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { plantLegacyReopen, arr, bindFixtureAnswers, fixture, obj, rehashSignoffs, retimeFixture, step } from './fixtures.ts';
@@ -49,14 +51,6 @@ function riggingProject(empty = false): string {
 test('review empty rigging execution is stopped by the existing no-steps signoff contract', () => {
   const dir = riggingProject(true);
   unchangedRefusal(dir, 'SIGNOFF_STEP_INVALID', () => sign(dir, 'rigging-interview'));
-});
-
-test('review a new writer cannot bypass unfinished rigging with a legacy frontier', () => {
-  const dir = riggingProject();
-  sign(dir, 'rigging-interview'); advance(dir, 'rigging');
-  expect(step(read(dir), 'bones').status).toBe('pending');
-  testClock.set(new Date('2026-11-20T00:00:00Z'));
-  unchangedRefusal(dir, 'STAGE_SKIPPED', () => advance(dir, 'rig-review'));
 });
 
 test('the rigging-interview exit needs an explicitly declared painting from the cutoff', () => {
@@ -115,7 +109,7 @@ test.each(['plan-approved', 'interview'])('review pre-parts checkpoint history s
 });
 
 
-test('review a hand-set authorized next stage still needs the matching advance', () => {
+test('review a hand-set next stage is not a stage-order refusal, and the next advance still needs the recorded move', () => {
   testClock.set(new Date('2026-11-20T00:00:00Z'));
   const dir = fixture(p => {
     p.stage = 'plan-approved'; p.versions = []; p.signoffs = arr(p.signoffs).slice(0, 2);
@@ -123,23 +117,13 @@ test('review a hand-set authorized next stage still needs the matching advance',
     for (const raw of arr(obj(p.plan).steps)) obj(raw).status = 'pending';
   });
   const p = read(dir); const recorded = p.advances; p.advances = []; p.stage = 'parts'; writeFileSync(join(dir, 'project.json'), JSON.stringify(p));
-  expect(codes(dir)).toEqual(['STAGE_SKIPPED']);
+  // #981: check no longer enforces stage order; the writer still refuses to absorb an unrecorded move.
+  expect(codes(dir)).toEqual([]);
   // The next advance cannot absorb the unrecorded move into plan-approved.
   p.stage = 'plan-approved'; writeFileSync(join(dir, 'project.json'), JSON.stringify(p));
   unchangedRefusal(dir, 'STAGE_MOVE_UNLINKED', () => advance(dir, 'parts'));
   p.advances = recorded; writeFileSync(join(dir, 'project.json'), JSON.stringify(p));
   advance(dir, 'parts'); expect(codes(dir)).toEqual([]);
-});
-
-test.each(['unreadable', '', '2026-99-99T00:00:00Z'])('review an unreadable frontier date refuses, %s', at => {
-  const dir = fixture(p => {
-    p.stage = 'plan-approved'; p.versions = []; p.signoffs = arr(p.signoffs).slice(0, 2);
-    obj(arr(p.signoffs)[1]).at = at;
-    obj(p.plan).drafted_at = null;
-    for (const raw of arr(obj(p.plan).steps)) obj(raw).status = 'pending';
-  });
-  expect(codes(dir)).toContain('STAGE_SIGNOFF_DATE_INVALID');
-  unchangedRefusal(dir, 'STAGE_SIGNOFF_DATE_INVALID', () => advance(dir, 'parts'));
 });
 
 test('review an absent frontier date retains the existing malformed-signoff refusal', () => {
@@ -152,25 +136,14 @@ test('review an absent frontier date retains the existing malformed-signoff refu
   unchangedRefusal(dir, 'SIGNOFF_MALFORMED', () => advance(dir, 'parts'));
 });
 
-test('review an unreadable competing frontier signature cannot hide behind a readable one', () => {
-  testClock.set(new Date('2026-11-20T00:00:00Z'));
-  const dir = fixture(p => {
-    p.stage = 'plan-approved'; p.versions = []; p.signoffs = arr(p.signoffs).slice(0, 2);
-    arr(p.signoffs).push({ ...obj(arr(p.signoffs)[1]), at: 'unreadable' });
-    for (const raw of arr(obj(p.plan).steps)) obj(raw).status = 'pending';
-  });
-  expect(codes(dir)).toContain('STAGE_SIGNOFF_DATE_INVALID');
-  unchangedRefusal(dir, 'STAGE_SIGNOFF_DATE_INVALID', () => advance(dir, 'parts'));
-});
-
-test('review a new writer cannot bypass unfinished post with a legacy frontier', () => {
+test('#981 advancing past unfinished post meets only the post evidence rule', () => {
   const dir = join(tempDir(), 'project');
   cpSync(join(import.meta.dir, '../templates/example-chain/checkpoints/4-direction-post'), dir, { recursive: true });
   testClock.set(new Date('2026-11-06T23:59:00Z'));
   plantLegacyReopen(dir, 'post', { by: 'owner', wordsFile: words(dir) });
   expect(step(read(dir), 'camera').status).toBe('pending');
   testClock.set(new Date('2026-11-20T00:00:00Z'));
-  unchangedRefusal(dir, 'STAGE_SKIPPED', () => advance(dir, 'direction-review'));
+  unchangedRefusal(dir, 'DIRECTION_REVIEW_POST_MISSING', () => advance(dir, 'direction-review'));
 });
 
 test('review a fresh project remains green at the initial stage', () => {
@@ -181,57 +154,29 @@ test('review a fresh project remains green at the initial stage', () => {
   expect(codes(dir)).toEqual([]);
 });
 
-test('review latest reopen is green and a different hand-set stage is refused', () => {
+test('review latest reopen is green, and a different hand-set stage is no stage-order refusal (#981)', () => {
   testClock.set(EXAMPLE_NOW);
   const dir = fixture(() => {}, 'example-project.json');
   plantLegacyReopen(dir, 'post-interview', { by: 'owner', wordsFile: words(dir) });
   expect(codes(dir)).toEqual([]);
   const p = read(dir); p.stage = 'rig-review';
   writeFileSync(join(dir, 'project.json'), JSON.stringify(p));
-  expect(codes(dir)).toEqual(['STAGE_SKIPPED', 'STAGE_LAGGING']);
+  expect(codes(dir)).toEqual([]);
 });
 
-test('review an advance whose authority was dead at its event is refused', () => {
-  testClock.set(new Date('2026-11-20T00:00:00Z'));
-  const dir = fixture(p => {
-    p.stage = 'plan-approved'; p.versions = []; p.signoffs = arr(p.signoffs).slice(0, 2);
-    for (const raw of arr(obj(p.plan).steps)) obj(raw).status = 'pending';
-  });
-  advance(dir, 'parts');
-  const p = read(dir);
-  p.reopens = [{ stage: 'plan-approved', from_stage: 'parts', by: 'owner', at: '2026-11-19T00:00:00Z', verbatim: 'Reopen before the planted move.', steps_before: [],
-    source: 'owner chat, relayed', said_at: '2026-11-19T00:00:00Z', relayed_by: 'synthetic-relay' }];
-  writeFileSync(join(dir, 'project.json'), JSON.stringify(p));
-  expect(codes(dir)).toContain('ADVANCE_MALFORMED');
-});
-
-test('review advance snapshots require phases and retain completed historical bars', () => {
+test('review advance snapshots require phases', () => {
   testClock.set(new Date('2026-11-20T00:00:00Z'));
   const dir = fixture(() => {}, 'example-project.json');
   const original = read(dir);
   const index = arr(original.advances).findIndex(raw => obj(raw).from_stage === 'parts');
-  for (const mutation of ['missing-phase', 'invalid-phase', 'unfinished-status']) {
+  for (const mutation of ['missing-phase', 'invalid-phase']) {
     const p = structuredClone(original);
     const snapshot = obj(arr(obj(arr(p.advances)[index]).steps_before).find(raw => obj(raw).id === 'assemble'));
     if (mutation === 'missing-phase') delete snapshot.phase;
-    else if (mutation === 'invalid-phase') snapshot.phase = 'invented';
-    else snapshot.status = 'pending';
+    else snapshot.phase = 'invented';
     writeFileSync(join(dir, 'project.json'), JSON.stringify(p));
     expect(codes(dir)).toContain('ADVANCE_MALFORMED');
   }
-});
-
-test('review the delayed landing boundary warns the day before and refuses on landing day', () => {
-  const dir = fixture(p => {
-    p.stage = 'plan-approved'; p.versions = []; p.signoffs = arr(p.signoffs).slice(0, 2);
-    obj(arr(p.signoffs)[1]).at = '2026-11-07T23:59:59Z'; obj(p.plan).drafted_at = null;
-    for (const raw of arr(obj(p.plan).steps)) obj(raw).status = 'pending';
-  });
-  expect(codes(dir)).not.toContain('STAGE_LAGGING');
-  expect(checkProject(dir).warnings.map(f => f.code)).toContain('STAGE_LAGGING');
-  const p = read(dir); obj(arr(p.signoffs)[1]).at = STAGE_PROGRESS_SINCE;
-  writeFileSync(join(dir, 'project.json'), JSON.stringify(p));
-  expect(codes(dir)).toContain('STAGE_LAGGING');
 });
 
 const PROGRESS = ['STAGE_LAGGING', 'STAGE_SKIPPED', 'STAGE_SIGNOFF_DATE_INVALID', 'ADVANCE_MALFORMED'];
@@ -261,20 +206,7 @@ function acceptRigReview(dir: string, at: string): void {
   signoffCommand(['rig-review', dir, '--by', 'user', '--verbatim-file', words(dir), '--version', '1']);
 }
 
-test.each([
-  ['2026-11-07T12:00:00Z', [], ['STAGE_SKIPPED', 'STAGE_LAGGING']],
-  ['2026-11-08T00:05:00Z', ['STAGE_LAGGING'], ['STAGE_SKIPPED']],
-  ['2026-11-20T00:00:00Z', ['STAGE_LAGGING'], ['STAGE_SKIPPED']],
-])('review a pre-contract hand move warns through a later frontier sign-off at %s', (at, refusals, warnings) => {
-  const dir = checkpoint('3-rig-review', true);
-  testClock.set(new Date(at));
-  expect(progress(dir)).toEqual({ refusals: [], warnings: ['STAGE_SKIPPED'] });
-  acceptRigReview(dir, at);
-  expect(arr(read(dir).signoffs).map(s => obj(s).stage).at(-1)).toBe('rig-review');
-  expect(progress(dir)).toEqual({ refusals, warnings });
-});
-
-test('review the advance after a pre-contract hand move records it and clears the mismatch', () => {
+test('review the advance after a pre-contract hand move records it', () => {
   const dir = join(tempDir(), 'project');
   cpSync(join(import.meta.dir, '../templates/example-chain'), dir, { recursive: true });
   const project = read(dir);
@@ -284,7 +216,7 @@ test('review the advance after a pre-contract hand move records it and clears th
   delete project.advances;
   writeFileSync(join(dir, 'project.json'), JSON.stringify(project));
   testClock.set(new Date('2026-11-20T00:00:00Z'));
-  expect(progress(dir)).toEqual({ refusals: [], warnings: ['STAGE_SKIPPED'] });
+  expect(progress(dir)).toEqual({ refusals: [], warnings: [] });
   advance(dir, 'direction-review');
   expect(obj(arr(read(dir).advances).at(-1)).stage).toBe('direction-review');
   expect(progress(dir)).toEqual({ refusals: [], warnings: [] });
@@ -365,34 +297,3 @@ test('#503 advance direction-review succeeds when current scene and live post ve
   expect(postReport.warnings).toEqual([]);
 });
 
-test.each(['interview', 'plan-approved'])('review a post-contract sign-off of earlier %s keeps a pre-contract hand move a warning', stage => {
-  const dir = checkpoint('3-rig-review', true);
-  testClock.set(new Date('2026-11-20T00:00:00Z'));
-  sign(dir, stage);
-  expect(arr(read(dir).signoffs).map(s => obj(s).stage).at(-1)).toBe(stage);
-  expect(progress(dir)).toEqual({ refusals: [], warnings: ['STAGE_SKIPPED'] });
-});
-
-test('review a hand move after a post-contract arrival sign-off is refused', () => {
-  const dir = checkpoint('3-rig-review');
-  acceptRigReview(dir, '2026-11-20T00:00:00Z');
-  hand(dir, 'post-interview');
-  expect(progress(dir)).toEqual({ refusals: ['STAGE_SKIPPED'], warnings: [] });
-});
-
-test('review a hand move after a post-contract advance is refused although its arrival sign-off is older', () => {
-  const dir = riggingProject();
-  sign(dir, 'rigging-interview');
-  testClock.set(new Date('2026-11-20T00:00:00Z'));
-  advance(dir, 'rigging');
-  hand(dir, 'rig-review');
-  expect(progress(dir)).toEqual({ refusals: ['STAGE_SKIPPED'], warnings: ['STAGE_SKIPPED'] });
-});
-
-test('review a hand move after a post-contract reopen is refused although its arrival sign-off is older', () => {
-  const dir = checkpoint('3-rig-review');
-  testClock.set(new Date('2026-11-20T00:00:00Z'));
-  plantLegacyReopen(dir, 'rigging-interview', { by: 'owner', wordsFile: words(dir) });
-  hand(dir, 'rig-review');
-  expect(progress(dir)).toEqual({ refusals: ['STAGE_SKIPPED'], warnings: ['STAGE_SKIPPED'] });
-});

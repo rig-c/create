@@ -268,10 +268,9 @@ describe('pre-interview handoff', () => {
     expect(cli(['handoff', dir], dir, env).stderr).toContain('PRE_INTERVIEW_OUTPUT_CHANGED');
   });
 
-  test('still evidence, human signature, acceptance dates and review remain required', () => {
+  test('still evidence, a human verdict, acceptance dates and review remain required', () => {
     const cases: [Mutate, string][] = [
       [(p) => { version(p, 2).evidence = []; }, 'RIG_ACCEPTED_WITHOUT_STILL'],
-      [(p) => { p.signoffs = arr(p.signoffs).filter((s) => obj(s).stage !== 'rig-review'); }, 'RIG_REVIEW_UNSIGNED'],
       [(p) => { verdict(p).by = 'agent'; }, 'RIG_VERSION_UNACCEPTED'],
       [(p) => { verdict(p).at = 'not a date'; }, 'VERDICT_MALFORMED'],
     ];

@@ -22,13 +22,12 @@ import { assertCorrectionApproval } from './correction-writers.ts';
 import { OWNER_CHAT_FLAGS, readOwnerChat } from './owner-chat.ts';
 import { Refusal, refuse, USAGE_EXIT } from './refusal.ts';
 import { baselineOf, newFindings } from './refusal-baseline.ts';
-import { collectReopens, reopenTime } from './reopen.ts';
 import { prepareRigReviewPackage } from './review-package.ts';
 import { checkRigReport, parseRigCheckReport, RIG_CHECK_REPORT_FILE, SOURCE_EXPOSURE_ID, type RigCheckTarget } from './rig-check-report.ts';
 import { lockedPackage, type ToolchainKind } from './toolchain-lock.ts';
 import { rigVersionDateFinding } from './rig-version-date.ts';
 import { checkRegisteredRuns, RUN_RECORD_SINCE, RUN_SPECS, RunRecordError, validateRunRecord, type RunSpec } from './run-record.ts';
-import { approvedStructureDelta, latestPartsApproval, partsApprovalIdentity, rigPartsApproval, structurePathIsIgnored } from './structure.ts';
+import { approvedStructureDelta, rigPartsApproval, structurePathIsIgnored } from './structure.ts';
 import { stageOfStep } from './stages.ts';
 import { checkVersionDeclarations, formatDeclarations } from './version-declarations.ts';
 import { HEAD_TURN_SINCE } from './waypoints.ts';
@@ -650,8 +649,6 @@ function depthBindingFindings(dir: string, version: JsonObject, config: JsonObje
   return findings;
 }
 
-export const RIG_PARTS_APPROVAL_SINCE = '2026-11-19T00:00:00Z';
-
 /** Only explicitly registered versions opt in. Older version contracts are unchanged. */
 export function rigRegistrationFindings(dir: string, project: JsonObject, warnings: Finding[] = [], collection: JsonObject | null = null): Finding[] {
   const findings: Finding[] = depthPlanFindings(project, warnings, collection);
@@ -699,10 +696,9 @@ export function rigRegistrationFindings(dir: string, project: JsonObject, warnin
         }
       }
     }
+    // Versions registered before #981 may bind a parts approval; that recorded binding must still resolve.
     if (version.accepted_parts !== undefined && !rigPartsApproval(project, version)) {
       findings.push({ code: 'RIG_PARTS_APPROVAL_INVALID', path: `${path}.accepted_parts`, message: `${path}.accepted_parts: no unique bound parts approval was live at registration; restore its signoff and evidence` });
-    } else if (version.accepted_parts === undefined && Date.parse(String(record.at)) >= Date.parse(RIG_PARTS_APPROVAL_SINCE)) {
-      findings.push({ code: 'RIG_PARTS_APPROVAL_REQUIRED', path: `${path}.accepted_parts`, message: `${path}.accepted_parts: parts approval is missing; approve parts-review and register the rig again` });
     }
     const runPaths = checkRegisteredRuns(dir, path, record, findings, warnings);
     try {
@@ -715,9 +711,6 @@ export function rigRegistrationFindings(dir: string, project: JsonObject, warnin
       const at = pointerValue(raw, isObject(source) ? source.pointer : undefined);
       if (!utcDate(at) || at !== version.at) throw Error('the cited pointer must equal at and contain a valid UTC instant');
       if (Date.parse(at) > Date.parse(String(record.at))) throw Error('the cited not-after instant is later than registration');
-      // Later reopens preserve the historical registration, judged at its own event time.
-      const reopens = collectReopens(project, []).filter(r => r.at <= Date.parse(String(record.at)));
-      if (Date.parse(at) <= reopenTime(reopens, 'rig-review')) add('RIG_BUILD_BEFORE_REOPEN', 'at_source', 'the cited build bound does not follow the reopen covering rig-review at registration');
     } catch (error) { add('RIG_AT_SOURCE_INVALID', 'at_source', String(error)); }
     let adapterRows: NormalizedAdapterRow[] | null = null;
     try { adapterRows = parsePathAdapter(JSON.parse(bytesAt(dir, record.path_adapter).toString())); }
@@ -1522,13 +1515,7 @@ export function rigVersionCommand(args: string[], now: number): { stdout: string
     }
     const { kind: toolchainKind, versions } = lock;
     const registrationAt = new Date(now).toISOString();
-    const needsApproval = now >= Date.parse(RIG_PARTS_APPROVAL_SINCE);
-    const liveApproval = needsApproval ? latestPartsApproval(project, now) : undefined;
-    const acceptedParts = liveApproval && partsApprovalIdentity(liveApproval);
-    if (needsApproval && !acceptedParts) {
-      return fail('RIG_PARTS_APPROVAL_REQUIRED', `versions[v${n}].accepted_parts`, 'approve parts-review before registering frozen outputs');
-    }
-    const approvalBasis = { ...(acceptedParts ? { accepted_parts: acceptedParts } : {}), registration: { at: registrationAt } };
+    const approvalBasis = { registration: { at: registrationAt } };
     const validatedRuns: { path: string; spec: RunSpec }[] = [];
     const seenSpecs = new Set<RunSpec>();
     for (const [i, recordPath] of runRecords.entries()) {
@@ -1687,7 +1674,6 @@ export function rigVersionCommand(args: string[], now: number): { stdout: string
     }
     const structureChanges = approvedStructureDelta(dir, project, { ...approvalBasis, at }, portable);
     const version: JsonObject = { n, kind: 'rig', rig_version: null, at, at_basis: 'not-after', at_source: atSource,
-      ...(acceptedParts ? { accepted_parts: acceptedParts } : {}),
       built_by: options['--by']!, built_with: versions, outputs: outputFiles, evidence: [], verdicts: [], answers_feedback: answersFeedback, review_origin: null,
       changed: 'Registered frozen producer outputs', provenance: { config: configBinding, sections, ...(structureChanges.length ? { structure_delta: structureChanges } : {}) },
       registration: { kind: 'frozen-rig/1', at: registrationAt, toolchain: { kind: toolchainKind, source: toolchain },

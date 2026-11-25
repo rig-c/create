@@ -565,8 +565,7 @@ answer's `additions[]`: `by` and `at` of the verdict, `verbatim` = the
 `--quote` fragment (default: the whole feedback; it must be a fragment of it),
 `value` = `--value` (defaults to `null`)
 and `source: "polish feedback, v<N>"`. The original sentence is not edited.
-Because the guide changed, the steps resting on it need the plan re-signed
-before they run again (`GUIDE_CHANGED_UNSIGNED`).
+The steps resting on the guide may run again without a new signature (#981).
 
 For the latest live rig at `rig-review`, an agent can route an owner's
 changes-requested verdict with exactly one page-level comment to an existing

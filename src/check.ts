@@ -8,7 +8,7 @@ import { partsActFindings } from './parts-act.ts';
 import { isDiscardReceipt, reviewActFindings, type VerifiedInterviewPick } from './review-act.ts';
 import { checkInterviewCommentClosures } from './interview-comment-closures.ts';
 import { checkCheckpointEvidence } from './checkpoint-evidence.ts';
-import { checkAdvances, checkAdvanceBars, checkDirectionReviewAdvances, checkPauses, checkProgressLinkage, checkRiggingInterviewPainting, checkStageProgress, checkStepStatusHistory } from './stage-progress.ts';
+import { checkAdvances, checkDirectionReviewAdvances, checkPauses, checkProgressLinkage, checkRiggingInterviewPainting, checkStepStatusHistory } from './stage-progress.ts';
 import { checkPartsChecks } from './parts-check.ts';
 import { pendingPublicationHoles } from './job-outbox.ts';
 import { checkSignoffAnswers } from './signoff-answers.ts';
@@ -85,8 +85,7 @@ import {
 import type { Json, JsonObject } from './templates.ts';
 import { collectReopens, liveSignoff } from './reopen.ts';
 import { reopenLapseWarnings } from './reopen-lapses.ts';
-import { stepHash } from './step-hash.ts';
-import { collectPlanReplaced, checkReplacedSignoffs, collectCheckpointWithdrawals, checkpointRequired,
+import { collectPlanReplaced, checkReplacedSignoffs, collectCheckpointWithdrawals,
   completedPlanStepNeedsAmendment, planStepCompleted } from './plan-history.ts';
 import { deriveWaypoints, FRAMING_IDS, TURN_QUESTION_SPEC, type DerivedSet } from './waypoints.ts';
 
@@ -328,20 +327,6 @@ export function classify(raw: Json | undefined, ctx: Pick<Ctx, 'collection'>, de
  */
 export function isDecision(raw: Json | undefined): boolean {
   return isObject(raw) && 'value' in raw && typeof raw.reasoning === 'string' && raw.reasoning.trim() !== '';
-}
-
-/**
- * The moments an answer changed: when it was given, when the agent's decision
- * on it (full or partial delegation) was written, and every addition. A
- * decision changed after a sign-off is a change the sign-off never covered.
- * NaN dates are skipped.
- */
-function changeTimes(state: AnswerState): number[] {
-  if (state.state !== 'user' && state.state !== 'delegated' && state.state !== 'not_applicable') return [];
-  const times = [time(state.answer.at)];
-  if (isObject(state.answer.agent_decision)) times.push(time(state.answer.agent_decision.at));
-  for (const add of asArray(state.answer.additions)) if (isObject(add)) times.push(time(add.at));
-  return times.filter((t) => !Number.isNaN(t));
 }
 
 export function answered(state: AnswerState): boolean {
@@ -704,45 +689,6 @@ function checkPlan(ctx: Ctx, replaced: JsonObject[], now: number): void {
     if (checkpoint.state === 'malformed') {
       ctx.refusals.push({ code: 'ANSWER_MALFORMED', path: `${path}.checkpoint`, message: `${path}.checkpoint: ${checkpoint.why}` });
     }
-    if (approval !== undefined) {
-      const hashes = approval.record.step_hashes;
-      const signoffPath = `signoffs[${approval.index}]`;
-      if (hashes === undefined) {
-        ctx.warnings.push({ code: 'STEP_SIGNOFF_HASH_MISSING', path, message: `${path}: covering ${signoffPath} has no step_hashes. Signed contents cannot be verified. Sign again to record the current step` });
-      } else if (!isObject(hashes) || hashes[step.id] !== stepHash(record)) {
-        ctx.refusals.push({ code: 'STEP_EDITED_AFTER_SIGNOFF', path, message: `${path}: current step does not match ${signoffPath}.step_hashes[${step.id}]. Please sign again at ${approvedBy} to approve this step` });
-      }
-    }
-    if (status === 'pending') continue;
-    if (hasStageOrder(ctx.project) && step.phase === 'rig' && stageOfStep(step.phase, step.id) === 'rigging' && !signed(approving, 'rigging-interview')) {
-      ctx.refusals.push({ code: 'RIGGING_INTERVIEW_UNSIGNED', path, message: `${path}: production rigging requires rigging-interview approval; leave this step pending until the person signs` });
-    }
-    // The step has run (or is running): it needs the approving sign-off, given after every answer it rests on last changed.
-    if (approval === undefined) {
-      ctx.refusals.push({ code: 'STEP_RUN_UNAPPROVED', path, message: `${path} is ${status}, but no ${approvedBy} sign-off covers it; use pending before approval` });
-    } else {
-      const latestApproval = Number.isNaN(approval.at) ? Number.NEGATIVE_INFINITY : approval.at;
-      for (const id of restsOn) {
-        const item = itemFor(ctx, id);
-        if (item === undefined) continue;
-        const changed = Math.max(...changeTimes(item.state), Number.NEGATIVE_INFINITY);
-        if (changed > latestApproval) {
-          ctx.refusals.push({
-            code: 'GUIDE_CHANGED_UNSIGNED',
-            path,
-            message: `${path} rests on '${id}', which changed at ${new Date(changed).toISOString()}, after the last ${approvedBy} sign-off covering the step (${latestApproval === Number.NEGATIVE_INFINITY ? 'undated' : new Date(latestApproval).toISOString()}); a changed guide sends the step back for a new sign-off`,
-          });
-        }
-      }
-    }
-    const on = checkpointRequired(ctx.project, record);
-    if (on && status === 'done') {
-      const stages = checkpointStages(ctx, step);
-      const stage = stages[0] as string;
-      if (!approving.signoffs.some((s) => stages.includes(s.stage) && s.checkpoint === step.id)) {
-        ctx.refusals.push({ code: 'CHECKPOINT_UNSIGNED', path, message: `${path} is done with its checkpoint on, but no { "stage": "${stage}", "checkpoint": "${step.id}" } sign-off exists` });
-      }
-    }
   }
   if (planSigned) {
     for (const item of ctx.items) {
@@ -755,38 +701,11 @@ function checkPlan(ctx: Ctx, replaced: JsonObject[], now: number): void {
 }
 
 function checkStages(ctx: Ctx): void {
-  const cur = effectiveIndex(ctx);
-  const paused = ctx.stage === PAUSED_STAGE;
-  const signoffLimit = collectAmendments(ctx.project, []).length > 0 ? stageIndex(ctx.stage) : cur;
-  const plan = isObject(ctx.project.plan) ? ctx.project.plan : {};
-  const draftedAt = time(plan.drafted_at);
-  const riggingApproval = latestSignoff(ctx, 'rigging-interview');
-  if (hasStageOrder(ctx.project) && riggingApproval !== undefined) {
-    const riggingSteps = ctx.steps.filter(step => approvalStageOfStep(step.phase, step.id, true) === 'rigging-interview');
-    const fullPlan = riggingApproval.steps === null || riggingSteps.every(step => riggingApproval.steps?.includes(step.id));
-    // A subset signature stays valid when an uncovered step is drafted later.
-    const laterStep = riggingSteps.find(step => (riggingApproval.steps === null || riggingApproval.steps.includes(step.id))
-      && time(step.record.drafted_at) > riggingApproval.at);
-    if ((fullPlan && riggingApproval.at < time(plan.rigging_drafted_at)) || laterStep) {
-      const path = `signoffs[${riggingApproval.index}]`;
-      const proof = laterStep ? `${laterStep.path}.drafted_at` : 'plan.rigging_drafted_at';
-      ctx.refusals.push({ code: 'SIGNOFF_BEFORE_PLAN', path, message: `${path}: sign the rigging plan at or after ${proof}` });
-    }
-  }
-  const approval = latestSignoff(ctx, 'plan-approved');
-  if (approval !== undefined && Number.isFinite(draftedAt) && !(approval.at >= draftedAt)) {
-    const path = `signoffs[${approval.index}]`;
-    ctx.refusals.push({ code: 'SIGNOFF_BEFORE_PLAN', path, message: `${path}: no plan-approved sign-off is at or after plan.drafted_at ${String(plan.drafted_at)}; sign the drafted plan before running its steps` });
-  }
   for (const s of ctx.signoffs) {
     const path = `signoffs[${s.index}]`;
-    const idx = stageIndex(s.stage);
-    if (idx === -1 && s.stage !== PAUSED_STAGE) {
+    if (stageIndex(s.stage) === -1 && s.stage !== PAUSED_STAGE) {
       ctx.refusals.push({ code: 'SIGNOFF_UNKNOWN_STAGE', path, message: `${path}: stage '${s.stage}' is not a stage (${STAGE_VALUES.join(', ')})` });
       continue;
-    }
-    if (!paused && idx > signoffLimit) {
-      ctx.refusals.push({ code: 'SIGNOFF_AHEAD_OF_STAGE', path, message: `${path}: signs '${s.stage}'${s.checkpoint === null ? '' : ` checkpoint '${s.checkpoint}'`}, which is later than the project's stage '${ctx.stage}'` });
     }
     if (s.checkpoint !== null) {
       const step = stepFor(ctx, s.checkpoint);
@@ -795,32 +714,11 @@ function checkStages(ctx: Ctx): void {
       }
     }
   }
-  if (paused) {
-    if (!ctx.signoffs.some((s) => s.stage === PAUSED_STAGE)) {
-      ctx.refusals.push({ code: 'PAUSED_UNSIGNED', path: 'stage', message: `stage is paused, but no { "stage": "paused" } sign-off stopped it` });
-    }
+  if (ctx.stage === PAUSED_STAGE && !ctx.signoffs.some((s) => s.stage === PAUSED_STAGE)) {
+    ctx.refusals.push({ code: 'PAUSED_UNSIGNED', path: 'stage', message: `stage is paused, but no { "stage": "paused" } sign-off stopped it` });
   }
-  const skip = postNotPassed(ctx) ? new Set(SKIPPED_WHEN_NO_POST) : new Set<string>();
-  if (ctx.predatesPartsReview !== null) skip.add(PARTS_REVIEW);
-  STAGES.forEach((spec, idx) => {
-    if (!hasStageOrder(ctx.project) && spec.id === 'rigging-interview') return;
-    if (idx >= cur || spec.closed_by !== 'signoff' || skip.has(spec.id)) return;
-    if (signed(ctx, spec.id)) return;
-    if (spec.id === 'rigging-interview') {
-      ctx.refusals.push({ code: 'RIGGING_INTERVIEW_UNSIGNED', path: 'stage', message: `stage: rigging requires the person's rigging-interview sign-off; ask the rig guides after parts review and sign their plan` });
-      return;
-    }
-    if (spec.id === PARTS_REVIEW) {
-      ctx.refusals.push({ code: 'PARTS_REVIEW_UNSIGNED', path: 'stage', message: `stage is '${ctx.stage}', past '${PARTS_REVIEW}', but no person signed { "stage": "${PARTS_REVIEW}", "checkpoint": null }; ${PARTS_REVIEW_REMEDY}` });
-      return;
-    }
-    ctx.refusals.push({ code: 'STAGE_UNSIGNED', path: 'stage', message: `stage is '${ctx.stage}', past '${spec.id}', but no { "stage": "${spec.id}", "checkpoint": null } sign-off closed it` });
-  });
   checkPartsStages(ctx);
 }
-
-const PARTS_REVIEW_REMEDY =
-  'rigging does not start until the user has looked at the assembled parts (rig-review\'s parts view) and signed them, or the stage goes back to parts-review';
 
 /**
  * The parts are made and reviewed before any rig is built (rig-c/create#48):
@@ -836,7 +734,6 @@ const PARTS_REVIEW_REMEDY =
  */
 function checkPartsStages(ctx: Ctx): void {
   const cur = effectiveIndex(ctx);
-  const partsIdx = stageIndex('parts');
   const reviewIdx = stageIndex(PARTS_REVIEW);
   if (ctx.predatesPartsReview !== null) {
     if (cur > reviewIdx && !signed(ctx, PARTS_REVIEW)) {
@@ -850,16 +747,6 @@ function checkPartsStages(ctx: Ctx): void {
     // A legacy project may omit a map, but a map it does carry is checked in full.
     if (latestSignoff(ctx, PARTS_REVIEW)?.record.diff_map !== undefined || ctx.project.diff_map !== undefined) checkPartsReviewEvidence(ctx);
     return;
-  }
-  for (const step of ctx.steps) {
-    const stage = stageOfStep(step.phase, step.id);
-    const status = asString(step.record.status) ?? 'pending';
-    if (stage === 'parts' && cur > partsIdx && status !== 'done') {
-      ctx.refusals.push({ code: 'PARTS_BAR_UNMET', path: step.path, message: `${step.path} is ${status}, yet the stage is past 'parts'; the parts stage ends when every step it runs (${STAGES[partsIdx]?.steps?.join(', ') ?? ''}) has met its bar, the parts check passing on the assembled parts` });
-    }
-    if (stage === 'rigging' && cur <= reviewIdx && status !== 'pending' && !signed(ctx, PARTS_REVIEW)) {
-      ctx.refusals.push({ code: 'PARTS_REVIEW_UNSIGNED', path: step.path, message: `${step.path} is ${status}, but no person signed { "stage": "${PARTS_REVIEW}", "checkpoint": null }; ${PARTS_REVIEW_REMEDY}` });
-    }
   }
   checkPartsReviewEvidence(ctx);
 }
@@ -1052,8 +939,6 @@ function checkProjectOnce(projectDirArg: string, candidate: JsonObject | undefin
   checkCheckpointEvidence(dir, project, refusals);
   warnings.push(...appearanceBarWarnings(project, options.now));
   checkStages(ctx);
-  checkStageProgress(ctx, options.forwardWrite, options.resumeStage);
-  checkAdvanceBars(ctx);
   checkRiggingInterviewPainting(ctx);
   checkStepStatusHistory(ctx);
   checkProgressLinkage(ctx);

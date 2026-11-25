@@ -347,8 +347,7 @@ function planResignScope(project: JsonObject, steps: readonly JsonObject[], refu
   }
   const [stage] = stages;
   const singleStage = stages.size === 1 && typeof stage === 'string' && PLAN_BOUND_SIGNOFF_STAGES.includes(stage);
-  const covered = singleStage ? steps.filter(step => stepCoveredByApproval(project, step, stage)) : steps;
-  const affected = guideSignoffMatcher(covered, guides);
+  const affected = guideSignoffMatcher(guides);
   const blocking = refusals.filter(finding => !affected(finding));
   // Prefer an unrelated finding even when stale signatures precede it in check order.
   if (blocking.length) return { stage: null, blocking };

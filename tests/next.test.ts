@@ -766,14 +766,14 @@ describe('Frozen Bar 5 — Plants (lapsed approval, changed bound input DRAFT_RI
     expect(refused.warnings).toBeUndefined();
   });
 
-  test('plant 4 (STAGE_LAGGING): after human signoff, STAGE_LAGGING stays in refusals while the resolving advance is emitted as an agent move that clears it on a scratch copy', () => {
+  test('plant 4 (lagging stage): after human signoff the resolving advance is emitted as an agent move that leaves a clean scratch copy (#981: lag is no finding)', () => {
     const dir = join(tempDir(), 'stage-lagging');
     cpSync(join(CHECKPOINTS_DIR, '0b-plan-pending'), dir, { recursive: true });
     testClock.set(new Date(CHAIN_NOW));
     signoffCommand(['plan-approved', dir, '--by', 'user', '--verbatim-file', join(dir, 'evidence/approval.txt')]);
 
     const report = nextProject(dir, CHAIN_NOW);
-    expect(report.refusals.map(r => r.code)).toContain('STAGE_LAGGING');
+    expect(report.refusals).toEqual([]);
     const advanceMove = report.moves.find(m => m.role === 'agent');
     expect(advanceMove).toMatchObject({
       role: 'agent',
@@ -957,7 +957,7 @@ describe('Frozen Bar 5 — Plants (lapsed approval, changed bound input DRAFT_RI
       expect(apiReport.moves.some(move => move.review_act?.kind === 'signoff' && move.review_act.stage === 'parts-review')).toBe(false);
       const recorded = JSON.parse(readFileSync(join(apiDir, 'project.json'), 'utf8')) as JsonObject;
       expect(arr(recorded.signoffs).map(obj)).toContainEqual(expect.objectContaining({ stage: 'parts-review', draft_id: 'chain' }));
-      expect(checkProject(apiDir, undefined, { now: apiNow, readOnly: true }).refusals.map(f => f.code)).toEqual(['STAGE_LAGGING']);
+      expect(checkProject(apiDir, undefined, { now: apiNow, readOnly: true }).refusals.map(f => f.code)).toEqual([]);
     } finally {
       host?.stop();
       rmSync(jobHostStateRoot(apiDir), { recursive: true, force: true });
@@ -1129,28 +1129,12 @@ describe('Frozen Bar 5 — Plants (lapsed approval, changed bound input DRAFT_RI
       'camera_depth:user',
     ]);
 
-    const beforeAmend = readFileSync(join(postDir, 'project.json'));
+    // #981: an accepted post does not close authoring; the rebuild answering the bounce is offered with no amendment.
+    const beforeRebuildBytes = readFileSync(join(postDir, 'project.json'));
     const closedReport = nextProject(postDir, CHAIN_NOW + 2000);
-    const amendment = closedReport.moves.find(move => move.command?.startsWith('rig-create amend direction-review '))!;
-    expect(amendment).toMatchObject({ role: 'human', field: 'amendments', awaits: 'amendments[target.stage=direction-review]' });
-    expect(amendment.review_act).toBeUndefined();
+    expect(closedReport.moves.some(move => move.command?.startsWith('rig-create amend '))).toBe(false);
     expect(closedReport.moves.some(move => move.command?.startsWith('rig-create reopen '))).toBe(false);
-    expect(closedReport.moves.some(move => move.command?.includes('direction write'))).toBe(false);
-    expect(readFileSync(join(postDir, 'project.json'))).toEqual(beforeAmend);
-
-    const beforeProject = JSON.parse(beforeAmend.toString('utf8')) as JsonObject;
-    const values: Record<string, string> = {
-      '<kind>': 'motion-track', '<artifact id>': 'camera', '<project-relative file>': 'evidence/direction-input.json',
-      '<human>': 'user', '<words file>': postBounceWords,
-    };
-    const amendArgs = printedArgs(amendment.command!).slice(1).map(arg => values[arg] ?? arg);
-    expect(amendArgs.slice(0, 3)).toEqual(['amend', 'direction-review', postDir]);
-    expect(runMainCapture(amendArgs, CHAIN_NOW + 3000)).toMatchObject({ code: 0, stderr: '' });
-    const amended = JSON.parse(readFileSync(join(postDir, 'project.json'), 'utf8')) as JsonObject;
-    expect(amended.stage).toBe(beforeProject.stage!);
-    expect(amended.reopens).toEqual(beforeProject.reopens);
-    expect(obj(arr(amended.amendments).at(-1))).toMatchObject({ by: 'user', target: { stage: 'direction-review', kind: 'motion-track', id: 'camera' } });
-    expect(checkProject(postDir, undefined, { now: CHAIN_NOW + 3000, readOnly: true }).warnings.map(row => row.code)).toContain('FEEDBACK_OPEN');
+    expect(readFileSync(join(postDir, 'project.json'))).toEqual(beforeRebuildBytes);
     const postReport = nextProject(postDir, CHAIN_NOW + 3000);
     expect(postReport.moves).toHaveLength(1);
     expect(postReport.moves[0]).toMatchObject({ role: 'agent', field: 'versions', awaits: 'versions[n=3]' });
@@ -2612,9 +2596,8 @@ test('#579 after a rig-review reopen, next omits history rig versions and lapsed
   }
   expect(runMainCapture(printedRigArgs, v3At)).toMatchObject({ code: 0, stderr: '' });
   const reboundProject = JSON.parse(readFileSync(file, 'utf8')) as JsonObject;
-  const approval = arr(reboundProject.signoffs).map(obj).find(s => s.stage === 'parts-review')!;
-  expect(arr(reboundProject.versions).map(obj).find(v => v.n === 3)?.accepted_parts)
-    .toEqual({ signoff_at: approval.at, evidence: approval.evidence });
+  // #981: rig-version no longer binds a parts approval.
+  expect(arr(reboundProject.versions).map(obj).find(v => v.n === 3)?.accepted_parts).toBeUndefined();
 
   // After registering the post-reopen rig version (v3): next lists only the one-verdict publication route for v3.
   const afterPostReopenRig = nextProject(dir, v3At);

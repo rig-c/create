@@ -1,4 +1,5 @@
-import { afterAll, expect, test } from 'bun:test';
+import { afterAll, beforeAll, expect, test } from 'bun:test';
+import { assemblyConfigReading } from '@rig-c/parts/assembly-reading';
 import { createHash } from 'node:crypto';
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
@@ -6,6 +7,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, posix } from 'node:path';
 import { EXAMPLE_SOURCE_DATE_EPOCH } from '../scripts/example-time.ts';
 import { EXAMPLE_SEETHROUGH } from '../scripts/generate-example-parts.ts';
+import { checkProject as checkProjectRaw } from '../src/check.ts';
 import { outputSetHash, treeFiles } from '../src/current.ts';
 import { recordCommand } from '../src/record.ts';
 import { Refusal } from '../src/refusal.ts';
@@ -40,6 +42,7 @@ function write(dir: string, path: string, bytes: string | Buffer | Uint8Array): 
 }
 
 let cachedTemplate: string | undefined;
+beforeAll(() => { builtTemplate(); }, 30_000);
 afterAll(() => { if (cachedTemplate) rmSync(cachedTemplate, { recursive: true, force: true }); });
 
 /** Build one real producer assemble + check-parts tree from project-root relative paths, then clone per test. */
@@ -373,9 +376,11 @@ test('record parts refuses invalid flags or paths outside the project before rea
 });
 
 /** Record current.rig bound to outputs/parts/rig/parts.json so downstream staleness goes through real record writers. */
-function recordDownstreamRig(dir: string): void {
-  const rigCfgBytes = readFileSync(join(RIG_PRODUCER, 'config.json'));
-  write(dir, 'specs/rig/rig-only.json', rigCfgBytes);
+function recordDownstreamRig(dir: string, rigConfigPath = 'specs/rig/rig-only.json'): void {
+  if (rigConfigPath === 'specs/rig/rig-only.json') {
+    write(dir, rigConfigPath, readFileSync(join(RIG_PRODUCER, 'config.json')));
+  }
+  const rigCfgBytes = readFileSync(join(dir, rigConfigPath));
   cpSync(join(RIG_PRODUCER, 'out'), join(dir, RIG_NEXT), { recursive: true });
   const run = JSON.parse(readFileSync(join(dir, RIG_NEXT, 'run.json'), 'utf8')) as { config: { path: string; sha256: string } };
   run.config.sha256 = sha(rigCfgBytes);
@@ -390,7 +395,7 @@ function recordDownstreamRig(dir: string): void {
   write(dir, buildRunPath, JSON.stringify(buildRun));
   const model = sha(readFileSync(join(dir, RIG_NEXT, 'check/build/skeleton.model.json')));
   write(dir, `${RIG_NEXT}/check/check.json`, `${JSON.stringify({ spec: 'rig-parts-check/1', bar_outcomes: {}, build: { model_sha256: model }, PASS: true }, null, 1)}\n`);
-  expect(recordCommand(['rig', dir, '--from', RIG_NEXT, '--config', 'specs/rig/rig-only.json'], testClock.now()).exit).toBe(0);
+  expect(recordCommand(['rig', dir, '--from', RIG_NEXT, '--config', rigConfigPath], testClock.now()).exit).toBe(0);
 }
 
 test('planted: one byte changed in the painting marks parts stale and, transitively, a rig built from outputs/parts', () => {
@@ -441,4 +446,116 @@ test('check validates current.parts shape under CURRENT_MALFORMED and leaves pro
   expect(bad.refusals.filter(f => f.code === 'CURRENT_MALFORMED').map(f => f.path)).toEqual(['current.parts.built_from[3]']);
   // TreeFiles helper still matches outputs/parts on disk.
   expect(treeFiles(dir, 'outputs/parts').length).toBeGreaterThan(0);
+});
+
+/** Rewrite NEXT/rig/parts.json (updating run.json and parts-check.json bindings) before calling record parts. */
+function rewriteProducerPartsManifest(
+  dir: string,
+  mutate: (manifest: JsonObject) => void,
+): void {
+  const manifestRel = 'rig/parts.json';
+  const manifest = JSON.parse(readFileSync(join(dir, NEXT, manifestRel), 'utf8')) as JsonObject;
+  mutate(manifest);
+  const text = `${JSON.stringify(manifest, null, 2)}\n`;
+  const digest = sha(text);
+  write(dir, `${NEXT}/${manifestRel}`, text);
+  const run = JSON.parse(readFileSync(join(dir, NEXT, 'run.json'), 'utf8')) as { outputs: { path: string; sha256: string }[] };
+  run.outputs.find(o => o.path === manifestRel)!.sha256 = digest;
+  write(dir, `${NEXT}/run.json`, JSON.stringify(run));
+  const report = JSON.parse(readFileSync(join(dir, NEXT, 'check/parts-check.json'), 'utf8')) as { inputs: { path: string; sha256: string | null }[] };
+  report.inputs.find(i => i.path === 'parts.json')!.sha256 = digest;
+  write(dir, `${NEXT}/check/parts-check.json`, JSON.stringify(report));
+}
+
+test('a rig-only config edit leaves current.parts and downstream current.rig current when assembly_config is present', () => {
+  const dir = project();
+  rewriteProducerPartsManifest(dir, manifest => {
+    delete manifest.assembly_config;
+    manifest.assembly_config = assemblyConfigReading(
+      join(dir, CONFIG),
+      manifest as unknown as Parameters<typeof assemblyConfigReading>[1],
+    ) as unknown as JsonObject;
+  });
+  expect(record(dir).exit).toBe(0);
+
+  // Edit rig-only fields that assemble does not read (bones, meshes, motion), then record the rebuilt rig on that config.
+  const cfg = JSON.parse(readFileSync(join(dir, CONFIG), 'utf8')) as JsonObject;
+  cfg.bones = [
+    ...(cfg.bones as JsonObject[]),
+    { name: 'head', parent: 'body', at: [64, 28] },
+  ];
+  cfg.meshes = { face: { grid: 16 } };
+  (cfg.motion as JsonObject).duration = 6;
+  write(dir, CONFIG, `${JSON.stringify(cfg, null, 2)}\n`);
+  expect(sha(readFileSync(join(dir, CONFIG)))).not.toBe(
+    ((parts(dir).built_from as JsonObject[]).find(b => b.path === CONFIG) as JsonObject).sha256,
+  );
+  recordDownstreamRig(dir, CONFIG);
+
+  const afterRigOnly = checkProjectRaw(dir, undefined, { now: testClock.now(), readOnly: true, recordReads: true });
+  expect(codes(afterRigOnly.refusals, 'CURRENT_MALFORMED')).toBe(0);
+  expect(afterRigOnly.warnings.filter(f => f.code === 'OUTPUT_STALE')).toEqual([]);
+});
+
+test('editing an assembly-read config field (or making the config unreadable or missing) marks parts stale and transitively rig stale', () => {
+  const dir = project();
+  rewriteProducerPartsManifest(dir, manifest => {
+    delete manifest.assembly_config;
+    manifest.assembly_config = assemblyConfigReading(
+      join(dir, CONFIG),
+      manifest as unknown as Parameters<typeof assemblyConfigReading>[1],
+    ) as unknown as JsonObject;
+  });
+  expect(record(dir).exit).toBe(0);
+
+  // Edit fields assemble reads (assemble.rig_scale and assemble.seam): parts is stale naming those fields, and rig is transitively stale.
+  const cfg = JSON.parse(readFileSync(join(dir, CONFIG), 'utf8')) as JsonObject;
+  (cfg.assemble as JsonObject).rig_scale = 0.5;
+  (cfg.assemble as JsonObject).seam = 'silhouette';
+  write(dir, CONFIG, `${JSON.stringify(cfg, null, 2)}\n`);
+  recordDownstreamRig(dir, CONFIG);
+
+  const stale = checkProject(dir).warnings.filter(f => f.code === 'OUTPUT_STALE');
+  expect(stale.map(f => f.path)).toEqual(['current.parts', 'current.rig']);
+  expect(stale[0]!.message).toContain(CONFIG);
+  expect(stale[0]!.message).toContain('assemble.rig_scale');
+  expect(stale[0]!.message).toContain('assemble.seam');
+  expect(stale[1]!.message).toContain('upstream parts is stale');
+
+  // Unreadable config throws inside assemblyConfigChanges: check never throws, marks parts stale, and includes the error text.
+  write(dir, CONFIG, '{invalid json\n');
+  const unreadable = checkProject(dir).warnings.filter(f => f.code === 'OUTPUT_STALE');
+  expect(unreadable.map(f => f.path)).toEqual(['current.parts', 'current.rig']);
+  expect(unreadable[0]!.message).toContain(CONFIG);
+  expect(unreadable[0]!.message).toContain('CONFIG_IS_JSON');
+
+  // Missing config stays stale with "is missing" as before.
+  rmSync(join(dir, CONFIG));
+  const missing = checkProject(dir).warnings.filter(f => f.code === 'OUTPUT_STALE');
+  expect(missing.map(f => f.path)).toEqual(['current.parts', 'current.rig']);
+  expect(missing[0]!.message).toContain(`${CONFIG} is missing`);
+});
+
+test('legacy parts.json without assembly_config falls back to whole-file sha256 comparison', () => {
+  const dir = project();
+  rewriteProducerPartsManifest(dir, manifest => {
+    delete manifest.assembly_config;
+  });
+  expect(record(dir).exit).toBe(0);
+  recordDownstreamRig(dir, CONFIG);
+  expect(codes(checkProject(dir).warnings, 'OUTPUT_STALE')).toBe(0);
+
+  // Even a rig-only edit changes the whole-file sha256, so the legacy fallback marks parts (and transitively rig) stale.
+  const cfg = JSON.parse(readFileSync(join(dir, CONFIG), 'utf8')) as JsonObject;
+  cfg.bones = [
+    ...(cfg.bones as JsonObject[]),
+    { name: 'head', parent: 'body', at: [64, 28] },
+  ];
+  write(dir, CONFIG, `${JSON.stringify(cfg, null, 2)}\n`);
+  recordDownstreamRig(dir, CONFIG);
+
+  const stale = checkProject(dir).warnings.filter(f => f.code === 'OUTPUT_STALE');
+  expect(stale.map(f => f.path)).toEqual(['current.parts', 'current.rig']);
+  expect(stale[0]!.message).toContain(`${CONFIG} now hashes`);
+  expect(stale[1]!.message).toContain('upstream parts is stale');
 });

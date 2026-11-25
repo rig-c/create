@@ -355,15 +355,28 @@ after `git gc`.
 
 | Output | Measured bytes (current set) | Determinism |
 | --- | --- | --- |
-| `outputs/rig/` (producer rig dir + `check/build`) | Pilot A: 2,880 + 6,224 KB; Pilot B: 5,096 + 9,204 KB | **unknown**. `docs/PROJECT.md:1703-1704` calls the config/output link "a declaration, not measured reproducibility" |
-| `outputs/motion/` (idle render) | Pilot A: 74,948 KB; Pilot B: 2,324 KB | **unknown** |
-| `outputs/direction/` (compose tree) | Pilot A: 109,052 KB (one post) | **unknown** |
+| `outputs/rig/` (producer rig dir + `check/build`) | Pilot A: 2,880 + 6,224 KB; Pilot B: 5,096 + 9,204 KB | **Deterministic, measured** (#985 slice 1). Two rebuilds from one commit match, except `run.json` `started_at`/`finished_at`. A rebuild also matches the recorded bytes except `run.json`. Pilot A's recorded `check/build` differs in `skeleton.json` `/skeleton/images` and the model's `/images/*/page` only because it was built at a different folder layout. The check's arguments (`--requirements`, `--source`, `--seam-pairs`) change `check.json`, not the build bytes |
+| `outputs/motion/` (idle render) | Pilot A: 74,948 KB; Pilot B: 2,324 KB | **Deterministic, measured.** Run 1 = run 2 = recorded, every file (99 and 43 files) |
+| `outputs/direction/` (compose tree) | Pilot A: 109,052 KB (one post) | **Deterministic in its product, measured.** 145 of 147 files match run to run and against the recorded tree. The other two are `check/build/run.json` (times) and `check/check.json` reason text that carries the absolute `--out` path. The rebuild needs the character build root, which today sits in ignored `derived/rig/…`; it rebuilds from tracked files once `outputs/rig/` holds that root |
 
-Nothing here is declared reproducible on this document's word (HQ ruling,
-Appendix B Q1). The first slice of #985 builds the rig, the idle render and the
-compose tree twice from one commit, on a clone, and compares the hashes.
-Anything that differs is tracked at its measured size, and that PR corrects
-this table.
+Measured in #985 slice 1: each output built twice on clones from one commit,
+with no model or GPU run. Nothing moves to the tracked class. Two rebuild inputs
+are in no run record today: the check's and the idle render's arguments. The
+`record` writer stores them with `built_from` (§1.3) before these outputs leave
+git.
+
+**"Same output" ignores run records.** A file named `run.json` is provenance, not
+product: its `started_at`/`finished_at`, `package.version` and `config.path`
+change on a rebuild whose bytes are otherwise identical. So:
+- a hash over an output set excludes every file named `run.json`;
+- no writer puts a `run.json` path, or the compose `check/check.json` (absolute
+  paths in its reasons), into `built_from`. A node names the product files it
+  reads (for example idle names `outputs/rig/check/build/skeleton.model.json`).
+
+Without this rule, a byte-identical rig rebuild would mark motion and direction
+`OUTPUT_STALE` through a timestamp. Excluding by file name is one rule; a
+per-spec field list would have to follow every producer release, and a missed
+field would mark every rebuild stale.
 
 ### 4.2 Create commits by itself
 

@@ -299,7 +299,7 @@ test('stale rig suppresses staged motion recording while independent post step s
   put(dir, 'project.json', freshPost(dir, staleRecord));
   const fresh = next(dir);
   const plan = ['camera', 'timing', 'composition'].map(id => ({
-    role: 'agent', field: `plan.steps[${id}].status`, awaits: `plan.steps[${id}].status`,
+    role: 'agent' as const, field: `plan.steps[${id}].status`, awaits: `plan.steps[${id}].status`,
     command: `rig-create step-status ${id} in-progress ${dir} --by agent`,
     act: `advance plan.steps[${id}].status from pending to in-progress`,
   }));

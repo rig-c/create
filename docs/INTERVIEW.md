@@ -92,7 +92,9 @@ does not ask it. A sign-off binds such a question to the plan entry (its step an
 sha256), so proposing changed plan bytes makes that binding stale
 (`SIGNOFF_ANSWERS_STALE`) until the stage is signed again. On a stage the per-question process has not touched, `next`
 proposes `plan propose <step>` for each step still open there instead of option
-sets. A stage that already holds a registered option set or a recorded answer
+sets. At `post-interview` on a project using only current outputs, `next` also
+offers option sets for questions with no covering plan. A stage that already
+holds a registered option set or a recorded answer
 keeps its per-question moves, and every recorded set and answer is still read
 and checked as before ([§ Per-ask choices](#per-ask-choices-interview2)).
 

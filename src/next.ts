@@ -6,7 +6,8 @@ import { checkpointEnabled, checkpointRequired, completedPlanStepNeedsAmendment,
 import { createHash } from 'node:crypto';
 import { existsSync, lstatSync, readdirSync, readFileSync, realpathSync } from './check-reads.ts';
 import { isDeepStrictEqual } from 'node:util';
-import { CURRENT_KINDS, isCurrentProject, outputRoot, type CurrentKind } from './current.ts';
+import { CURRENT_KINDS, CURRENT_RIG_MODEL, currentFileBinding, isCurrentProject, outputRoot, type CurrentKind } from './current.ts';
+import { COMPOSE_CHECK_PATH, COMPOSE_RUN_PATH, CURRENT_DIRECTION_PATH, currentDirectionSource } from './current-direction.ts';
 import { currentAdvanceOutputFinding, isPublishAdvanceStage } from './job-advance.ts';
 import { eligibleRigDraftModel, optionPublicationStage, publicationFile, riggingDraftPartsChange } from './job-publication.ts';
 import { latestRigDraftVerdict } from './rig-draft-verdict.ts';
@@ -53,6 +54,7 @@ import { resolveAdoptSource } from './record-adopt.ts';
 import { acceptedReviewVerdict, humanReviewVerdicts, latestAccepted, readVersions, type Versions } from './review.ts';
 import { commentChestAct, decodeReviewAct, SIGNOFF_TARGET_KINDS } from './review-act.ts';
 import { selectSignoffTarget } from './signoff-target.ts';
+import { currentPartsStructureBinding } from './signoff.ts';
 import { bustLandmarkCommands, currentUsesBustVersion } from './review-bust.ts';
 import {
   directionReviewPostState,
@@ -82,7 +84,7 @@ import {
   VALUE_QUESTIONS,
 } from './stages.ts';
 import type { Json, JsonObject } from './templates.ts';
-import { currentScene, plateRegistration, sceneBytes, sceneRig, SceneError } from './scene.ts';
+import { CURRENT_SCENE_PATH, currentScene, plateRegistration, sceneBinding, sceneBytes, sceneRig, SceneError, validateCurrentScene } from './scene.ts';
 import { depthPlanMoves, nextRigRegistrationNumber, NO_DRAFT_VERDICT, rigRegistrationCommand, RIG_VERSION_INPUTS, turnExtraGroupMoves } from './rig-version.ts';
 import { checkVersionDeclarations, type VersionDeclaration } from './version-declarations.ts';
 import { checkRigReport, parseRigCheckReport, RIG_CHECK_REPORT_FILE } from './rig-check-report.ts';
@@ -90,7 +92,7 @@ import { validateRunRecord } from './run-record.ts';
 import { latestPartsApproval, partsApprovalIdentity } from './structure.ts';
 import { resolveAgentCitationSpec } from './scene-authority.ts';
 import { DIRECTION_COMPOSE_SPEC } from './direction-compose.ts';
-import { missingDirectionStepApprovals } from './direction.ts';
+import { DirectionError, directionJson, missingDirectionStepApprovals } from './direction.ts';
 import { currentOutputMove, withStaleOutputs } from './next-stale.ts';
 
 export const NEXT_SCHEMA = 'rig-create/next@1';
@@ -736,11 +738,11 @@ function interviewQuestionMoves(dir: string, stageItems: Item[], effectiveStage:
 }
 
 /**
- * New work gets one plan per step instead of per-question option sets (INTERVIEW.md § Step plans).
- * A stage the per-question process already touched (a registered set or a recorded answer) keeps its
- * question moves, so older projects finish as they started; covered questions are never asked.
+ * New work gets one plan per step (INTERVIEW.md § Step plans).
+ * An untouched current post interview also offers option sets for uncovered questions.
+ * A stage with a registered set or a recorded answer keeps its question moves.
  */
-function stepPlanQuestions(dir: string, project: JsonObject, stageItems: Item[]): { questionItems: Item[]; moves: NextMove[] } {
+function stepPlanQuestions(dir: string, project: JsonObject, stageItems: Item[], allowOptions = false): { questionItems: Item[]; moves: NextMove[] } {
   const started = stageItems.some(item => pendingInterviewOptions(item) !== undefined
     || ((item.state.state === 'user' || item.state.state === 'delegated') && !stepPlanValue(project, item, item.state.answer)));
   const open = stageItems.filter(item => !coveredByStepPlan(project, item));
@@ -760,7 +762,7 @@ function stepPlanQuestions(dir: string, project: JsonObject, stageItems: Item[])
     act: `write one ${step} plan for the whole figure: what you will do and why, in the owner's language. Propose it at once and talk the direction through in chat or Review comments; record what the person says with plan feedback. Feedback is discussion, not a gate`,
     unanswered_by_record: `interview.step_plans[step=${step}]`,
   }));
-  return { questionItems: open.filter(item => item.state.state !== 'silent'), moves: [...moves, ...values] };
+  return { questionItems: allowOptions ? open : open.filter(item => item.state.state !== 'silent'), moves: [...moves, ...values] };
 }
 
 function interviewPlanMoves(dir: string, project: JsonObject, stageItems: Item[], stage: string, steps: JsonObject[]) {
@@ -1207,6 +1209,73 @@ function currentPartsAdvanceMove(dir: string): NextMove {
     act: 'Retain a parts-stage check of the recorded current parts in evidence and advance to parts-review.' };
 }
 
+function currentPartsReviewMove(dir: string, project: JsonObject, now: number): NextMove | undefined {
+  let target: JsonObject | undefined;
+  try {
+    target = selectSignoffTarget(dir, project, 'parts-review');
+  } catch (error) {
+    if (!(error instanceof Refusal)) throw error;
+    return;
+  }
+  if (!target) return;
+  const awaits = 'signoffs[stage=parts-review]';
+  try {
+    currentPartsStructureBinding(dir, project, target, undefined, now);
+  } catch (error) {
+    if (!(error instanceof Refusal)) throw error;
+    if (error.code !== 'STRUCTURE_DECISIONS_MISSING') {
+      return { role: 'agent', field: 'current.parts.structure', awaits, command: null,
+        act: `${error.code}: ${error.message}` };
+    }
+    return { role: 'agent', field: 'current.parts.structure', awaits, command: `rig-create structure-snapshot ${shellWord(dir)}`,
+      act: 'Retain the structure snapshot of the recorded parts before asking for approval.' };
+  }
+  return { role: 'human', field: 'signoffs', awaits,
+    command: `rig-create signoff parts-review ${shellWord(dir)} ${OWNER_CHAT_COMMAND_FLAGS}`,
+    act: "Relay the owner's approval of the recorded parts with their exact words, date and relay identity." };
+}
+
+function currentPostOutputMove(dir: string, project: JsonObject, kind: 'motion' | 'direction'): NextMove | undefined {
+  const inProject = (command: string) => `(cd ${shellWord(dir)} && ${command})`;
+  if (kind === 'motion') {
+    if (!currentFileBinding(project, 'rig', CURRENT_RIG_MODEL)) return;
+    if (existsSync(join(dir, 'outputs/motion.next/frames.json'))) return currentOutputMove(dir, kind, shellWord);
+    return { role: 'producer', field: 'current.motion', awaits: 'current.motion',
+      command: inProject("rigc render --candidate outputs/rig/check/build --out outputs/motion.next --animation idle --fps '<frames-per-second>'"),
+      act: 'Render the recorded rig at the requested sample rate, then record the staged motion.' };
+  }
+  if (!isObject(project.current) || !isObject(project.current.motion)) return;
+  try {
+    const scene = directionJson(sceneBytes(dir, CURRENT_SCENE_PATH, 'SCENE_FILE_CHANGED'), CURRENT_SCENE_PATH);
+    validateCurrentScene(dir, project, scene);
+    if (!sceneBinding(scene.compose)) throw new SceneError('SCENE_MALFORMED', CURRENT_SCENE_PATH, 'expected a Parts compose scene');
+  } catch (error) {
+    if (!(error instanceof SceneError || error instanceof DirectionError)) throw error;
+    return { role: 'agent', field: CURRENT_SCENE_PATH, awaits: CURRENT_SCENE_PATH,
+      command: `rig-create scene write ${shellWord(dir)} --compose-scene specs/direction/compose-scene.json`,
+      act: "Author the Parts scene from the owner's composition choice and registered plate, then seal it against the recorded rig and motion." };
+  }
+
+  let sourcePath: string;
+  try {
+    const snapshots = new Map<string, Buffer>();
+    const document = directionJson(sceneBytes(dir, CURRENT_DIRECTION_PATH, 'DIRECTION_SOURCE_CHANGED', snapshots), CURRENT_DIRECTION_PATH);
+    sourcePath = currentDirectionSource(dir, project, document, snapshots).source.path;
+  } catch (error) {
+    if (!(error instanceof SceneError || error instanceof DirectionError)) throw error;
+    return { role: 'agent', field: CURRENT_DIRECTION_PATH, awaits: CURRENT_DIRECTION_PATH,
+      command: `rig-create direction write ${shellWord(dir)} --file specs/direction/intent.json`,
+      act: 'Author a looping take and citations for the current camera, timing and composition choices, then seal the direction spec.' };
+  }
+
+  if ([COMPOSE_RUN_PATH, COMPOSE_CHECK_PATH].every(path => existsSync(join(dir, 'outputs/direction.next', path)))) {
+    return currentOutputMove(dir, kind, shellWord);
+  }
+  return { role: 'producer', field: 'current.direction', awaits: 'current.direction',
+    command: inProject(`rig-parts compose --scene ${shellWord(sourcePath)} --out outputs/direction.next`),
+    act: 'Compose the scene bound by the direction spec, then record the staged direction.' };
+}
+
 /** An occupied path is never a fresh producer destination, including dangling links. */
 function retouchPathExists(dir: string, path: string): boolean {
   try { lstatSync(resolve(dir, path)); return true; }
@@ -1470,15 +1539,18 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
   });
   const hasNumberedOutputs = [project.drafts, project.versions, project.scenes].some(entries => asArray(entries).length > 0);
   // Start offering outputs when the project reaches parts, after interview and plan approval.
-  const partsOnCurrentPath = project.stage === 'parts' && !hasNumberedOutputs;
-  const { blocksOutputMoves, ...derived } = deriveNextProject(dir, project, report, now, steps, staleSteps, partsOnCurrentPath);
+  const currentPath = !hasNumberedOutputs && (project.stage === 'parts' || isCurrentProject(project));
+  const { blocksOutputMoves, ...derived } = deriveNextProject(dir, project, report, now, steps, staleSteps, currentPath);
   let next = derived;
   if (!blocksOutputMoves && derived.stage !== PAUSED_STAGE) {
-    const current = project.current === undefined && partsOnCurrentPath ? {} : project.current;
+    const current = project.current === undefined && currentPath ? {} : project.current;
     if (isObject(current)) {
       const missing = new Map(CURRENT_KINDS.flatMap(kind => {
         if (current[kind] !== undefined) return [];
-        return [[kind, { adoption: adoptionMove(dir, project, kind), producer: currentOutputMove(dir, kind, shellWord) }]] as const;
+        const producer = currentPath && (kind === 'motion' || kind === 'direction')
+          ? derived.effective_stage === 'post' ? currentPostOutputMove(dir, project, kind) : undefined
+          : currentOutputMove(dir, kind, shellWord);
+        return producer ? [[kind, { adoption: adoptionMove(dir, project, kind), producer }]] as const : [];
       }));
       next = withStaleOutputs(dir, current, report.warnings, derived, shellWord, missing);
     }
@@ -1523,10 +1595,10 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
 }
 
 function deriveNextProject(dir: string, project: JsonObject, report: CheckReport, now: number,
-  steps: JsonObject[], staleSteps: { finding: Finding; step: JsonObject }[], partsOnCurrentPath: boolean): NextReport & { blocksOutputMoves?: true } {
+  steps: JsonObject[], staleSteps: { finding: Finding; step: JsonObject }[], currentPath: boolean): NextReport & { blocksOutputMoves?: true } {
   const stage = String(project.stage ?? '');
   const effectiveStage = String(report.effective_stage ?? stage);
-  const legacyWrites = !partsOnCurrentPath && !isCurrentProject(project);
+  const legacyWrites = !currentPath && !isCurrentProject(project);
   const warnings = report.warnings.filter(w => w.code === 'STRUCTURE_DELTA_REVIEW' || w.code === 'REVIEW_ANSWER_COMMENT_ROUTED'
     || w.code === 'OUTPUT_STALE' || (!legacyWrites && ['FEEDBACK_OPEN', 'REOPEN_SIGNOFF_LAPSED', 'REOPEN_VERDICT_LAPSED'].includes(w.code)));
   const collection = loadCollection(dir);
@@ -1643,6 +1715,13 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
   const blockingRefusals = report.refusals.filter(r => r.code === 'PLAN_STEP_PREDATES_ANSWER' ? scopedStale.has(r)
     : !isOpenInterviewTodo(r, effectiveStage));
   const registrations = plateInputMoves(dir, project, allItems, now);
+  const allowPostOptions = currentPath && effectiveStage === 'post-interview';
+  if (allowPostOptions && registrations.length === 0 && stageItems.some(item =>
+    item.id === 'post_composition' && item.state.state === 'silent' && !pendingInterviewOptions(item))) {
+    registrations.push({ role: 'agent', field: 'inputs', awaits: 'inputs',
+      command: `rig-create input add '<background-image>' ${shellWord(dir)} --origin '<origin>'`,
+      act: "If the owner's intended background is unregistered, put it inside the project and register it with its source origin." });
+  }
   if (blockingHoles.length > 0 || blockingRefusals.length > 0) {
     const signoffs = asArray(project.signoffs);
     const readyToResign = new Map<string, boolean>();
@@ -1674,7 +1753,7 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
     // Keep the interview and plan drafting available while a stale step blocks approval.
     const interviewCanContinue = holes.length === 0 && blockingRefusals.every(r => r.code === 'PLAN_STEP_PREDATES_ANSWER')
       && stage !== PAUSED_STAGE && isOpenInterviewStage(effectiveStage);
-    const stepPlans = stepPlanQuestions(dir, project, stageItems);
+    const stepPlans = stepPlanQuestions(dir, project, stageItems, allowPostOptions);
     const questions = interviewCanContinue ? [...stepPlans.moves, ...interviewQuestionMoves(dir, stepPlans.questionItems, effectiveStage)] : [];
     const plan = interviewCanContinue ? interviewPlanMoves(dir, project, stageItems, effectiveStage, steps) : undefined;
     const awaits = [...moves, ...questions].map(move => move.awaits);
@@ -2103,7 +2182,7 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
       },
     });
   } else if (isOpenInterviewStage(effectiveStage)) {
-    const stepPlans = stepPlanQuestions(dir, project, stageItems);
+    const stepPlans = stepPlanQuestions(dir, project, stageItems, allowPostOptions);
     for (const move of [...stepPlans.moves, ...interviewQuestionMoves(dir, stepPlans.questionItems, effectiveStage)]) {
       addAwait(move.awaits);
       moves.push(move);
@@ -2133,7 +2212,7 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
             ? undecidedFields.join(', ')
             : undefined;
       const fromPicks = pickSignoffEvidence(dir, project, effectiveStage, now);
-      if (fromPicks && !unansweredSignoff) moves.push({
+      if (fromPicks && !unansweredSignoff && !currentPath) moves.push({
         role: 'agent', field: 'signoffs', awaits: signoffAwait,
         command: `rig-create signoff ${effectiveStage} ${shellWord(dir)} --from-picks`,
         act: `record ${effectiveStage} approval from the ingested owner picks`,
@@ -2296,10 +2375,13 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
 
       if (effectiveStage === 'parts') {
         addAwait('project.stage');
-        if (partsOnCurrentPath && refusals.length === 0
+        if (currentPath && stage === 'parts' && refusals.length === 0
           && isObject(project.current) && isObject(project.current.parts)
           && existsSync(join(dir, outputRoot('parts'), 'rig', 'parts.json'))) {
-          moves.push(currentPartsAdvanceMove(dir));
+          const command = candidateAdvance(dir, project, 'parts-review', now,
+            { report: `evidence/${PARTS_CHECK_FILE}`, root: `${outputRoot('parts')}/rig` });
+          moves.push(command ? { role: 'agent', field: 'stage', awaits: 'project.stage', command,
+            act: 'Advance to parts-review with the retained check of the recorded parts.' } : currentPartsAdvanceMove(dir));
         }
       } else if (hasLiveStageSignoff('parts-review')) {
         const nextStage = nextStageInOrder(project, stage);
@@ -2315,6 +2397,12 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
               act: `advance stage from ${stage} to ${nextStage}`,
             });
           }
+        }
+      } else if (currentPath && !recordedLapseTargets.has(signoffAwait)) {
+        const move = currentPartsReviewMove(dir, project, now);
+        if (move) {
+          addAwait(move.awaits);
+          moves.push(move);
         }
       }
     }
@@ -2743,7 +2831,8 @@ export function formatNext(report: NextReport | NextCollectionReport): string {
   for (const move of report.moves) {
     const label = move.command ?? move.act;
     lines.push(`  [${move.role}] (${move.field} -> ${move.awaits}) ${label}`);
-    if (move.command !== null && (ROUTED_ANSWER_COMMENT_PATH.test(move.field) || move.field.startsWith('current.'))) {
+    if (move.command !== null && (ROUTED_ANSWER_COMMENT_PATH.test(move.field) || move.field.startsWith('current.')
+      || move.field === CURRENT_SCENE_PATH || move.field === CURRENT_DIRECTION_PATH)) {
       lines.push(`    ${move.act}`);
     }
     if (move.unanswered_by_record) {

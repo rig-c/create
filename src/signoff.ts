@@ -63,7 +63,7 @@ function currentPartsDraftOption(opts: Record<string, string>): void {
   }
 }
 
-function currentPartsStructureBinding(dir: string, project: JsonObject, target: JsonObject, path: string | undefined, now: number) {
+export function currentPartsStructureBinding(dir: string, project: JsonObject, target: JsonObject, path: string | undefined, now: number) {
   const rel = path ?? `evidence/structure/current-parts/${String(target.record_sha256)}.json`;
   const at = `signoffs[${asArray(project.signoffs).length}].structure`;
   const remedy = 'run structure-snapshot on current.parts and use its output or pass --structure-file <path>';

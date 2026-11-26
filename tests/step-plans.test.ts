@@ -354,6 +354,20 @@ test('#1054 a fresh project records current parts and advances with a retained c
   expect(String(evidence.path)).toMatch(/^evidence\/parts-review\.[^/]+\/parts-check\.json$/);
   expect(evidence.sha256).toBe(createHash('sha256').update(readFileSync(join(dir, String(evidence.path)))).digest('hex'));
   expect(checkProject(dir, undefined, { now: testClock.now() }).refusals).toEqual([]);
+
+  const snapshot = next().moves.find(move => move.command?.startsWith('rig-create structure-snapshot '));
+  expect(snapshot?.role).toBe('agent');
+  expect(next().moves.some(move => move.command?.startsWith('rig-create signoff parts-review '))).toBe(false);
+  expect(spawnCli(['structure-snapshot', dir], root, env)).toMatchObject({ code: 0, stderr: '' });
+  const signoff = next().moves.find(move => move.command?.startsWith('rig-create signoff parts-review '));
+  expect(signoff?.role).toBe('human');
+  expect(signoff?.command).toContain("--by '<owner>' --owner-chat '<words file>' --said-at '<ISO date>' --relayed-by '<operator>'");
+  const words = join(root, 'parts-approval.txt');
+  writeFileSync(words, 'Approve the synthetic parts.\n');
+  testClock.set(testClock.now() + 1000);
+  expect(spawnCli(['signoff', 'parts-review', dir, '--by', 'synthetic-owner', '--owner-chat', words,
+    '--said-at', testClock.iso(), '--relayed-by', 'agent'], root, env)).toMatchObject({ code: 0, stderr: '' });
+  expect(next().moves.some(move => move.command?.startsWith('rig-create advance rigging-interview '))).toBe(true);
 });
 
 test('#1054 numbered parts keep draft evidence moves', () => {

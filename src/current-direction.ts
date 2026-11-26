@@ -23,7 +23,7 @@ function transitionError(error: unknown): never {
 }
 
 /** Validate the spec and producer input against current bindings and the existing owner answers. */
-function currentDirectionSource(dir: string, project: JsonObject, doc: JsonObject, snapshots: Map<string, Buffer>) {
+export function currentDirectionSource(dir: string, project: JsonObject, doc: JsonObject, snapshots: Map<string, Buffer>) {
   const bad = (why: string): never => directionFail('DIRECTION_CURRENT_SPEC_INVALID', CURRENT_DIRECTION_PATH, why);
   if (!closed(doc, ['schema', 'rig', 'scene', 'take', 'citations']) || doc.schema !== CURRENT_DIRECTION_SPEC
     || !closed(doc.rig, ['model']) || !sceneBinding(doc.rig.model) || !sceneBinding(doc.scene) || doc.scene.path !== CURRENT_SCENE_PATH

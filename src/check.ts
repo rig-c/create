@@ -12,7 +12,7 @@ import { checkAdvances, checkDirectionReviewAdvances, checkPauses, checkProgress
 import { checkPartsChecks } from './parts-check.ts';
 import { pendingPublicationHoles } from './job-outbox.ts';
 import { checkSignoffAnswers } from './signoff-answers.ts';
-import { checkSignoffTarget } from './signoff-target.ts';
+import { checkSignoffTarget, signoffTargetFormat } from './signoff-target.ts';
 import { checkOverrides } from './overrides.ts';
 import { intakeWarnings } from './intake.ts';
 import { checkDirections } from './direction.ts';
@@ -410,7 +410,7 @@ export function collectSignoffs(project: JsonObject, refusals: Finding[]): Signo
 
 // ------------------------------------------------------------------- helpers
 
-function signoffsFor(ctx: Ctx, stage: string): Signoff[] {
+function signoffsFor(ctx: Pick<Ctx, 'signoffs'>, stage: string): Signoff[] {
   return ctx.signoffs.filter((s) => s.stage === stage && s.checkpoint === null);
 }
 function signed(ctx: Ctx, stage: string): boolean {
@@ -783,7 +783,7 @@ function checkPartsVerdictDrafts(ctx: Ctx, history: readonly Signoff[]): void {
 }
 
 /** The latest stage-level sign-off, optionally covering a step, by date then array position. Undated counts as earliest. */
-function latestSignoff(ctx: Ctx, stage: string, stepId?: string): Signoff | undefined {
+function latestSignoff(ctx: Pick<Ctx, 'signoffs'>, stage: string, stepId?: string): Signoff | undefined {
   let best: Signoff | undefined;
   for (const s of signoffsFor(ctx, stage)) {
     if (stepId !== undefined && s.steps !== null && !s.steps.includes(stepId)) continue;
@@ -792,6 +792,22 @@ function latestSignoff(ctx: Ctx, stage: string, stepId?: string): Signoff | unde
     if (best === undefined || at >= bestAt) best = s;
   }
   return best;
+}
+
+function currentTargetSignoffs(signoffs: Signoff[]): Signoff[] {
+  return signoffs.filter(s => signoffTargetFormat(s.record.target) === 'current');
+}
+
+/** The exact binding that a normal record of this output can invalidate. */
+export function activeCurrentSignoffTargetPath(project: JsonObject, kind: 'rig' | 'direction'): string | undefined {
+  const stage = kind === 'rig' ? 'rig-review' : 'direction-review';
+  const reopens = collectReopens(project, []);
+  const signoffs = collectSignoffs(project, []).filter(s => s.stage === stage && liveSignoff(reopens, s.stage, s.at));
+  const active = latestSignoff({ signoffs: currentTargetSignoffs(signoffs) }, stage);
+  const target = active?.record.target;
+  if (active && isObject(target) && target.subject === `current.${kind}`) {
+    return `signoffs[${active.index}].target`;
+  }
 }
 
 // ---------------------------------------------------------------------- entry
@@ -883,8 +899,14 @@ function checkProjectOnce(projectDirArg: string, candidate: JsonObject | undefin
     refusals.push({ code: 'SIGNOFF_UNKNOWN_STAGE', path, message: `${path}: unknown stage ${s.stage}; use a known stage` });
     return false;
   });
-  for (const s of historySignoffs) checkSignoffTarget(dir, project, s.record, `signoffs[${s.index}]`, refusals, warnings);
   const signoffs = historySignoffs.filter(s => liveSignoff(reopens, s.stage, s.at));
+  const currentSignoffs = currentTargetSignoffs(signoffs);
+  const activeReviewSignoffs = new Set(['rig-review', 'direction-review'].map(review => latestSignoff({ signoffs: currentSignoffs }, review)));
+  for (const s of historySignoffs) {
+    // The current tree is mutable. Only the latest live current signature binds it.
+    if (signoffTargetFormat(s.record.target) === 'current' && !activeReviewSignoffs.has(s)) continue;
+    checkSignoffTarget(dir, project, s.record, `signoffs[${s.index}]`, refusals, warnings);
+  }
   const steps = collectSteps(project, refusals);
   collectCheckpointWithdrawals(project, refusals, options.now);
   collectBarAmendments(project, refusals, options.now);

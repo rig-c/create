@@ -1,10 +1,11 @@
 import { afterEach, expect, test } from 'bun:test';
 import { createHash } from 'node:crypto';
-import { cpSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import type { Finding } from '../src/check.ts';
 import { Refusal } from '../src/refusal.ts';
-import { checkSignoffTarget, SIGNOFF_TARGET_SINCE } from '../src/signoff-target.ts';
-import type { JsonObject } from '../src/templates.ts';
+import { checkSignoffTarget, selectSignoffTarget, SIGNOFF_TARGET_SINCE } from '../src/signoff-target.ts';
+import type { Json, JsonObject } from '../src/templates.ts';
 import { directionFixture } from './direction-fixture.ts';
 import { plantLegacyReopen, arr, fixture, obj, withdrawSignature } from './fixtures.ts';
 import { tempDir } from './helpers.ts';
@@ -36,6 +37,114 @@ function refused(dir: string, stage: string, version?: string, code = 'SIGNOFF_T
   catch (error) { expect(error).toBeInstanceOf(Refusal); expect((error as Refusal).code).toBe(code); }
   expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
 }
+
+const currentStages = [['rig', 'rig-review'], ['direction', 'direction-review']] as const;
+
+function currentFixture(kind: 'rig' | 'direction', dir = tempDir()) {
+  const root = `outputs/${kind}`;
+  mkdirSync(join(dir, root), { recursive: true });
+  const product = 'synthetic reviewed output';
+  const productPath = `${root}/product.txt`;
+  const runPath = `${root}/run.json`;
+  writeFileSync(join(dir, productPath), product);
+  writeFileSync(join(dir, runPath), '{}');
+  const report = { path: productPath, sha256: hash(product) };
+  const run = { path: runPath, sha256: hash('{}') };
+  const files = [{ ...report, bytes: product.length }, { ...run, bytes: 2 }];
+  const filesHash = hash(JSON.stringify([[report.path, report.sha256]]));
+  const node: JsonObject = { run, report, files, files_sha256: filesHash, built_from: [], built_with: { z: '2', a: '1' },
+    built_by: 'synthetic-builder', at: '2026-11-26T00:00:00.000Z', audit: { z: 2, a: 1 },
+    ...(kind === 'rig' ? { rebuild: { recorded: false, note: 'synthetic rig' } } : {}) };
+  const project: JsonObject = { current: { [kind]: node } };
+  const recordHash = hash(JSON.stringify({
+    at: node.at, audit: { a: 1, z: 2 }, built_by: 'synthetic-builder', built_from: [], built_with: { a: '1', z: '2' },
+    files: files.map(({ bytes, path, sha256 }) => ({ bytes, path, sha256 })), files_sha256: filesHash,
+    ...(kind === 'rig' ? { rebuild: { note: 'synthetic rig', recorded: false } } : {}), report, run,
+  }));
+  return { dir, project, node, root, productPath, target: { subject: `current.${kind}`, record_sha256: recordHash, files_sha256: filesHash } };
+}
+
+function targetFindings(dir: string, project: JsonObject, signature: JsonObject) {
+  const refusals: Finding[] = [];
+  const warnings: Finding[] = [];
+  checkSignoffTarget(dir, project, signature, 'signoffs[0]', refusals, warnings);
+  return { refusals, warnings };
+}
+
+test.each(currentStages)('%s target round trips with a canonical digest of the whole record', (kind, stage) => {
+  const { dir, project, node, target } = currentFixture(kind);
+  expect(selectSignoffTarget(dir, project, stage)).toEqual(target);
+  const reordered = Object.fromEntries(Object.entries(node).reverse());
+  obj(project.current)[kind] = { ...reordered, audit: { a: 1, z: 2 } };
+  expect(targetFindings(dir, project, { stage, target, at: SIGNOFF_TARGET_SINCE })).toEqual({ refusals: [], warnings: [] });
+});
+
+test.each(currentStages)('%s target catches independent record, signed-files and disk drift', (kind, stage) => {
+  const { dir, project, node, root, productPath, target } = currentFixture(kind);
+  const signature = { stage, target, at: SIGNOFF_TARGET_SINCE };
+  node.audit = { z: 3, a: 1 };
+  const changed = selectSignoffTarget(dir, project, stage);
+  expect(changed?.files_sha256).toBe(target.files_sha256);
+  expect(changed?.record_sha256).not.toBe(target.record_sha256);
+  expect(targetFindings(dir, project, signature).refusals.map(f => f.code)).toEqual(['SIGNOFF_TARGET_STALE']);
+  node.audit = { z: 2, a: 1 };
+  const wrongFiles = { ...target, files_sha256: '0'.repeat(64) };
+  expect(targetFindings(dir, project, { ...signature, target: wrongFiles }).refusals.map(f => f.code)).toEqual(['SIGNOFF_TARGET_STALE']);
+  writeFileSync(join(dir, productPath), 'different bytes on disk');
+  expect(() => selectSignoffTarget(dir, project, stage)).toThrow(expect.objectContaining({ code: 'SIGNOFF_TARGET_STALE' }));
+  const { refusals } = targetFindings(dir, project, signature);
+  expect(refusals).toEqual([expect.objectContaining({ code: 'SIGNOFF_TARGET_STALE', message: expect.stringContaining(root) })]);
+});
+
+test.each(currentStages)('%s target refuses malformed or missing bindings with the current remedy and legacy dates', (kind, stage) => {
+  const { dir, project, target } = currentFixture(kind);
+  const variants: [Json | undefined, string][] = [
+    [undefined, 'MISSING'], [null, 'MISSING'], [{}, 'STALE'],
+    [{ ...target, subject: kind === 'rig' ? 'current.direction' : 'current.rig' }, 'STALE'],
+    [{ record_sha256: target.record_sha256, files_sha256: target.files_sha256 }, 'STALE'],
+    [{ ...target, record_sha256: '0' }, 'STALE'], [{ ...target, version: 2 }, 'STALE'],
+  ];
+  for (const [value, code] of variants) {
+    const signature = { stage, ...(value === undefined ? {} : { target: value }) };
+    const finding = { path: 'signoffs[0].target', message: expect.stringContaining(`rig-create record ${kind}`) };
+    expect(targetFindings(dir, project, { ...signature, at: SIGNOFF_TARGET_SINCE })).toEqual({
+      refusals: [expect.objectContaining({ ...finding, code: `SIGNOFF_TARGET_${code}` })], warnings: [],
+    });
+    expect(targetFindings(dir, project, { ...signature, at: '2026-11-05T23:59:59.999Z' })).toEqual({
+      refusals: [], warnings: [expect.objectContaining({ ...finding, code: `SIGNOFF_TARGET_${code}_LEGACY` })],
+    });
+  }
+  expect(targetFindings(dir, {}, { stage, target, at: SIGNOFF_TARGET_SINCE }).refusals).toEqual([
+    expect.objectContaining({ code: 'SIGNOFF_TARGET_STALE', message: expect.stringContaining(`rig-create record ${kind}`) }),
+  ]);
+});
+
+test.each(currentStages)('%s selects current in a mixed record and retains numbered reads after adoption', (kind, stage) => {
+  const dir = setup(stage);
+  const project = load(dir);
+  const historical = sign(dir, stage);
+  expect(selectSignoffTarget(dir, project, stage)).toEqual(obj(historical.target));
+  const { node, target } = currentFixture(kind, dir);
+  const signature = { stage, target, at: SIGNOFF_TARGET_SINCE };
+  const other = kind === 'rig' ? 'direction' : 'rig';
+  for (const current of [null, [], { [other]: node }, { [kind]: null }, { [kind]: { ...node, files_sha256: '0'.repeat(64) } }]) {
+    project.current = current;
+    expect(() => selectSignoffTarget(dir, project, stage)).toThrow(expect.objectContaining({
+      code: 'SIGNOFF_TARGET_STALE', message: expect.stringContaining(`rig-create record ${kind}`),
+    }));
+    expect(() => selectSignoffTarget(dir, project, stage, String(obj(historical.target).version)))
+      .toThrow(expect.objectContaining({ code: 'SIGNOFF_OPTION_INVALID', exitCode: 2 }));
+    expect(targetFindings(dir, project, signature).refusals).toEqual([
+      expect.objectContaining({ code: 'SIGNOFF_TARGET_STALE', message: expect.stringContaining(`rig-create record ${kind}`) }),
+    ]);
+    expect(targetFindings(dir, project, historical)).toEqual({ refusals: [], warnings: [] });
+  }
+  project.current = { [kind]: node };
+  expect(selectSignoffTarget(dir, project, stage)).toEqual(target);
+  expect(() => selectSignoffTarget(dir, project, stage, String(obj(historical.target).version)))
+    .toThrow(expect.objectContaining({ code: 'SIGNOFF_OPTION_INVALID', exitCode: 2 }));
+  expect(targetFindings(dir, project, historical)).toEqual({ refusals: [], warnings: [] });
+});
 
 test.each([undefined, '2'])('rig writer binds independently hashed inventory, version %s', version => {
   const dir = setup(); const result = sign(dir, 'rig-review', version);

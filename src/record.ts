@@ -8,7 +8,7 @@ import { closeSync, mkdirSync, openSync, renameSync, rmSync } from 'node:fs';
 import { isAbsolute, join, posix, relative, resolve, sep } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import { existsSync, lstatSync, readFileSync, realpathSync } from './check-reads.ts';
-import { checkProject, isObject, PROJECT_SCHEMA } from './check.ts';
+import { activeCurrentSignoffTargetPath, checkProject, isObject, PROJECT_SCHEMA } from './check.ts';
 import { literalFile } from './choices.ts';
 import { readDirectionOutput } from './current-direction.ts';
 import { builtFromNameAllowed, CURRENT_KINDS, CURRENT_RIG_MODEL, currentFileBinding, currentHash, currentShapeFindings, isRunRecordFile, outputRoot, outputSetHash, RUN_RECORD_NAME, sha256, treeFiles, type CurrentKind, type RebuildRunSpec } from './current.ts';
@@ -582,9 +582,14 @@ export function recordCommand(args: string[], now: number): CommandResult {
     if (shape) refuse(shape.code, shape.message);
     const before = checkProject(dir, undefined, { now });
     const baseline = baselineOf(before);
+    // Replacing a signed current output stales only its active signature; check keeps reporting it.
+    const targetPath = kind === 'rig' || kind === 'direction' ? activeCurrentSignoffTargetPath(project, kind) : undefined;
     const checkCandidate = (): ReturnType<typeof checkProject> => {
       const report = checkProject(dir, candidate, { now });
-      const [fresh, ...more] = newFindings(baseline, report.refusals);
+      const blocking = newFindings(baseline, report.refusals);
+      const replacedTarget = targetPath === undefined ? -1 : blocking.findIndex(f => f.code === 'SIGNOFF_TARGET_STALE' && f.path === targetPath);
+      if (replacedTarget >= 0) blocking.splice(replacedTarget, 1);
+      const [fresh, ...more] = blocking;
       if (fresh) refuse(fresh.code, [fresh.message, ...more.map(f => `${f.code}: ${f.message}`)].join('\n  '));
       return report;
     };

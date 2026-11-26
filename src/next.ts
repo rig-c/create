@@ -36,7 +36,7 @@ import {
   validateDiffMapRecord,
 } from './diff-map.ts';
 import { partsStructureSnapshot } from './job-acts.ts';
-import { JOB_BINDING_FILE, type WriterBinding } from './job-outbox.ts';
+import { JOB_BINDING_FILE, readWriterBinding, type WriterBinding } from './job-outbox.ts';
 import { beginJobProgress } from './job-writer.ts';
 import { isPartsCheckMove, partsCheckFindings, partsCheckRecord } from './parts-check.ts';
 import { isPartsReviewReceipt, latestPartsVerdictStatus, latestRiggingDraftFeedback, recordedPartsVerdict } from './parts-verdict-record.ts';
@@ -48,7 +48,7 @@ import { Refusal, refuse, USAGE_EXIT } from './refusal.ts';
 import { reopenLapseWarnings } from './reopen-lapses.ts';
 import { collectReopens, liveSignoff, type Reopen } from './reopen.ts';
 import { resolveAdoptSource } from './record-adopt.ts';
-import { acceptedReviewVerdict, handoff, humanReviewVerdicts, latestAccepted, readVersions } from './review.ts';
+import { acceptedReviewVerdict, handoff, humanReviewVerdicts, latestAccepted, readVersions, type Versions } from './review.ts';
 import { SIGNOFF_TARGET_KINDS } from './review-act.ts';
 import { bustLandmarkCommands } from './review-bust.ts';
 import {
@@ -815,6 +815,10 @@ function sceneWriteCommand(dir: string, project: JsonObject, rigN: string): stri
   return `rig-create scene write ${shellWord(dir)} --rig ${shellWord(rigN)}${flags} --citations-file '<scene-citations.json>'`;
 }
 
+function directionReviewNeedsNumberedPost(dir: string, versions: Versions): boolean {
+  return !versions.posts.some(post => post.live) && readWriterBinding(dir) !== null;
+}
+
 function candidateAdvance(
   dir: string,
   project: JsonObject,
@@ -872,6 +876,7 @@ function candidateAdvance(
   }
   const checked = checkProject(dir, clone, { now, forwardWrite: true, readOnly: true });
   if (newFindings(allowed, checked.refusals).length > 0) return null;
+  if (targetStage === 'direction-review' && directionReviewNeedsNumberedPost(dir, readVersions(clone))) return null;
   return partsCheck
     ? `rig-create advance ${targetStage} ${shellWord(dir)} --parts-check ${shellWord(partsCheck.report)} --parts ${shellWord(partsCheck.root)}`
     : `rig-create advance ${targetStage} ${shellWord(dir)}`;
@@ -2392,6 +2397,12 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
       s => (s.phase === 'rig' || s.phase === 'post') && stageOfStep(s.phase, String(s.id)) === 'post',
     );
     const openPostSteps = postSteps.filter(s => s.status !== 'done');
+    const recordedPost = directionReviewPostState(dir, project, now);
+    // Bound Review publishes a numbered post on advance, even if current direction passes the stage check.
+    const postState = recordedPost.ready && recordedPost.postN === null && isObject(project.current)
+      && directionReviewNeedsNumberedPost(dir, parsedVersions)
+      ? directionReviewPostState(dir, { ...project, current: { ...project.current, direction: null } }, now)
+      : recordedPost;
     const {
       ready: postReady,
       latestPost,
@@ -2400,7 +2411,7 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
       composed,
       currentScene,
       missingScene,
-    } = directionReviewPostState(dir, project, now);
+    } = postState;
     const addPostAuthoringMove = (): void => {
       if (postReady) return;
       if (!isObject(project.direction_contract)) {

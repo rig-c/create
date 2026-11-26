@@ -1,5 +1,5 @@
 import { missingPickSignoffSteps, pickSignoffEvidence } from './pick-signoff.ts';
-import { OWNER_CHAT_FLAGS, readOwnerChat, assertOwnerChatSignoff } from './owner-chat.ts';
+import { OWNER_CHAT_FLAGS, OWNER_CHAT_USAGE, readOwnerChat, assertOwnerChatSignoff } from './owner-chat.ts';
 import { pendingInterviewOptions, pendingInterviewOptionsPath } from './choices.ts';
 import { assertSignoffCandidate, bindPartsSignoff } from './parts-signoff.ts';
 import { currentPartsAmendment } from './parts-act.ts';
@@ -39,6 +39,7 @@ export const SIGNOFF_HELP = `signoff:
   --by <who>              the person signing (agent is refused)
   --verbatim-file <file>  UTF-8 words unchanged, or - for stdin (default: stdin)
   --owner-chat <file>     relay exact owner words (excludes --verbatim-file / --from-review)
+                         required when signing current rig or direction
   --said-at <ISO date>    explicit owner clock; at remains the write time
   --relayed-by <who>     operator relaying the owner chat
   --steps <id,id,...>      narrow parts plan, rigging-interview rig steps, or post steps
@@ -165,8 +166,17 @@ function recordSignoff(stage: string, positional: string[], opts: Record<string,
   if (opts['--by'] === undefined && actId === undefined && !opts['--from-picks']) refuse('SIGNOFF_OPTION_INVALID', 'signoff needs --by', USAGE_EXIT);
   if (by.toLowerCase() === 'agent') refuse('SIGNOFF_NOT_HUMAN', `stage ${stage}: signed by agent`);
   const dir = resolve(positional[1] ?? process.cwd());
-  const chat = readOwnerChat(opts, by, now, 'project.json.signoffs');
   const { file, project } = retained ?? (preview ? { file: resolve(dir, 'project.json'), project: preview.project } : readProject(dir));
+  const currentTarget = review === undefined && project.current !== undefined && stage in SIGNOFF_TARGET_KINDS;
+  const requestedVersion = opts['--version'];
+  if (currentTarget && requestedVersion !== undefined) {
+    // The selector refuses an explicit version before reading any current outputs.
+    selectSignoffTarget(dir, project, stage, requestedVersion);
+  }
+  const chat = readOwnerChat(opts, by, now, 'project.json.signoffs');
+  if (currentTarget && !chat) {
+    refuse('OWNER_CHAT_REQUIRED', `project.json.signoffs.${stage}: signing a current output requires the owner's relayed words; use ${OWNER_CHAT_USAGE}`, USAGE_EXIT);
+  }
   if (stage in SIGNOFF_TARGET_KINDS) {
     const selector = review?.act.source.selector;
     const draftId = selector?.kind === 'draft' ? selector.id : opts['--draft'];
@@ -348,10 +358,14 @@ function recordSignoff(stage: string, positional: string[], opts: Record<string,
       if (!hasStageOrder(project)) project.interview.order = { spec: STAGE_ORDER_SPEC, adopted_at: at };
       project.stage_values = [...STAGE_VALUES];
     }
-    assertDirectionApproval(dir, project, stage, now);
+    if (!currentTarget) assertDirectionApproval(dir, project, stage, now);
     assertCorrectionApproval(dir, project, stage, now, signoff);
-    if (stage === RIG_REVIEW) assertRigReviewSignable(project, `signoffs[${asArray(project.signoffs).length}]`);
-    const target = selectSignoffTarget(dir, project, stage, targetVersion);
+    if (!currentTarget && stage === RIG_REVIEW) assertRigReviewSignable(project, `signoffs[${asArray(project.signoffs).length}]`);
+    // Review acts bind the displayed numbered version. The candidate check below sees the complete record.
+    const targetProject = review !== undefined && project.current !== undefined && stage in SIGNOFF_TARGET_KINDS
+      ? { ...project } : project;
+    if (targetProject !== project) delete targetProject.current;
+    const target = selectSignoffTarget(dir, targetProject, stage, targetVersion);
     if (target !== undefined) signoff.target = target;
     return target;
   };

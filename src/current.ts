@@ -1,7 +1,8 @@
 /**
  * `current.<kind>`: one current output per kind (docs/CURRENT-DATA.md §1.3), and staleness by content hash (§2.2).
  * A node is stale when a `built_from` path now hashes differently (for `current.parts`' config edge, when Parts'
- * `assemblyConfigChanges` against `outputs/parts/rig/parts.json` is non-empty), or when a node upstream of it is stale.
+ * `assemblyConfigChanges` against `outputs/parts/rig/parts.json` is non-empty), when its adopted rig basis is replaced,
+ * or when a node upstream of it is stale.
  * A producer run record is provenance, not product: an output-set hash leaves it out, and no `built_from` names it (§4.1).
  */
 import { assemblyConfigChanges } from '@rig-c/parts/assembly-reading';
@@ -10,6 +11,7 @@ import { join, posix } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import { existsSync, lstatSync, readdirSync, readFileSync, realpathSync, withExternalCheckRead } from './check-reads.ts';
 import { asArray, isObject, type Finding } from './check.ts';
+import { adoptedOutputBindings } from './record-adopt.ts';
 import { runArgvProblem } from './run-record.ts';
 import type { Json, JsonObject } from './templates.ts';
 
@@ -81,7 +83,7 @@ function bindingProblem(value: Json | undefined): string | undefined {
 }
 
 /** Shape findings for one `current.<kind>` entry; these are the same rules the writer validates with (invariant 6). */
-export function currentShapeFindings(kind: CurrentKind, node: Json | undefined): Finding[] {
+export function currentShapeFindings(kind: CurrentKind, node: Json | undefined, project?: JsonObject): Finding[] {
   const path = `current.${kind}`;
   if (!isObject(node)) return [malformed(path, 'expected an object')];
   const findings: Finding[] = [];
@@ -89,27 +91,45 @@ export function currentShapeFindings(kind: CurrentKind, node: Json | undefined):
   if (typeof node.built_by !== 'string' || !node.built_by.trim()) findings.push(malformed(`${path}.built_by`, 'expected a nonempty string'));
   if (!isObject(node.built_with) || Object.values(node.built_with).some(v => typeof v !== 'string' || !v)) findings.push(malformed(`${path}.built_with`, 'expected { package: version }'));
   const root = outputRoot(kind);
+  const marker = node.adopted;
+  const version = isObject(marker) && Object.keys(marker).length === 1 && typeof marker.version === 'number'
+    && Number.isSafeInteger(marker.version) && marker.version > 0 ? marker.version : undefined;
+  if (marker !== undefined && version === undefined) findings.push(malformed(`${path}.adopted`, 'expected { version } with a positive legacy version number'));
+  const adopted = version === undefined ? undefined : adoptedOutputBindings(project ?? {}, kind, version);
+  if (adopted && !adopted.ok) findings.push(malformed(`${path}.adopted`, `versions[v${version}].outputs: ${adopted.why}`));
+  const sourceFiles = adopted?.ok ? new Map(adopted.files.map(file => [file.path, file])) : undefined;
   const files = asArray(node.files);
   if (!Array.isArray(node.files) || files.length === 0) findings.push(malformed(`${path}.files`, 'expected a nonempty list'));
   const pairs: { path: string; sha256: string }[] = [];
   let previous = '';
   for (const [index, file] of files.entries()) {
     const at = `${path}.files[${index}]`;
-    if (bindingProblem(file) || !isObject(file) || !String(file.path).startsWith(`${root}/`) || typeof file.bytes !== 'number' || !Number.isSafeInteger(file.bytes) || file.bytes < 0) {
-      findings.push(malformed(at, `expected { path under ${root}/, sha256, bytes }`));
+    if (bindingProblem(file) || !isObject(file) || (version === undefined && !String(file.path).startsWith(`${root}/`)) || typeof file.bytes !== 'number' || !Number.isSafeInteger(file.bytes) || file.bytes < 0) {
+      findings.push(malformed(at, version === undefined ? `expected { path under ${root}/, sha256, bytes }`
+        : `expected { path, sha256, bytes } bound by versions[v${version}].outputs`));
       continue;
+    }
+    if (sourceFiles) {
+      const source = sourceFiles.get(String(file.path));
+      if (!source || source.sha256 !== file.sha256 || (source.bytes !== undefined && source.bytes !== file.bytes)) {
+        findings.push(malformed(at, `${String(file.path)} differs from the ${kind} binding in versions[v${version}].outputs`));
+      }
+      if (source) sourceFiles.delete(source.path);
     }
     if (!(previous < String(file.path))) findings.push(malformed(at, 'files must sort by path with no duplicate'));
     previous = String(file.path);
     pairs.push({ path: String(file.path), sha256: String(file.sha256) });
   }
+  if (sourceFiles?.size) findings.push(malformed(`${path}.files`, `missing ${kind} bindings from versions[v${version}].outputs: ${[...sourceFiles.keys()].join(', ')}`));
   if (node.files_sha256 !== outputSetHash(pairs)) findings.push(malformed(`${path}.files_sha256`, 'differs from the output-set hash of files[] (every file that is not a run record)'));
   const rebuild = node.rebuild;
   for (const key of ['run', 'report'] as const) {
     const binding = node[key];
+    if (version !== undefined && binding === undefined
+      && (key === 'report' || kind !== 'motion' || !isObject(rebuild) || rebuild.recorded !== true)) continue;
     if (kind === 'motion' && rebuild !== undefined) {
       const recorded = isObject(rebuild) && rebuild.recorded === true;
-      if (key === 'run' && !recorded && binding !== undefined) findings.push(malformed(`${path}.run`, 'a motion run requires rebuild.recorded=true'));
+      if (key === 'run' && !recorded && binding !== undefined && version === undefined) findings.push(malformed(`${path}.run`, 'a motion run requires rebuild.recorded=true'));
       if (binding === undefined && (key === 'report' || !recorded)) continue;
     }
     const problem = bindingProblem(binding);
@@ -124,7 +144,8 @@ export function currentShapeFindings(kind: CurrentKind, node: Json | undefined):
     const problem = bindingProblem(entry);
     if (problem) findings.push(malformed(at, problem));
     else if (!builtFromNameAllowed(String((entry as JsonObject).path))) findings.push(malformed(at, `names ${String((entry as JsonObject).path)}; a run record or the compose check report is provenance, so name the product files the output reads`));
-    else if (upstreamKind(String((entry as JsonObject).path)) === kind) findings.push(malformed(at, 'names a file of this output itself'));
+    else if (upstreamKind(String((entry as JsonObject).path)) === kind
+      || (version !== undefined && pairs.some(pair => pair.path === (entry as JsonObject).path))) findings.push(malformed(at, 'names a file of this output itself'));
   }
   if (kind === 'rig' || (kind === 'motion' && rebuild !== undefined) || (isObject(rebuild) && rebuild.recorded === false)) {
     if (!isObject(rebuild) || typeof rebuild.recorded !== 'boolean') {
@@ -173,7 +194,7 @@ type AssemblyManifest = Parameters<typeof assemblyConfigChanges>[1];
 /** The hash a valid current node records for a named product file. */
 export function currentFileBinding(project: JsonObject, kind: CurrentKind, path: string): { path: string; sha256: string } | undefined {
   const node = isObject(project.current) ? project.current[kind] : undefined;
-  if (!isObject(node) || currentShapeFindings(kind, node).length) return undefined;
+  if (!isObject(node) || currentShapeFindings(kind, node, project).length) return undefined;
   const file = asArray(node.files).filter(isObject).find(entry => entry.path === path);
   if (file) return { path, sha256: String(file.sha256) };
 }
@@ -268,6 +289,17 @@ function partsConfigStaleWhy(dir: string, binding: JsonObject, manifest: Assembl
   }
 }
 
+/** The legacy rig dependency of a shape-checked adopted motion or direction entry. */
+function requiredAdoptedRigVersion(project: JsonObject, kind: CurrentKind, node: JsonObject): number | undefined {
+  const version = isObject(node.adopted) ? node.adopted.version : undefined;
+  if (typeof version !== 'number') return undefined;
+  if (kind === 'motion') return version;
+  if (kind !== 'direction') return undefined;
+  const post = asArray(project.versions).filter(isObject).find(row => row.n === version && row.kind === 'post');
+  const rigVersion = post?.rig_version;
+  if (typeof rigVersion === 'number' && Number.isInteger(rigVersion)) return rigVersion;
+}
+
 /**
  * Check `current`: refusals for a malformed entry, WARN `OUTPUT_STALE` for a stale one (never a refusal, §2.2).
  * A record without `current` (an old-process project) gets nothing from here.
@@ -279,13 +311,26 @@ export function currentFindings(dir: string, project: JsonObject, warnings: Find
   const nodes = new Map<CurrentKind, JsonObject>();
   for (const [key, node] of Object.entries(project.current)) {
     if (!(CURRENT_KINDS as readonly string[]).includes(key)) { refusals.push(malformed(`current.${key}`, `unknown kind; the kinds are ${CURRENT_KINDS.join(', ')}`)); continue; }
-    const shape = currentShapeFindings(key as CurrentKind, node);
+    const shape = currentShapeFindings(key as CurrentKind, node, project);
     refusals.push(...shape);
     if (!shape.length) nodes.set(key as CurrentKind, node as JsonObject);
   }
-  // Direct staleness: a built_from path now hashes differently (or, for current.parts' config, its assembly reading changed).
+  const rig = nodes.get('rig');
+  const rigVersion = isObject(rig?.adopted) ? rig.adopted.version : undefined;
+  const adoptedRigDependents = new Set<CurrentKind>();
+  // Direct staleness: a replaced rig basis or a changed built_from input.
   const changed = new Map<CurrentKind, string>();
   for (const [kind, node] of nodes) {
+    // Partial adoption can leave current.rig absent.
+    const requiredRig = rig && requiredAdoptedRigVersion(project, kind, node);
+    if (requiredRig !== undefined) {
+      if (rigVersion !== requiredRig) {
+        const replacement = rigVersion === undefined ? 'canonical' : `adopted from v${String(rigVersion)}`;
+        changed.set(kind, `requires upstream rig v${requiredRig} (current.rig is ${replacement})`);
+        continue;
+      }
+      adoptedRigDependents.add(kind);
+    }
     const configPath = kind === 'parts' ? partsConfigPath(dir, node) : undefined;
     const manifest = configPath === undefined ? undefined : partsAssemblyManifest(dir, node);
     for (const entry of asArray(node.built_from)) {
@@ -299,13 +344,14 @@ export function currentFindings(dir: string, project: JsonObject, warnings: Find
       }
     }
   }
-  // Transitive staleness: a built_from path inside a stale upstream output.
+  // Transitive staleness: a bound output path or matching adopted rig is stale upstream.
   const stale = new Map(changed);
   for (let grew = true; grew;) {
     grew = false;
     for (const [kind, node] of nodes) {
       if (stale.has(kind)) continue;
-      const upstream = asArray(node.built_from).map(entry => upstreamKind(String((entry as JsonObject).path))).find(up => up !== undefined && stale.has(up));
+      const upstream = asArray(node.built_from).map(entry => upstreamKind(String((entry as JsonObject).path))).find(up => up !== undefined && stale.has(up))
+        ?? (adoptedRigDependents.has(kind) && stale.has('rig') ? 'rig' : undefined);
       if (upstream) { stale.set(kind, `upstream ${upstream} is stale`); grew = true; }
     }
   }

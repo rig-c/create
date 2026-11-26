@@ -105,8 +105,11 @@ test('next guides the final chained mesh revision until a later rig retains its 
     const assertPending = (at: number, answersFeedback: boolean) => {
       const next = nextProject(dir, at);
       expect(next.refusals).toEqual([]);
-      expect(next.awaits).toEqual(['versions[n=2]']);
-      expect(next.moves).toEqual([expect.objectContaining({ role: 'agent', field: 'versions', awaits: 'versions[n=2]' })]);
+      expect(next.awaits).toEqual(['versions[n=2]', 'current.rig']);
+      expect(next.moves).toEqual([
+        expect.objectContaining({ role: 'agent', field: 'versions', awaits: 'versions[n=2]' }),
+        expect.objectContaining({ command: `rig-create record rig --adopt ${dir}` }),
+      ]);
       expect(next.moves[0]!.command).toStartWith(`rig-create rig-version 2 ${dir} `);
       expect(next.moves[0]!.command).toContain(` --rig ${final} `);
       expect(next.moves[0]!.command?.endsWith(' --answers 1:0')).toBe(answersFeedback);
@@ -114,6 +117,14 @@ test('next guides the final chained mesh revision until a later rig retains its 
     };
     assertPending(EXAMPLE_NOW + 1000, true);
     expect(readFileSync(file, 'utf8')).toBe(seeded);
+
+    writeFileSync(file, JSON.stringify({ ...project, current: {} }));
+    const current = nextProject(dir, EXAMPLE_NOW + 1000);
+    expect(current.moves.filter(move => move.field === 'current.rig').map(move => move.command)).toEqual([
+      `rig-create record rig --adopt ${dir}`,
+      `rig-create record rig ${dir} --from outputs/rig.next --config specs/rig/config.json`,
+    ]);
+    expect(current.moves.some(move => move.command?.includes('--answers') || move.command?.startsWith('rig-create rig-version '))).toBe(false);
 
     project.versions[0].verdicts = [];
     writeFileSync(file, JSON.stringify(project));
@@ -128,7 +139,7 @@ test('next guides the final chained mesh revision until a later rig retains its 
     expect(registerRig(dir, 2, final, EXAMPLE_NOW + 3000, ['--answers', '1:0']).exit).toBe(0);
     const registered = nextProject(dir, EXAMPLE_NOW + 3000);
     expect(registered.refusals).toEqual([]);
-    expect(registered.awaits).toEqual(['versions[n=2].verdicts[review=rig-review]']);
+    expect(registered.awaits.filter(field => !field.startsWith('current.'))).toEqual(['versions[n=2].verdicts[review=rig-review]']);
     expect(registered.moves.some(move => move.command?.startsWith('rig-create rig-version '))).toBe(false);
   } finally {
     rmSync(dir, { recursive: true, force: true });

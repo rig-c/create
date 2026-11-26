@@ -491,8 +491,11 @@ test('a plan replace under a signed plan no longer refuses', () => {
 });
 
 test('a legacy unsigned approved parts draft publishes parts-verdict again and folds the new verdict into signoffs', async () => {
-  const prepNow = Math.max(EXAMPLE_NOW, Date.now() - 5_000);
   const root = copyCheckpoint('1-parts-verdict');
+  const checkpoint = read(root);
+  // Review stamps its verdict with the wall clock. Date setup from the retained checkpoint.
+  const prepNow = Math.max(...[...arr(checkpoint.advances), ...arr(checkpoint.drafts), ...arr(checkpoint.signoffs)]
+    .map(entry => Date.parse(String(obj(entry).at)))) + 1_000;
   cpSync(join(import.meta.dir, '../templates/example-chain/evidence/diff-components.json'), join(root, 'evidence/diff-components.json'));
   expect(structureSnapshotCommand([root, '--draft', 'chain', '--out', 'evidence/structure-chain.json']).exit).toBe(0);
   expect(diffClassesCommand([root, '--diff-report', 'evidence/diff-components.json', '--by', 'agent'], prepNow).exit).toBe(0);

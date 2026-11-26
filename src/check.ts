@@ -12,7 +12,7 @@ import { checkAdvances, checkDirectionReviewAdvances, checkPauses, checkProgress
 import { checkPartsChecks } from './parts-check.ts';
 import { pendingPublicationHoles } from './job-outbox.ts';
 import { checkSignoffAnswers } from './signoff-answers.ts';
-import { checkSignoffTarget, signoffTargetFormat } from './signoff-target.ts';
+import { checkSignoffTarget, isCurrentPartsSignoff, signoffTargetFormat } from './signoff-target.ts';
 import { checkOverrides } from './overrides.ts';
 import { intakeWarnings } from './intake.ts';
 import { checkDirections } from './direction.ts';
@@ -731,7 +731,7 @@ function checkStages(ctx: Ctx): void {
  * Once rigging has started (the stage is past `parts-review`, or a rigging
  * step is past `pending`) and until a rig version is accepted at rig-review
  * (while the stage is at most `rigging`, or no rig version is accepted yet),
- * the latest `parts-review` sign-off binds its retained API response (src/parts-verdict-record.ts). An in-flight
+ * the latest numbered `parts-review` sign-off binds its retained API response (src/parts-verdict-record.ts). An in-flight
  * project keeps the warning above and is not asked for one.
  */
 function checkPartsStages(ctx: Ctx): void {
@@ -763,7 +763,7 @@ function checkPartsReviewEvidence(ctx: Ctx): void {
   const gating = cur <= stageIndex('rigging') || latestAccepted(readVersions(ctx.project)) === null;
   if (!riggingStarted || !gating) return;
   const latest = latestSignoff(ctx, PARTS_REVIEW);
-  if (latest === undefined) return;
+  if (latest === undefined || isCurrentPartsSignoff(latest.record)) return;
   const at = `signoffs[${latest.index}]`;
   let partsFile: string | undefined;
   if (!recordedPartsFinding(ctx.dir, ctx.project, latest.record, at)) partsFile = recordedPartsVerdict(ctx.dir, ctx.project, latest.record.draft_id, latest.record.evidence, { requireAvailable: false }).partsFile;
@@ -771,12 +771,12 @@ function checkPartsReviewEvidence(ctx: Ctx): void {
 }
 
 /**
- * Every parts-review signature, reopened ones included, binds a retained API receipt.
+ * Every numbered parts-review signature, reopened ones included, binds a retained API receipt.
  * Legacy saved-file bindings WARN without opening their files.
  */
 function checkPartsVerdictDrafts(ctx: Ctx, history: readonly Signoff[]): void {
   for (const s of history) {
-    if (s.stage !== PARTS_REVIEW) continue;
+    if (s.stage !== PARTS_REVIEW || isCurrentPartsSignoff(s.record)) continue;
     const finding = recordedPartsFinding(ctx.dir, ctx.project, s.record, `signoffs[${s.index}]`);
     if (finding) (finding.code === 'PARTS_VERDICT_FILE_LEGACY' ? ctx.warnings : ctx.refusals).push(finding);
   }
@@ -799,8 +799,8 @@ function currentTargetSignoffs(signoffs: Signoff[]): Signoff[] {
 }
 
 /** The exact binding that a normal record of this output can invalidate. */
-export function activeCurrentSignoffTargetPath(project: JsonObject, kind: 'rig' | 'direction'): string | undefined {
-  const stage = kind === 'rig' ? 'rig-review' : 'direction-review';
+export function activeCurrentSignoffTargetPath(project: JsonObject, kind: 'parts' | 'rig' | 'direction'): string | undefined {
+  const stage = kind === 'parts' ? PARTS_REVIEW : kind === 'rig' ? 'rig-review' : 'direction-review';
   const reopens = collectReopens(project, []);
   const signoffs = collectSignoffs(project, []).filter(s => s.stage === stage && liveSignoff(reopens, s.stage, s.at));
   const active = latestSignoff({ signoffs: currentTargetSignoffs(signoffs) }, stage);
@@ -901,7 +901,7 @@ function checkProjectOnce(projectDirArg: string, candidate: JsonObject | undefin
   });
   const signoffs = historySignoffs.filter(s => liveSignoff(reopens, s.stage, s.at));
   const currentSignoffs = currentTargetSignoffs(signoffs);
-  const activeReviewSignoffs = new Set(['rig-review', 'direction-review'].map(review => latestSignoff({ signoffs: currentSignoffs }, review)));
+  const activeReviewSignoffs = new Set([PARTS_REVIEW, 'rig-review', 'direction-review'].map(review => latestSignoff({ signoffs: currentSignoffs }, review)));
   for (const s of historySignoffs) {
     // The current tree is mutable. Only the latest live current signature binds it.
     if (signoffTargetFormat(s.record.target) === 'current' && !activeReviewSignoffs.has(s)) continue;
@@ -988,7 +988,7 @@ function checkProjectOnce(projectDirArg: string, candidate: JsonObject | undefin
   if (closures) refusals.push(...closures.findings);
   const draftAmendments = amendments.filter(amendment => amendment.target.kind === 'draft');
   for (const [index, raw] of asArray(project.signoffs).entries()) {
-    if (!isObject(raw) || raw.stage !== 'parts-review' || typeof raw.draft_id !== 'string') continue;
+    if (!isObject(raw) || raw.stage !== PARTS_REVIEW || isCurrentPartsSignoff(raw) || typeof raw.draft_id !== 'string') continue;
     const at = typeof raw.at === 'string' ? Date.parse(raw.at) : NaN;
     if (!liveSignoff(draftAmendments, PARTS_REVIEW, at)) continue;
     const finding = latestPartsVerdictFinding(project, raw.draft_id, `signoffs[${index}].draft_id`);

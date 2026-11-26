@@ -100,6 +100,8 @@ ${INPUT_CLI}  rig-create init <dir> [--no-install]              create a project
                                                     record a Review comment-only act in comments[]; it pins nothing
   rig-create signoff <stage> --by <who> [--steps <id,id,...>] [--verbatim-file <file>] [<project dir>]
                                                     record a signature without moving the stage
+  rig-create signoff parts-review [<dir>] ${OWNER_CHAT_USAGE} [--structure-file <path>]
+                                                    approve current.parts with a retained structure snapshot
   rig-create plan propose <step> --file <plan.md> --by <drafter> [<project dir>]
                                                     propose one plan for a whole step; feedback attaches with plan feedback
   rig-create plan add|revise|remove|replace <id> --by <drafter> [<project dir>]
@@ -120,14 +122,15 @@ ${INPUT_CLI}  rig-create init <dir> [--no-install]              create a project
                                                     record labelled draft artifacts without building or promoting
   rig-create parts-review [<dir>] --from-review <actId> [--json]
                                                     retain the parts verdict; approval also signs parts-review
-  rig-create structure-snapshot [<dir>] --draft <id> [--out <path>]
-                                                    prepare the parts-review structure snapshot before the verdict
+  rig-create structure-snapshot [<dir>] [--draft <id>] [--out <path>]
+                                                    snapshot current.parts, or prepare the named draft's snapshot before the verdict
   rig-create review-package <n> [<dir>] --config <path> --from <build out dir>
                                                     copy producer inputs and record the review open command
   rig-create rig-version <n> [<dir>] --parts <dir> --rig <dir> --build <dir> --idle <dir> …
                                                     register frozen producer output with declared source bindings
-  rig-create record parts [<dir>] --from <producer out> --config <rig config>
+  rig-create record parts [<dir>] --from <producer out> --config <rig config> [--ledger-report <file>]
                                                     record the current parts output and rename it into outputs/parts/
+                                                    --ledger-report binds the project's producer fix-ledger check report for this build
   rig-create record rig [<dir>] --from <producer out> --config <rig config>
                                                     record the current rig output and rename it into outputs/rig/
   rig-create record motion [<dir>] --from <render out>

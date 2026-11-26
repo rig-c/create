@@ -7,14 +7,14 @@ import { lstatSync, readFileSync, realpathSync } from './check-reads.ts';
 import { isAbsolute, relative, resolve, sep } from 'node:path';
 import { isDeepStrictEqual as equal } from 'node:util';
 import { answered, asArray, collectItems, collectSignoffs, collectionQuestion, loadCollection, isDecision, isObject, type Ctx, type Finding, type Item } from './check.ts';
-import { builtFromNameAllowed } from './current.ts';
+import { builtFromNameAllowed, isRunRecordFile, outputSetHash } from './current.ts';
 import { draftFileUnavailable } from './drafts.ts';
 import { ownerChatAuthorityFinding } from './owner-chat.ts';
 import { Refusal } from './refusal.ts';
 import { collectReopens, liveSignoff, type Reopen } from './reopen.ts';
 import { RunRecordError, validateRunRecord } from './run-record.ts';
 import { selectSignoffTarget, signoffTargetFormat } from './signoff-target.ts';
-import { latestPartsApproval, partsApprovalIdentity, rigPartsApproval, structurePathIsIgnored } from './structure.ts';
+import { currentPartsApproval, currentPartsReviewContext, hasCurrentParts, latestPartsApproval, partsApprovalIdentity, retainedCurrentPartsStructure, rigPartsApproval, structurePathIsIgnored } from './structure.ts';
 import { CHOICE_ORDER_SPEC, approvalStageOfGuide, hasStageOrder, interviewStageOfGuide, stageIndex, stepPlanValue } from './stages.ts';
 import { WAYPOINT_ASKS } from './waypoints.ts';
 import type { Json, JsonObject } from './templates.ts';
@@ -208,6 +208,25 @@ function currentRigOptionContext(project: JsonObject, at: number, dir?: string):
   return { kind: 'current-rig', target, signoff_at: approval.record.at!, run, config };
 }
 
+function currentPartsOptionContext(project: JsonObject, at: number, dir?: string): JsonObject {
+  if (dir === undefined) fail('INTERVIEW_OPTIONS_STALE', 'current.parts: pass the project folder to verify current parts option context');
+  try {
+    const review = currentPartsReviewContext(dir, project, at);
+    if (review !== null) return { kind: 'current-parts', ...review };
+  } catch (error) {
+    if (!(error instanceof Refusal)) throw error;
+    fail('INTERVIEW_OPTIONS_STALE', error.message);
+  }
+  return fail('INTERVIEW_OPTIONS_STALE', 'current.parts: relay the owner’s parts-review approval for the exact current output and retained structure before drafting rigging options.');
+}
+
+function numberedPartsOptionContext(project: JsonObject, at: number): JsonObject {
+  const approval = latestPartsApproval(project, at);
+  const draft = objects(project.drafts).find(d => d.id === approval?.draft_id);
+  if (!approval || !draft || date(draft.at) > at || !isObject(approval.evidence) || !isObject(approval.structure) || !isObject(draft.parts)) fail('INTERVIEW_OPTIONS_STALE', 'review and retain parts/structure before drafting rigging options');
+  return { kind: 'parts', accepted_parts: partsApprovalIdentity(approval)!, structure: approval.structure, draft_id: draft.id as Json, parts: draft.parts };
+}
+
 /**
  * A context is a projection of existing identities, never a producer report reconstructed by create.
  * A post set takes the scene kind only while the scene is current at `at`, which reads the scene
@@ -229,10 +248,7 @@ export function optionContext(project: JsonObject, stage: string, at: number, di
     return { kind: 'inputs', files: inputs.map(f => ({ path: f.path as Json, sha256: f.sha256 as Json })) };
   }
   if (stage === 'rigging-interview') {
-    const approval = latestPartsApproval(project, at);
-    const draft = objects(project.drafts).find(d => d.id === approval?.draft_id);
-    if (!approval || !draft || date(draft.at) > at || !isObject(approval.evidence) || !isObject(approval.structure) || !isObject(draft.parts)) fail('INTERVIEW_OPTIONS_STALE', 'review and retain parts/structure before drafting rigging options');
-    return { kind: 'parts', accepted_parts: partsApprovalIdentity(approval)!, structure: approval.structure, draft_id: draft.id as Json, parts: draft.parts };
+    return hasCurrentParts(project) ? currentPartsOptionContext(project, at, dir) : numberedPartsOptionContext(project, at);
   }
   try {
     const candidate = currentScene(project, at);
@@ -305,6 +321,8 @@ export function validateContext(dir: string, project: JsonObject, set: JsonObjec
   const drafted = date(set.drafted_at);
   if (!Number.isFinite(at) || drafted > at) fail('INTERVIEW_OPTIONS_STALE','selection must follow drafting; redraft against current accepted inputs');
   const kind = isObject(set.context) ? set.context.kind : undefined;
+  // A retained numbered ask binds the approval it originally showed, including on a mixed record.
+  const retainedNumberedParts = kind === 'parts' && set.stage === 'rigging-interview' && !fresh;
   const contextProject = kind === 'rig' || kind === 'current-rig' ? { ...project, scenes: [] } : project;
   if (kind === 'rig' && project.current !== undefined) {
     if (fresh && !retainedPostOptionSet(dir, project, set)) fail('INTERVIEW_OPTIONS_STALE', 'context: draft new post options against current.rig or the current scene');
@@ -321,7 +339,8 @@ export function validateContext(dir: string, project: JsonObject, set: JsonObjec
       for (const time of [drafted, at]) {
         // A scene that was already current at drafting takes priority. Later scenes do not rewrite the rig ask.
         const basis = kind === 'current-rig' && time === drafted ? project : contextProject;
-        const expected = optionContext(basis, String(set.stage), time, dir, legacyScene, drafted);
+        const expected = retainedNumberedParts ? numberedPartsOptionContext(project, time)
+          : optionContext(basis, String(set.stage), time, dir, legacyScene, drafted);
         if (!equal(expected, set.context)) {
           const difference = contextDifference(expected, set.context, 'context');
           fail('INTERVIEW_OPTIONS_STALE', `options no longer match the live context: ${difference}; redraft against current accepted inputs`);
@@ -347,6 +366,7 @@ export function optionContextFiles(context: JsonObject): Json[] {
   if (context.kind === 'current-rig') return [context.run as Json, context.config as Json];
   const files: Json[] = [...(context.kind === 'inputs' ? asArray(context.files) : isObject(context.parts) ? asArray(context.parts.files) : [])];
   if (context.kind === 'parts') files.push(context.structure as Json, (context.accepted_parts as JsonObject).evidence as Json);
+  if (context.kind === 'current-parts') files.push(context.structure as Json, context.run as Json, context.config as Json);
   if (context.kind === 'rig') files.push(context.config as Json);
   if (context.kind === 'scene') {
     if (!isObject(context.scene)) fail('INTERVIEW_OPTIONS_STALE', 'retain the scene reference');
@@ -433,8 +453,46 @@ function historicalBinding(binding: Json | undefined): binding is JsonObject & {
     && !/[\\:]/.test(binding.path) && !binding.path.includes('\0') && binding.path.split('/').every(part => part !== '' && part !== '.' && part !== '..');
 }
 
+function historicalPartsInventory(parts: Json | undefined, filesHash: string): boolean {
+  if (!isObject(parts) || Object.keys(parts).length !== 2 || parts.path !== 'outputs/parts/rig' || !Array.isArray(parts.files) || parts.files.length === 0) return false;
+  const files = parts.files.filter(historicalBinding);
+  return files.length === parts.files.length && files.every((file, index) => file.path.startsWith('outputs/parts/')
+    && !isRunRecordFile(file.path) && (index === 0 || files[index - 1]!.path < file.path)) && outputSetHash(files) === filesHash;
+}
+
+/** Resolved answers seal the shown evidence. The retained snapshot and approval outlive the mutable producer files. */
+function validateAnsweredPartsContext(dir: string, project: JsonObject, set: JsonObject, context: JsonObject, at: number): void {
+  const drafted = date(set.drafted_at);
+  const { target, structure, config, run, parts } = context;
+  if (!Number.isFinite(drafted) || !Number.isFinite(at) || drafted > at || set.stage !== 'rigging-interview'
+    || Object.keys(context).length !== 7 || !historicalBinding(structure) || !historicalBinding(config) || !historicalBinding(run)
+    || !builtFromNameAllowed(config.path) || config.path.startsWith('outputs/parts/') || config.path === 'outputs/parts'
+    || run.path !== 'outputs/parts/run.json') {
+    fail('INTERVIEW_OPTIONS_STALE', 'context: restore the sealed current-parts target, structure, producer run and config shown for this answer');
+  }
+  const approval = currentPartsApproval(project, at);
+  if (!approval || currentPartsApproval(project, drafted)?.index !== approval.index
+    || context.signoff_at !== approval.signoff_at || !equal(target, approval.target) || !equal(structure, approval.structure)) {
+    fail('INTERVIEW_OPTIONS_STALE', 'context: restore the matching owner-relayed parts approval live when these options were drafted and answered');
+  }
+  if (!historicalPartsInventory(parts, approval.target.files_sha256)) {
+    fail('INTERVIEW_OPTIONS_STALE', 'context.parts.files: restore the inventory bound by the current-parts approval');
+  }
+  let snapshot: JsonObject;
+  try { snapshot = retainedCurrentPartsStructure(dir, structure); }
+  catch (error) {
+    if (!(error instanceof Refusal)) throw error;
+    fail('INTERVIEW_OPTIONS_STALE', error.message);
+  }
+  if (!equal(snapshot.target, target) || !equal(snapshot.run, run) || !equal(snapshot.config, config)) {
+    fail('INTERVIEW_OPTIONS_STALE', 'context: restore the current-parts target, producer run and config bound by the retained structure');
+  }
+  validateContextReopens(collectReopens(project, []), set, drafted, at);
+}
+
 function validateAnsweredContext(dir: string, project: JsonObject, set: JsonObject, at: number, warn?: (why: string) => void): void {
   const context = set.context;
+  if (isObject(context) && context.kind === 'current-parts') return validateAnsweredPartsContext(dir, project, set, context, at);
   if (!isObject(context) || context.kind !== 'current-rig') return validateContext(dir, project, set, at, false, warn);
   const drafted = date(set.drafted_at);
   const { target, config, run } = context;

@@ -11,19 +11,23 @@ import { recordCommand } from '../src/record.ts';
 import { selectSignoffTarget } from '../src/signoff-target.ts';
 import { stageIndex } from '../src/stages.ts';
 import { TEMPLATES_DIR, type JsonObject } from '../src/templates.ts';
-import { interviewAnswerCommand, interviewOptionsCommand, planCommand, signoffCommand, testClock } from './clock.ts';
+import { interviewAnswerCommand, interviewOptionsCommand, planCommand, signoffCommand, TEST_NOW, testClock } from './clock.ts';
 import { arr, fixture, obj, retainSignoffs } from './fixtures.ts';
 import { tempDir } from './helpers.ts';
 import { sceneFixture } from './scene-fixture.ts';
 
 const stage = 'post-interview';
-const builtAt = '2026-11-25T01:00:00.000Z';
-const signedAt = '2026-11-25T01:01:00.000Z';
-const draftedAt = '2026-11-25T01:02:00.000Z';
-const selectedAt = '2026-11-25T01:04:00.000Z';
+const fixtureTime = (offsetMs: number): string => new Date(TEST_NOW + offsetMs).toISOString();
+const builtAt = fixtureTime(0);
+const signedAt = fixtureTime(60_000);
+const draftedAt = fixtureTime(120_000);
+const afterDraftAt = fixtureTime(180_000);
+const selectedAt = fixtureTime(240_000);
+const afterSelectionAt = fixtureTime(300_000);
 const draftTime = Date.parse(draftedAt);
 const selectionTime = Date.parse(selectedAt);
-const rebuiltAt = '2026-11-25T01:06:00.000Z';
+const rebuiltAt = fixtureTime(360_000);
+const reapprovedAt = fixtureTime(420_000);
 const questionId = 'camera_depth';
 const setId = 'current-camera';
 const stale = expect.objectContaining({ code: 'INTERVIEW_OPTIONS_STALE' });
@@ -47,7 +51,7 @@ function installRig(dir: string, project: JsonObject = {}, spec = 'rig-run/3', c
   const argv = ['build', '--out', '.'];
   const stamp: JsonObject = {
     spec, package: { name: '@rig-c/parts', version: '2.57.0' }, command: spec === 'rig-run/1' ? 'rig' : 'build',
-    started_at: '2026-11-25T00:59:58.000Z', finished_at: '2026-11-25T00:59:59.000Z',
+    started_at: fixtureTime(-2000), finished_at: fixtureTime(-1000),
     // The original producer used a differently named, byte-identical config.
     config: { path: '../../staging/config-copy.json', sha256: config.sha256 },
     ...(spec === 'rig-run/3' ? { inputs: [source, full].map((binding, index) => ({ role: index === 0 ? 'source' : 'full', path: `../../${binding.path}`, sha256: binding.sha256 })) } : {}),
@@ -125,8 +129,8 @@ test('current-rig needs a live, matching owner approval at drafting and selectio
   rig.approve();
   expect(() => optionContext(rig.project, stage, Date.parse(builtAt), dir)).toThrow(stale);
   const set = { stage, drafted_at: draftedAt, context: optionContext(rig.project, stage, draftTime, dir) };
-  rig.project.reopens = [{ stage: 'rig-review', from_stage: 'post-interview', by: 'owner', at: '2026-11-25T01:03:00.000Z',
-    verbatim: 'Reopen the rig.', source: OWNER_CHAT_SOURCE, said_at: '2026-11-25T01:03:00.000Z', relayed_by: 'operator', steps_before: [] }];
+  rig.project.reopens = [{ stage: 'rig-review', from_stage: 'post-interview', by: 'owner', at: afterDraftAt,
+    verbatim: 'Reopen the rig.', source: OWNER_CHAT_SOURCE, said_at: afterDraftAt, relayed_by: 'operator', steps_before: [] }];
   expect(() => validateContext(dir, rig.project, set, selectionTime, true)).toThrow(stale);
 });
 
@@ -138,7 +142,7 @@ test('scene-first drafting preserves the current-rig context already authored be
   const context = optionContext(rig.project, stage, draftTime, f.dir);
   expect(context.kind).toBe('current-rig');
   const set = { stage, drafted_at: draftedAt, context };
-  testClock.set('2026-11-25T01:03:00.000Z');
+  testClock.set(afterDraftAt);
   f.seedHistoricalScene();
   const project = f.load();
   expect(optionContext(project, stage, selectionTime, f.dir).kind).toBe('scene');
@@ -267,7 +271,7 @@ test('a rebuilt rig can publish a plan based on the answered current-rig set', (
   const f = realRigOptions();
   const answer = JSON.parse(f.answer()) as JsonObject;
   expect(obj(answer.choice).set).toEqual(f.registered.pending);
-  testClock.set('2026-11-25T01:05:00.000Z');
+  testClock.set(afterSelectionAt);
   expect(planCommand(['revise', 'camera', f.dir, '--by', 'agent', '--reason', 'Reviewed the new camera choice.']).exit).toBe(0);
   const nextConfig = 'specs/rig/replacement.json';
   const next = stageProducerRig(f.dir, nextConfig, true);
@@ -283,7 +287,7 @@ test('a rebuilt rig can publish a plan based on the answered current-rig set', (
   const check = checkProject(f.dir, undefined, { now: testClock.now(), readOnly: true });
   expect(check.refusals.map(finding => finding.code)).toEqual(['SIGNOFF_TARGET_STALE']);
 
-  signRig(f.dir, '2026-11-25T01:07:00.000Z');
+  signRig(f.dir, reapprovedAt);
   const published = load(f.dir);
   const step = arr(obj(published.plan).steps).map(obj).find(step => step.id === 'camera');
   expect(step?.rests_on).toContain(questionId);
@@ -330,7 +334,7 @@ test('a retained answer refuses tampering with its sealed context and bound appr
   const target = obj(obj(set.context).target);
   const findings = () => checkProject(f.dir, project, { now: Date.parse(rebuiltAt) }).refusals;
   const staleAnswer = expect.objectContaining({ code: 'INTERVIEW_OPTIONS_STALE', path: camera.path });
-  for (const at of ['2026-11-25T01:05:00.000Z', '2026-11-25T01:03:00.000Z']) {
+  for (const at of [afterSelectionAt, afterDraftAt]) {
     project.reopens = [{ stage: 'rig-review', from_stage: stage, by: 'owner', at, verbatim: 'Reopen the rig.',
       source: OWNER_CHAT_SOURCE, said_at: at, relayed_by: 'operator', steps_before: [] }];
     if (Date.parse(at) > selectionTime) expect(findings()).not.toContainEqual(staleAnswer);

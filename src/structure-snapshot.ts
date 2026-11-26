@@ -1,9 +1,7 @@
 /**
- * The parts-review structure-decisions snapshot, written from the bound draft
- * (rig-c/create#229). The parts verdict names no per-declaration approval: an
- * approved verdict approves the reviewed draft. Prepared before that verdict,
- * the snapshot carries every `meshes.<part>` declaration of its config exactly. The
- * writer measures and derives no mesh.
+ * The parts-review structure-decisions snapshot, written from current.parts
+ * or an explicitly named draft. It copies every `meshes.<part>` declaration
+ * of the bound producer config. The writer measures and derives no mesh.
  */
 import { lstatSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
@@ -12,16 +10,17 @@ import { asArray, isObject, type Finding } from './check.ts';
 import { readProject } from './feedback.ts';
 import { IGNORED_DIRS } from './init.ts';
 import { partsStructureSnapshot } from './job-acts.ts';
-import { refuse, USAGE_EXIT } from './refusal.ts';
-import { retainedJson, STRUCTURE_SCHEMA, structurePathIsIgnored, validateStructureSnapshot } from './structure.ts';
+import { refuse, Refusal, USAGE_EXIT } from './refusal.ts';
+import { currentPartsStructureSnapshot, hasCurrentParts, readCurrentPartsContext, retainedJson, STRUCTURE_SCHEMA, structurePathIsIgnored, validateStructureSnapshot } from './structure.ts';
 import type { Json, JsonObject } from './templates.ts';
 
 export const STRUCTURE_SNAPSHOT_HELP = `structure-snapshot:
-  [<project dir>] --draft <id> [--out <path>]
-  Write ${STRUCTURE_SCHEMA} from the recorded draft <id>: one entry per
-  meshes.<part> of its config, copied exactly, or entries:[] without meshes.
-  Prepare this evidence before publishing the draft for its parts verdict.
-  --out defaults to the evidence/structure-<encoded draft>.json path Review asks read.
+  [<project dir>] [--draft <id>] [--out <path>]
+  Write ${STRUCTURE_SCHEMA} from current.parts or the explicit recorded draft <id>:
+  one entry per meshes.<part> of its producer config, or entries:[] without meshes.
+  For --draft, prepare this evidence before publishing for the parts verdict.
+  --out defaults to evidence/structure/current-parts/<record sha256>.json for
+  current.parts, or the evidence/structure-<encoded draft>.json path Review asks read.
   Writes only --out; an existing --out with the same bytes is left as it is.
   Parts verdict ingestion retains this snapshot with the folded stage signature.`;
 
@@ -65,6 +64,19 @@ function outTarget(dir: string, out: string): string {
   return file;
 }
 
+function writeCurrentSnapshot(file: string, out: string, snapshot: JsonObject, count: number): { stdout: string; exit: number } {
+  const bytes = `${JSON.stringify(snapshot, null, 2)}\n`;
+  mkdirSync(dirname(file), { recursive: true });
+  try {
+    writeFileSync(file, bytes, { flag: 'wx' });
+  } catch (error) {
+    if (!(error instanceof Error) || (error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+    if (readFileSync(file).equals(Buffer.from(bytes))) return { stdout: `structure-snapshot: ${out} already holds this snapshot of current.parts; unchanged`, exit: 0 };
+    refuse('STRUCTURE_SNAPSHOT_OUT_EXISTS', `structure-snapshot --out ${out}: the file holds different bytes; a retained snapshot is never overwritten, so name a new file`);
+  }
+  return { stdout: `structure-snapshot: wrote ${out} for current.parts with ${count} ${count === 1 ? 'entry' : 'entries'}`, exit: 0 };
+}
+
 export function structureSnapshotCommand(args: string[]): { stdout: string; exit: number } {
   if (args.some(arg => arg === '--verdict' || arg.startsWith('--verdict='))) refuse('PARTS_VERDICT_FILE_ROUTE_REMOVED', 'project.json.drafts: --verdict was removed; record the API response with parts-review and select it with --draft', USAGE_EXIT);
   const opts: Record<string, string> = {};
@@ -80,9 +92,23 @@ export function structureSnapshotCommand(args: string[]): { stdout: string; exit
   }
   const draftId = opts['--draft'];
   const requestedOut = opts['--out'];
-  if (positional.length > 1 || draftId === undefined) refuse('STRUCTURE_SNAPSHOT_USAGE', `structure-snapshot: needs --draft and at most one project folder; ${STRUCTURE_SNAPSHOT_HELP}`, USAGE_EXIT);
+  const usage = (): never => refuse('STRUCTURE_SNAPSHOT_USAGE', `structure-snapshot: needs current.parts or --draft and at most one project folder; ${STRUCTURE_SNAPSHOT_HELP}`, USAGE_EXIT);
+  if (positional.length > 1) usage();
   const dir = resolve(positional[0] ?? process.cwd());
-  const { project } = readProject(dir);
+  let project: JsonObject;
+  try { ({ project } = readProject(dir)); }
+  catch (error) {
+    if (draftId === undefined && error instanceof Refusal) usage();
+    throw error;
+  }
+  if (draftId === undefined) {
+    if (!hasCurrentParts(project)) usage();
+    const parts = readCurrentPartsContext(dir, project);
+    const out = requestedOut ?? `evidence/structure/current-parts/${parts.target.record_sha256}.json`;
+    const file = outTarget(dir, out);
+    const snapshot = currentPartsStructureSnapshot(parts);
+    return writeCurrentSnapshot(file, out, snapshot, asArray(snapshot.entries).length);
+  }
   const index = asArray(project.drafts).findIndex(d => isObject(d) && d.id === draftId);
   const draft = asArray(project.drafts)[index];
   const expectedOut = partsStructureSnapshot(dir, project, draftId).path;

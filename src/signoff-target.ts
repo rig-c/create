@@ -9,10 +9,12 @@ import { directionBinding } from './direction.ts';
 import { assembleOnlyDraftTarget, assembleOnlyVersionFinding, assertDraftHasRig, draftRigRequired, isAssembleOnlyDraft } from './draft-layout.ts';
 import { collectReopens, liveSignoff } from './reopen.ts';
 import { checkReviewPackages } from './review-package.ts';
-import { refuse, USAGE_EXIT } from './refusal.ts';
+import { ownerChatAuthorityFinding } from './owner-chat.ts';
+import { refuse, Refusal, USAGE_EXIT } from './refusal.ts';
 import { SIGNOFF_TARGET_KINDS } from './review-act.ts';
 import { sorted } from './step-hash.ts';
 import { signoffPairFinding } from './signoff-pair.ts';
+import { assertCurrentPartsStructure } from './structure.ts';
 import type { Json, JsonObject } from './templates.ts';
 
 export const SIGNOFF_TARGET_SINCE = '2026-11-06T00:00:00Z';
@@ -31,7 +33,7 @@ function validBinding(value: Json | undefined): value is JsonObject {
   return isObject(value) && typeof value.path === 'string' && value.path.length > 0 && isSha256(value.sha256);
 }
 
-type CurrentTargetKind = 'rig' | 'direction';
+type CurrentTargetKind = 'parts' | 'rig' | 'direction';
 
 export function signoffTargetFormat(target: Json | undefined): 'current' | 'numbered' | 'mixed' | undefined {
   if (!isObject(target)) return;
@@ -40,7 +42,12 @@ export function signoffTargetFormat(target: Json | undefined): 'current' | 'numb
   if (numbered) return 'numbered';
 }
 
-function currentTargetFor(dir: string, project: JsonObject, kind: CurrentTargetKind) {
+/** Parts receipts are historical evidence unless the signature explicitly selects current.parts. */
+export function isCurrentPartsSignoff(signoff: JsonObject): boolean {
+  return signoff.stage === 'parts-review' && isObject(signoff.target) && signoff.target.subject === 'current.parts';
+}
+
+function currentTargetFor(dir: string, project: JsonObject, kind: CurrentTargetKind, signedAt?: number) {
   const subject = `current.${kind}` as const;
   if (!isObject(project.current)) throw Error('current is missing or malformed');
   const node = project.current[kind];
@@ -48,6 +55,7 @@ function currentTargetFor(dir: string, project: JsonObject, kind: CurrentTargetK
   const problem = currentShapeFindings(kind, node)[0];
   if (problem) throw Error(`${problem.path} is malformed`);
   if (!isObject(node) || !isSha256(node.files_sha256)) throw Error(`${subject}.files_sha256 is malformed`);
+  if (signedAt !== undefined && !(Date.parse(String(node.at)) <= signedAt)) throw Error(`${subject} was recorded after the signing time or the signing time is invalid`);
   const root = outputRoot(kind);
   if (currentHash(dir, root) !== node.files_sha256) throw Error(`${root} is missing or differs from ${subject}.files_sha256`);
   return { subject, record_sha256: sha256(JSON.stringify(sorted(node))), files_sha256: node.files_sha256 };
@@ -84,16 +92,19 @@ function targetFor(dir: string, project: JsonObject, stage: string, version: Jso
 /** Same resolution is used by the reader and by the writer before its commit point. */
 export function checkSignoffTarget(dir: string, project: JsonObject, signoff: JsonObject, path: string, refusals: Finding[], warnings: Finding[]): void {
   const stage = String(signoff.stage);
-  if (!(stage in SIGNOFF_TARGET_KINDS)) return;
   const target = signoff.target;
   const format = signoffTargetFormat(target);
+  const currentParts = stage === 'parts-review' && (format === 'current' || format === 'mixed');
+  if (!currentParts && !(stage in SIGNOFF_TARGET_KINDS)) return;
   const current = format === 'current' || format === 'mixed' || (format === undefined && project.current !== undefined);
-  const kind = SIGNOFF_TARGET_KINDS[stage] === 'rig' ? 'rig' : 'direction';
-  const draft = asArray(project.drafts).filter(isObject).find(d => d.id === signoff.draft_id)
-    ?? assembleOnlyDraftTarget(project, !current && isObject(target) ? target.version : undefined);
-  if (isAssembleOnlyDraft(draft)) {
-    refusals.push(draftRigRequired(`${path}.target`, draft?.id));
-    return;
+  const kind = currentParts ? 'parts' : SIGNOFF_TARGET_KINDS[stage] === 'rig' ? 'rig' : 'direction';
+  if (!currentParts) {
+    const draft = asArray(project.drafts).filter(isObject).find(d => d.id === signoff.draft_id)
+      ?? assembleOnlyDraftTarget(project, !current && isObject(target) ? target.version : undefined);
+    if (isAssembleOnlyDraft(draft)) {
+      refusals.push(draftRigRequired(`${path}.target`, draft?.id));
+      return;
+    }
   }
   const missing = target === undefined || target === null;
   let reason = missing ? 'target missing' : '';
@@ -103,7 +114,10 @@ export function checkSignoffTarget(dir: string, project: JsonObject, signoff: Js
         || !isSha256(target.record_sha256) || !isSha256(target.files_sha256)) {
         throw Error(`expected subject current.${kind}, record_sha256 and files_sha256`);
       }
-      const expected = currentTargetFor(dir, project, kind);
+      if (currentParts && (signoff.draft_id !== undefined || signoff.evidence !== undefined || signoff.checkpoint !== null)) {
+        throw Error('current.parts needs a stage signature without a draft, verdict receipt or checkpoint');
+      }
+      const expected = currentTargetFor(dir, project, kind, currentParts ? Date.parse(String(signoff.at)) : undefined);
       if (target.record_sha256 !== expected.record_sha256) throw Error(`current.${kind} record changed since signing`);
       if (target.files_sha256 !== expected.files_sha256) throw Error(`current.${kind} output hash differs from the signed target`);
     } catch (error) { reason = error instanceof Error ? error.message : String(error); }
@@ -130,6 +144,13 @@ export function checkSignoffTarget(dir: string, project: JsonObject, signoff: Js
     } catch (error) { reason = error instanceof Error ? error.message : String(error); }
   }
   if (!reason) {
+    if (currentParts) {
+      const authority = ownerChatAuthorityFinding(signoff, path, signoff.verbatim);
+      // The generic owner-chat scan already reports malformed relay fields.
+      if (authority?.code === 'OWNER_CHAT_REQUIRED') refusals.push(authority);
+      checkCurrentPartsStructure(dir, project, signoff, path, refusals);
+      return;
+    }
     const pair = current ? undefined : signoffPairFinding(project, signoff, path);
     if (pair) (pair.code.endsWith('_LEGACY') ? warnings : refusals).push(pair);
     return;
@@ -141,18 +162,35 @@ export function checkSignoffTarget(dir: string, project: JsonObject, signoff: Js
   (legacy ? warnings : refusals).push({ code, path: at, message: `${at}: ${reason}; ${remedy}` });
 }
 
+function checkCurrentPartsStructure(dir: string, project: JsonObject, signoff: JsonObject, path: string, refusals: Finding[]): void {
+  const at = `${path}.structure`;
+  const remedy = 'run structure-snapshot on the current parts and relay the owner approval again';
+  const binding = signoff.structure;
+  if (binding === undefined) {
+    refusals.push({ code: 'STRUCTURE_DECISIONS_MISSING', path: at, message: `${at}: current.parts needs a bound snapshot; ${remedy}` });
+    return;
+  }
+  try {
+    assertCurrentPartsStructure(dir, project, binding, Date.parse(String(signoff.at)));
+  } catch (error) {
+    if (!(error instanceof Refusal)) throw error;
+    refusals.push({ code: error.code, path: at, message: `${at}: ${error.message}` });
+  }
+}
+
 export function selectSignoffTarget(dir: string, project: JsonObject, stage: string, requested?: string): JsonObject | undefined {
-  if (!(stage in SIGNOFF_TARGET_KINDS)) {
+  const currentParts = stage === 'parts-review' && project.current !== undefined;
+  if (!currentParts && !(stage in SIGNOFF_TARGET_KINDS)) {
     if (requested !== undefined) refuse('SIGNOFF_OPTION_INVALID', 'signoffs.target: --version requires rig-review or direction-review; remove --version');
     return undefined;
   }
   if (project.current !== undefined) {
-    const kind = SIGNOFF_TARGET_KINDS[stage] === 'rig' ? 'rig' : 'direction';
+    const kind = currentParts ? 'parts' : SIGNOFF_TARGET_KINDS[stage] === 'rig' ? 'rig' : 'direction';
     const path = `signoffs[${asArray(project.signoffs).length}].target`;
     if (requested !== undefined) refuse('SIGNOFF_OPTION_INVALID', `${path}: current.${kind} selects the target; remove --version`, USAGE_EXIT);
     const node = isObject(project.current) ? project.current[kind] : undefined;
     if (isObject(node) && 'adopted' in node) {
-      const source = kind === 'rig' ? '--config <rig config>' : '--direction specs/direction/direction.json';
+      const source = kind === 'direction' ? '--direction specs/direction/direction.json' : '--config <rig config>';
       refuse('SIGNOFF_TARGET_MISSING', `${path}: current.${kind} is an adopted output; rebuild it and run rig-create record ${kind} --from ${outputRoot(kind)} ${source}, then sign ${stage} again`);
     }
     try { return currentTargetFor(dir, project, kind); }

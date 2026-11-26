@@ -1,6 +1,6 @@
 import { missingPickSignoffSteps, pickSignoffEvidence } from './pick-signoff.ts';
 import { OWNER_CHAT_FLAGS, OWNER_CHAT_USAGE, readOwnerChat, assertOwnerChatSignoff } from './owner-chat.ts';
-import { pendingInterviewOptions, pendingInterviewOptionsPath } from './choices.ts';
+import { literalFile, pendingInterviewOptions, pendingInterviewOptionsPath } from './choices.ts';
 import { assertSignoffCandidate, bindPartsSignoff } from './parts-signoff.ts';
 import { currentPartsAmendment } from './parts-act.ts';
 import { latestPartsVerdictFinding, partsReceiptDraftId, recordedPartsActReceipt, recordedPartsVerdict } from './parts-verdict-record.ts';
@@ -21,7 +21,7 @@ import { assertActSubjectDeclared, decodeReviewAct, fetchReviewActBytes, isRecor
 
 import { asArray, checkProject, classify, collectItems, isObject, loadCollection, postNotPassed, type CheckReport, type Finding } from './check.ts';
 import { readProject } from './feedback.ts';
-import { riggingContext } from './structure.ts';
+import { assertCurrentPartsStructure, riggingContext } from './structure.ts';
 import { readVerbatim } from './record-input.ts';
 import { refuse, USAGE_EXIT } from './refusal.ts';
 import { findingKey } from './refusal-baseline.ts';
@@ -39,7 +39,7 @@ export const SIGNOFF_HELP = `signoff:
   --by <who>              the person signing (agent is refused)
   --verbatim-file <file>  UTF-8 words unchanged, or - for stdin (default: stdin)
   --owner-chat <file>     relay exact owner words (excludes --verbatim-file / --from-review)
-                         required when signing current rig or direction
+                         required when signing current parts, rig or direction
   --said-at <ISO date>    explicit owner clock; at remains the write time
   --relayed-by <who>     operator relaying the owner chat
   --steps <id,id,...>      narrow parts plan, rigging-interview rig steps, or post steps
@@ -47,7 +47,8 @@ export const SIGNOFF_HELP = `signoff:
   --from-review <actId>   with --checkpoint: record the passed Review checkpoint act (no --by or --verbatim-file)
   --draft <id>            labelled draft with a recorded parts-review API receipt
                          with --from-review, may carry a retained verdict after its owner amendment
-  --structure-file <path> retained structure decisions snapshot
+  --structure-file <path> retained structure decisions snapshot for parts-review
+                         current parts default to the snapshot written by structure-snapshot
   --json                  print the signature as JSON
   The clock supplies at. With no --steps, signs all steps of the stage's phase.
   Fills null checkpoints from checkpoint_proposed and hashes covered steps after filling.
@@ -55,6 +56,27 @@ export const SIGNOFF_HELP = `signoff:
 
 interface FetchedSignoff { act: SignoffAct; bytes: string; human: JsonObject }
 interface RetainedPartsSignoff { file: string; project: JsonObject; original: Buffer; receipt: JsonObject }
+
+function currentPartsDraftOption(opts: Record<string, string>): void {
+  if (opts['--draft'] !== undefined) {
+    refuse('SIGNOFF_OPTION_INVALID', 'signoffs.target: current.parts selects the target; remove --draft', USAGE_EXIT);
+  }
+}
+
+function currentPartsStructureBinding(dir: string, project: JsonObject, target: JsonObject, path: string | undefined, now: number) {
+  const rel = path ?? `evidence/structure/current-parts/${String(target.record_sha256)}.json`;
+  const at = `signoffs[${asArray(project.signoffs).length}].structure`;
+  const remedy = 'run structure-snapshot on current.parts and use its output or pass --structure-file <path>';
+  let bytes: Buffer;
+  try { bytes = readFileSync(literalFile(dir, rel)); }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') refuse('STRUCTURE_DECISIONS_MISSING', `${at}: ${rel} is missing; ${remedy}`);
+    return refuse('STRUCTURE_DECISIONS_INVALID', `${at}: ${rel}: ${error instanceof Error ? error.message : String(error)}; ${remedy}`);
+  }
+  const binding = { path: rel, sha256: jobHash(bytes) };
+  assertCurrentPartsStructure(dir, project, binding, now);
+  return binding;
+}
 
 /** Fetch and decode a finalized signoff act; its stage, words, identity and date are the person's, never flags. */
 function fetchSignoffAct(dir: string, stage: string, actId: string, now: number, hooks: SignoffHooks): FetchedSignoff {
@@ -117,6 +139,10 @@ export function signoffCommand(args: string[], now: number, hooks: SignoffHooks 
   if (actId === undefined && !opts['--from-picks']) return recordSignoff(stage, positional, opts, json, now, hooks);
   // One bound write lock per route covers the fetch, validation and the write.
   const root = resolve(positional[1] ?? process.cwd());
+  if (stage === PARTS_REVIEW && readProject(root).project.current !== undefined) {
+    currentPartsDraftOption(opts);
+    refuse('OWNER_CHAT_REQUIRED', `project.json.signoffs.${stage}: relay the owner's approval of current.parts with ${OWNER_CHAT_USAGE}`, USAGE_EXIT);
+  }
   const release = acquireBoundJobWrite(root);
   // The first milestone waits for the job gate: a refused write leaves the project untouched.
   const progress = actId !== undefined ? beginJobProgress(root, 'ingest', 'Reading the Review signoff') : undefined;
@@ -167,13 +193,15 @@ function recordSignoff(stage: string, positional: string[], opts: Record<string,
   if (by.toLowerCase() === 'agent') refuse('SIGNOFF_NOT_HUMAN', `stage ${stage}: signed by agent`);
   const dir = resolve(positional[1] ?? process.cwd());
   const { file, project } = retained ?? (preview ? { file: resolve(dir, 'project.json'), project: preview.project } : readProject(dir));
-  const currentTarget = review === undefined && project.current !== undefined && stage in SIGNOFF_TARGET_KINDS;
+  const currentPartsTarget = stage === PARTS_REVIEW && project.current !== undefined;
+  const currentTarget = review === undefined && project.current !== undefined && (currentPartsTarget || stage in SIGNOFF_TARGET_KINDS);
+  if (currentPartsTarget) currentPartsDraftOption(opts);
   const requestedVersion = opts['--version'];
   if (currentTarget && requestedVersion !== undefined) {
     // The selector refuses an explicit version before reading any current outputs.
     selectSignoffTarget(dir, project, stage, requestedVersion);
   }
-  const chat = readOwnerChat(opts, by, now, 'project.json.signoffs');
+  const chat = readOwnerChat(opts, by, now, currentPartsTarget ? 'project.json.signoffs.parts-review' : 'project.json.signoffs', currentPartsTarget);
   if (currentTarget && !chat) {
     refuse('OWNER_CHAT_REQUIRED', `project.json.signoffs.${stage}: signing a current output requires the owner's relayed words; use ${OWNER_CHAT_USAGE}`, USAGE_EXIT);
   }
@@ -185,7 +213,7 @@ function recordSignoff(stage: string, positional: string[], opts: Record<string,
       : asArray(project.drafts).filter(isObject).find(d => d.id === draftId);
     assertDraftHasRig(draft, 'project.json.signoffs.target');
   }
-  if (chat) assertOwnerChatSignoff(dir, project, stage, opts['--draft'], opts['--version']);
+  if (chat && !currentTarget) assertOwnerChatSignoff(dir, project, stage, opts['--draft'], opts['--version']);
   const original = retained?.original ?? (actId === undefined && !opts['--from-picks'] ? undefined : readFileSync(file));
   if (retained?.receipt.signoff !== undefined) {
     const recorded = asArray(project.signoffs)[Number(retained.receipt.signoff)];
@@ -298,9 +326,9 @@ function recordSignoff(stage: string, positional: string[], opts: Record<string,
       by = ingest.by;
     }
   }
-  if (stage === PARTS_REVIEW && !opts['--draft']) refuse('PARTS_VERDICT_RECEIPT_REQUIRED', 'project.json.signoffs.draft_id: parts-review needs --draft with a recorded API receipt');
+  if (stage === PARTS_REVIEW && !currentPartsTarget && !opts['--draft']) refuse('PARTS_VERDICT_RECEIPT_REQUIRED', 'project.json.signoffs.draft_id: parts-review needs --draft with a recorded API receipt');
   // Preserve refusal-before-words on the separate signing route.
-  if (stage === PARTS_REVIEW && !carried) recordedPartsVerdict(dir, project, opts['--draft']);
+  if (stage === PARTS_REVIEW && !currentPartsTarget && !carried) recordedPartsVerdict(dir, project, opts['--draft']);
   if ((opts['--draft'] !== undefined || opts['--structure-file'] !== undefined) && stage !== PARTS_REVIEW) refuse('SIGNOFF_OPTION_INVALID', '--draft and --structure-file require parts-review', USAGE_EXIT);
   const phase = stage === 'post-interview' ? 'post' : ['plan-approved', 'rigging-interview'].includes(stage) ? 'rig' : undefined;
   if (phase === undefined && opts['--steps'] !== undefined) refuse('SIGNOFF_OPTION_INVALID', '--steps requires plan-approved, rigging-interview or post-interview', USAGE_EXIT);
@@ -347,7 +375,7 @@ function recordSignoff(stage: string, positional: string[], opts: Record<string,
     const answerHashes = selectAnswerHashes(dir, project, signoff, picks?.questions);
     if (answerHashes !== undefined) signoff.answer_hashes = answerHashes;
     if (stage === PARTS_REVIEW && opts['--draft'] !== undefined) signoff.draft_id = opts['--draft'];
-    if (stage === PARTS_REVIEW) bindPartsSignoff(dir, project, signoff, opts['--structure-file'], carried);
+    if (stage === PARTS_REVIEW && !currentPartsTarget) bindPartsSignoff(dir, project, signoff, opts['--structure-file'], carried);
     if (stage === 'rigging-interview') {
       const errors: Finding[] = [];
       const context = riggingContext(dir, project, at, errors);
@@ -367,6 +395,9 @@ function recordSignoff(stage: string, positional: string[], opts: Record<string,
     if (targetProject !== project) delete targetProject.current;
     const target = selectSignoffTarget(dir, targetProject, stage, targetVersion);
     if (target !== undefined) signoff.target = target;
+    if (currentPartsTarget && target !== undefined) {
+      signoff.structure = currentPartsStructureBinding(dir, project, target, opts['--structure-file'], now);
+    }
     return target;
   };
   // Capture signing evidence, while keeping unrelated producer-output validation outside the record closure.

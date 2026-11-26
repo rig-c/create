@@ -6,7 +6,7 @@ import { outputSetHash, sha256, treeFiles, type CurrentKind } from '../src/curre
 import { JOB_BINDING_FILE, writePrivateJson } from '../src/job-outbox.ts';
 import { nextCommand, nextProject } from '../src/next.ts';
 import { stageIndex } from '../src/stages.ts';
-import type { Json, JsonObject } from '../src/templates.ts';
+import { readTemplate, type Json, type JsonObject } from '../src/templates.ts';
 import { advanceCommand, signoffCommand, testClock } from './clock.ts';
 import { fixture, plantLegacyReopen, retainSignoffs, type Mutate } from './fixtures.ts';
 import { ownerChatArgs, tempDir } from './helpers.ts';
@@ -364,6 +364,7 @@ function expectCurrentReview(dir: string, stage: 'rig-review' | 'direction-revie
 }
 
 test('next guides current rigging through owner chat approval and onward to post-interview without an accepted rig verdict', () => {
+  const unstartedPost = (readTemplate('project.json').interview as JsonObject).post!;
   const dir = staleFixture(project => {
     project.stage = 'rigging';
     project.versions = asArray(project.versions).filter(v => isObject(v) && v.kind === 'rig');
@@ -371,15 +372,23 @@ test('next guides current rigging through owner chat approval and onward to post
       version.verdicts = asArray(version.verdicts).filter(verdict => isObject(verdict) && verdict.verdict !== 'accepted');
     }
     (project.direction_contract as JsonObject).grandfathered_posts = [];
+    // No post options or scene have been authored against the still-unsigned rig.
+    (project.interview as JsonObject).post = unstartedPost;
+    project.scenes = [];
+    const plan = project.plan as JsonObject;
+    plan.steps = asArray(plan.steps).filter(step => isObject(step) && step.phase === 'rig');
     retainSignoffs(project, row => stageIndex(String(row.stage)) < stageIndex('rig-review'));
     project.advances = asArray(project.advances).filter(row => isObject(row) && stageIndex(String(row.stage)) <= stageIndex('rigging'));
   });
   put(dir, 'project.json', freshPost(dir, readProject(dir)));
   bindReviewWriter(dir);
-  expect(next(dir).moves).toContainEqual(expect.objectContaining({ command: `rig-create advance rig-review ${dir}` }));
+  const rigging = next(dir);
+  expect(rigging.refusals).toEqual([]);
+  expect(rigging.moves).toContainEqual(expect.objectContaining({ command: `rig-create advance rig-review ${dir}` }));
   expect(advanceCommand(['rig-review', dir])).toMatchObject({ exit: 0 });
   expectCurrentReview(dir, 'rig-review');
-  const words = join(dir, 'evidence/approval.txt');
+  const words = join(dir, 'owner-rig-approval.txt');
+  writeFileSync(words, 'The synthetic rig is approved.\n');
   expect(signoffCommand(['rig-review', dir, '--by', 'owner', ...ownerChatArgs(words)])).toMatchObject({ exit: 0 });
   expect(asArray(readProject(dir).signoffs).at(-1)).toMatchObject({ target: { subject: 'current.rig' } });
   expect(next(dir).moves).toContainEqual(expect.objectContaining({ command: `rig-create advance post-interview ${dir}` }));
@@ -421,7 +430,8 @@ test('a bound current direction advances, signs in owner chat and reaches accept
   expect(next(dir).awaits).not.toContain('signoffs[stage=direction-review]');
   renameSync(moved, output);
 
-  const words = join(dir, 'evidence/approval.txt');
+  const words = join(dir, 'owner-direction-approval.txt');
+  writeFileSync(words, 'The synthetic direction is approved.\n');
   expect(signoffCommand(['direction-review', dir, '--by', 'owner', ...ownerChatArgs(words)])).toMatchObject({ exit: 0 });
   expect(asArray(readProject(dir).signoffs).at(-1)).toMatchObject({ target: { subject: 'current.direction' } });
   expect(next(dir).moves).toContainEqual(expect.objectContaining({ command: `rig-create advance accepted ${dir}` }));
@@ -437,7 +447,8 @@ test('next keeps the numbered rig verdict move for a project without current', (
   const report = next(dir);
   const awaits = 'versions[n=1].verdicts[review=rig-review]';
   expect(report.awaits).toContain(awaits);
-  expect(report.moves.find(move => move.awaits === awaits)).toMatchObject({
+  expect(report.moves.find(move => move.awaits === awaits && move.role === 'human'
+    && move.review_act?.kind === 'review-verdict')).toMatchObject({
     role: 'human', command: null,
     review_act: { kind: 'review-verdict', stage: 'rig-review', version_id: 'v1', review: 'rig-review' },
   });

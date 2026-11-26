@@ -778,7 +778,7 @@ file unchanged. The shared `VERBATIM_*` codes also apply to `review`.
 | --- | --- |
 | `SIGNOFF_PICKS_REQUIRED` | `--from-picks` needs the current interview, plan-approved or rigging-interview stage and an ingested owner pick for every relevant answer; record the missing picks or use the regular sign-off route for other answers |
 | `SIGNOFF_PICKS_PLAN_INCOMPLETE` | `--from-picks` cannot sign until the stage's required plan steps exist; add those steps through the plan writer |
-| `SIGNOFF_OPTION_INVALID` | missing or repeated options, unknown stage, extra positional arguments, `--from-review` with `--by`, `--verbatim-file`, `--steps` or owner-chat flags (the act supplies the person, words and covered steps), `--steps` outside a plan approval stage or with `--checkpoint`, or `--draft` or `--structure-file` outside `parts-review` (exit 2) |
+| `SIGNOFF_OPTION_INVALID` | missing or repeated options, unknown stage, extra positional arguments, `--from-review` with `--by`, `--verbatim-file`, `--steps` or owner-chat flags (the act supplies the person, words and covered steps), `--steps` outside a plan approval stage or with `--checkpoint`, `--draft` or `--structure-file` outside `parts-review`, or `--version` on a current output target (exit 2; remove `--version` to sign the current output) |
 | `SIGNOFF_NOT_HUMAN` | `--by` is `agent`, case-insensitively |
 | `SIGNOFF_MALFORMED` | the record's `signoffs` is not a list |
 | `SIGNOFF_REASK_PENDING` | a new `interview`, `rigging-interview` or `post-interview` stage signature has a pending option set in that stage. Open the named question with `rig-create job open --question <id>`, record the owner's pick with `interview-answer`, then ask for sign-off. The refusal applies to Review acts and relayed owner chat. |
@@ -1269,14 +1269,19 @@ any write, not a screening decision about the painting.
 ### Review sign-off targets
 
 From `SIGNOFF_TARGET_SINCE = 2026-11-06T00:00:00Z`, every rig-review and
-direction-review signature binds an accepted verdict and its version's reviewed inputs.
+direction-review signature binds a target. When `current` is present, target
+selection uses `current.rig` or `current.direction` for the corresponding stage.
+The target contains exactly `subject`, `record_sha256` (the SHA-256 of the full
+node as recursively key-sorted JSON) and `files_sha256` (the node's recorded
+output-set hash, checked against disk). A numbered signature still checks its
+accepted verdict and version's reviewed inputs after adoption.
 
 | Code | Meaning | Remedy |
 | --- | --- | --- |
-| `SIGNOFF_TARGET_MISSING` | A current-era review signature has no target | Preserve the reviewed inputs and sign again with `--version` |
-| `SIGNOFF_TARGET_STALE` | The version, operative human accepted verdict, package inventory, imported outputs or direction binding no longer resolves, or writer selection is ambiguous | Restore the reviewed inputs and select the accepted version with `--version` |
+| `SIGNOFF_TARGET_MISSING` | A review signature dated on or after `SIGNOFF_TARGET_SINCE` has no target | For a project with `current`, restore or record the stage's current output and sign again. For a numbered project, preserve the reviewed inputs and sign again with `--version` |
+| `SIGNOFF_TARGET_STALE` | A current target or required current node is missing, malformed or differs from its recorded hashes or disk. For a numbered target, the version, operative human accepted verdict, package inventory, imported outputs or direction binding no longer resolves, or writer selection is ambiguous | Restore the reviewed current record and outputs or record them with `rig-create record rig` or `rig-create record direction`, then sign again. For numbered selection, restore the reviewed inputs and select the accepted version with `--version` |
 | `SIGNOFF_TARGET_MISSING_LEGACY` | A pre-contract signature has no target | Preserve history and bind the next review signature |
-| `SIGNOFF_TARGET_STALE_LEGACY` | WARN when a signature dated before `SIGNOFF_TARGET_SINCE` has a target that no longer resolves | Preserve the reviewed inputs and sign again with `--version` |
+| `SIGNOFF_TARGET_STALE_LEGACY` | WARN when a signature dated before `SIGNOFF_TARGET_SINCE` has a target that no longer resolves | Preserve history and use the remedy for the target format in `SIGNOFF_TARGET_STALE` |
 | `SIGNOFF_PAIR_MISMATCH` | A rig-review or direction-review sign-off predates its target verdict without a human accepted pair bound by unique immutable act receipts to the same job, publication and version. Ingest always refuses; check refuses from `SIGNOFF_PAIR_SINCE = 2026-11-13T00:00:00Z`, dated by `signoffs[].at` | Accept the intended version and sign it again in Review, then ingest both acts |
 | `SIGNOFF_PAIR_MISMATCH_LEGACY` | WARN: the same inconsistent pair on a sign-off before `SIGNOFF_PAIR_SINCE` | Preserve history; accept and sign the intended version in Review for the next pair |
 

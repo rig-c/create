@@ -3,10 +3,11 @@ import { existsSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, 
 import { dirname, join } from 'node:path';
 import { asArray, checkProject, isObject } from '../src/check.ts';
 import { outputSetHash, sha256, treeFiles, type CurrentKind } from '../src/current.ts';
+import { JOB_BINDING_FILE, writePrivateJson } from '../src/job-outbox.ts';
 import { nextCommand, nextProject } from '../src/next.ts';
 import { stageIndex } from '../src/stages.ts';
 import type { Json, JsonObject } from '../src/templates.ts';
-import { testClock } from './clock.ts';
+import { advanceCommand, testClock } from './clock.ts';
 import { fixture, retainSignoffs, type Mutate } from './fixtures.ts';
 
 const CONFIG = 'specs/rig/config.json';
@@ -266,32 +267,109 @@ test('post-interview hides stale option authoring, Review groups and answer refr
   expect(next(dir).moves.filter(move => !move.field.startsWith('current.'))).toEqual([plan!]);
 });
 
-test('stale outputs replace dependent forward moves and their awaits while preserving independent plan work', () => {
-  const dir = staleFixture(project => {
+function postFixture(stepStatus: 'pending' | 'done'): string {
+  return staleFixture(project => {
     project.stage = 'post';
     project.versions = asArray(project.versions).filter(v => isObject(v) && v.kind === 'rig');
     retainSignoffs(project, row => stageIndex(String(row.stage)) < stageIndex('direction-review'));
     project.advances = asArray(project.advances).filter(row => isObject(row) && stageIndex(String(row.stage)) <= stageIndex('post'));
     (project.direction_contract as JsonObject).grandfathered_posts = [];
-    for (const step of asArray((project.plan as JsonObject).steps).filter(isObject)) {
-      if (step.phase !== 'post') continue;
-      step.status = 'pending';
-      delete step.status_history;
+    if (stepStatus === 'pending') {
+      for (const step of asArray((project.plan as JsonObject).steps).filter(isObject)) {
+        if (step.phase !== 'post') continue;
+        step.status = 'pending';
+        delete step.status_history;
+      }
     }
   });
+}
+
+function freshPost(dir: string, staleRecord: JsonObject): JsonObject {
+  const project = structuredClone(staleRecord);
+  (project.current as { rig: JsonObject }).rig.built_from = [binding(dir, PARTS), binding(dir, CONFIG)];
+  return project;
+}
+
+const rebuildTargets = ['current.rig', 'current.motion', 'current.direction'];
+
+test('stale rig suppresses staged motion recording while independent post step statuses stay runnable', () => {
+  const dir = postFixture('pending');
+  put(dir, 'outputs/motion.next/frames.json', { frames: 2 });
   const staleRecord = readProject(dir);
-  const current = structuredClone(staleRecord.current as { rig: JsonObject });
-  current.rig.built_from = [binding(dir, PARTS), binding(dir, CONFIG)];
-  put(dir, 'project.json', { ...staleRecord, current });
+  put(dir, 'project.json', freshPost(dir, staleRecord));
   const fresh = next(dir);
-  expect(fresh.refusals).toEqual([]);
-  const authoring = fresh.moves.find(move => move.command?.startsWith('rig-create direction write '));
-  expect(authoring).toBeDefined();
+  const plan = ['camera', 'timing', 'composition'].map(id => ({
+    role: 'agent', field: `plan.steps[${id}].status`, awaits: `plan.steps[${id}].status`,
+    command: `rig-create step-status ${id} in-progress ${dir} --by agent`,
+    act: `advance plan.steps[${id}].status from pending to in-progress`,
+  }));
+  expect(fresh).toMatchObject({ effective_stage: 'post', refusals: [] });
+  expect(fresh.moves).toEqual([{
+    role: 'agent', field: 'current.motion', awaits: 'current.motion',
+    command: `rig-create record motion ${dir} --from outputs/motion.next`, act: 'record the rendered current motion',
+  }, ...plan]);
+  expect(fresh.awaits).toEqual(plan.map(move => move.awaits));
 
   put(dir, 'project.json', staleRecord);
   const stale = next(dir);
-  expect(stale.refusals).toEqual([]);
-  expect(stale.moves.slice(0, 3).map(move => move.field)).toEqual(['current.rig', 'current.motion', 'current.direction']);
-  expect(stale.moves.slice(3)).toEqual(fresh.moves.filter(move => move !== authoring));
-  expect(stale.awaits).not.toContain(authoring!.awaits);
+  expect(stale).toMatchObject({ effective_stage: 'post', refusals: [] });
+  expect(stale.moves.slice(0, 3).map(({ field, awaits, command }) => ({ field, awaits, command })))
+    .toEqual(rebuildTargets.map(field => ({ field, awaits: field, command: null })));
+  expect(stale.moves.slice(3)).toEqual(plan);
+  expect(stale.awaits).toEqual([...rebuildTargets, ...plan.map(move => move.awaits)]);
+});
+
+test('stale direction suppresses the advance to direction-review and its stage await', () => {
+  const dir = postFixture('done');
+  const staleRecord = readProject(dir);
+  const freshRecord = freshPost(dir, staleRecord);
+  put(dir, 'project.json', freshRecord);
+  const fresh = next(dir);
+  expect(fresh).toMatchObject({ effective_stage: 'post', refusals: [] });
+  expect(fresh.moves.filter(move => move.field === 'stage')).toEqual([{
+    role: 'agent', field: 'stage', awaits: 'project.stage',
+    command: `rig-create advance direction-review ${dir}`, act: 'advance stage from post to direction-review',
+  }]);
+  expect(fresh.awaits).toContain('project.stage');
+  expect(fresh.moves.some(move => move.command?.startsWith('rig-create direction write '))).toBe(false);
+
+  put(dir, 'project.json', staleRecord);
+  const stale = next(dir);
+  expect(stale).toMatchObject({ effective_stage: 'post', refusals: [] });
+  expect(stale.moves.map(move => move.field)).toEqual(rebuildTargets);
+  expect(stale.awaits).not.toContain('project.stage');
+
+  put(dir, 'project.json', freshRecord);
+  expect(advanceCommand(['direction-review', dir])).toMatchObject({ exit: 0 });
+  expect(readProject(dir).stage).toBe('direction-review');
+});
+
+test('a Review writer binding requires a numbered post before advancing a fresh current direction', () => {
+  const dir = postFixture('done');
+  const staleRecord = readProject(dir);
+  put(dir, 'project.json', freshPost(dir, staleRecord));
+  const file = join(dir, 'project.json');
+  const original = readFileSync(file);
+  // This private binding exercises the writer gate without starting a listener.
+  writePrivateJson(join(dir, JOB_BINDING_FILE), {
+    schema: 'rig-create/job-binding@1', identity: { root: realpathSync(dir) },
+    jobId: 'synthetic-job', origin: 'http://127.0.0.1', fetchCapability: 'synthetic', listenerIncarnation: '',
+  }, true);
+  expect(() => advanceCommand(['direction-review', dir])).toThrow(expect.objectContaining({ code: 'JOB_PUBLICATION_INVALID' }));
+  expect(readFileSync(file)).toEqual(original);
+
+  const bound = next(dir);
+  expect(bound).toMatchObject({ effective_stage: 'post', refusals: [] });
+  expect(bound.moves.filter(move => move.field === 'stage')).toEqual([]);
+  expect(bound.moves.filter(move => move.role === 'agent' && move.field === 'versions')).toEqual([{
+    role: 'agent', field: 'versions', awaits: 'versions[n=3]',
+    command: `rig-create direction write 3 ${dir} --file '<direction.json>' --rig 2`,
+    act: 'author a direction document binding the current scene, then record the post version',
+  }]);
+  expect(bound.awaits).toContain('versions[n=3]');
+
+  put(dir, 'project.json', staleRecord);
+  const stale = next(dir);
+  expect(stale.moves.map(move => move.field)).toEqual(rebuildTargets);
+  expect(stale.awaits).not.toContain('versions[n=3]');
 });

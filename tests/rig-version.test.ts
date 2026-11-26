@@ -2739,7 +2739,7 @@ test('#1044 next uses the frozen registration config for the adopted rig replace
   expect(source.path).toBe('evidence/v1/registration/config-source.json');
   expect(existsSync(join(dir, 'specs/rig/config.json'))).toBe(false);
 
-  const adopt = run([process.execPath, ...clockedCli(), 'record', 'rig', '--adopt', dir], dir);
+  const adopt = run([process.execPath, ...clockedCli(), 'record', 'rig', '--adopt', dir], dir, process.env as Record<string, string>);
   expect(adopt.code).toBe(0);
   expect(obj(obj(load().current).rig).built_from).toEqual([{ path: source.path, sha256: source.sha256 }]);
   const file = join(dir, 'project.json');

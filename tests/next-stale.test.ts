@@ -292,7 +292,7 @@ function freshPost(dir: string, staleRecord: JsonObject): JsonObject {
 
 const rebuildTargets = ['current.rig', 'current.motion', 'current.direction'];
 
-test('stale rig suppresses staged motion recording while independent post step statuses stay runnable', () => {
+test('stale rig leads with rebuilds while independent post step statuses stay runnable', () => {
   const dir = postFixture('pending');
   put(dir, 'outputs/motion.next/frames.json', { frames: 2 });
   const staleRecord = readProject(dir);
@@ -304,10 +304,8 @@ test('stale rig suppresses staged motion recording while independent post step s
     act: `advance plan.steps[${id}].status from pending to in-progress`,
   }));
   expect(fresh).toMatchObject({ effective_stage: 'post', refusals: [] });
-  expect(fresh.moves).toEqual([{
-    role: 'agent', field: 'current.motion', awaits: 'current.motion',
-    command: `rig-create record motion ${dir} --from outputs/motion.next`, act: 'record the rendered current motion',
-  }, ...plan]);
+  // A recorded current.motion is replaced only through its rebuild move; staged bytes alone offer no record (#1030).
+  expect(fresh.moves).toEqual(plan);
   expect(fresh.awaits).toEqual(plan.map(move => move.awaits));
 
   put(dir, 'project.json', staleRecord);

@@ -7,6 +7,7 @@ import { dirname, join, relative } from 'node:path';
 import { JOB_COMMENTS_ACT_SCHEMA, type ActV3, type JobOwnerHost } from '@rig-c/review/job-host';
 import { main } from '../src/cli.ts';
 import { checkProject, PLAN_STEP_ANSWER_SINCE } from '../src/check.ts';
+import { outputSetHash } from '../src/current.ts';
 import { openCreateJob } from '../src/job-host.ts';
 import { readRecordPublished } from '../src/job-publication.ts';
 import { stageIndex } from '../src/stages.ts';
@@ -18,6 +19,7 @@ import { freshProjectRecord } from '../src/init.ts';
 import { renderAgentGuide } from '../src/agent-guide.ts';
 import { optionContext } from '../src/choices.ts';
 import { NEXT_SCHEMA, nextCommand, nextProject, type NextReport } from '../src/next.ts';
+import { OWNER_CHAT_SOURCE } from '../src/owner-chat.ts';
 import { Refusal, USAGE_EXIT } from '../src/refusal.ts';
 import { EXAMPLE_NOW } from '../scripts/example-time.ts';
 import { planCommand, stepStatusCommand, amendCommand, reviewCommand, signoffCommand, testClock } from './clock.ts';
@@ -133,6 +135,10 @@ function printedArgs(command: string): string[] {
   expect(quote).toBe('');
   if (started) words.push(word);
   return words;
+}
+
+function isRecordAdoption(command: string | null): boolean {
+  return command !== null && command.startsWith('rig-create record ') && printedArgs(command).includes('--adopt');
 }
 
 function preparePrintedOptions(dir: string, command: string, now: number): string[] {
@@ -292,8 +298,9 @@ describe('Frozen Bar 1 — The chain is the answer key (example-chain checkpoint
         expect(report.moves[4]?.unanswered_by_record).toBe('interview.waypoints[motion].pending_options');
       } else if (spec.name === '3-rig-review') {
         // The generated historical pending fixture lists two acts; a fresh job now folds approval.
-        expect(report.awaits).toEqual(['versions[n=1].verdicts[review=rig-review]']);
-        expect(report.moves.map(m => String(m.role))).toEqual(['human']);
+        expect(report.awaits).toEqual(['versions[n=1].verdicts[review=rig-review]', 'current.rig']);
+        expect(report.moves.map(m => String(m.role))).toEqual(['human', 'agent']);
+        expect(report.moves[1]?.command).toBe(`rig-create record rig --adopt ${cpDir}`);
         expect(report.moves[0]).toMatchObject({
           role: 'human',
           field: 'versions[v1].verdicts',
@@ -301,13 +308,11 @@ describe('Frozen Bar 1 — The chain is the answer key (example-chain checkpoint
           command: null,
           review_act: { kind: 'review-verdict', stage: 'rig-review', version_id: 'v1', review: 'rig-review' },
         });
-        expect(report.moves).toHaveLength(1);
         expect(report.moves[0]!.act).toContain('approve once');
       } else if (spec.name === '4-direction-post') {
-        // The runnable agent move matches pending.commands[7] verbatim (`rig-create advance direction-review`),
-        // and its role is 'agent' (decided by stage="post", plan.steps all done, signoffs[6]),
-        // whereas pending.command_roles[7] mislabelled advance as 'human'.
-        const agentMove = report.moves.find(m => m.role === 'agent');
+        expect(report.moves.at(-1)?.command).toBe(`rig-create record rig --adopt ${cpDir}`);
+        // The legacy authoring path stays available while the project has no current output.
+        const agentMove = report.moves.find(m => m.command?.startsWith('rig-create scene write '));
         expect(agentMove?.command).toBe(`rig-create scene write ${cpDir} --rig 1 --background '<background.png>' --citations-file '<scene-citations.json>'`);
         expect(report.moves.some(move => move.command?.includes('advance direction-review'))).toBe(false);
         // scenes is absent and versions has only v1 (rig), so next names scenes[n=1], versions[n=2] as unanswered_by_record.
@@ -322,6 +327,12 @@ describe('Frozen Bar 1 — The chain is the answer key (example-chain checkpoint
 });
 
 describe('Frozen Bar 2 — No suggested agent move refuses on a scratch copy', () => {
+  test('recognizes record adoption with the project directory before or after the flag', () => {
+    expect(isRecordAdoption("rig-create record rig --adopt 'project with spaces'")).toBe(true);
+    expect(isRecordAdoption("rig-create record rig 'project with spaces' --adopt")).toBe(true);
+    expect(isRecordAdoption('rig-create direction --adopt project')).toBe(false);
+  });
+
   test('every standalone agent move executes with exit 0, no new refusals, and clean inputs stay clean', () => {
     const targets: { name: string; dir: string; now: number }[] = [
       ...readdirSync(CHECKPOINTS_DIR)
@@ -352,6 +363,8 @@ describe('Frozen Bar 2 — No suggested agent move refuses on a scratch copy', (
         // Review workflows require one live host and a human export between commands;
         // their complete ordered execution is covered in job-acts.test.ts (#502).
         if (move.command?.startsWith('rig-create job ') || move.command?.includes('--from-review')) continue;
+        // Adoption is offered as an explicit migration and verified by its own read-only next tests.
+        if (isRecordAdoption(move.command)) continue;
         expect(typeof move.command).toBe('string');
         expect(move.command!.startsWith('rig-create ')).toBe(true);
         const scratch = join(tempDir(), 'scratch');
@@ -597,19 +610,19 @@ describe('Frozen Bar 5 — Plants (lapsed approval, changed bound input DRAFT_RI
     expect(text.stdout).toContain('no forward move (resolve refusals first)');
   });
 
-  test('plant 3: an accepted project with no remaining move says so and exits 0', () => {
-    for (const dir of [CHAIN_DIR, fixture(() => {}, 'example-project.json')]) {
+  test('plant 3: an accepted project retains acceptance and offers migration only with bound outputs', () => {
+    for (const [dir, adoptable] of [[CHAIN_DIR, true], [fixture(() => {}, 'example-project.json'), false]] as const) {
       const jsonRes = nextCommand([dir, '--json'], CHAIN_NOW);
       expect(jsonRes.exit).toBe(0);
       const report = JSON.parse(jsonRes.stdout) as NextReport;
       expect(report.accepted).toBe(true);
       expect(report.refusals).toEqual([]);
-      expect(report.awaits).toEqual([]);
-      expect(report.moves).toEqual([]);
+      expect(report.awaits).toEqual(adoptable ? ['current.rig'] : []);
+      expect(report.moves).toEqual(adoptable ? [expect.objectContaining({ field: 'current.rig', command: `rig-create record rig --adopt ${dir}` })] : []);
 
       const textRes = nextCommand([dir], CHAIN_NOW);
       expect(textRes.exit).toBe(0);
-      expect(textRes.stdout).toContain('no remaining move (project is accepted)');
+      expect(textRes.stdout).toContain(adoptable ? 'rig-create record rig --adopt' : 'no remaining move (project is accepted)');
     }
   });
 
@@ -983,7 +996,7 @@ describe('Frozen Bar 5 — Plants (lapsed approval, changed bound input DRAFT_RI
       'synthetic example',
     ]);
     // After acceptance alone, review-verdict is no longer awaited.
-    expect(nextProject(rigDir, CHAIN_NOW).awaits).toEqual(['signoffs[stage=rig-review]']);
+    expect(nextProject(rigDir, CHAIN_NOW).awaits).toEqual(['signoffs[stage=rig-review]', 'current.rig']);
 
     // Now a human changes-requested (bounced) verdict withdraws the earlier acceptance.
     testClock.set(new Date(CHAIN_NOW + 1000));
@@ -1004,7 +1017,7 @@ describe('Frozen Bar 5 — Plants (lapsed approval, changed bound input DRAFT_RI
       'bones:user',
     ]);
     const rigReport = nextProject(rigDir, CHAIN_NOW + 1000);
-    expect(rigReport.moves).toHaveLength(1);
+    expect(rigReport.moves.map(move => move.field)).toEqual(['versions', 'current.rig']);
     expect(rigReport.moves[0]).toMatchObject({ role: 'agent', field: 'versions', awaits: 'versions[n=2]' });
     expect(rigReport.moves[0]!.command).toContain('rig-version 2');
     expect(rigReport.moves[0]!.command).toContain("--check-report '<check.json>'");
@@ -1103,7 +1116,7 @@ describe('Frozen Bar 5 — Plants (lapsed approval, changed bound input DRAFT_RI
       '--source',
       'synthetic example',
     ]);
-    expect(nextProject(postDir, CHAIN_NOW).awaits).toEqual(['signoffs[stage=direction-review]']);
+    expect(nextProject(postDir, CHAIN_NOW).awaits).toEqual(['signoffs[stage=direction-review]', 'current.rig']);
 
     const postBounceWords = join(postDir, 'bounce-post.txt');
     writeFileSync(postBounceWords, 'Tighten the final camera hold.\n');
@@ -1132,7 +1145,7 @@ describe('Frozen Bar 5 — Plants (lapsed approval, changed bound input DRAFT_RI
     expect(closedReport.moves.some(move => move.command?.startsWith('rig-create reopen '))).toBe(false);
     expect(readFileSync(join(postDir, 'project.json'))).toEqual(beforeRebuildBytes);
     const postReport = nextProject(postDir, CHAIN_NOW + 3000);
-    expect(postReport.moves).toHaveLength(1);
+    expect(postReport.moves.map(move => move.field)).toEqual(['versions', 'current.rig']);
     expect(postReport.moves[0]).toMatchObject({ role: 'agent', field: 'versions', awaits: 'versions[n=3]' });
     expect(postReport.moves[0]!.command).toContain('direction write 3');
     expect(postReport.moves[0]!.command).toContain('--answers 2:1');
@@ -1974,6 +1987,20 @@ test('#557 bounced parts verdict prints the ordered NEW edited_parts scaffold wi
   expect(readFileSync(unrelated)).toEqual(unrelatedBytes);
 });
 
+test('#1030 a current parts-review project keeps rejected draft feedback without offering a replacement draft', () => {
+  const dir = bouncedPartsFixture();
+  const file = join(dir, 'project.json');
+  const project = JSON.parse(readFileSync(file, 'utf8')) as JsonObject;
+  writeFileSync(file, JSON.stringify({ ...project, current: {} }));
+  const next = nextProject(dir, CHAIN_NOW);
+  expect(next.refusals).toEqual([]);
+  expect(next.effective_stage).toBe('parts-review');
+  expect(next.moves).toContainEqual(expect.objectContaining({ field: 'drafts[chain]', command: null,
+    act: expect.stringContaining("Read the owner's comments in Review") }));
+  expect(next.moves).toContainEqual(expect.objectContaining({ command: expect.stringContaining('rig-create record parts ') }));
+  expect(next.moves.some(move => /draft-rig|chain-retouch-|rig-create advance /.test(move.command ?? move.act))).toBe(false);
+});
+
 test('#557 registered retouch discovers fresh evidence despite old files and reaches one verdict while retaining parts-review', () => {
   const dir = bouncedPartsFixture();
   const retained = ['evidence/parts-check.json', 'evidence/diff-components.json', 'evidence/structure-chain.json'];
@@ -2261,6 +2288,14 @@ test('#596 post stage with in-progress step offers direction --adopt then direct
     awaits: 'direction_contract',
     command: `rig-create direction --adopt ${dir}`,
   });
+  const file = join(dir, 'project.json');
+  const beforeContract = readFileSync(file);
+  writeFileSync(file, JSON.stringify({ ...JSON.parse(beforeContract.toString()), current: {} }));
+  const currentBeforeContract = nextProject(dir, CHAIN_NOW);
+  expect(currentBeforeContract.awaits).toContain('direction_contract');
+  expect(currentBeforeContract.moves.some(move => move.command?.startsWith('rig-create direction --adopt '))).toBe(false);
+  expect(currentBeforeContract.moves.some(move => move.command?.startsWith('rig-create advance direction-review '))).toBe(false);
+  writeFileSync(file, beforeContract);
   expect(runMainCapture(printedArgs(adoptMove!.command!).slice(1), CHAIN_NOW)).toMatchObject({ code: 0, stderr: '' });
 
   const wrongVersionWrite = runMainCapture(['direction', 'write', '1', dir, '--file', 'evidence/direction/v4.json', '--rig', '2'], CHAIN_NOW);
@@ -2276,6 +2311,91 @@ test('#596 post stage with in-progress step offers direction --adopt then direct
     awaits: 'versions[n=3]',
     command: `rig-create direction write 3 ${dir} --file '<direction.json>' --rig 2`,
   });
+
+  const current = JSON.parse(readFileSync(file, 'utf8')) as JsonObject;
+  current.current = {};
+  writeFileSync(file, JSON.stringify(current));
+  const withCurrent = nextProject(dir, CHAIN_NOW);
+  expect(withCurrent.refusals).toEqual([]);
+  expect(withCurrent.moves.find(move => move.field === 'current.direction')?.command).toBe(
+    `rig-create record direction ${dir} --from outputs/direction.next --direction specs/direction/direction.json`,
+  );
+  expect(withCurrent.moves.some(move => move.command?.startsWith('rig-create direction write 3 '))).toBe(false);
+  expect(withCurrent.moves.filter(move => move.field.startsWith('plan.steps[')))
+    .toEqual(afterAdopt.moves.filter(move => move.field.startsWith('plan.steps[')));
+});
+
+test('#1030 next lists missing and stale current outputs upstream-first without writing', () => {
+  const dir = fixture(project => {
+    const frames = { path: 'outputs/motion/frames.json', sha256: sha256('{}'), bytes: 2 };
+    const report = { path: 'outputs/direction/check/check.json', sha256: sha256('{}'), bytes: 2 };
+    const run = { path: 'outputs/direction/compose-run.json', sha256: sha256('{}'), bytes: 2 };
+    const metadata = { at: new Date(CHAIN_NOW).toISOString(), built_by: 'agent', built_with: {} };
+    project.current = {
+      direction: { ...metadata, files: [report, run], files_sha256: outputSetHash([report, run]),
+        built_from: [{ path: frames.path, sha256: frames.sha256 }], run: { path: run.path, sha256: run.sha256 },
+        report: { path: report.path, sha256: report.sha256 } },
+      motion: { ...metadata, files: [frames], files_sha256: outputSetHash([frames]),
+        built_from: [{ path: 'specs/motion/schedule.json', sha256: sha256('[]') }],
+        rebuild: { recorded: false, note: 'Synthetic render without a run record' } },
+    };
+  }, 'project.json', { 'specs/motion/schedule.json': '[]', 'outputs/motion/frames.json': '{}' });
+  const outputs = (report: NextReport) => report.moves.filter(move => move.field.startsWith('current.'));
+  expect(outputs(nextProject(dir, CHAIN_NOW)).map(move => move.field)).toEqual(['current.parts', 'current.rig']);
+
+  writeFileSync(join(dir, 'specs/motion/schedule.json'), '[1]');
+  const before = treeDigest(dir);
+  const report = nextProject(dir, CHAIN_NOW);
+  expect(report.refusals.filter(finding => finding.code === 'CURRENT_MALFORMED')).toEqual([]);
+  expect(report.warnings?.filter(warning => warning.code === 'OUTPUT_STALE').map(warning => warning.path))
+    .toEqual(['current.motion', 'current.direction']);
+  expect(outputs(report).map(move => [move.field, move.command?.split(' ')[2]])).toEqual([
+    ['current.parts', 'parts'], ['current.rig', 'rig'], ['current.motion', 'motion'], ['current.direction', 'direction'],
+  ]);
+  expect(treeDigest(dir)).toEqual(before);
+});
+
+test('#1030 next offers in-place adoption only from verified outputs of the latest live legacy version', () => {
+  const at = new Date(CHAIN_NOW - 1000).toISOString();
+  const older = 'outputs/v1/out/rig/rig.json';
+  const latest = 'outputs/v2/out/rig/rig.json';
+  const parts = 'outputs/v2/out/parts.json';
+  const frames = 'outputs/v2/idle/frames.json';
+  const post = 'outputs/v3/compose/take.json';
+  const bindings = (...paths: string[]) => paths.map(path => ({ path, sha256: sha256('{}'), bytes: 2 }));
+  const dir = realpathSync(fixture(project => {
+    const build = { at, built_by: 'agent', built_with: { '@rig-c/parts': '2.57.0' }, evidence: [], verdicts: [] };
+    project.versions = [
+      { ...build, n: 1, kind: 'rig', outputs: bindings(older) },
+      { ...build, n: 2, kind: 'rig', outputs: bindings(latest, parts, frames) },
+      { ...build, n: 3, kind: 'post', rig_version: 2, outputs: bindings(post) },
+    ];
+  }, 'project.json', { [older]: '{}', [latest]: '{}', [parts]: '{}', [frames]: '{}', [post]: '{}' }));
+  const moves = () => nextProject(dir, CHAIN_NOW).moves.filter(move => isRecordAdoption(move.command));
+  const before = treeDigest(dir);
+  expect(moves().map(move => [move.command, move.act])).toEqual([
+    [`rig-create record parts --adopt ${dir}`, 'Adopt the bound parts output of v2 in place.'],
+    [`rig-create record rig --adopt ${dir}`, 'Adopt the bound rig output of v2 in place.'],
+    [`rig-create record motion --adopt ${dir}`, 'Adopt the bound motion output of v2 in place.'],
+    [`rig-create record direction --adopt ${dir}`, 'Adopt the bound direction output of v3 in place.'],
+  ]);
+  expect(treeDigest(dir)).toEqual(before);
+
+  writeFileSync(join(dir, latest), '[]');
+  rmSync(join(dir, frames));
+  expect(moves().map(move => move.field)).toEqual(['current.parts', 'current.direction']);
+
+  const file = join(dir, 'project.json');
+  const project = JSON.parse(readFileSync(file, 'utf8')) as JsonObject;
+  const reopenedAt = new Date(CHAIN_NOW - 500).toISOString();
+  project.reopens = [{ stage: 'post', from_stage: 'direction-review', at: reopenedAt, by: 'owner', verbatim: 'Revisit the post.',
+    source: OWNER_CHAT_SOURCE, said_at: reopenedAt, relayed_by: 'synthetic-relay', steps_before: [] }];
+  writeFileSync(file, JSON.stringify(project));
+  expect(moves().map(move => move.field)).toEqual(['current.parts']);
+
+  delete project.reopens;
+  writeFileSync(file, JSON.stringify({ ...project, current: {} }));
+  expect(moves()).toEqual([]);
 });
 
 const isObjectWith = (value: unknown, key: string): boolean => typeof value === 'object' && value !== null && Object.hasOwn(value, key);
@@ -2361,11 +2481,18 @@ describe('#720 next offers the frozen checked build', () => {
       expect(move.act).toContain(producer);
     }
 
+    writeFileSync(file, JSON.stringify({ ...project, current: {} }));
+    const withCurrent = nextProject(dir, CHAIN_NOW);
+    expect(withCurrent.moves.find(move => move.field === 'current.rig')?.command).toStartWith(`rig-create record rig ${dir} `);
+    expect(withCurrent.moves.some(move => move.command?.startsWith('rig-create rig-version '))).toBe(false);
+    expect(withCurrent.moves.filter(move => move.field.startsWith('plan.steps[')))
+      .toEqual(after.moves.filter(move => move.field.startsWith('plan.steps[')));
+
     writeFileSync(file, registered);
     const control = nextProject(dir, CHAIN_NOW);
     expect(control.refusals).toEqual([]);
     expect(control.moves.some(move => move.command?.startsWith('rig-create rig-version '))).toBe(false);
-    expect(control.awaits).toEqual(['versions[n=1].verdicts[review=rig-review]']);
+    expect(control.awaits).toEqual(['versions[n=1].verdicts[review=rig-review]', 'current.rig']);
   });
 
   test('#750 lists the declarations registration reads from the checked config, carried and missing, in one move', () => {
@@ -2455,7 +2582,7 @@ test('#579 after a rig-review reopen, next omits history rig versions and lapsed
   // Control: a project without a reopen keeps today's next output.
   const unreopened = nextProject(dir, CHAIN_NOW);
   expect(unreopened.refusals).toEqual([]);
-  expect(unreopened.awaits).toEqual(['versions[n=1].verdicts[review=rig-review]']);
+  expect(unreopened.awaits).toEqual(['versions[n=1].verdicts[review=rig-review]', 'current.rig']);
   expect(unreopened.moves.filter(m => m.role === 'human')).toEqual([
     expect.objectContaining({
       role: 'human',
@@ -2619,7 +2746,7 @@ test('#579 after a rig-review reopen, next omits history rig versions and lapsed
   // After registering the post-reopen rig version (v3): next lists only the one-verdict publication route for v3.
   const afterPostReopenRig = nextProject(dir, v3At);
   expect(afterPostReopenRig.refusals).toEqual([]);
-  expect(afterPostReopenRig.awaits).toEqual(['versions[n=3].verdicts[review=rig-review]']);
+  expect(afterPostReopenRig.awaits.filter(field => !field.startsWith('current.'))).toEqual(['versions[n=3].verdicts[review=rig-review]']);
   expect(afterPostReopenRig.moves.some(m => m.lapse !== undefined)).toBe(false);
   expect(afterPostReopenRig.moves.some(m => m.review_act?.version_id === 'v1' || m.review_act?.version_id === 'v2')).toBe(false);
   expect(afterPostReopenRig.moves.some(m => m.command?.includes('--rig 1') || m.command?.includes('--rig 2'))).toBe(false);
@@ -2634,7 +2761,7 @@ test('#579 after a rig-review reopen, next omits history rig versions and lapsed
     review_act: { kind: 'review-verdict', stage: 'rig-review', version_id: 'v3', review: 'rig-review' },
   });
   expect(humanMoves[0]!.act).toContain('approve once to record the verdict and rig-review signature');
-  expect(afterPostReopenRig.moves.map(m => m.command)).toEqual([
+  expect(afterPostReopenRig.moves.filter(m => !m.field.startsWith('current.')).map(m => m.command)).toEqual([
     `rig-create job open ${dir} --rig 3 --reviewer '<reviewer>' --role owner`,
     null,
     `rig-create job acts ${dir} --json --wait`,
@@ -2828,14 +2955,14 @@ test('#579 after a rig-review reopen, next omits history rig versions and lapsed
 
   const afterSignedPostReopen = nextProject(dir, acceptV5At + 5000);
   expect(afterSignedPostReopen.refusals).toEqual([]);
-  expect(afterSignedPostReopen.awaits).toEqual([
+  expect(afterSignedPostReopen.awaits.filter(field => !field.startsWith('current.'))).toEqual([
     'versions[n=6].verdicts[review=direction-review]',
     'signoffs[stage=direction-review]',
   ]);
   expect(afterSignedPostReopen.moves.some(m => m.lapse !== undefined)).toBe(false);
   expect(afterSignedPostReopen.moves.some(m => m.act.includes('re-approve lapsed'))).toBe(false);
   expect(afterSignedPostReopen.moves.some(m => m.review_act?.version_id !== 'v6' && m.review_act?.version_id !== undefined)).toBe(false);
-  expect(afterSignedPostReopen.moves.map(m => m.command)).toEqual([
+  expect(afterSignedPostReopen.moves.filter(m => !m.field.startsWith('current.')).map(m => m.command)).toEqual([
     `rig-create job open ${dir} --rig 6 --reviewer '<reviewer>' --role owner`,
     null,
     `rig-create job acts ${dir} --json --wait`,
@@ -3146,4 +3273,10 @@ test('#773 a reopened rigging with an unreviewed compiled draft names both the d
   expect(report.moves).toContainEqual(expect.objectContaining({
     role: 'agent', field: 'versions', awaits: 'versions[n=2]', command: expect.stringContaining(`rig-create rig-version 2 ${dir}`),
   }));
+  const project = JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')) as JsonObject;
+  writeFileSync(join(dir, 'project.json'), JSON.stringify({ ...project, current: {} }));
+  const withCurrent = nextProject(dir, reopenAt + 1000);
+  expect(withCurrent.moves.find(move => move.review_act?.draft_id === draftId))
+    .toEqual(report.moves.find(move => move.review_act?.draft_id === draftId));
+  expect(withCurrent.moves.some(move => move.command?.startsWith('rig-create rig-version '))).toBe(false);
 });

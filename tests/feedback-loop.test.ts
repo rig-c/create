@@ -1,7 +1,7 @@
 import { afterEach, expect, test } from 'bun:test';
 import { cpSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { nextCommand, nextProject } from '../src/next.ts';
+import { nextCommand, nextProject, type NextMove, type NextReport } from '../src/next.ts';
 import { jobHash } from '../src/job-outbox.ts';
 import { Refusal } from '../src/refusal.ts';
 import type { JsonObject } from '../src/templates.ts';
@@ -28,6 +28,11 @@ function setup() {
 function args(dir: string) {
   return ['write', '3', dir, '--file', 'evidence/direction-input.json', '--rig', '1'];
 }
+const adoptRigMove = (dir: string): NextMove => ({
+  role: 'agent', field: 'current.rig', awaits: 'current.rig',
+  command: `rig-create record rig --adopt ${dir}`,
+  act: 'Adopt the bound rig output of v1 in place.',
+});
 function refused(dir: string, code: string, fn: () => unknown) {
   const before = readFileSync(join(dir, 'project.json'));
   let caught: unknown;
@@ -44,10 +49,11 @@ test('#454 direction write -> human bounce -> next -> repeatable answers -> chec
   for (let i = 0; i < 2; i++) reviewCommand(['2', dir, '--verdict', 'bounced', '--by', 'user', '--review', 'direction-review', '--verbatim-file', join(dir, 'words.txt'), '--source', 'synthetic review']);
   const before = readFileSync(join(dir, 'project.json'));
   const report = nextProject(dir, testClock.now());
-  expect(report.moves).toHaveLength(1);
   expect(report.moves[0]).toMatchObject({ role: 'agent', field: 'versions' });
   expect(report.moves[0]!.command).toContain('direction write 3');
   expect(report.moves[0]!.command).toContain('--answers 2:0 --answers 2:1');
+  expect(report.moves.slice(1)).toEqual([adoptRigMove(dir)]);
+  expect(report.awaits.at(-1)).toBe('current.rig');
   expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
   refused(dir, 'FEEDBACK_UNANSWERED', () => directionCommand(args(dir)));
   expect(directionCommand([...args(dir), '--answers', '2:0', '--answers', '2:1']).exit).toBe(0);
@@ -86,8 +92,23 @@ test('#454 no-bounce direction write and next preserve previous bytes and output
   expect(after.stage).toBe(before.stage);
   expect(versions.slice(0, -1)).toEqual(previousVersions);
   expect(versions.at(-1)).toMatchObject({ n: 3, answers_feedback: [] });
-  // next prints runnable commands containing this synthetic project's temporary root.
-  const outputHash = (json = false): string => jobHash(nextCommand([dir, ...(json ? ['--json'] : [])], testClock.now()).stdout.replaceAll(dir, '<project>'));
-  expect({ exit: result.exit, stdout: jobHash(result.stdout), nextJson: outputHash(true), nextText: outputHash() }).toMatchSnapshot();
+  const output = (json = false): string => nextCommand([dir, ...(json ? ['--json'] : [])], testClock.now()).stdout.replaceAll(dir, '<project>');
+  const nextJson = output(true);
+  const nextText = output();
+  const report = JSON.parse(nextJson) as NextReport;
+  const adopt = adoptRigMove('<project>');
+  expect(report.moves.at(-1)).toEqual(adopt);
+  expect(report.awaits.at(-1)).toBe(adopt.awaits);
+
+  // Remove only the two rendered adoption lines and its awaits and count entries.
+  const prior = { ...report, moves: report.moves.slice(0, -1), awaits: report.awaits.slice(0, -1) };
+  const lines = nextText.split('\n');
+  expect(lines.slice(-2)).toEqual([`  [agent] (current.rig -> current.rig) ${adopt.command}`, `    ${adopt.act}`]);
+  const priorText = lines.slice(0, -2)
+    .flatMap(line => line === `awaits: ${report.awaits.join(', ')}` ? (prior.awaits.length ? [`awaits: ${prior.awaits.join(', ')}`] : []) : [line])
+    .join('\n').replace(`\nmoves (${report.moves.length}):`, `\nmoves (${prior.moves.length}):`);
+  expect(jobHash(JSON.stringify(prior, null, 2))).toBe('5f8565e30333b7bbbf52c87a49f1c03be89c23bbf1c651311dc7cbe1bd79e42d');
+  expect(jobHash(priorText)).toBe('6006a60597564781fb9e3d46c98892f5af3c513a2e4bc7dd298a9ed632360dd5');
+  expect({ exit: result.exit, stdout: jobHash(result.stdout), nextJson: jobHash(nextJson), nextText: jobHash(nextText) }).toMatchSnapshot();
   expect(readFileSync(recordPath)).toEqual(record);
 });

@@ -238,7 +238,7 @@ test('direction record refuses a staged rig copy even if its producer receipt ag
   expect(existsSync(join(f.dir, 'outputs/direction'))).toBe(false);
 });
 
-test('next offers record direction after the numbered post with a staged current compose tree', () => {
+test('next offers preparation and recording for missing current direction before compose and without a numbered post', () => {
   const dir = fixture(project => {
     project.stage = 'post';
     project.advances = (project.advances as JsonObject[]).filter(move => !['direction-review', 'accepted'].includes(String(move.stage)));
@@ -251,16 +251,20 @@ test('next offers record direction after the numbered post with a staged current
   const now = Date.parse('2026-11-26T01:00:00Z');
   expect(nextProject(dir, now).moves).toContainEqual(expect.objectContaining({ field: 'current.motion' }));
   recordMotion(dir);
+  const directionMove = expect.objectContaining({ field: 'current.direction', awaits: 'current.direction',
+    command: `rig-create record direction ${dir} --from ${directionFrom} --direction ${CURRENT_DIRECTION_PATH}`,
+    act: expect.stringContaining(`Prepare ${directionFrom} before recording`) });
+  expect(nextProject(dir, now).moves).toContainEqual(directionMove);
   write(dir, CURRENT_DIRECTION_PATH, {});
   write(dir, `${directionFrom}/${COMPOSE_RUN_PATH}`, {});
   write(dir, `${directionFrom}/${COMPOSE_CHECK_PATH}`, {});
   const withPost = f.load();
   f.save({ ...withPost, versions: (withPost.versions as JsonObject[]).filter(version => version.kind !== 'post') });
-  const before = nextProject(dir, now);
-  expect(before.moves.some(move => move.field === 'current.direction')).toBe(false);
+  const withoutPost = nextProject(dir, now);
+  expect(withoutPost.moves).toContainEqual(directionMove);
+  expect(withoutPost.moves.some(move => move.command?.startsWith('rig-create advance direction-review '))).toBe(false);
   f.save(withPost);
   const next = nextProject(dir, now);
-  expect(next.moves).toContainEqual(expect.objectContaining({ field: 'current.direction',
-    command: expect.stringContaining('record direction') }));
+  expect(next.moves).toContainEqual(directionMove);
   expect(next.moves.some(move => move.command?.includes('record motion'))).toBe(false);
 });

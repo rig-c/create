@@ -138,7 +138,7 @@ test('record parts writes current.parts with the §1.3 shape and renames the pro
   expect(treeDigest(join(dir, 'outputs/parts'))).toEqual(producerBytes);
   const node = parts(dir);
   expect(Object.keys(node)).toEqual(['at', 'built_by', 'built_with', 'files', 'files_sha256', 'built_from', 'run', 'report']);
-  expect(node.built_with).toEqual({ '@rig-c/parts': '2.59.0' });
+  expect(node.built_with).toEqual({ '@rig-c/parts': '2.60.0' });
   expect(node.built_from).toEqual([
     { path: LAYERS_MANIFEST, sha256: sha(readFileSync(join(dir, LAYERS_MANIFEST))) },
     { path: PAINTING, sha256: sha(readFileSync(join(dir, PAINTING))) },

@@ -498,6 +498,9 @@ function recordAdoption(dir: string, file: string, original: Buffer, project: Js
   };
   const candidate = validateCandidate(dir, project, kind, node, now);
   for (const binding of files) adoptedFileSize(dir, binding, source.version, 'RECORD_SOURCE_CHANGED');
+  if (project.current === undefined) {
+    process.stderr.write('Adopting this output will stop numbered verdict moves from being offered for this project. To sign off on an adopted output, rebuild it and use rig-create record <kind> --from <producer out>.\n');
+  }
   writeRecord(file, original, candidate, `record-${kind}-adopt`, 'RECORD_SOURCE_CHANGED');
   return { stdout: json ? JSON.stringify(node, null, 2) : `record ${kind}: adopted v${source.version} in place (${files.length} files)`, exit: 0 };
 }

@@ -146,7 +146,11 @@ test('#670 interview check warns on a decided answer and clears after a Review p
   expect(cleared.record.pending_options).toBeUndefined();
   expect(arr(cleared.record.history).at(-1)).toEqual(initial.raw);
   expect(checkProject(w.dir).warnings.some(warning => warning.code === 'INTERVIEW_REASK_PENDING')).toBe(false);
-  expect(nextProject(w.dir, testClock.now()).moves.some(move => move.review_act?.kind === 'signoff' && move.review_act.stage === 'interview')).toBe(true);
+  const signoffs = nextProject(w.dir, testClock.now()).moves.filter(move => move.awaits === 'signoffs[stage=interview]');
+  expect(signoffs.map(move => [move.role, move.command, move.review_act?.kind ?? null])).toEqual([
+    ['human', `rig-create signoff interview ${w.dir} --by '<owner>' --owner-chat '<words file>' --said-at '<ISO date>' --relayed-by '<operator>'`, null],
+  ]);
+  expect(signoffs[0]!.act).toBe('Relay the owner chat signoff with exact words, owner date and relay identity.');
 });
 
 test('#670 an earlier-stage set does not block the current rigging interview signoff', () => {
@@ -165,7 +169,10 @@ test('#670 an earlier-stage set does not block the current rigging interview sig
   expect(planCommand(['revise', 'motion', w.dir, '--by', 'agent',
     '--reason', 'The motion definition still fits the recorded rigging-interview choice.']).exit).toBe(0);
   expect(current(load(w.dir), 'reference').record.pending_options).toBeDefined();
-  expect(next().moves.some(move => move.review_act?.kind === 'signoff' && move.review_act.stage === 'rigging-interview')).toBe(true);
+  const signoffs = next().moves.filter(move => move.awaits === 'signoffs[stage=rigging-interview]');
+  expect(signoffs.map(move => [move.role, move.command, move.review_act?.kind ?? null])).toEqual([
+    ['human', `rig-create signoff rigging-interview ${w.dir} --by '<owner>' --owner-chat '<words file>' --said-at '<ISO date>' --relayed-by '<operator>'`, null],
+  ]);
   expect(sign().exit).toBe(0);
 });
 

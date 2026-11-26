@@ -10,7 +10,6 @@ import { checkProject as checkRecordProject } from '../src/check.ts';
 import { checkProject, rigVersionCommand, testClock } from './clock.ts';
 import { reviewPackageCommand } from '../src/review-package.ts';
 import { plateReceiptSpec } from '../src/config-inputs.ts';
-import type { NextReport } from '../src/next.ts';
 import { PINNED_PACKAGES } from '../src/pins.ts';
 import { Refusal } from '../src/refusal.ts';
 import type { JsonObject } from '../src/templates.ts';
@@ -2668,12 +2667,6 @@ describe('#812/#929 live rig feedback', () => {
   }, 30_000);
 });
 
-const rigRegistrationAdoptionMoves = (dir: string) => ['parts', 'rig', 'motion'].map(kind => ({
-  role: 'agent' as const, field: `current.${kind}`, awaits: `current.${kind}`,
-  command: `rig-create record ${kind} --adopt ${dir}`,
-  act: `Adopt the bound ${kind} output of v1 in place.`,
-}));
-
 describe('#454 feedback rebuild writer', () => {
   function feedbackSetup() {
     // Synthetic starting checkpoint; every subsequent version and verdict uses a writer.
@@ -2698,9 +2691,8 @@ describe('#454 feedback rebuild writer', () => {
     expect(moves[0]).toMatchObject({ role: 'agent', field: 'versions' });
     expect(moves[0]!.command).toContain('rig-version 2');
     expect(moves[0]!.command).toContain('--answers 1:0 --answers 1:1');
-    const adopt = rigRegistrationAdoptionMoves(f.dir);
-    expect(moves.slice(1)).toEqual(adopt);
-    expect(nextBefore.awaits.slice(-adopt.length)).toEqual(adopt.map(move => move.awaits));
+    expect(moves).toHaveLength(1);
+    expect(nextBefore.awaits).toEqual(['versions[n=2]']);
     expect(readFileSync(join(f.dir, 'project.json'))).toEqual(before);
     const args = ['2', ...f.args.slice(1)];
     refused(args, 'FEEDBACK_UNANSWERED');
@@ -2735,23 +2727,30 @@ test('#454 no-bounce rig writer and next preserve previous bytes and output', as
   const output = (json = false): string => nextCommand([f.dir, ...(json ? ['--json'] : [])], testClock.now()).stdout.replaceAll(f.dir, '<project>');
   const nextJson = output(true);
   const nextText = output();
-  const report = JSON.parse(nextJson) as NextReport;
-  const adopt = rigRegistrationAdoptionMoves('<project>');
-  expect(report.moves.slice(-adopt.length)).toEqual(adopt);
-  expect(report.awaits.slice(-adopt.length)).toEqual(adopt.map(move => move.awaits));
-
-  // Remove only the rendered adoption blocks and their awaits and count entries.
-  const prior = { ...report, moves: report.moves.slice(0, -adopt.length), awaits: report.awaits.slice(0, -adopt.length) };
-  const adoptionLines = adopt.flatMap(move => [`  [agent] (${move.field} -> ${move.awaits}) ${move.command}`, `    ${move.act}`]);
-  const lines = nextText.split('\n');
-  expect(lines.slice(-adoptionLines.length)).toEqual(adoptionLines);
-  const priorText = lines.slice(0, -adoptionLines.length)
-    .flatMap(line => line === `awaits: ${report.awaits.join(', ')}` ? (prior.awaits.length ? [`awaits: ${prior.awaits.join(', ')}`] : []) : [line])
-    .join('\n').replace(`\nmoves (${report.moves.length}):`, `\nmoves (${prior.moves.length}):`);
-  expect(jobHash(JSON.stringify(prior, null, 2))).toBe('09ae19ee00551c8706e6959003f1edd1a7d4f21a34f36b8c3a748de6ac8be89a');
-  expect(jobHash(priorText)).toBe('1482f1d40b55fe95910605d57d9b901282eec961b3ef3ca5488c3ca0a4f0e41b');
   expect({ exit: result.exit, stdout: jobHash(result.stdout), record: jobHash(record), nextJson: jobHash(nextJson), nextText: jobHash(nextText) }).toMatchSnapshot();
   expect(readFileSync(join(f.dir, 'project.json'))).toEqual(record);
+});
+
+test('#1044 next uses the frozen registration config for the adopted rig replacement', async () => {
+  const { nextProject } = await import('../src/next.ts');
+  const { dir, args, load } = setup(true);
+  expect(rigVersionCommand(args).exit).toBe(0);
+  const source = obj(obj(obj(arr(load().versions)[0]).registration).config_source);
+  expect(source.path).toBe('evidence/v1/registration/config-source.json');
+  expect(existsSync(join(dir, 'specs/rig/config.json'))).toBe(false);
+
+  const adopt = run([process.execPath, ...clockedCli(), 'record', 'rig', '--adopt', dir], dir, process.env as Record<string, string>);
+  expect(adopt.code).toBe(0);
+  expect(obj(obj(load().current).rig).built_from).toEqual([{ path: source.path, sha256: source.sha256 }]);
+  const file = join(dir, 'project.json');
+  const before = readFileSync(file);
+  const report = nextProject(dir, testClock.now());
+  expect(report.refusals).toEqual([]);
+  expect(report.moves.filter(move => move.field === 'current.rig')
+    .map(move => [move.role, move.command, move.review_act?.kind ?? null])).toEqual([
+    ['agent', `rig-create record rig ${dir} --from outputs/rig.next --config ${source.path}`, null],
+  ]);
+  expect(readFileSync(file)).toEqual(before);
 });
 
 describe('#514 producer depth bindings in frozen registration', () => {

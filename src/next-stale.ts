@@ -18,10 +18,12 @@ const CURRENT_OUTPUT_PREPARATION: Record<CurrentKind, string> = {
   direction: 'write the current scene and direction specs and compose from the recorded rig and motion',
 };
 
-export function currentOutputMove(dir: string, kind: CurrentKind, quote: ShellWord): NextMove {
+const DEFAULT_RIG_CONFIG = 'specs/rig/config.json';
+
+export function currentOutputMove(dir: string, kind: CurrentKind, quote: ShellWord, config = DEFAULT_RIG_CONFIG): NextMove {
   const field = `current.${kind}`;
   const from = `${outputRoot(kind)}.next`;
-  const source = kind === 'parts' || kind === 'rig' ? ' --config specs/rig/config.json'
+  const source = kind === 'parts' || kind === 'rig' ? ` --config ${quote(config)}`
     : kind === 'direction' ? ` --direction ${CURRENT_DIRECTION_PATH}` : '';
   return { role: 'agent', field, awaits: field,
     command: `rig-create record ${kind} ${quote(dir)} --from ${from}${source}`,
@@ -88,6 +90,22 @@ function recordConfig(dir: string, kind: CurrentKind, node: JsonObject): string 
     const match = inputs.find(input => input.path === fromRun) ?? inputs.find(input => input.path === config);
     if (typeof match?.path === 'string') return match.path;
   } catch { /* The operator must name the config when its binding cannot be recovered. */ }
+}
+
+function migratedConfigMove(dir: string, kind: 'parts' | 'rig', quote: ShellWord, node?: JsonObject): NextMove {
+  // Rig adoption copies only the registered config binding into built_from.
+  const binding = asArray(node?.built_from).find(isObject);
+  const path = binding?.path ?? DEFAULT_RIG_CONFIG;
+  if (typeof path === 'string') {
+    try {
+      const bytes = readFileSync(literalFile(dir, path));
+      if (!binding || sha256(bytes) === binding.sha256) return currentOutputMove(dir, kind, quote, path);
+    } catch { /* Leave the build blocked until the operator supplies its config. */ }
+  }
+  const source = typeof binding?.path === 'string' ? ` (${binding.path})` : '';
+  const field = `current.${kind}`;
+  return { role: 'agent', field, awaits: field, command: null,
+    act: `RECORD_CONFIG_MISMATCH: ${field} has no readable matching build config${source}. Restore the registered config or obtain the producer config from the operator, then build and record the output with record ${kind} --from and --config.` };
 }
 
 function replayRuns(dir: string, kind: CurrentKind, node: JsonObject, stage: string, quote: ShellWord) {
@@ -224,12 +242,14 @@ export function withStaleOutputs(dir: string, current: JsonObject, warnings: Fin
   // sequence when a canonical writer needs it, without inventing an OUTPUT_STALE warning.
   const replacements = new Set([...stale.keys(), ...offered.keys()]
     .flatMap(kind => CANONICAL_INPUTS[kind].filter(adopted)));
+  const migrated = CURRENT_KINDS.some(adopted);
   const outputs = CURRENT_KINDS.flatMap(kind => {
     const rebuild = stale.get(kind);
     if (rebuild) return [rebuild];
     const waitsFor = CANONICAL_INPUTS[kind].filter(adopted);
     if (replacements.has(kind)) {
-      const move = currentOutputMove(dir, kind, quote);
+      const node = current[kind];
+      const move = kind === 'rig' && isObject(node) ? migratedConfigMove(dir, kind, quote, node) : currentOutputMove(dir, kind, quote);
       const act = `Rebuild the adopted ${kind} as a canonical output under ${outputRoot(kind)}/. Record the replacement before recording dependent producer outputs. ${move.act}`;
       if (waitsFor.length === 0) return [{ ...move, act }];
       const upstream = waitsFor.map(input => `current.${input}`).join(' and ');
@@ -237,7 +257,8 @@ export function withStaleOutputs(dir: string, current: JsonObject, warnings: Fin
     }
     const offer = offered.get(kind);
     if (!offer) return [];
-    return [...(offer.adoption ? [offer.adoption] : []), ...(waitsFor.length === 0 ? [offer.producer] : [])];
+    const producer = migrated && (kind === 'parts' || kind === 'rig') ? migratedConfigMove(dir, kind, quote) : offer.producer;
+    return [...(offer.adoption ? [offer.adoption] : []), ...(waitsFor.length === 0 ? [producer] : [])];
   });
 
   const blockPostOptions = blocked('rig');

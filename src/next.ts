@@ -616,7 +616,7 @@ function reviewCommands(dir: string, project: JsonObject, move: NextMove): NextM
     }
     const chatSignoff = writer ? ownerChatSignoffCommand(dir, project, act, writer) : undefined;
     return chatSignoff
-      ? [{ ...move, command: chatSignoff, act: `${move.act}; or relay the owner chat signoff with exact words, owner date and relay identity`, review_act: undefined }, move]
+      ? [{ ...move, command: chatSignoff, act: 'Relay the owner chat signoff with exact words, owner date and relay identity.', review_act: undefined }]
       : [move];
   }
   if (act.kind === 'signoff-checkpoint') return [move];
@@ -1456,7 +1456,6 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
   });
   const { blocksOutputMoves, ...derived } = deriveNextProject(dir, project, report, now, steps, staleSteps);
   let next = derived;
-  const legacyAdoptions: NextMove[] = [];
   if (!blocksOutputMoves && derived.stage !== PAUSED_STAGE) {
     const current = project.current;
     if (isObject(current)) {
@@ -1465,11 +1464,6 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
         return [[kind, { adoption: adoptionMove(dir, project, kind), producer: currentOutputMove(dir, kind, shellWord) }]] as const;
       }));
       next = withStaleOutputs(dir, current, report.warnings, derived, shellWord, missing);
-    } else if (current === undefined) {
-      for (const kind of CURRENT_KINDS) {
-        const adoption = adoptionMove(dir, project, kind);
-        if (adoption) legacyAdoptions.push(adoption);
-      }
     }
   }
   // Every stage shows the repairs. Approval gating uses only the steps that approval covers.
@@ -1505,11 +1499,10 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
       act: 'Replace <file> with your explanation. Add --resolved-by-answer <question> if a later completed answer or guide resolves the comment.',
     }];
   });
-  const after = [...legacyAdoptions, ...commentMoves];
-  if (revisionMoves.length === 0 && after.length === 0) return next;
+  if (revisionMoves.length === 0 && commentMoves.length === 0) return next;
   return { ...next,
-    awaits: [...revisionMoves.map(move => move.awaits), ...next.awaits, ...after.map(move => move.awaits)],
-    moves: [...revisionMoves, ...next.moves, ...after] };
+    awaits: [...revisionMoves.map(move => move.awaits), ...next.awaits, ...commentMoves.map(move => move.awaits)],
+    moves: [...revisionMoves, ...next.moves, ...commentMoves] };
 }
 
 function deriveNextProject(dir: string, project: JsonObject, report: CheckReport, now: number,

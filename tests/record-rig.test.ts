@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test';
-import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, readlinkSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { dirname, join, relative, sep } from 'node:path';
 import { isRunRecordFile, outputSetHash, treeFiles } from '../src/current.ts';
@@ -8,7 +8,7 @@ import { Refusal } from '../src/refusal.ts';
 import { TEMPLATES_DIR, type JsonObject } from '../src/templates.ts';
 import { checkProject, testClock } from './clock.ts';
 import { fixture } from './fixtures.ts';
-import { tempDir, treeDigest } from './helpers.ts';
+import { cli, gitEnv, run, tempDir, treeDigest } from './helpers.ts';
 
 const PRODUCER = join(TEMPLATES_DIR, 'example-draft');
 const NEXT = 'outputs/rig.next';
@@ -126,6 +126,7 @@ test('record rig refuses a --from outside the project or not beside outputs/rig 
   refused(() => recordCommand(['rig', dir, '--from', '../elsewhere', '--config', CONFIG], testClock.now()), 'RECORD_FROM_INVALID');
   refused(() => recordCommand(['rig', dir, '--from', 'rig.next', '--config', CONFIG], testClock.now()), 'RECORD_FROM_INVALID');
   refused(() => recordCommand(['rig', dir, '--from', 'derived/rig.next', '--config', CONFIG], testClock.now()), 'RECORD_FROM_INVALID');
+  refused(() => recordCommand(['rig', dir, '--from', NEXT], testClock.now()), 'RECORD_USAGE');
   refused(() => recordCommand(['scene', dir, '--from', NEXT], testClock.now()), 'RECORD_USAGE');
   expect(readFileSync(join(dir, 'project.json'))).toEqual(recordBytes);
   expect(existsSync(join(dir, NEXT))).toBe(true);
@@ -156,6 +157,96 @@ function plantDownstream(dir: string): void {
   ]);
   writeFileSync(join(dir, 'project.json'), `${JSON.stringify(p, null, 2)}\n`);
 }
+
+test('#1029 rig migrates the ignore pattern and lists only newly stale downstream kinds', () => {
+  const dir = project();
+  expect(record(dir).exit).toBe(0);
+  plantDownstream(dir);
+  const p = read(dir);
+  const direction = (p.current as JsonObject).direction as JsonObject;
+  (direction.built_from as JsonObject[]).push({ path: 'missing-source.json', sha256: sha('old') });
+  write(dir, 'project.json', JSON.stringify(p));
+  expect(checkProject(dir).warnings.filter(f => f.code === 'OUTPUT_STALE').map(f => f.path)).toEqual(['current.direction']);
+
+  write(dir, '.gitignore', '# custom\n/outputs/');
+  const env = gitEnv({ name: 'Synthetic Test', email: 'synthetic@example.com' });
+  const git = (...args: string[]): string => {
+    const result = run(['git', ...args], dir, env);
+    if (result.code !== 0) throw new Error(result.stderr);
+    return result.stdout;
+  };
+  git('init', '-q');
+  git('add', '--', '.gitignore', 'project.json');
+  git('commit', '-qm', 'Seed synthetic project');
+  producerOut(dir);
+  const modelPath = `${NEXT}/check/build/skeleton.model.json`;
+  const model = `${readFileSync(join(dir, modelPath), 'utf8')} \n`;
+  write(dir, modelPath, model);
+  const runPath = `${NEXT}/check/build/run.json`;
+  const build = JSON.parse(readFileSync(join(dir, runPath), 'utf8')) as { outputs: { path: string; sha256: string }[] };
+  build.outputs.find(out => out.path === 'skeleton.model.json')!.sha256 = sha(model);
+  write(dir, runPath, JSON.stringify(build));
+  write(dir, `${NEXT}/check/check.json`, JSON.stringify({ spec: 'rig-parts-check/1', bar_outcomes: {},
+    build: { model_sha256: sha(model) }, PASS: true }));
+
+  const result = cli(['record', ...args(dir)], dir, env);
+  expect(result.code).toBe(0);
+  expect(result.stderr).toBe('');
+  expect(result.stdout.split('\n').slice(-2)).toEqual(['gitignore: /outputs/ -> /outputs/* !/outputs/parts/', '']);
+  expect(git('show', 'HEAD:.gitignore')).toBe('# custom\n/outputs/*\n!/outputs/parts/');
+  expect(git('log', '-1', '--format=%B').split('\n')).toContain('stale: motion');
+  expect(checkProject(dir).warnings.filter(f => f.code === 'OUTPUT_STALE').map(f => f.path)).toEqual(['current.motion', 'current.direction']);
+});
+
+test.each(['outputs/rig/retained.bin', '.gitignore'])('#1029 a new check refusal on %s restores the output trees and ignore file', registered => {
+  const dir = project();
+  const legacy = '/outputs/\n';
+  write(dir, '.gitignore', legacy);
+  const retained = registered === '.gitignore' ? legacy : 'retained synthetic input';
+  if (registered !== '.gitignore') {
+    write(dir, registered, retained);
+    write(dir, `${NEXT}/retained.bin`, 'replaced synthetic input');
+  }
+  const p = read(dir);
+  p.inputs = [...(p.inputs as JsonObject[] ?? []), {
+    path: registered, bytes: Buffer.byteLength(retained), sha256: sha(retained), origin: 'synthetic', at: testClock.iso(),
+  }];
+  write(dir, 'project.json', JSON.stringify(p));
+  const env = gitEnv({ name: 'Synthetic Test', email: 'synthetic@example.com' });
+  expect(run(['git', 'init', '-q'], dir, env).code).toBe(0);
+  expect(run(['git', 'add', '--', 'project.json', '.gitignore'], dir, env).code).toBe(0);
+  expect(run(['git', 'commit', '-qm', 'Seed synthetic project'], dir, env).code).toBe(0);
+  const before = checkProject(dir);
+  expect(before.refusals.map(f => f.code)).not.toContain('INPUT_FILE_CHANGED');
+  const recordBytes = readFileSync(join(dir, 'project.json'));
+  const outputs = treeDigest(join(dir, 'outputs'));
+  refused(() => record(dir), 'INPUT_FILE_CHANGED');
+  expect(readFileSync(join(dir, 'project.json'))).toEqual(recordBytes);
+  expect(readFileSync(join(dir, '.gitignore'), 'utf8')).toBe(legacy);
+  expect(treeDigest(join(dir, 'outputs'))).toEqual(outputs);
+  expect(run(['git', 'log', '--format=%s', '--all'], dir, env).stdout).toBe('Seed synthetic project\n');
+  expect(run(['git', 'diff', '--cached', '--name-only'], dir, env).stdout).toBe('');
+});
+
+test.each(['custom', 'symlink'])('#1029 rig keeps a %s ignore file and succeeds with a named warning', kind => {
+  const dir = project();
+  const gitignore = join(dir, '.gitignore');
+  const custom = '# /outputs/\r\n/outputs/ \r\n/outputs/rig/\r\n';
+  const outside = join(tempDir(), 'external-ignore');
+  if (kind === 'symlink') {
+    writeFileSync(outside, '/outputs/\n');
+    symlinkSync(outside, gitignore);
+  } else writeFileSync(gitignore, custom);
+  const result = record(dir, ['--json']);
+  expect(result.exit).toBe(0);
+  expect(result.stderr).toContain('GITIGNORE_PATTERN_ABSENT');
+  expect(result.stderr).toContain('PROJECT_NOT_IN_GIT');
+  expect(JSON.parse(result.stdout)).toEqual(rig(dir));
+  if (kind === 'symlink') {
+    expect(readlinkSync(gitignore)).toBe(outside);
+    expect(readFileSync(outside, 'utf8')).toBe('/outputs/\n');
+  } else expect(readFileSync(gitignore, 'utf8')).toBe(custom);
+});
 
 test('planted: a timestamp-only change inside run.json or render-run.json marks nothing downstream stale', () => {
   const dir = project();

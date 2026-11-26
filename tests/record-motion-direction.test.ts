@@ -89,6 +89,22 @@ test.each([true, false])('record motion binds the frame tree with producer recei
   expect(check(f.dir).warnings.some(f => f.code === 'REBUILD_ARGS_UNRECORDED' && f.path === 'current.motion.rebuild')).toBe(!stamped);
 });
 
+test('#1029 first record motion migrates the legacy pattern without contaminating JSON stdout', () => {
+  const f = sceneFixture();
+  currentRig(f);
+  render(f.dir, false);
+  write(f.dir, '.gitignore', '# before\r\n/outputs/\r\n# after\n');
+  const first = recordMotion(f.dir);
+  expect(first.exit).toBe(0);
+  expect(first.stderr?.split('\n')[0]).toBe('gitignore: /outputs/ -> /outputs/* !/outputs/parts/');
+  expect(JSON.parse(first.stdout)).toEqual((f.load().current as JsonObject).motion);
+  expect(raw(f.dir, '.gitignore').toString()).toBe('# before\r\n/outputs/*\r\n!/outputs/parts/\r\n# after\n');
+  const repeat = recordCommand(['motion', f.dir, '--from', motionRoot, '--json'], testClock.now());
+  expect(repeat.stderr).toContain('PROJECT_NOT_IN_GIT');
+  expect(repeat.stderr).not.toContain('GITIGNORE_PATTERN_ABSENT');
+  expect(repeat.stderr).not.toContain('gitignore:');
+});
+
 test('motion run and optional report must match files, and rebuild takes only rigc-run/2', () => {
   const f = sceneFixture();
   currentRig(f);
@@ -179,7 +195,11 @@ test('direction write seals current scene and record direction binds the real co
   stagedDirection(f);
   const before = f.load();
   const baseline = check(f.dir).refusals;
-  const node = JSON.parse(recordDirection(f.dir).stdout) as JsonObject;
+  write(f.dir, '.gitignore', '/outputs/\n');
+  const result = recordDirection(f.dir);
+  expect(result.stderr?.split('\n')[0]).toBe('gitignore: /outputs/ -> /outputs/* !/outputs/parts/');
+  expect(raw(f.dir, '.gitignore').toString()).toBe('/outputs/*\n!/outputs/parts/\n');
+  const node = JSON.parse(result.stdout) as JsonObject;
   expect(node.run).toEqual(binding(f.dir, `outputs/direction/${COMPOSE_RUN_PATH}`));
   expect(node.report).toEqual(binding(f.dir, `outputs/direction/${COMPOSE_CHECK_PATH}`));
   expect(node.built_from).toContainEqual(binding(f.dir, CURRENT_SCENE_PATH));

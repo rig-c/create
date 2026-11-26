@@ -14,7 +14,7 @@ import { Refusal } from '../src/refusal.ts';
 import { TEMPLATES_DIR, type JsonObject } from '../src/templates.ts';
 import { checkProject, testClock } from './clock.ts';
 import { fixture } from './fixtures.ts';
-import { treeDigest } from './helpers.ts';
+import { cli, gitEnv, run, treeDigest } from './helpers.ts';
 
 const load = createRequire(import.meta.url);
 const { encodePng } = load('@rig-c/core/plate') as {
@@ -397,6 +397,75 @@ function recordDownstreamRig(dir: string, rigConfigPath = 'specs/rig/rig-only.js
   write(dir, `${RIG_NEXT}/check/check.json`, `${JSON.stringify({ spec: 'rig-parts-check/1', bar_outcomes: {}, build: { model_sha256: model }, PASS: true }, null, 1)}\n`);
   expect(recordCommand(['rig', dir, '--from', RIG_NEXT, '--config', rigConfigPath], testClock.now()).exit).toBe(0);
 }
+
+test('#1029 parts then rig commit exact scoped paths and preserve unrelated staged bytes', () => {
+  const dir = project();
+  const env = gitEnv();
+  const git = (...args: string[]): string => {
+    const result = run(['git', ...args], dir, env);
+    if (result.code !== 0) throw new Error(result.stderr);
+    return result.stdout;
+  };
+  const old = '/derived/\r\n/outputs/\r\n/outputs/parts/excluded.bin\n# /outputs/\r\n # custom ';
+  const original = Buffer.concat([Buffer.from(old), Buffer.from([0xff])]);
+  const migrated = Buffer.concat([Buffer.from(old.replace('/outputs/\r\n', '/outputs/*\r\n!/outputs/parts/\r\n')), Buffer.from([0xff])]);
+  const deleted = 'outputs/parts/obsolete.bin';
+  const excluded = 'outputs/parts/excluded.bin';
+  write(dir, '.gitignore', original);
+  write(dir, 'unrelated.txt', 'original');
+  write(dir, deleted, 'remove with the old tree');
+  write(dir, `${NEXT}/excluded.bin`, 'stays in the record inventory only');
+  git('init', '-q');
+  git('config', 'user.name', 'Synthetic Test');
+  git('config', 'user.email', 'synthetic@example.com');
+  git('config', 'core.autocrlf', 'false');
+  git('add', '--', '.');
+  git('add', '--force', '--', deleted);
+  git('commit', '-qm', 'Seed synthetic project');
+  write(dir, 'unrelated.txt', 'staged');
+  git('add', '--', 'unrelated.txt');
+  const index = git('ls-files', '--stage', '--', 'unrelated.txt');
+  const baseline = checkProject(dir).refusals;
+
+  const result = cli(['record', ...args(dir), '--json'], dir, env);
+  expect(result.code).toBe(0);
+  expect(result.stderr).toBe('gitignore: /outputs/ -> /outputs/* !/outputs/parts/\n');
+  expect(JSON.parse(result.stdout)).toEqual(parts(dir));
+  expect(readFileSync(join(dir, '.gitignore'))).toEqual(migrated);
+  const committedIgnore = Bun.spawnSync(['git', 'show', 'HEAD:.gitignore'], { cwd: dir, env });
+  expect(committedIgnore.exitCode).toBe(0);
+  expect(committedIgnore.stdout).toEqual(migrated);
+  expect(checkProject(dir).refusals).toEqual(baseline);
+
+  const inventory = (parts(dir).files as { path: string; sha256: string }[]).map(file => file.path);
+  expect(inventory).toContain(excluded);
+  const added = inventory.filter(path => path !== excluded);
+  const partPaths = ['.gitignore', ...added, deleted, 'project.json'].sort();
+  const changes = (paths: string[]) => paths.map(path =>
+    `changed: ${path} ${path === deleted ? 'removed' : sha(readFileSync(join(dir, path))).slice(0, 12)}`);
+  const version = JSON.parse(readFileSync(join(import.meta.dir, '../package.json'), 'utf8')) as { name: string; version: string };
+  const trailer = ['stale: none', `create: ${version.name} ${version.version}`];
+  const partMessage = [
+    'parts: record current output', '', `writer: rig-create record parts --from ${NEXT} --config ${CONFIG}`,
+    ...changes(partPaths), ...trailer,
+  ].join('\n');
+  expect(git('log', '-2', '--format=%B')).toBe(`${partMessage}\n\nSeed synthetic project\n\n`);
+  expect(git('diff-tree', '--no-commit-id', '--name-only', '-r', 'HEAD').trim().split('\n')).toEqual(partPaths);
+  expect(git('ls-files', '--', 'outputs/parts').trim().split('\n')).toEqual(added);
+  expect(git('status', '--porcelain')).toBe('M  unrelated.txt\n');
+  expect(git('ls-files', '--stage', '--', 'unrelated.txt')).toBe(index);
+
+  recordDownstreamRig(dir, CONFIG);
+  const rigMessage = [
+    'rig: record current output', '', `writer: rig-create record rig --from ${RIG_NEXT} --config ${CONFIG}`,
+    ...changes(['project.json']), ...trailer,
+  ].join('\n');
+  expect(git('log', '-2', '--format=%B')).toBe(`${rigMessage}\n\n${partMessage}\n\n`);
+  expect(git('ls-files', '--', 'outputs/rig')).toBe('');
+  expect(git('status', '--porcelain')).toBe('M  unrelated.txt\n');
+  expect(git('ls-files', '--stage', '--', 'unrelated.txt')).toBe(index);
+  expect(checkProject(dir).refusals).toEqual(baseline);
+});
 
 test('planted: one byte changed in the painting marks parts stale and, transitively, a rig built from outputs/parts', () => {
   const dir = project();

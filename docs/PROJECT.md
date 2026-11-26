@@ -39,6 +39,19 @@ repository, which holds its history ([COLLECTIONS.md § Making one](COLLECTIONS.
 for the untracked folders, a `package.json` pinning the rig-c packages, and a
 first commit.
 
+`rig-create history [<dir>] [--json]` reads the project's Create step-data
+commits reachable from Git HEAD, newest first. It includes `record` commits
+and spec commits from `scene write` and `direction write`. Each entry shows
+the abbreviated SHA, UTC commit time and subject followed by a copyable
+`back:` command that restores `specs` and `outputs/parts` and runs `next`.
+JSON returns an array with `sha`, `short_sha`, `at`, `subject` and `back`.
+History leaves the project and its Git state untouched. With no project
+work tree or matching commit, it warns on stderr and leaves stdout empty.
+The back command requires both paths in the selected commit. Run the
+parts rebind from the project directory with
+`rig-create record parts --from outputs/parts --config specs/rig/config.json`
+using the config from the restored build.
+
 ## Data is split by lifetime
 
 Rigging derives far more data than it ships. Sorting every file by how long it

@@ -114,11 +114,23 @@ What the writer does, in order:
 
 1. The producer writes into a folder inside the project, normally
    `outputs/<kind>.next/`, so no copy is needed.
-2. The writer reads the producer's run record (`rig-run/1`, `rigc-run/1`, or
-   the assemble run; `src/run-record.ts:12-22`) and check report. It takes
-   `built_from` from them: `config` for `rig-run/1`, `inputs[]` for
-   `rigc-run/1`. It adds the spec paths the operator names. Create reads these
-   reports and never re-derives them (AGENTS.md invariant 1).
+2. The writer reads the producer's run records and check report. Parts
+   `assemble` and standalone `rig` use `rig-run/1`. The writer accepts
+   `rig-run/2` or `rig-run/3` for Parts `build`. Parts `check` uses `rig-run/2`.
+   Core run records use `rigc-run/1` or `rigc-run/2`. The writer takes `built_from`
+   from the producer records and the spec paths the operator names. For a
+   `rig-run/3` build, `record rig` adds each build input to
+   `current.rig.built_from` as a project-relative file path with the exact
+   SHA-256 from the producer. Create checks that the file matches the digest.
+   Each input path resolves from the producer's staging `--out` directory.
+   Parent segments are allowed if the resolved file is inside the project
+   and outside all three trees: final output `outputs/rig/`, reserved staging
+   `outputs/rig.next/` even with a custom `--from`, and the actual staging
+   tree selected by `--from`. A See-through input names the actual
+   `layers.json` file. If a bound input later goes
+   missing or its bytes change, `check` reports `OUTPUT_STALE` for the rig
+   and staleness follows its downstream dependents. Create reads the
+   producer reports without re-deriving them (AGENTS.md invariant 1).
 3. It validates the candidate record with the check function. A refusal leaves
    `project.json` and `outputs/<kind>/` byte-identical (invariant 6).
 4. It renames `outputs/<kind>/` to a temporary name, then renames

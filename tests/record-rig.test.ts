@@ -1,14 +1,14 @@
 import { expect, test } from 'bun:test';
-import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
-import { dirname, join } from 'node:path';
+import { dirname, join, relative, sep } from 'node:path';
 import { isRunRecordFile, outputSetHash, treeFiles } from '../src/current.ts';
 import { recordCommand } from '../src/record.ts';
 import { Refusal } from '../src/refusal.ts';
 import { TEMPLATES_DIR, type JsonObject } from '../src/templates.ts';
 import { checkProject, testClock } from './clock.ts';
 import { fixture } from './fixtures.ts';
-import { treeDigest } from './helpers.ts';
+import { tempDir, treeDigest } from './helpers.ts';
 
 const PRODUCER = join(TEMPLATES_DIR, 'example-draft');
 const NEXT = 'outputs/rig.next';
@@ -389,6 +389,135 @@ function buildLayoutOut(dir: string, at = NEXT): { buildArgv: string[] } {
   }, null, 1)}\n`);
   return { buildArgv };
 }
+
+const PAINTING = 'inputs/painting.png';
+const FULL_LAYERS = 'outputs/parts/sources/full/layers.json';
+const HEAD_PSD = 'outputs/parts/sources/head.psd';
+const REQUIREMENTS = 'specs/rig/build-requirements.json';
+const ENVIRONMENT = 'specs/rig/build-environment.json';
+const WIND_BAND = 'specs/rig/build-wind-band.json';
+const ALT_PAINTING = 'outputs/parts/sources/side/painting.png';
+const ALT_FULL = 'outputs/parts/sources/side/full/layers.json';
+const ALT_HEAD = 'outputs/parts/sources/side/head/layers.json';
+
+/** Plant the Parts STABILITY input inventory on the regular build fixture. */
+function buildLayoutV3Out(dir: string, at = NEXT) {
+  buildLayoutOut(dir, at);
+  const path = `${at}/build-run.json`;
+  const { outputs, argv, ...throughConfig } = JSON.parse(readFileSync(join(dir, path), 'utf8')) as JsonObject;
+  const buildArgv = argv as string[];
+  const fromOut = (file: string): string => relative(join(dir, at), join(dir, file)).split(sep).join('/');
+  buildArgv[buildArgv.indexOf('--full') + 1] = fromOut(dirname(FULL_LAYERS));
+  buildArgv.splice(buildArgv.indexOf('--out'), 0, '--head', fromOut(HEAD_PSD));
+  buildArgv.splice(buildArgv.indexOf('--loop'), 0,
+    '--requirements', fromOut(REQUIREMENTS),
+    '--alt', `side=${fromOut(ALT_PAINTING)}:${fromOut(dirname(ALT_FULL))}:${fromOut(dirname(ALT_HEAD))}`,
+    '--environment', fromOut(ENVIRONMENT), '--wind-band', fromOut(WIND_BAND));
+  const extraFiles = [
+    ['full', FULL_LAYERS, '{"layers":[]}\n'],
+    ['head', HEAD_PSD, 'synthetic PSD'],
+    ['requirements', REQUIREMENTS, '{}\n'],
+    ['environment', ENVIRONMENT, '{"schedule":[]}\n'],
+    ['wind-band', WIND_BAND, '{"band":[]}\n'],
+    ['alt[0].source', ALT_PAINTING, 'synthetic alternate painting'],
+    ['alt[0].full', ALT_FULL, '{"layers":["side"]}\n'],
+    ['alt[0].head', ALT_HEAD, '{"layers":["head"]}\n'],
+  ] as const;
+  for (const [, file, bytes] of extraFiles) write(dir, file, bytes);
+  const files = [['source', PAINTING], ...extraFiles] as const;
+  const bindings = files.map(([role, file]) => ({ role, path: file, sha256: sha(readFileSync(join(dir, file))) }));
+  const inputs = bindings.map(({ role, path, sha256 }) => ({ role, path: fromOut(path), sha256 }));
+  const run = { ...throughConfig, spec: 'rig-run/3', inputs, outputs, argv: buildArgv };
+  write(dir, path, JSON.stringify(run));
+  return { run, path, buildArgv, bindings };
+}
+
+test('record rig binds /3 build inputs and argv, and main, auxiliary, and alternate edits make dependents stale', () => {
+  const dir = project();
+  const { bindings, buildArgv } = buildLayoutV3Out(dir);
+  expect(record(dir).exit).toBe(0);
+  const node = rig(dir);
+  expect(node.built_from).toEqual([
+    ...bindings.map(({ path, sha256 }) => ({ path, sha256 })),
+    { path: CONFIG, sha256: sha(readFileSync(join(dir, CONFIG))) },
+  ].sort((a, b) => a.path < b.path ? -1 : 1));
+  const runPath = 'outputs/rig/build-run.json';
+  const runSha = sha(readFileSync(join(dir, runPath)));
+  expect(node.run).toEqual({ path: runPath, sha256: runSha });
+  expect(node.rebuild).toEqual({ recorded: true, runs: [{ path: runPath, sha256: runSha, spec: 'rig-run/3', argv: buildArgv }] });
+
+  plantDownstream(dir);
+  const before = checkProject(dir);
+  expect(codes(before.refusals, 'CURRENT_MALFORMED')).toBe(0);
+  expect(codes(before.warnings, 'REBUILD_ARGS_UNRECORDED')).toBe(0);
+  expect(codes(before.warnings, 'OUTPUT_STALE')).toBe(0);
+  const installed = treeDigest(join(dir, 'outputs/rig'));
+  for (const file of [PAINTING, ENVIRONMENT, ALT_FULL]) {
+    const original = readFileSync(join(dir, file));
+    write(dir, file, 'changed input');
+    expect(checkProject(dir).warnings.filter(f => f.code === 'OUTPUT_STALE').map(f => f.path)).toEqual([
+      'current.rig', 'current.motion', 'current.direction',
+    ]);
+    write(dir, file, original);
+    expect(codes(checkProject(dir).warnings, 'OUTPUT_STALE')).toBe(0);
+  }
+  expect(treeDigest(join(dir, 'outputs/rig'))).toEqual(installed);
+});
+
+test.each([
+  ['project escape', undefined, 'RECORD_INPUT_CHANGED'],
+  ['installed rig output', '../rig/rig.json', 'RECORD_BUILT_FROM_INVALID'],
+  ['reserved rig.next output', '../rig.next/rig/rig.json', 'RECORD_BUILT_FROM_INVALID'],
+  ['staging tree being renamed', 'rig/rig.json', 'RECORD_BUILT_FROM_INVALID'],
+  ['See-through directory', '../parts/sources/full', 'RECORD_INPUT_CHANGED'],
+  ['symlinked input', '../../inputs/painting-link.png', 'RECORD_INPUT_CHANGED'],
+  ['painting changed after build', `../../${PAINTING}`, 'RECORD_INPUT_CHANGED'],
+  ['environment changed after build', undefined, 'RECORD_INPUT_CHANGED'],
+] as const)('record rig refuses a /3 input naming %s before any rename', (label, inputPath, code) => {
+  const dir = project();
+  expect(record(dir).exit).toBe(0);
+  const alternate = 'outputs/rig.work';
+  producerOut(dir);
+  producerOut(dir, alternate);
+  const { run, path } = buildLayoutV3Out(dir, alternate);
+  const input = label === 'See-through directory' ? run.inputs[1]! : run.inputs[0]!;
+  if (inputPath !== undefined) input.path = inputPath;
+  switch (label) {
+    case 'project escape': {
+      const outside = tempDir('rig-create-escape-');
+      write(outside, 'outside.png', readFileSync(join(dir, PAINTING)));
+      input.path = relative(join(dir, alternate), join(outside, 'outside.png')).split(sep).join('/');
+      break;
+    }
+    case 'installed rig output':
+      input.sha256 = sha(readFileSync(join(dir, 'outputs/rig/rig.json')));
+      break;
+    case 'reserved rig.next output':
+      write(dir, `${NEXT}/rig/rig.json`, readFileSync(join(dir, alternate, 'rig/rig.json')));
+      input.sha256 = sha(readFileSync(join(dir, NEXT, 'rig/rig.json')));
+      break;
+    case 'staging tree being renamed':
+      input.sha256 = sha(readFileSync(join(dir, alternate, 'rig/rig.json')));
+      break;
+    case 'symlinked input':
+      symlinkSync('painting.png', join(dir, 'inputs/painting-link.png'));
+      break;
+    case 'painting changed after build':
+      write(dir, PAINTING, 'repainted');
+      break;
+    case 'environment changed after build':
+      write(dir, ENVIRONMENT, '{}\n');
+      break;
+  }
+  write(dir, path, JSON.stringify(run));
+  const recordBytes = readFileSync(join(dir, 'project.json'));
+  const installed = treeDigest(join(dir, 'outputs/rig'));
+  const staged = treeDigest(join(dir, alternate));
+  refused(() => recordCommand(['rig', dir, '--from', alternate, '--config', CONFIG], testClock.now()), code);
+  expect(readFileSync(join(dir, 'project.json'))).toEqual(recordBytes);
+  expect(treeDigest(join(dir, 'outputs/rig'))).toEqual(installed);
+  expect(treeDigest(join(dir, alternate))).toEqual(staged);
+});
 
 test('record rig records a rig-parts build output: build-run.json at the top, rig/ without run.json, run records under check/', () => {
   const dir = project();

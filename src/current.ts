@@ -16,11 +16,11 @@ import type { Json, JsonObject } from './templates.ts';
 export const CURRENT_KINDS = ['parts', 'rig', 'motion', 'direction'] as const;
 export type CurrentKind = (typeof CURRENT_KINDS)[number];
 export const RUN_RECORD_NAME = 'run.json';
-export const REBUILD_RUN_SPECS = ['rig-run/2', 'rigc-run/2'] as const;
+export const REBUILD_RUN_SPECS = ['rig-run/2', 'rig-run/3', 'rigc-run/2'] as const;
 export type RebuildRunSpec = (typeof REBUILD_RUN_SPECS)[number];
 /**
  * The producers' own rule for run records: a file named `run.json` (`rig-run/1`, `rigc-run/1`) or ending in `-run.json`
- * (core's `render-run.json`, Parts' `rig-run/2` `check-run.json` and `build-run.json`).
+ * (core's `render-run.json` and Parts' `check-run.json` and `build-run.json`).
  */
 /** Whether `path` names a producer run record: the one rule for output identity and `built_from`. */
 export function isRunRecordFile(path: string): boolean {
@@ -146,15 +146,16 @@ export function currentShapeFindings(kind: CurrentKind, node: Json | undefined):
         }
         if (!(previousRun < entryPath)) findings.push(malformed(`${at}.path`, 'runs must sort by path with no duplicate'));
         previousRun = entryPath;
-        if (entry.spec !== 'rig-run/2' && entry.spec !== 'rigc-run/2') {
-          findings.push(malformed(`${at}.spec`, 'expected rig-run/2 or rigc-run/2'));
+        const spec = REBUILD_RUN_SPECS.find(candidate => candidate === entry.spec);
+        if (spec === undefined) {
+          findings.push(malformed(`${at}.spec`, `expected ${REBUILD_RUN_SPECS.join(' or ')}`));
           continue;
         }
-        if (entry.spec === 'rig-run/2') rigRuns++;
-        const argvProblem = runArgvProblem(entry.argv, entry.spec);
+        if (spec === 'rig-run/2' || spec === 'rig-run/3') rigRuns++;
+        const argvProblem = runArgvProblem(entry.argv, spec);
         if (argvProblem) findings.push(malformed(`${at}.argv`, argvProblem));
       }
-      if (rigRuns !== 1) findings.push(malformed(`${path}.rebuild.runs`, 'expected exactly one rig-run/2 check or build record'));
+      if (rigRuns !== 1) findings.push(malformed(`${path}.rebuild.runs`, 'expected exactly one Parts run record (rig-run/2 check or build, or rig-run/3 build)'));
     }
   }
   return findings;

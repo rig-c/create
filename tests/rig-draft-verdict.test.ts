@@ -56,7 +56,8 @@ function checkpoint(id: string): string {
 
 function spawn(root: string, args: string[], preload?: string, timeout = testTimeoutMs + 5_000, now = Date.now() + 1000) {
   const commandAt = new Date(now).toISOString();
-  return Bun.spawn([process.execPath, ...jobRuntimeExecArgv(), ...(preload ? ['--preload', preload] : []), join(import.meta.dir, 'cli-at.ts'), commandAt, ...args], {
+  return Bun.spawn([process.execPath, ...jobRuntimeExecArgv(), ...(preload ? ['--preload', preload] : []),
+    join(import.meta.dir, 'cli-at.ts'), '--fetch-timeout-ms', String(timeout), commandAt, ...args], {
     cwd: root, stdout: 'pipe', stderr: 'pipe', timeout,
   });
 }
@@ -74,8 +75,8 @@ function assertSuccess(result: { exit: number; stderr: string }): void {
 const openArgs = (root: string, id: string, kind: 'draft' | 'rig' = 'draft', reviewer = 'synthetic-owner') =>
   ['job', 'open', root, `--${kind}`, id, '--reviewer', reviewer, '--role', 'owner'];
 
-async function open(root: string, id: string, kind: 'draft' | 'rig' = 'draft', reviewer?: string) {
-  const proc = spawn(root, openArgs(root, id, kind, reviewer));
+async function open(root: string, id: string, kind: 'draft' | 'rig' = 'draft', reviewer?: string, timeout?: number) {
+  const proc = spawn(root, openArgs(root, id, kind, reviewer), undefined, timeout);
   hosts.push(proc);
   const reader = proc.stdout.getReader();
   const errors = proc.stderr.getReader();
@@ -286,7 +287,8 @@ test('#712 a rigging draft with a changed retained model refuses before publicat
 
 test('#773 a draft Request changes with two mesh edits records two mesh-delta corrections on the draft', async () => {
   const root = rigging(twoMeshDraft);
-  const opening = await open(root, draftId);
+  // Keep the background Review host alive across both mesh-edit builds and the replay fetch (#994).
+  const opening = await open(root, draftId, 'draft', undefined, 3 * meshTimeoutMs + 5_000);
   let sent: JsonObject[] = [];
   const receipt = await submit(root, opening.url, 'changes-requested', source => {
     sent = meshEdits(root, source, ['face', 'torso']);

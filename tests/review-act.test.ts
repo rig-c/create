@@ -1,6 +1,7 @@
 import { afterEach, expect, spyOn, test } from 'bun:test';
 import { randomUUID } from 'node:crypto';
 import { cpSync, existsSync, linkSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { createServer } from 'node:http';
 import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { JOB_CHEST_LANDMARKS_ACT_SCHEMA, JOB_COMMENT_ONLY_ACT_SCHEMA, JOB_COMMENTS_ACT_SCHEMA, parseCommentsAct, projectComments, startJobHost, type JobComment, type JobOwnerHost, type JobVerdict } from '@rig-c/review/job-host';
@@ -10,7 +11,8 @@ import { optionContext } from '../src/choices.ts';
 import { directionHash, objects } from '../src/direction.ts';
 import { acknowledgePublication, enqueuePublication, jobHash, JOB_BINDING_FILE, jobHostStateRoot, readAcknowledgedPublication, readWriterBinding, writePrivateJson, type WriterBinding } from '../src/job-outbox.ts';
 import { currentJobIdentity, partsEnumerator, prepareLiveManifest, readPublished, readRecordPublished } from '../src/job-publication.ts';
-import { assertReviewActSource, decodeReviewAct, decodeReviewResponse, fetchReviewAct, REVIEW_ACT_ACTOR_SINCE, reviewActFindings, reviewActTransport, reviewActVerbatim, reviewActVersionHash, reviewStillEvidence } from '../src/review-act.ts';
+import { jobRuntimeExecArgv } from '../src/job-writer.ts';
+import { assertReviewActSource, decodeReviewAct, decodeReviewResponse, fetchReviewAct, REVIEW_ACT_ACTOR_SINCE, REVIEW_ACT_FETCH_TIMEOUT_MS, reviewActFindings, reviewActTransport, reviewActVerbatim, reviewActVersionHash, reviewStillEvidence, setReviewActFetchTimeoutMs } from '../src/review-act.ts';
 import { directionPin, existingShapes, framedRigPin, HISTORICAL_DIRECTION_VALUE, TIME_ONLY_BASIS } from './comment-anchor-shapes.ts';
 import { pendingMeshDeltaRevision } from '../src/corrections.ts';
 import { commentCommand } from '../src/comment-act.ts';
@@ -1822,3 +1824,78 @@ test.each(['numbered', 'adopted'] as const)('#1043 applies a chest comment on th
   expect(JSON.parse(replay.stdout)).toEqual({ comment: out.comment, replayed: true, bust_landmark_commands: commands });
   expect(readFileSync(join(root, 'project.json'))).toEqual(recorded);
 }, 90_000);
+
+test('#994 production Review fetch still aborts at 10 s against a stalled server while tests can inject a longer timeout', async () => {
+  expect(REVIEW_ACT_FETCH_TIMEOUT_MS).toBe(10_000);
+  for (const invalid of [0, -1, 1.5, Number.NaN]) {
+    expect(() => setReviewActFetchTimeoutMs(invalid)).toThrow(RangeError);
+  }
+
+  const { root, act } = await published();
+  const raw = JSON.stringify(commentsVerdict(act));
+  let stalledHits = 0;
+  // Use node:http with disabled server timeouts so only the client's AbortSignal ends a stalled request.
+  const server = createServer((req, res) => {
+    req.resume();
+    if (req.url === '/jobs/stalled-job/api') {
+      stalledHits++;
+      return;
+    }
+    const timer = setTimeout(() => {
+      res.writeHead(200, { 'content-type': 'application/vnd.rig-review.act+json' });
+      res.end(raw);
+    }, 250);
+    res.on('close', () => clearTimeout(timer));
+  });
+  server.timeout = 0;
+  server.requestTimeout = 0;
+  server.headersTimeout = 0;
+  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address();
+  if (!address || typeof address === 'string') throw new Error('expected loopback TCP address');
+  const origin = `http://127.0.0.1:${address.port}`;
+
+  try {
+    const delayedTransport = {
+      origin,
+      jobId: act.jobId,
+      actId: 'comments-verdict',
+      fetchCapability: 'synthetic-fetch',
+    };
+    await expect(fetchReviewAct({ ...delayedTransport, timeoutMs: 0 })).rejects.toMatchObject({ code: 'REVIEW_ACT_FETCH_REFUSED' });
+    await expect(fetchReviewAct(delayedTransport, fetch, 80)).rejects.toMatchObject({ code: 'REVIEW_ACT_FETCH_REFUSED' });
+    const delayedOk = await fetchReviewAct({ ...delayedTransport, timeoutMs: 5_000 });
+    expect(delayedOk.bytes).toBe(raw);
+
+    const binding = readWriterBinding(root)!;
+    binding.origin = origin;
+    binding.jobId = 'stalled-job';
+    writePrivateJson(join(root, JOB_BINDING_FILE), binding, true);
+    const project = projectAt(root);
+    project.review_job = { jobId: 'stalled-job', origin };
+    putProject(root, project);
+    const before = readFileSync(join(root, 'project.json'));
+
+    const started = performance.now();
+    const child = Bun.spawn([
+      process.execPath, ...jobRuntimeExecArgv(), join(import.meta.dir, '../src/cli.ts'),
+      'review', '1', root, '--from-review', 'stalled-act',
+    ], { cwd: root, stdout: 'pipe', stderr: 'pipe' });
+    const [stdout, stderr, exit] = await Promise.all([
+      new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited,
+    ]);
+    const elapsedMs = performance.now() - started;
+
+    expect(stalledHits).toBe(1);
+    expect(exit).toBe(1);
+    expect(stdout).toBe('');
+    expect(stderr).toContain('REVIEW_ACT_FETCH_REFUSED');
+    expect(stderr).toContain('live Review fetch failed');
+    expect(readFileSync(join(root, 'project.json'))).toEqual(before);
+    expect(elapsedMs).toBeGreaterThanOrEqual(9_500);
+    expect(elapsedMs).toBeLessThan(18_000);
+  } finally {
+    server.closeAllConnections();
+    await new Promise<void>(resolve => server.close(() => resolve()));
+  }
+}, 30_000);

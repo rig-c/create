@@ -17,6 +17,12 @@ export function frozenBustConfigHash(version: JsonObject): string | undefined {
   return isObject(binding) && typeof binding.sha256 === 'string' ? binding.sha256 : undefined;
 }
 
+/** A numbered rig can still be live after that exact output has been adopted. */
+export function currentUsesBustVersion(project: JsonObject, version: number): boolean {
+  const rig = isObject(project.current) ? project.current.rig : undefined;
+  return rig === undefined || isObject(rig) && isObject(rig.adopted) && rig.adopted.version === version;
+}
+
 export function bustConfigPath(path: unknown): path is string {
   return typeof path === 'string' && isPublicationPath(path)
     && !/^(?:evidence|derived|project\.json|\.rig-create-review|\.input\.lock)(?:\/|$)/i.test(path);
@@ -38,7 +44,10 @@ function bustConfigFile(root: string, path: string): string {
 }
 
 export function prepareBustConfig(
-  root: string, version: JsonObject, act: ChestReviewVerdictAct, path: string,
+  root: string, version: JsonObject, act: {
+    source: { selector: { version: number } };
+    value: Pick<ChestReviewVerdictAct['value'], 'chestLandmarks'>;
+  }, path: string,
   seeds: readonly JobPublishedChestLandmark[],
 ): BustWorkingConfig {
   const at = `versions[v${act.source.selector.version}]`;

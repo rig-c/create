@@ -3,6 +3,7 @@ import { readFileSync } from './check-reads.ts';
 import { isDeepStrictEqual as equal } from 'node:util';
 import { asArray, collectItems, collectSignoffs, isObject, loadCollection, type Ctx, type Finding } from './check.ts';
 import { literalFile } from './choices.ts';
+import { CURRENT_MOTION_FRAMES, CURRENT_RIG_MODEL, currentFileBinding, currentHash, outputRoot } from './current.ts';
 import { closed, directionHash, hex, objects } from './direction.ts';
 import { assembleOnlyDraftPath, assembleOnlyDraftTarget, assembleOnlyVersionFinding, draftRigRequired } from './draft-layout.ts';
 import { answersOf, checkEntry } from './provenance.ts';
@@ -15,6 +16,8 @@ import type { Json, JsonObject } from './templates.ts';
 
 export { SCENE_CHOICE_MISMATCH, SCENE_CHOICE_MISSING, sceneAuthor };
 export const SCENE_SPEC = 'rig-create/scene@1';
+export const CURRENT_SCENE_SPEC = 'rig-create/scene@2';
+export const CURRENT_SCENE_PATH = 'specs/direction/scene.json';
 export const scenePath = (n: number): string => `evidence/scene/s${n}.json`;
 const positive = (value: unknown): value is number => Number.isSafeInteger(value) && Number(value) > 0;
 const text = (value: unknown): value is string => typeof value === 'string' && value.trim().length > 0;
@@ -84,6 +87,10 @@ export function validateSceneShape(doc: JsonObject, path = 'scene'): void {
     || acceptance.signoff.stage !== 'rig-review' || acceptance.signoff.checkpoint !== null || !text(acceptance.signoff.at) || !Number.isFinite(Date.parse(acceptance.signoff.at))
     || !text(acceptance.verdict) || !/^versions\[\d+\]\.verdicts\[\d+\]$/.test(acceptance.verdict)
     || !closed(acceptance.review_package, ['path', 'sha256']) || !text(acceptance.review_package.path) || !hex(acceptance.review_package.sha256)) bad('acceptance needs the exact rig-review signoff identity, verdict and review-package target');
+  validateSceneSurface(doc, bad);
+}
+
+function validateSceneSurface(doc: JsonObject, bad: (why: string) => never): void {
   if (!closed(doc.frame, ['space', 'stage']) || doc.frame.space !== 'rig-world-y-up' || !boxShape(doc.frame.stage)) bad('frame needs rig-world-y-up and a stage box');
   if (!Array.isArray(doc.plates) || !Array.isArray(doc.layers) || doc.layers.some(layer => typeof layer !== 'string')) bad('plates and layers must be arrays');
   for (const [index, plate] of (doc.plates as Json[]).entries()) {
@@ -260,9 +267,65 @@ export function validateScene(dir: string, project: JsonObject, doc: JsonObject,
   const registration = isObject(version.registration) ? version.registration : {};
   validateSceneAnimation(model, animation, registration);
   if (isObject(animation.frames)) boundBytes(dir, animation.frames, 'SCENE_FILE_CHANGED', snapshots);
-  if (model.stage === null || model.stage === undefined) sceneFail('SCENE_STAGE_MISSING', String(binding.path), 'compile a model with a stage box');
-  if (!boxShape(model.stage) || !Object.values(model.stage).every(finite) || Number(model.stage.width) <= 0 || Number(model.stage.height) <= 0) sceneFail('SCENE_MALFORMED', `${String(binding.path)}.stage`, 'the model stage must be a finite positive box');
-  if (!equal((doc.frame as JsonObject).stage, model.stage)) sceneFail('SCENE_STAGE_MISMATCH', 'scene.frame.stage', 'copy the model stage field for field');
+  validateSceneContents(dir, project, doc, sceneStage(model, String(binding.path)), snapshots, current, by);
+}
+
+function sceneStage(model: JsonObject, path: string): JsonObject {
+  if (model.stage === null || model.stage === undefined) sceneFail('SCENE_STAGE_MISSING', path, 'compile a model with a stage box');
+  if (!boxShape(model.stage) || !Object.values(model.stage).every(finite) || Number(model.stage.width) <= 0 || Number(model.stage.height) <= 0) sceneFail('SCENE_MALFORMED', `${path}.stage`, 'the model stage must be a finite positive box');
+  return model.stage;
+}
+
+export function currentSceneRig(dir: string, project: JsonObject, snapshots?: Map<string, Buffer>, animation = 'idle'): { rig: JsonObject; stage: JsonObject } {
+  const model = currentFileBinding(project, 'rig', CURRENT_RIG_MODEL);
+  if (!model) sceneFail('SCENE_CURRENT_RIG_REQUIRED', 'current.rig.files', 'record the rig with its compiled model before scene write');
+  const source = json(boundBytes(dir, model, 'SCENE_MODEL_MISMATCH', snapshots), model.path);
+  if (!objects(source.animations).some(value => value.name === animation)) {
+    sceneFail('SCENE_ANIMATION_MISSING', 'scene.rig.animation.name', 'choose an animation named by the current model', 'pass --animation with a name from the current model and run scene write');
+  }
+  const motion = isObject(project.current) && isObject(project.current.motion) ? project.current.motion : undefined;
+  const frames = currentFileBinding(project, 'motion', CURRENT_MOTION_FRAMES);
+  if (!frames || typeof motion?.files_sha256 !== 'string' || !objects(motion.built_from).some(input => equal(input, model))) {
+    sceneFail('SCENE_CURRENT_MOTION_REQUIRED', 'current.motion', 'render and record motion for the current rig before scene write');
+  }
+  const sidecar = json(boundBytes(dir, frames, 'SCENE_FILE_CHANGED', snapshots), frames.path);
+  if (sidecar.spec !== 'rigc-frames/1' || !objects(sidecar.sets).some(set => set.animation === animation)) {
+    sceneFail('SCENE_CURRENT_MOTION_REQUIRED', frames.path, `render and record frames for the scene animation "${animation}"`);
+  }
+  const motionOutput = { path: outputRoot('motion'), sha256: motion.files_sha256 };
+  if (currentHash(dir, motionOutput.path) !== motionOutput.sha256) {
+    sceneFail('SCENE_CURRENT_MOTION_REQUIRED', 'current.motion.files_sha256', 'motion output bytes differ from the recorded set; restore the recorded frame tree or render and record it again');
+  }
+  return { rig: { model, animation: { name: animation, frames, motion: motionOutput } }, stage: sceneStage(source, model.path) };
+}
+
+export function validateCurrentScene(dir: string, project: JsonObject, doc: JsonObject, snapshots?: Map<string, Buffer>): void {
+  const bad = (why: string): never => sceneFail('SCENE_MALFORMED', CURRENT_SCENE_PATH, why);
+  const composed = doc.compose !== undefined;
+  if (!closed(doc, ['schema', 'rig', 'frame', ...(composed ? ['compose'] : ['plates', 'layers'])]) || doc.schema !== CURRENT_SCENE_SPEC) bad('expected closed scene@2');
+  const rig = doc.rig;
+  if (!closed(rig, ['model', 'animation']) || !sceneBinding(rig.model)
+    || !closed(rig.animation, ['name', 'frames', 'motion']) || !text(rig.animation.name)
+    || !sceneBinding(rig.animation.frames) || !sceneBinding(rig.animation.motion) || rig.animation.motion.path !== outputRoot('motion')) {
+    return bad('rig needs a model binding and an animation with frames and motion output-set bindings');
+  }
+  const current = currentSceneRig(dir, project, snapshots, String(rig.animation.name));
+  if (!equal(rig.model, current.rig.model)) sceneFail('SCENE_MODEL_MISMATCH', 'scene.rig.model', 'run scene write to bind the current rig model');
+  if (!equal(rig.animation, current.rig.animation)) sceneFail('SCENE_CURRENT_MOTION_REQUIRED', 'scene.rig.animation', 'run scene write to bind the current frames and motion output set');
+  if (composed) {
+    if (!sceneBinding(doc.compose) || !closed(doc.frame, ['space', 'stage']) || doc.frame.space !== 'rig-world-y-up'
+      || !equal(doc.frame.stage, current.stage)) bad('compose needs a Parts scene binding and the current model stage');
+    boundBytes(dir, doc.compose as JsonObject, 'SCENE_FILE_CHANGED', snapshots);
+    return;
+  }
+  validateSceneSurface(doc, bad);
+  validateSceneContents(dir, project, doc, current.stage, snapshots, true, 'agent');
+}
+
+function validateSceneContents(
+  dir: string, project: JsonObject, doc: JsonObject, stage: JsonObject, snapshots: Map<string, Buffer> | undefined, current: boolean, by?: string,
+): void {
+  if (!equal((doc.frame as JsonObject).stage, stage)) sceneFail('SCENE_STAGE_MISMATCH', 'scene.frame.stage', 'copy the model stage field for field');
   const plates = doc.plates as JsonObject[];
   if (plates.filter(plate => plate.role === 'background').length !== 1 || plates.filter(plate => plate.role === 'foreground').length > 1
     || plates.length === 2 && (plates[0]!.path === plates[1]!.path || plates[0]!.sha256 === plates[1]!.sha256)) sceneFail('SCENE_PLATE_CONFLICT', 'scene.plates', 'declare one background and at most one distinct foreground');

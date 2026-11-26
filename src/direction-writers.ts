@@ -2,14 +2,18 @@
 import { closeSync, existsSync, lstatSync, mkdirSync, openSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
 import { asArray, checkProject, collectItems, loadCollection, isObject, type Finding } from './check.ts';
+import { CURRENT_DIRECTION_PATH, prepareCurrentDirection } from './current-direction.ts';
 import { DIRECTION_CONTRACT, DirectionError, checkDirections, directionBytes, directionContract, directionFail, directionHash, directionIdleBytes, directionIdlePath, directionJson, directionPath, directionVersion, objects, readDirection, requireDirectionScene, validateDirectionCitations, validateDirectionRig, validateDirectionScene, validateDirectionShape } from './direction.ts';
 import { DIRECTION_COMPOSE_SPEC, validateComposeDirection } from './direction-compose.ts';
 import { assembleOnlyDraftPath, assembleOnlyDraftTarget, assertDraftHasRig, readAssembleOnlyDraftTarget } from './draft-layout.ts';
 import { freezeCompose, rollbackComposeDirectories } from './direction-compose-writer.ts';
+import { writeDirectionSpec } from './direction-spec-write.ts';
 import { sceneBytes, SceneError } from './scene.ts';
 import { refuse, USAGE_EXIT } from './refusal.ts';
 import { baselineOf, newFindings } from './refusal-baseline.ts';
 import { parseFeedbackAnswers } from './feedback.ts';
+import type { CommandResult } from './interview.ts';
+import { commitProjectStep } from './project-step-commit.ts';
 import { handoff } from './review.ts';
 import { acquireBoundJobWrite, beginJobProgress, prepareVersionIntent, publishCommittedVersion } from './job-writer.ts';
 import { cancelUncommittedIntent, type PendingPublication } from './job-outbox.ts';
@@ -20,7 +24,10 @@ direction write <N> [<dir>] --file <retained JSON> --rig <R> [--compose-out <dir
 direction check <N> [<dir>] [--json]
   Documents are immutable evidence/direction/v<N>.json. No rendering or producer builds.
   --file is a retained, non-ignored project-relative path.
-  A bounced predecessor needs --answers <version>:<verdict> on write.`;
+  A bounced predecessor needs --answers <version>:<verdict> on write.
+direction write [<dir>] --file <retained intent JSON>
+  Write specs/direction/direction.json with current rig and scene bindings and the cited take.
+  The intent contains {take, citations}. Record the green compose output with record direction.`;
 function usage(why:string):never {refuse('DIRECTION_USAGE',`direction: ${why}; ${DIRECTION_HELP}`,USAGE_EXIT);}
 function ownValidation(dir:string,project:JsonObject,now:number):void {const refusals:Finding[]=[];checkDirections({dir,project,refusals},now);if(refusals[0]){const f=refusals[0];directionFail(f.code,f.path,f.message);}}
 function prospective(dir:string,before:JsonObject,next:JsonObject,now:number):void {
@@ -28,8 +35,36 @@ function prospective(dir:string,before:JsonObject,next:JsonObject,now:number):vo
 }
 /** A narrow seam for fault-injected transaction tests; CLI never supplies a hook. */
 export interface DirectionWriteHooks { beforeCommit?:()=>void; }
-export function directionCommand(args:string[],now:number,hooks:DirectionWriteHooks={}):{stdout:string;exit:number} {
-  try{return command(args,now,hooks);}catch(e){if(e instanceof SceneError && e.code === 'DIRECTION_SOURCE_CHANGED') refuse(e.code,e.message);if(e instanceof DirectionError)refuse(e.code,e.code==='FEEDBACK_UNANSWERED'?`${e.message}; retry direction write with --answers <version>:<verdict> naming the bounced verdict`:e.message,e.code==='DIRECTION_USAGE'?USAGE_EXIT:1);throw e;}
+export function directionCommand(args:string[],now:number,hooks:DirectionWriteHooks={}):CommandResult {
+  try {
+    if (args[0] === 'write' && !args.some(arg => ['--rig', '--compose-out', '--compose-scene', '--answers', '--patch-file'].includes(arg) || arg.startsWith('--patch-file='))
+      && !/^[0-9]+$/.test(args[1] ?? '')) return writeCurrentDirection(args.slice(1), hooks);
+    return command(args,now,hooks);
+  } catch(e){if(e instanceof SceneError && e.code === 'DIRECTION_SOURCE_CHANGED') refuse(e.code,e.message);if(e instanceof DirectionError)refuse(e.code,e.code==='FEEDBACK_UNANSWERED'?`${e.message}; retry direction write with --answers <version>:<verdict> naming the bounced verdict`:e.message,e.code==='DIRECTION_USAGE'?USAGE_EXIT:1);throw e;}
+}
+
+function writeCurrentDirection(args: string[], hooks: DirectionWriteHooks): CommandResult {
+  let input: string | undefined;
+  let root: string | undefined;
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i]!;
+    if (arg === '--file' && input === undefined) {
+      input = args[++i];
+      if (!input || input.startsWith('-')) return usage('--file requires a retained intent JSON');
+    } else if (arg.startsWith('-') || root !== undefined) return usage(`unexpected argument ${arg}`);
+    else root = arg;
+  }
+  if (!input) return usage('write requires --file <retained intent JSON>');
+  const dir = resolve(root ?? process.cwd());
+  writeDirectionSpec(dir, CURRENT_DIRECTION_PATH, 'DIRECTION_SOURCE_CHANGED', snapshots => {
+    const project = directionJson(sceneBytes(dir, 'project.json', 'DIRECTION_SOURCE_CHANGED', snapshots), 'project.json');
+    if (project.schema !== 'rig-create/project@0') directionFail('DIRECTION_SCHEMA', 'project.json.schema', 'expected rig-create/project@0');
+    const bytes = directionBytes(dir, input);
+    snapshots.set(input, bytes);
+    return prepareCurrentDirection(dir, project, directionJson(bytes, input), snapshots);
+  }, hooks.beforeCommit);
+  const stderr = commitProjectStep(dir, 'direction', ['direction', 'write', ...args].join(' '), CURRENT_DIRECTION_PATH);
+  return { stdout: `direction: ${CURRENT_DIRECTION_PATH} written`, exit: 0, ...(stderr ? { stderr } : {}) };
 }
 function command(args:string[],now:number,hooks:DirectionWriteHooks):{stdout:string;exit:number} {
   if(args[0]==='patch'||args.some(arg=>arg==='--patch-file'||arg.startsWith('--patch-file=')))refuse('DIRECTION_PATCH_FILE_REMOVED','project.json.versions: direction patch and --patch-file were removed; record direction feedback as a review verdict and publish the revised post with direction write <N> --file <direction.json> --rig <R> --answers <version>:<verdict>',USAGE_EXIT);

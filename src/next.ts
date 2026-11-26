@@ -6,7 +6,7 @@ import { checkpointEnabled, checkpointRequired, completedPlanStepNeedsAmendment,
 import { createHash } from 'node:crypto';
 import { existsSync, lstatSync, readdirSync, readFileSync, realpathSync } from './check-reads.ts';
 import { isDeepStrictEqual } from 'node:util';
-import { CURRENT_KINDS, isCurrentProject, type CurrentKind } from './current.ts';
+import { CURRENT_KINDS, isCurrentProject, outputRoot, type CurrentKind } from './current.ts';
 import { currentAdvanceOutputFinding, isPublishAdvanceStage } from './job-advance.ts';
 import { eligibleRigDraftModel, optionPublicationStage, publicationFile, riggingDraftPartsChange } from './job-publication.ts';
 import { latestRigDraftVerdict } from './rig-draft-verdict.ts';
@@ -40,7 +40,7 @@ import {
 import { partsStructureSnapshot } from './job-acts.ts';
 import { JOB_BINDING_FILE, readWriterBinding, type WriterBinding } from './job-outbox.ts';
 import { beginJobProgress } from './job-writer.ts';
-import { isPartsCheckMove, partsCheckFindings, partsCheckRecord } from './parts-check.ts';
+import { isPartsCheckMove, PARTS_CHECK_FILE, partsCheckFindings, partsCheckRecord } from './parts-check.ts';
 import { isPartsReviewReceipt, latestPartsVerdictStatus, latestRiggingDraftFeedback, recordedPartsVerdict } from './parts-verdict-record.ts';
 import { assertPartsActSource } from './parts-act.ts';
 import { pausedFrom } from './pause.ts';
@@ -1193,6 +1193,20 @@ function hasCurrentPartsCheck(dir: string, report: string, partsRoot: string): b
   } catch { return false; }
 }
 
+function currentPartsAdvanceMove(dir: string): NextMove {
+  const partsRoot = `${outputRoot('parts')}/rig`;
+  // Each advance retains its own report, including after a reopen replaces the current parts.
+  const command = [
+    `cd ${shellWord(dir)}`,
+    'test ! -L evidence',
+    'check_dir=$(mktemp -d evidence/parts-review.XXXXXXXX)',
+    `rig-parts check-parts --parts ${partsRoot} --out "$check_dir"`,
+    `rig-create advance parts-review . --parts-check "$check_dir/${PARTS_CHECK_FILE}" --parts ${partsRoot}`,
+  ].join(' && ');
+  return { role: 'agent', field: 'stage', awaits: 'project.stage', command: `(${command})`,
+    act: 'Retain a parts-stage check of the recorded current parts in evidence and advance to parts-review.' };
+}
+
 /** An occupied path is never a fresh producer destination, including dangling links. */
 function retouchPathExists(dir: string, path: string): boolean {
   try { lstatSync(resolve(dir, path)); return true; }
@@ -1454,10 +1468,11 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
     const step = steps.find(step => finding.path === `plan.steps[${String(step.id)}]`);
     return step ? [{ finding, step }] : [];
   });
-  const { blocksOutputMoves, ...derived } = deriveNextProject(dir, project, report, now, steps, staleSteps);
+  const hasNumberedOutputs = [project.drafts, project.versions, project.scenes].some(entries => asArray(entries).length > 0);
+  const { blocksOutputMoves, ...derived } = deriveNextProject(dir, project, report, now, steps, staleSteps, hasNumberedOutputs);
   let next = derived;
   if (!blocksOutputMoves && derived.stage !== PAUSED_STAGE) {
-    const current = project.current;
+    const current = project.current === undefined && !hasNumberedOutputs ? {} : project.current;
     if (isObject(current)) {
       const missing = new Map(CURRENT_KINDS.flatMap(kind => {
         if (current[kind] !== undefined) return [];
@@ -1506,10 +1521,10 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
 }
 
 function deriveNextProject(dir: string, project: JsonObject, report: CheckReport, now: number,
-  steps: JsonObject[], staleSteps: { finding: Finding; step: JsonObject }[]): NextReport & { blocksOutputMoves?: true } {
+  steps: JsonObject[], staleSteps: { finding: Finding; step: JsonObject }[], hasNumberedOutputs: boolean): NextReport & { blocksOutputMoves?: true } {
   const stage = String(project.stage ?? '');
   const effectiveStage = String(report.effective_stage ?? stage);
-  const legacyWrites = !isCurrentProject(project);
+  const legacyWrites = hasNumberedOutputs && !isCurrentProject(project);
   const warnings = report.warnings.filter(w => w.code === 'STRUCTURE_DELTA_REVIEW' || w.code === 'REVIEW_ANSWER_COMMENT_ROUTED'
     || w.code === 'OUTPUT_STALE' || (!legacyWrites && ['FEEDBACK_OPEN', 'REOPEN_SIGNOFF_LAPSED', 'REOPEN_VERDICT_LAPSED'].includes(w.code)));
   const collection = loadCollection(dir);
@@ -2279,6 +2294,11 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
 
       if (effectiveStage === 'parts') {
         addAwait('project.stage');
+        if (stage === 'parts' && !hasNumberedOutputs && refusals.length === 0
+          && isObject(project.current) && isObject(project.current.parts)
+          && existsSync(join(dir, outputRoot('parts'), 'rig', 'parts.json'))) {
+          moves.push(currentPartsAdvanceMove(dir));
+        }
       } else if (hasLiveStageSignoff('parts-review')) {
         const nextStage = nextStageInOrder(project, stage);
         if (nextStage !== null) {

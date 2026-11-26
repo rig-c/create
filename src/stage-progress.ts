@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { join } from 'node:path';
 import { readFileSync } from './check-reads.ts';
 import { asArray, asString, collectItems, collectSignoffs, isObject, loadCollection, postNotPassed, type Ctx, type Finding } from './check.ts';
+import { currentShapeFindings } from './current.ts';
 import { DIRECTION_SCENE_SINCE } from './direction.ts';
 import { DIRECTION_COMPOSE_SPEC } from './direction-compose.ts';
 import { currentScene as currentSceneEntry, SceneError, sceneCurrentAt } from './scene.ts';
@@ -159,8 +160,8 @@ export interface DirectionReviewPostState {
   readonly missing: string[];
 }
 
-/** Shared predicate for the post artifacts `direction-review` awaits (direction contract, current scene or composed post, live post version). */
-export function directionReviewPostState(dir: string, project: JsonObject, at = Infinity): DirectionReviewPostState {
+/** Shared predicate for the current direction or numbered post that `direction-review` awaits. */
+export function directionReviewPostState(dir: string, project: JsonObject, at = Infinity, { historicalMove = false } = {}): DirectionReviewPostState {
   const reopens = collectReopens(project, []).filter(r => !(r.at > at));
   const versions = asArray(project.versions).filter(isObject);
   const postVersions = versions.filter(
@@ -170,6 +171,14 @@ export function directionReviewPostState(dir: string, project: JsonObject, at = 
   const postN = typeof latestPost?.n === 'number' ? latestPost.n : null;
   const maxVersionN = Math.max(0, ...versions.map(v => (typeof v.n === 'number' ? v.n : 0)));
   const nextPostN = postN ?? maxVersionN + 1;
+  const direction = isObject(project.current) ? project.current.direction : undefined;
+  if (postN === null && isObject(direction) && currentShapeFindings('direction', direction).length === 0) {
+    const recordedAt = Date.parse(String(direction.at));
+    // Re-recording replaces current.direction; its latest timestamp cannot date the historical move.
+    if ((historicalMove || recordedAt <= at) && liveSignoff(reopens, 'post', recordedAt)) {
+      return { ready: true, latestPost, postN, nextPostN, composed: true, currentScene: undefined, missingScene: false, missing: [] };
+    }
+  }
   const composed = postN === null ? composeChoice(project, dir) : composedPost(dir, project, at);
   const contract = isObject(project.direction_contract) ? project.direction_contract : null;
   const explicit = latestPost !== undefined && isObject(latestPost.provenance) && latestPost.provenance.direction !== undefined;
@@ -208,8 +217,8 @@ export function directionReviewPostState(dir: string, project: JsonObject, at = 
 }
 
 /**
- * A `post` → `direction-review` advance needs the direction contract, current scene (or composed
- * `direction@3` post) and live `kind: "post"` version that `direction-review` can accept.
+ * A `post` → `direction-review` advance needs a live current direction or a numbered post
+ * with the direction contract and current scene (or composed `direction@3` post).
  * Missing on the move being written or from `DIRECTION_REVIEW_ADVANCE_SINCE` is refused;
  * on an earlier move it WARNs with the same code.
  */
@@ -230,10 +239,10 @@ export function checkDirectionReviewAdvances(ctx: Ctx, forwardWrite = false): vo
   const atMove = forwardWrite && moveIndex === advances.length - 1;
   const since = Date.parse(DIRECTION_REVIEW_ADVANCE_SINCE);
   const movedAt = entry === undefined ? NaN : Date.parse(String(entry.at));
-  const state = directionReviewPostState(ctx.dir, ctx.project, Number.isFinite(movedAt) ? movedAt : Infinity);
+  const state = directionReviewPostState(ctx.dir, ctx.project, Number.isFinite(movedAt) ? movedAt : Infinity, { historicalMove: !atMove });
   if (state.ready) return;
   const missing = state.missing.join(', ');
-  const remedy = 'adopt direction with rig-create direction --adopt, write the current scene with rig-create scene write (or compose direction@3) and record the post version with rig-create direction write before advancing to direction-review';
+  const remedy = 'record the current direction with rig-create record direction, or adopt direction with rig-create direction --adopt, write the current scene with rig-create scene write (or compose direction@3) and record the post version with rig-create direction write before advancing to direction-review';
   if (atMove || !(movedAt < since)) {
     ctx.refusals.push({
       code: 'DIRECTION_REVIEW_POST_MISSING',

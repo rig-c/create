@@ -1,7 +1,7 @@
 /** Relayed words retain their own clock; at remains the writer's clock. */
 import { asArray, isObject, type Finding } from './check.ts';
 import { latestPartsReceipt, latestPartsVerdictFinding, recordedPartsVerdict } from './parts-verdict-record.ts';
-import { decodeReviewAct } from './review-act.ts';
+import { decodeReviewAct, SIGNOFF_TARGET_KINDS } from './review-act.ts';
 import { readVerbatim } from './record-input.ts';
 import { acceptedReviewVerdict, readVersions } from './review.ts';
 import { collectReopens, liveSignoff } from './reopen.ts';
@@ -71,6 +71,8 @@ export function ownerChatSignoffAllowed(dir: string, project: JsonObject, stage:
 }
 
 export function assertOwnerChatSignoff(dir: string, project: JsonObject, stage: string, draft?: string, version?: string): void {
+  // The writer and check validate the current target's binding. The verdict gate is for numbered targets.
+  if (project.current !== undefined && stage in SIGNOFF_TARGET_KINDS) return;
   if (ownerChatSignoffAllowed(dir,project,stage,draft,version)) return;
   const route = stage === 'parts-review' ? '--draft <current-draft>' : '--rig <current-version>';
   refuse('OWNER_CHAT_GATE_VISUAL', `project.json.signoffs.${stage}: an accepted live verdict for the current subject is required; get the verdict in the review tool first with rig-create job open ${route}, ingest it, then relay the owner's signoff`);

@@ -26,6 +26,7 @@ Read this before choosing work. It ranks every issue in this repository.
    `--owner-chat <words file> --said-at <ISO date> --relayed-by <operator>`
    and the owner's `--by`. Interview picks still bind the displayed set and
    option ids; verdict-bearing signoffs need the current accepted live verdict.
+   A stage signoff on `current.<kind>` relayed from the owner's chat needs no numbered verdict; it quotes the owner's words, when they were said and who relayed them.
    Shared context images and option images shown in Review do not remove an
    interview question from this route.
    Typing a pick or signoff into a record without the owner's recorded words,

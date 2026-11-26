@@ -16,7 +16,7 @@ import type { Json, JsonObject } from './templates.ts';
 export const CURRENT_KINDS = ['parts', 'rig', 'motion', 'direction'] as const;
 export type CurrentKind = (typeof CURRENT_KINDS)[number];
 export const RUN_RECORD_NAME = 'run.json';
-export const REBUILD_RUN_SPECS = ['rig-run/2', 'rigc-run/2'] as const;
+export const REBUILD_RUN_SPECS = ['rig-run/2', 'rig-run/3', 'rigc-run/2'] as const;
 export type RebuildRunSpec = (typeof REBUILD_RUN_SPECS)[number];
 /**
  * The producers' own rule for run records: a file named `run.json` (`rig-run/1`, `rigc-run/1`) or ending in `-run.json`
@@ -104,8 +104,14 @@ export function currentShapeFindings(kind: CurrentKind, node: Json | undefined):
     pairs.push({ path: String(file.path), sha256: String(file.sha256) });
   }
   if (node.files_sha256 !== outputSetHash(pairs)) findings.push(malformed(`${path}.files_sha256`, 'differs from the output-set hash of files[] (every file that is not a run record)'));
+  const rebuild = node.rebuild;
   for (const key of ['run', 'report'] as const) {
     const binding = node[key];
+    if (kind === 'motion' && rebuild !== undefined) {
+      const recorded = isObject(rebuild) && rebuild.recorded === true;
+      if (key === 'run' && !recorded && binding !== undefined) findings.push(malformed(`${path}.run`, 'a motion run requires rebuild.recorded=true'));
+      if (binding === undefined && (key === 'report' || !recorded)) continue;
+    }
     const problem = bindingProblem(binding);
     if (problem) { findings.push(malformed(`${path}.${key}`, problem)); continue; }
     const b = binding as JsonObject;
@@ -120,8 +126,7 @@ export function currentShapeFindings(kind: CurrentKind, node: Json | undefined):
     else if (!builtFromNameAllowed(String((entry as JsonObject).path))) findings.push(malformed(at, `names ${String((entry as JsonObject).path)}; a run record or the compose check report is provenance, so name the product files the output reads`));
     else if (upstreamKind(String((entry as JsonObject).path)) === kind) findings.push(malformed(at, 'names a file of this output itself'));
   }
-  const rebuild = node.rebuild;
-  if (kind === 'rig') {
+  if (kind === 'rig' || (kind === 'motion' && rebuild !== undefined) || (isObject(rebuild) && rebuild.recorded === false)) {
     if (!isObject(rebuild) || typeof rebuild.recorded !== 'boolean') {
       findings.push(malformed(`${path}.rebuild`, 'expected { recorded: false, note } or { recorded: true, runs }'));
     } else if (rebuild.recorded === false) {
@@ -146,15 +151,17 @@ export function currentShapeFindings(kind: CurrentKind, node: Json | undefined):
         }
         if (!(previousRun < entryPath)) findings.push(malformed(`${at}.path`, 'runs must sort by path with no duplicate'));
         previousRun = entryPath;
-        if (entry.spec !== 'rig-run/2' && entry.spec !== 'rigc-run/2') {
-          findings.push(malformed(`${at}.spec`, 'expected rig-run/2 or rigc-run/2'));
+        const allowed: readonly RebuildRunSpec[] = kind === 'motion' ? ['rigc-run/2'] : REBUILD_RUN_SPECS;
+        const spec = allowed.find(candidate => candidate === entry.spec);
+        if (spec === undefined) {
+          findings.push(malformed(`${at}.spec`, `expected ${allowed.join(' or ')}`));
           continue;
         }
-        if (entry.spec === 'rig-run/2') rigRuns++;
-        const argvProblem = runArgvProblem(entry.argv, entry.spec);
+        if (spec === 'rig-run/2' || spec === 'rig-run/3') rigRuns++;
+        const argvProblem = runArgvProblem(entry.argv, spec);
         if (argvProblem) findings.push(malformed(`${at}.argv`, argvProblem));
       }
-      if (rigRuns !== 1) findings.push(malformed(`${path}.rebuild.runs`, 'expected exactly one rig-run/2 check or build record'));
+      if (kind === 'rig' && rigRuns !== 1) findings.push(malformed(`${path}.rebuild.runs`, 'expected exactly one Parts run record (rig-run/2 check or build, or rig-run/3 build)'));
     }
   }
   return findings;
@@ -163,8 +170,19 @@ export function currentShapeFindings(kind: CurrentKind, node: Json | undefined):
 const PARTS_MANIFEST = 'outputs/parts/rig/parts.json';
 type AssemblyManifest = Parameters<typeof assemblyConfigChanges>[1];
 
+/** The hash a valid current node records for a named product file. */
+export function currentFileBinding(project: JsonObject, kind: CurrentKind, path: string): { path: string; sha256: string } | undefined {
+  const node = isObject(project.current) ? project.current[kind] : undefined;
+  if (!isObject(node) || currentShapeFindings(kind, node).length) return undefined;
+  const file = asArray(node.files).filter(isObject).find(entry => entry.path === path);
+  if (file) return { path, sha256: String(file.sha256) };
+}
+
+export const CURRENT_RIG_MODEL = 'outputs/rig/check/build/skeleton.model.json';
+export const CURRENT_MOTION_FRAMES = 'outputs/motion/frames.json';
+
 /** The hash a `built_from` path has now: a file's sha256, or an output root's output-set hash; undefined when absent. */
-function currentHash(dir: string, path: string): string | undefined {
+export function currentHash(dir: string, path: string): string | undefined {
   try {
     if (!existsSync(join(dir, path))) return undefined;
     if (KIND_OF_ROOT.has(path) && lstatSync(join(dir, path)).isDirectory()) return outputSetHash(treeFiles(dir, path));
@@ -291,10 +309,11 @@ export function currentFindings(dir: string, project: JsonObject, warnings: Find
       if (upstream) { stale.set(kind, `upstream ${upstream} is stale`); grew = true; }
     }
   }
-  const rig = nodes.get('rig');
-  if (rig && isObject(rig.rebuild) && rig.rebuild.recorded === false) {
-    warnings.push({ code: 'REBUILD_ARGS_UNRECORDED', path: 'current.rig.rebuild',
-      message: `current.rig.rebuild: ${String(rig.rebuild.note)}; a rebuild of outputs/rig needs the unrecorded arguments from the operator until it is recorded from rig-run/2 and rigc-run/2 reports` });
+  for (const [kind, node] of nodes) {
+    if (!isObject(node.rebuild) || node.rebuild.recorded !== false) continue;
+    const path = `current.${kind}.rebuild`;
+    warnings.push({ code: 'REBUILD_ARGS_UNRECORDED', path,
+      message: `${path}: ${String(node.rebuild.note)}; get the unrecorded rebuild arguments from the operator before rebuilding ${outputRoot(kind)}` });
   }
   for (const kind of CURRENT_KINDS) {
     const why = stale.get(kind);

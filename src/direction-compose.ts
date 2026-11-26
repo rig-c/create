@@ -27,6 +27,10 @@ export function validateComposeDirectionShape(doc: JsonObject, path = 'direction
     || !['scene', 'report', 'check', 'run'].every(key => sceneBinding((doc.compose as JsonObject)[key]))
     || ('clipped_bounds' in doc.compose && !composeBounds(doc.compose.clipped_bounds)) || !sceneBinding(doc.model)) bad('compose/model require literal paths, sha256 bindings and optional four-number clipped_bounds');
   if (!closed(doc.take, ['duration', 'loop']) || typeof doc.take.duration !== 'number' || !Number.isFinite(doc.take.duration) || doc.take.duration <= 0 || typeof doc.take.loop !== 'boolean') bad('take requires positive finite duration and boolean loop');
+  validateComposeCitations(doc, bad);
+}
+
+export function validateComposeCitations(doc: JsonObject, bad: (why: string) => never): void {
   if (!closed(doc.citations, ['camera', 'timing', 'composition'])) bad('citations require camera, timing and composition');
   for (const [key, guide] of [['camera', 'camera_depth'], ['timing', 'post_timing'], ['composition', 'post_composition']]) {
     const c = (doc.citations as JsonObject)[key!];
@@ -114,7 +118,7 @@ export function composeRunMatchesAcceptedRig(dir: string, run: ComposeRun, chara
   }
 }
 
-function validateComposeRunInputs(run: ComposeRun, scene: JsonObject, sceneSha256: string, registered: JsonObject[], path: string): void {
+export function validateComposeRunInputs(run: ComposeRun, scene: JsonObject, sceneSha256: string, registered: JsonObject[], path: string): void {
   if (run.scene.sha256 !== sceneSha256) directionFail('DIRECTION_COMPOSE_RUN_SCENE', `${path}.scene`, 'compose again from the exact retained scene bytes');
   const expected = objects(scene.plates).map(p => ({ name: p.name, path: p.image, sha256: registered.find(row => row.path === p.image)?.sha256 }));
   const sorted = <T extends { name: unknown }>(rows: T[]): T[] => [...rows].sort((a, b) => String(a.name) < String(b.name) ? -1 : String(a.name) > String(b.name) ? 1 : 0);
@@ -130,7 +134,7 @@ function bound(dir: string, binding: JsonObject, snapshots?: Map<string, Buffer>
 }
 
 /** Resolve one cited answer, preserving scene@1's Review choice/delegation authority. */
-function citedValues(dir: string, project: JsonObject, doc: JsonObject, question: string, current: boolean, snapshots?: Map<string, Buffer>): JsonObject[] {
+export function citedValues(dir: string, project: JsonObject, doc: JsonObject, question: string, current: boolean, snapshots?: Map<string, Buffer>): JsonObject[] {
   const collection = loadCollection(dir);
   const item = collectItems(project, { collection }).find(i => i.id === question);
   const citation = (doc.citations as JsonObject)[question === 'post_composition' ? 'composition' : 'timing'] as JsonObject;

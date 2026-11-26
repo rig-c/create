@@ -346,6 +346,22 @@ function partsBuildRunRecord(overrides: Partial<Record<string, unknown>> = {}): 
   } as JsonObject;
 }
 
+function partsBuildRunV3() {
+  const { outputs, argv, ...throughConfig } = partsBuildRunRecord({
+    argv: ['build', '--config', '../../specs/rig/config.json', '--source', '../../inputs/painting.png', '--full', '../parts/sources/full', '--out', '.'],
+  });
+  return {
+    ...throughConfig,
+    spec: 'rig-run/3',
+    inputs: [
+      { role: 'source', path: '../../inputs/painting.png', sha256: '1'.repeat(64) },
+      { role: 'full', path: '../parts/sources/full/layers.json', sha256: '2'.repeat(64) },
+    ],
+    outputs,
+    argv: argv as string[],
+  };
+}
+
 function coreRenderRunRecord(overrides: Partial<Record<string, unknown>> = {}): JsonObject {
   return {
     spec: 'rigc-run/2',
@@ -470,5 +486,98 @@ describe('producer run records (rig-run/2 and rigc-run/2)', () => {
     const before = readFileSync(join(dir, 'project.json'));
     refused([...baseArgs, '--run-record', 'source/check-run.json'], 'RUN_RECORD_SPEC_UNKNOWN');
     expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
+  });
+});
+
+describe('Parts build run records (rig-run/3)', () => {
+  const validate = (run: object) => validateRunRecord(Buffer.from(JSON.stringify(run)), 'build-run.json');
+  const row = (role: string, path: string) => ({ role, path, sha256: '5'.repeat(64) });
+
+  test('accepts --out-relative inputs including a literal See-through manifest and optional head', () => {
+    const run = partsBuildRunV3();
+    expect(validate(run)).toEqual({ spec: 'rig-run/3', record: run });
+    run.inputs.push(row('head', '../parts/sources/head/layers.json'));
+    run.argv.splice(run.argv.indexOf('--out'), 0, '--head', '../parts/sources/head');
+    expect(validate(run)).toEqual({ spec: 'rig-run/3', record: run });
+  });
+
+  test('accepts skipped optional roles and orders alternate tuples by CLI occurrence through index 10', () => {
+    const run = partsBuildRunV3();
+    const environment = '../../specs/rig/environment.json';
+    run.inputs.push(row('environment', environment));
+    for (let i = 0; i <= 10; i++) {
+      const dir = `../parts/sources/side-${i}`;
+      const source = `${dir}/painting.png`;
+      const full = `${dir}/full.psd`;
+      const head = `${dir}/head`;
+      run.inputs.push(row(`alt[${i}].source`, source), row(`alt[${i}].full`, full));
+      if (i === 0) run.inputs.push(row(`alt[${i}].head`, `${head}/layers.json`));
+      run.argv.push('--alt', `side-${i}=${source}:${full}${i === 0 ? `:${head}` : ''}`);
+    }
+    run.argv.push('--environment', environment);
+    expect(validate(run)).toEqual({ spec: 'rig-run/3', record: run });
+  });
+
+  const { inputs, ...withoutInputs } = partsBuildRunV3();
+  const [source, full] = inputs;
+  test.each([
+    ['top-level input key at the end', { ...withoutInputs, inputs }, 'RUN_RECORD_MALFORMED'],
+    ['input keys out of order', { ...partsBuildRunV3(), inputs: [{ path: source!.path, role: 'source', sha256: source!.sha256 }, full] }, 'RUN_RECORD_MALFORMED'],
+    ['unknown role', { ...partsBuildRunV3(), inputs: [{ ...source, role: 'unknown' }, full] }, 'RUN_RECORD_ROLE_INVALID'],
+    ['missing full role', { ...partsBuildRunV3(), inputs: [source] }, 'RUN_RECORD_ROLE_INVALID'],
+    ['duplicate source role', { ...partsBuildRunV3(), inputs: [source, { ...source, path: '../../inputs/other.png' }, full] }, 'RUN_RECORD_ROLE_INVALID'],
+    ['absolute path', { ...partsBuildRunV3(), inputs: [{ ...source, path: '/outside/painting.png' }, full] }, 'RUN_RECORD_MALFORMED'],
+    ['invalid input hash', { ...partsBuildRunV3(), inputs: [{ ...source, sha256: 'abc' }, full] }, 'RUN_RECORD_MALFORMED'],
+    ['/3 check command', { ...partsBuildRunV3(), command: 'check', argv: ['check', '--out', '.'] }, 'RUN_RECORD_MALFORMED'],
+    ['/3 check argv', { ...partsBuildRunV3(), argv: ['check', '--out', '.'] }, 'RUN_RECORD_MALFORMED'],
+    ['escaping output path', { ...partsBuildRunV3(), outputs: [{ path: '../outside.png', sha256: '4'.repeat(64) }] }, 'RUN_RECORD_MALFORMED'],
+  ] as const)('refuses %s with the expected reader code', (_label, run, code) => {
+    try {
+      validate(run);
+      throw new Error(`expected ${code}`);
+    } catch (error) {
+      expect((error as { code?: string }).code).toBe(code);
+    }
+  });
+
+  test.each([
+    ['main roles out of order', ['full', 'source']],
+    ['missing main source', ['full']],
+    ['auxiliary roles out of order', ['source', 'full', 'wind-band', 'requirements']],
+    ['duplicate auxiliary role', ['source', 'full', 'environment', 'environment']],
+    ['an auxiliary role after an alternate', ['source', 'full', 'alt[0].source', 'alt[0].full', 'environment']],
+    ['an alternate starting at index one', ['source', 'full', 'alt[1].source', 'alt[1].full']],
+    ['a skipped alternate index', ['source', 'full', 'alt[0].source', 'alt[0].full', 'alt[2].source', 'alt[2].full']],
+    ['an alternate index with leading zeros', ['source', 'full', 'alt[00].source', 'alt[00].full']],
+    ['a negative alternate index', ['source', 'full', 'alt[-1].source', 'alt[-1].full']],
+    ['a fractional alternate index', ['source', 'full', 'alt[0.0].source', 'alt[0.0].full']],
+    ['a misspelled alternate member', ['source', 'full', 'alt[0].source', 'alt[0].Full']],
+    ['an alternate missing source', ['source', 'full', 'alt[0].full']],
+    ['an alternate missing full', ['source', 'full', 'alt[0].source']],
+    ['an alternate head before its full', ['source', 'full', 'alt[0].source', 'alt[0].head', 'alt[0].full']],
+    ['a repeated alternate index', ['source', 'full', 'alt[0].source', 'alt[0].full', 'alt[0].source', 'alt[0].full']],
+    ['a duplicate alternate member', ['source', 'full', 'alt[0].source', 'alt[0].full', 'alt[0].head', 'alt[0].head']],
+  ] as const)('refuses %s with RUN_RECORD_ROLE_INVALID', (_label, roles) => {
+    const run = { ...partsBuildRunV3(), inputs: roles.map((role, i) => row(role, `../../inputs/file-${i}`)) };
+    try {
+      validate(run);
+      throw new Error('expected RUN_RECORD_ROLE_INVALID');
+    } catch (error) {
+      expect((error as { code?: string }).code).toBe('RUN_RECORD_ROLE_INVALID');
+    }
+  });
+
+  test('frozen rig registration still refuses a valid /3 build in the writer and check', () => {
+    const { dir, baseArgs, args, load } = setup();
+    put(dir, 'source/build-run.json', partsBuildRunV3());
+    const before = readFileSync(join(dir, 'project.json'));
+    refused([...baseArgs, '--run-record', 'source/build-run.json'], 'RUN_RECORD_SPEC_UNKNOWN');
+    expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
+
+    rigVersionCommand(args);
+    const project = load();
+    const runs = obj((project.versions as JsonObject[])[0]!.registration).runs as JsonObject[];
+    runs[0]!.spec = 'rig-run/3';
+    expect(checkProject(dir, project).refusals.map(f => f.code)).toContain('RUN_RECORD_SPEC_UNKNOWN');
   });
 });

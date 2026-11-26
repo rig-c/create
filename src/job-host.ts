@@ -20,6 +20,7 @@ import { postJobProgress } from './job-progress.ts';
 import { reportOwnerSubmitRefusal } from './job-refusal.ts';
 import { hasStageOrder, interviewStageOfGuide } from './stages.ts';
 import { pendingInterviewOptionsPath } from './choices.ts';
+import { isCurrentProject } from './current.ts';
 
 function installBinding(root: string, binding: WriterBinding): void {
   ensureJobPrivateIgnores(root);
@@ -212,7 +213,9 @@ export async function publishPending(
     if (publicationVersionHash(bytes, entry.result) !== entry.versionHash) refuse('JOB_PUBLICATION_STALE', 'project.json: pending version changed; restore its retained entry/files before reconciling');
     const currentHash = jobHash(bytes);
     if (currentHash !== entry.recordHash) { entry.recordHash = currentHash; delete entry.generation; }
-    const project = JSON.parse(bytes.toString('utf8'));
+    const project = JSON.parse(bytes.toString('utf8')) as JsonObject;
+    const selector = entry.result.selector;
+    const viewOnly = isCurrentProject(project) && (selector?.kind === 'rig' || selector?.kind === 'post');
     let subjects: readonly PublicationSubject[];
     if (isRecordResult(entry.result)) {
       subjects = readRecordPublished({ root: entry.root, record: { path: 'project.json', sha256: entry.recordHash }, result: entry.result, phase: 'inventory' }, now).subjects;
@@ -227,9 +230,9 @@ export async function publishPending(
       if (isRecordResult(entry.result)) {
         // A recovered outbox entry may not have reached its first guarded attempt.
         await refusePendingJobAsks(entry.root, entry.jobId, host, entry.result);
-      } else if (entry.result.selector?.kind === 'draft' && status.publication && 'selection' in status.publication.source) {
+      } else if (selector && (viewOnly || selector.kind === 'draft' && status.publication && 'selection' in status.publication.source)) {
         // A record published earlier in this reconcile can have opened a new ask.
-        await refusePendingJobAsks(entry.root, entry.jobId, host, entry.result.selector);
+        await refusePendingJobAsks(entry.root, entry.jobId, host, selector);
       }
       entry.generation = status.generation;
     }
@@ -237,7 +240,7 @@ export async function publishPending(
     failPublication(entry.root, entry, entry.failure);
     // Draft readiness can change when producer bytes drift without a record write.
     // Keep retries on the stored generation, and give a fresh enqueue its own attempt.
-    const attempt = jobHash(JSON.stringify((isRecordResult(entry.result) || entry.result.selector?.kind === 'draft')
+    const attempt = jobHash(JSON.stringify((isRecordResult(entry.result) || selector?.kind === 'draft')
       ? [entry.id, entry.recordHash, entry.generation]
       : [entry.id, entry.recordHash]));
     const request = {
@@ -260,12 +263,11 @@ export async function publishPending(
       const code = result.error?.code ?? 'JOB_PUBLICATION_INVALID';
       // Review rejected this attempt before publishing. Reconciliation must
       // scan the refreshed asks before attempting the new generation.
-      if (result.schema === request.schema && code === 'JOB_GENERATION_STALE' && isRecordResult(entry.result)) delete entry.generation;
+      if (result.schema === request.schema && code === 'JOB_GENERATION_STALE' && (viewOnly || isRecordResult(entry.result))) delete entry.generation;
       const reason = typeof result.error?.message === 'string' && result.error.message.trim() ? `: ${result.error.message}` : '';
       refuse(code, `project.json: publication of record ${entry.recordHash} was refused by review (${code})${reason}; run rig-create job reconcile after restoring the bound sources`);
     }
     if (!result.value) refuse('JOB_OUTBOX_INVALID', 'project.json: publication response lacks its identity; reconcile the pending publication');
-    const selector = entry.result.selector;
     const draftIdentity = selector?.kind === 'draft' ? draftPackageIdentity(selector.id, true) : undefined;
     let draftSource;
     let draftReview;
@@ -289,12 +291,20 @@ export async function publishPending(
       draftReview = { projectHash: source.projectHash, sourceHash: source.sourceHash, model,
         painting: publishedSourcePainting(entry.root, project, `drafts[${selector.id}]`) };
     }
-    acknowledgePublication(entry, result.value.publicationId, result.value.generation, attempt, subjects, draftSource, draftReview);
+    const { publicationId, generation } = result.value;
+    let acknowledgedSubjects: readonly PublicationSubject[] | undefined = subjects;
+    if (viewOnly) {
+      // A replay can return a publication from before this workflow became view-only.
+      const retained = host.session.retainedSource(publicationId).subjects;
+      const prior = readAcknowledgedPublication(entry.root, entry.jobId, publicationId);
+      acknowledgedSubjects = prior && prior.subjects === undefined ? undefined : retained;
+    }
+    acknowledgePublication(entry, publicationId, generation, attempt, acknowledgedSubjects, draftSource, draftReview);
     onPublished?.({ publicationId: result.value.publicationId, replaced: Boolean(status.publication && status.publication.publicationId !== result.value.publicationId) });
     // The person answers on the page, so every declared subject is asked here, with the
     // agent authority this process already holds in memory. An ask Review refuses never
     // makes the acknowledged publication pending again; the caller names it afterwards.
-    return await askDeclaredSubjects(host, result.value.publicationId, subjects, isRecordResult(entry.result));
+    return viewOnly ? [] : await askDeclaredSubjects(host, publicationId, subjects, isRecordResult(entry.result));
   } finally { host.stop(); }
 }
 
@@ -746,7 +756,9 @@ export async function openDraftPublication(root: string, host: JobOwnerHost, now
       : undefined);
   const warnings: Finding[] = [];
   const project = JSON.parse(bytes.toString('utf8')) as JsonObject;
-  const deferred = targetSelector?.kind === 'rig' ? rigVerdictDeferred(root, project, stage, targetSelector.version, now) : null;
+  const viewOnly = isCurrentProject(project) && (targetSelector?.kind === 'rig' || targetSelector?.kind === 'post');
+  const deferred = targetSelector?.kind === 'rig' && !viewOnly
+    ? rigVerdictDeferred(root, project, stage, targetSelector.version, now) : null;
   if (deferred) warnings.push(deferred);
   const draft = targetSelector?.kind === 'draft'
     ? inspectDraftPublication(root, project, targetSelector.id, warnings, stage)
@@ -759,7 +771,7 @@ export async function openDraftPublication(root: string, host: JobOwnerHost, now
     || Boolean(draft?.rigging) === (source?.package?.id === draftPackageIdentity(targetSelector.id, true).id);
   const reuseHead = Boolean(head && headSelector && sameDraftPackage && source?.projectHash === jobHash(bytes) && (
     targetSelector === undefined || isDeepStrictEqual(headSelector, targetSelector)
-  ) && (currentSubjects === undefined || isDeepStrictEqual(acknowledged?.subjects, currentSubjects)));
+  ) && (viewOnly && acknowledged !== null || currentSubjects === undefined || isDeepStrictEqual(acknowledged?.subjects, currentSubjects)));
   let selector: JobSelector;
   let outcomes: AskOutcome[];
   let publicationId: string;
@@ -770,7 +782,7 @@ export async function openDraftPublication(root: string, host: JobOwnerHost, now
     const subjects = acknowledged?.subjects
       ?? (await readPublished({ root, record: { path: 'project.json', sha256: jobHash(bytes) }, result: result as Parameters<typeof readPublished>[0]['result'] })).subjects;
     publicationId = head.publicationId;
-    outcomes = await askDeclaredSubjects(host, publicationId, subjects, false);
+    outcomes = viewOnly ? [] : await askDeclaredSubjects(host, publicationId, subjects, false);
     selector = headSelector;
     published = false;
   } else {

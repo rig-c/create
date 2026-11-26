@@ -35,6 +35,7 @@ import { isAssembleOnlyDraft } from './draft-layout.ts';
 import { latestPartsApproval, previousPartsApproval, retainedJson } from './structure.ts';
 import { partsStructureSnapshot, shellWord } from './job-acts.ts';
 import { jobHash, pendingPublications, isRecordResult, type JobIdentity } from './job-outbox.ts';
+import { isCurrentProject } from './current.ts';
 import { decodeReviewAct, PLAN_BOUND_SIGNOFF_STAGES, retainedActBy, reviewActVerdict } from './review-act.ts';
 import { Refusal, refuse } from './refusal.ts';
 import { lockedPackage } from './toolchain-lock.ts';
@@ -916,6 +917,7 @@ function rigChestLandmarks(root: string, rig: number, packageFiles: Json[]): { c
 export function livePublicationSubjects(
   root: string, project: JsonObject, selector: Exclude<JobSelector, { kind: 'draft' }>,
 ): JobPublishedContext['subjects'] {
+  if (isCurrentProject(project)) return [];
   if (selector.kind === 'post') {
     return reviewVerdictSignable(project, selector.version, 'direction-review') ? [{ kind: 'review-verdict', stage: 'direction-review' }] : [];
   }

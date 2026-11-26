@@ -51,9 +51,9 @@ import { reopenLapseWarnings } from './reopen-lapses.ts';
 import { collectReopens, liveSignoff, type Reopen } from './reopen.ts';
 import { resolveAdoptSource } from './record-adopt.ts';
 import { acceptedReviewVerdict, humanReviewVerdicts, latestAccepted, readVersions, type Versions } from './review.ts';
-import { SIGNOFF_TARGET_KINDS } from './review-act.ts';
+import { commentChestAct, decodeReviewAct, SIGNOFF_TARGET_KINDS } from './review-act.ts';
 import { selectSignoffTarget } from './signoff-target.ts';
-import { bustLandmarkCommands } from './review-bust.ts';
+import { bustLandmarkCommands, currentUsesBustVersion } from './review-bust.ts';
 import {
   directionReviewPostState,
   furthestStageSignoff,
@@ -1536,22 +1536,34 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
   if (stage !== PAUSED_STAGE && rigVerdictIngestible(effectiveStage) && latestRig?.live) {
     const version = versions.find(v => v.kind === 'rig' && v.n === latestRig.n)!;
     const verdict = humanReviewVerdicts(version.verdicts, 'rig-review').at(-1);
+    const receipts = asArray(project.review_acts);
+    let index = -1;
     if (verdict?.record.verdict === 'bounced' && liveSignoff(reopens, 'rig-review', Date.parse(String(verdict.record.at)))) {
       // Resolve the active verdict's receipt before touching any working files.
-      const receipts = asArray(project.review_acts);
-      const index = receipts.findLastIndex((receipt, i) => isObject(receipt)
+      index = receipts.findLastIndex((receipt, i) => isObject(receipt)
         && receipt.schema === 'rig-create/review-act@1' && receipt.kind === undefined
         && receipt.version === latestRig.n && receipt.verdict === verdict.index && isObject(receipt.bust_config)
         && !report.refusals.some(finding => finding.path === `review_acts[${i}]`));
-      const receipt = receipts[index];
-      if (isObject(receipt) && isObject(receipt.bust_config)
-        && typeof receipt.bust_config.path === 'string' && typeof receipt.sha256 === 'string') {
-        try {
-          bustCommands = bustLandmarkCommands(dir, project, version, receipt.bust_config.path, receipt.sha256, true);
-        } catch (error) {
-          if (!(error instanceof Refusal)) throw error;
-          bustRefusals.push({ code: error.code, path: `review_acts[${index}]`, message: error.message });
-        }
+    }
+    let newest = verdict ? Date.parse(String(verdict.record.at)) : -Infinity;
+    receipts.forEach((receipt, i) => {
+      if (!isObject(receipt) || receipt.kind !== 'comments' || !isObject(receipt.bust_config)
+        || typeof receipt.bytes !== 'string' || report.refusals.some(finding => finding.path === `review_acts[${i}]`)) return;
+      const chest = commentChestAct(decodeReviewAct(receipt.bytes, 'comments'));
+      if (chest?.source.selector.version !== latestRig.n || !currentUsesBustVersion(project, latestRig.n)) return;
+      const at = Date.parse(chest.at);
+      if (at < newest || !liveSignoff(reopens, 'rig-review', at)) return;
+      newest = at;
+      index = i;
+    });
+    const receipt = receipts[index];
+    if (isObject(receipt) && isObject(receipt.bust_config)
+      && typeof receipt.bust_config.path === 'string' && typeof receipt.sha256 === 'string') {
+      try {
+        bustCommands = bustLandmarkCommands(dir, project, version, receipt.bust_config.path, receipt.sha256, true);
+      } catch (error) {
+        if (!(error instanceof Refusal)) throw error;
+        bustRefusals.push({ code: error.code, path: `review_acts[${index}]`, message: error.message });
       }
     }
   }

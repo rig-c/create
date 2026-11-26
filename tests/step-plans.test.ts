@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import { join } from 'node:path';
 import { checkProject } from '../src/check.ts';
 import { freshProjectRecord } from '../src/init.ts';
-import { nextProject } from '../src/next.ts';
+import { nextProject, type NextReport } from '../src/next.ts';
 import { Refusal } from '../src/refusal.ts';
 import { INTERVIEW_VALUE_READERS, STEP_PLAN_SCHEMA, VALUE_QUESTIONS } from '../src/stages.ts';
 import { interviewDecisionCommand } from '../src/choice-writers.ts';
@@ -13,7 +13,7 @@ import type { JsonObject } from '../src/templates.ts';
 import { main } from '../src/cli.ts';
 import { planCommand, testClock } from './clock.ts';
 import { arr, obj } from './fixtures.ts';
-import { tempDir } from './helpers.ts';
+import { cli as spawnCli, clockedCli, gitEnv, run, tempDir } from './helpers.ts';
 
 const REPO = join(import.meta.dir, '..');
 const CHAIN_DIR = join(REPO, 'templates/example-chain');
@@ -253,8 +253,7 @@ function cli(argv: string[]): { code: number; stderr: string } {
   try { return { code: quiet(() => main(argv, testClock.now())), stderr }; } finally { process.stderr.write = err; }
 }
 
-test('#983 sign-offs bind a plan-covered question to its step plan; a changed plan makes the binding stale', () => {
-  const dir = freshProject();
+function approvePartsPlan(dir: string): void {
   proposeParts(dir, PARTS_PLAN);
   testClock.set(testClock.now() + 1000);
   decide(dir, 'rig_type', 'character.idle', 'This is a standing character with an idle loop.');
@@ -275,6 +274,11 @@ test('#983 sign-offs bind a plan-covered question to its step plan; a changed pl
   const signed = sign('plan-approved');
   expect(signed.stderr).not.toContain('SIGNOFF_ANSWERS_UNANSWERED');
   expect(signed.code).toBe(0);
+}
+
+test('#983 sign-offs bind a plan-covered question to its step plan; a changed plan makes the binding stale', () => {
+  const dir = freshProject();
+  approvePartsPlan(dir);
   const signoffs = arr(JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')).signoffs).map(obj);
   expect(Object.keys(obj(signoffs.at(-1)?.answer_hashes)).sort()).toEqual(['assemble', 'seethrough']);
   expect(Object.keys(obj(signoffs[0]?.answer_hashes))).toContain('seethrough');
@@ -287,6 +291,79 @@ test('#983 sign-offs bind a plan-covered question to its step plan; a changed pl
   expect(stale).toContain('signoffs[1].answer_hashes[seethrough]');
   // #997: an answered value delegated under the plan is covered by it too, so its binding is stale as well.
   expect(stale).toContain('signoffs[1].answer_hashes[assemble]');
+});
+
+test('#1054 a fresh project records current parts and advances with a retained check', () => {
+  const root = tempDir();
+  const dir = join(root, "synthetic owner's project");
+  const source = join(dir, 'inputs/source');
+  const env = gitEnv({ name: 'Synthetic author', email: 'synthetic@example.test' });
+  expect(spawnCli(['init', dir, '--no-install'], root, env).code).toBe(0);
+  cpSync(join(REPO, 'templates/example-composed-direction/inputs/source'), source, { recursive: true });
+  expect(cli(['input', 'add', 'inputs/source/painting.png', dir, '--origin', 'synthetic source']).code).toBe(0);
+  approvePartsPlan(dir);
+  expect(cli(['advance', 'parts', dir]).code).toBe(0);
+  for (const id of ['seethrough', 'assemble']) {
+    for (const status of ['in-progress', 'at-checkpoint', 'done']) {
+      testClock.set(testClock.now() + 1000);
+      expect(cli(['step-status', id, status, dir, '--by', 'agent'])).toMatchObject({ code: 0, stderr: '' });
+    }
+  }
+
+  const projectFile = join(dir, 'project.json');
+  const bytes = readFileSync(projectFile, 'utf8');
+  expect(JSON.parse(bytes).current).toBeUndefined();
+  const next = () => {
+    const result = spawnCli(['next', dir, '--json'], root, env);
+    expect(result).toMatchObject({ code: 0, stderr: '' });
+    return JSON.parse(result.stdout) as NextReport;
+  };
+  const fresh = next();
+  expect(fresh.refusals).toEqual([]);
+  expect(fresh.moves.find(move => move.command !== null)).toMatchObject({
+    field: 'current.parts', command: expect.stringContaining('rig-create record parts '),
+  });
+  expect(fresh.moves.some(move => /draft-rig/.test(`${move.command} ${move.act}`))).toBe(false);
+  expect(readFileSync(projectFile, 'utf8')).toBe(bytes);
+
+  const config = 'inputs/source/config.json';
+  const staged = 'outputs/parts.next';
+  const partsBin = join(REPO, 'node_modules/@rig-c/parts/bin/rig-parts.cjs');
+  const assembled = run([process.execPath, partsBin, 'assemble', '--source', 'inputs/source/painting.png',
+    '--full', 'inputs/source/layers', '--config', config, '--out', staged], dir, env);
+  expect(assembled).toMatchObject({ code: 0, stderr: '' });
+  const checked = run([process.execPath, partsBin, 'check-parts', '--parts', `${staged}/rig`, '--out', `${staged}/check`], dir, env);
+  expect(checked).toMatchObject({ code: 0, stderr: '' });
+  expect(spawnCli(['record', 'parts', dir, '--from', staged, '--config', config], root, env))
+    .toMatchObject({ code: 0, stderr: '' });
+
+  const advance = next().moves.find(move => move.field === 'stage')?.command;
+  expect(advance).toContain('rig-create advance parts-review ');
+  // Run the printed command unchanged, with the repository CLIs and the test clock.
+  writeFileSync(join(root, 'rig-create'), '#!/bin/sh\nexec "$TEST_BUN" "$TEST_CLI" "$TEST_TIME" "$@"\n', { mode: 0o700 });
+  const [clockedEntry, at] = clockedCli();
+  const moved = run(['/bin/sh', '-c', advance!], root, {
+    ...env, TEST_BUN: process.execPath, TEST_CLI: clockedEntry!, TEST_TIME: at!,
+    PATH: [root, join(REPO, 'node_modules/.bin'), env.PATH].join(':'),
+  });
+  expect(moved).toMatchObject({ code: 0, stderr: '' });
+  const project = JSON.parse(readFileSync(projectFile, 'utf8')) as JsonObject;
+  expect(project.stage).toBe('parts-review');
+  const evidence = obj(obj(arr(project.advances).at(-1)).parts_check);
+  expect(evidence.parts).toBe('outputs/parts/rig');
+  expect(String(evidence.path)).toMatch(/^evidence\/parts-review\.[^/]+\/parts-check\.json$/);
+  expect(evidence.sha256).toBe(createHash('sha256').update(readFileSync(join(dir, String(evidence.path)))).digest('hex'));
+  expect(checkProject(dir, undefined, { now: testClock.now() }).refusals).toEqual([]);
+});
+
+test('#1054 numbered parts keep draft evidence moves', () => {
+  const report = nextProject(join(CHAIN_DIR, 'checkpoints/1-parts-verdict'), testClock.now());
+  expect(report.stage).toBe('parts');
+  expect(report.refusals).toEqual([]);
+  expect(report.moves.map(move => [move.role, move.field, move.awaits, move.command?.split(' ').slice(0, 2).join(' ')])).toEqual([
+    ['agent', 'drafts[chain]', 'evidence/structure-chain.json', 'rig-create structure-snapshot'],
+    ['producer', 'drafts[chain].parts', 'evidence/diff-components.json', 'rig-parts diff-components'],
+  ]);
 });
 
 test('#997 re-recording a step-plan value with a step resting on it marks that step for revision instead of refusing', () => {

@@ -944,7 +944,7 @@ test.each(['rig', 'post'] as const)('current project publishes retained %s for v
   const before = readFileSync(file);
   const again = await cli(root, ['job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner']);
   expect(again).toEqual({ exit: 0, stderr: '', stdout: `${opening.url.href}\n${publishedLine(`${kind} v${selected} already published`, root)}\n` });
-  expect(latestReceipt(root).publicationId).toBe(person.head.publicationId);
+  expect(latestReceipt(root).publicationId).toBe(person.head.publicationId as string);
   expect(readFileSync(file)).toEqual(before);
 }, 30_000);
 

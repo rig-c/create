@@ -105,10 +105,9 @@ test('next guides the final chained mesh revision until a later rig retains its 
     const assertPending = (at: number, answersFeedback: boolean) => {
       const next = nextProject(dir, at);
       expect(next.refusals).toEqual([]);
-      expect(next.awaits).toEqual(['versions[n=2]', 'current.rig']);
+      expect(next.awaits).toEqual(['versions[n=2]']);
       expect(next.moves).toEqual([
         expect.objectContaining({ role: 'agent', field: 'versions', awaits: 'versions[n=2]' }),
-        expect.objectContaining({ command: `rig-create record rig --adopt ${dir}` }),
       ]);
       expect(next.moves[0]!.command).toStartWith(`rig-create rig-version 2 ${dir} `);
       expect(next.moves[0]!.command).toContain(` --rig ${final} `);

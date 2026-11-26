@@ -361,10 +361,10 @@ function expectCurrentReview(dir: string, stage: 'rig-review' | 'direction-revie
   expect(report.awaits).toContain(awaits);
   expect(report.awaits.some(field => field.startsWith('versions['))).toBe(false);
   expect(report.moves.some(move => move.review_act?.kind === 'review-verdict')).toBe(false);
-  expect(report.moves.find(move => move.awaits === awaits)).toMatchObject({
-    role: 'human',
-    command: `rig-create signoff ${stage} ${dir} --by '<owner>' --owner-chat '<words file>' --said-at '<ISO date>' --relayed-by '<operator>'`,
-  });
+  const approvals = report.moves.filter(move => move.awaits === awaits);
+  expect(approvals.map(move => [move.role, move.command, move.review_act?.kind ?? null])).toEqual([
+    ['human', `rig-create signoff ${stage} ${dir} --by '<owner>' --owner-chat '<words file>' --said-at '<ISO date>' --relayed-by '<operator>'`, null],
+  ]);
 }
 
 test('next guides current rigging through owner chat approval and onward to post-interview without an accepted rig verdict', () => {

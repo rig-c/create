@@ -14,6 +14,7 @@ import { assertReviewActSource, decodeReviewAct, decodeReviewResponse, fetchRevi
 import { directionPin, existingShapes, framedRigPin, HISTORICAL_DIRECTION_VALUE, TIME_ONLY_BASIS } from './comment-anchor-shapes.ts';
 import { pendingMeshDeltaRevision } from '../src/corrections.ts';
 import { commentCommand } from '../src/comment-act.ts';
+import { recordCommand } from '../src/record.ts';
 import { readVersions } from '../src/review.ts';
 import { formatNext, nextProject } from '../src/next.ts';
 import { reviewPackageCommand } from '../src/review-package.ts';
@@ -1710,9 +1711,15 @@ test('#982 a comment act carrying mesh edits records the corrections with no ver
   const act = commentOnlyAct(view, 'comment-mesh', [{ kind: 'mesh-edits', file: source.model as JsonObject, meshEdits: edits }]);
   const verdictsBefore = (projectAt(root).versions as JsonObject[])[0]!.verdicts;
   const bytes = JSON.stringify(act);
-  const result = JSON.parse(commentCommand(['--from-review', 'comment-mesh', root, '--json'], testClock.now(), { fetch: () => ({ bytes }) }).stdout);
-  expect(result).toMatchObject({ comment: 'comments[0]', corrections: 1 });
+  const result = commentCommand(['--from-review', 'comment-mesh', root, '--json'], testClock.now(), { fetch: () => ({ bytes }) });
   const project = projectAt(root);
+  const entry = (project.comments as JsonObject[])[0]!;
+  expect(result.exit).toBe(0);
+  expect(result.stdout).toBe(JSON.stringify({ comment: 'comments[0]', entry, corrections: 1 }, null, 2));
+  expect((project.review_acts as JsonObject[]).at(-1)).toEqual({
+    schema: 'rig-create/review-act@1', kind: 'comments', jobId: act.jobId, actId: 'comment-mesh',
+    bytes, sha256: jobHash(bytes), comment: 0,
+  });
   expect((project.versions as JsonObject[])[0]!.verdicts).toEqual(verdictsBefore);
   const corrections = (project.corrections as JsonObject[]).filter(row => row.source === `review act ${act.jobId}/comment-mesh`);
   expect(corrections).toHaveLength(1);
@@ -1737,18 +1744,81 @@ test('#982 an old verdict act still decodes unchanged, and the comment route ref
   expect(result.exit).toBe(0);
 }, 90_000);
 
-test('#982 a comment act carrying chest landmarks records the comment with WARN COMMENT_CARRIER_UNSUPPORTED', async () => {
+test('#1043 Review rejects a chest carrier bound to a different file before writing', async () => {
   const view = await publishedChest();
+  const value = view.act.value as unknown as JsonObject;
   const source = view.act.source as unknown as JsonObject;
-  const chest = (view.act.value as unknown as JsonObject).chestLandmarks as JsonObject[];
-  const bytes = JSON.stringify(commentOnlyAct(view, 'comment-chest', [{ kind: 'chest-landmarks', file: source.model as JsonObject, chestLandmarks: chest }]));
-  const before = JSON.parse(readFileSync(join(view.root, 'project.json'), 'utf8')) as JsonObject;
-  const result = commentCommand(['--from-review', 'comment-chest', view.root, '--json'], testClock.now(), { fetch: () => ({ bytes }) });
+  const bytes = JSON.stringify(commentOnlyAct(view, 'wrong-model', [{
+    kind: 'chest-landmarks', file: { ...source.model as JsonObject, sha256: 'a'.repeat(64) },
+    chestLandmarks: value.chestLandmarks!,
+  }]));
+  const record = join(view.root, 'project.json');
+  const original = readFileSync(record);
+  expect(() => commentCommand(['--from-review', 'wrong-model', view.root, '--config', workingConfig],
+    testClock.now(), { fetch: () => ({ bytes }) })).toThrow(expect.objectContaining({ code: 'REVIEW_ACT_INVALID' }));
+  expect(readFileSync(record)).toEqual(original);
+}, 30_000);
+
+test.each(['numbered', 'adopted'] as const)('#1043 applies a chest comment on the live %s rig and replays without writing', async mode => {
+  const { root, host, act, publication, uiRequest, agent } = await publishedChest();
+  let live = publication;
+  if (mode === 'adopted') {
+    expect(recordCommand(['rig', root, '--adopt'], testClock.now()).exit).toBe(0);
+    const path = prepareLiveManifest(root, projectAt(root), 1);
+    live = await agent('publish', { result: { path, selector: { kind: 'rig', version: 1 } },
+      freeze: { kind: 'producer-held', holdId: 'synthetic-adopted-rig', record: { path: 'project.json', sha256: jobHash(readFileSync(join(root, 'project.json'))) } } });
+  }
+  const before = projectAt(root);
+  expect(Object.hasOwn(before, 'current')).toBe(mode === 'adopted');
+  const pageId = 'synthetic-chest-comment';
+  const displayed = await host.ports.ackDisplayed(host.session.jobId, uiRequest('displayed', {
+    publicationId: live.publicationId, pageId, sourceHash: (live.source as JsonObject).sourceHash,
+  }));
+  if (!displayed.ok) throw Error(displayed.error.code);
+  if (!('chestLandmarks' in act.value)) throw Error('Missing synthetic chest edit');
+  const submitted = await host.ports.commitUIAct(host.session.jobId, uiRequest('acts', {
+    publicationId: live.publicationId, pageId, displayedNonce: displayed.value.displayedNonce,
+    expectedGeneration: host.session.status().generation, submissionId: pageId, kind: 'comments',
+    value: { comments: [{ text: 'Move the torso point out a little.' }],
+      carriers: [{ kind: 'chest-landmarks', file: act.source.model, chestLandmarks: act.value.chestLandmarks }] },
+  }));
+  if (!submitted.ok) throw Error(submitted.error.code);
+  const { actId, at } = submitted.value;
+  testClock.set(Math.max(testClock.now(), Date.parse(at)));
+  async function ingest(flags: string[]) {
+    const child = Bun.spawn([process.execPath, ...clockedCli(), 'comment', '--from-review', actId, root, '--json', ...flags],
+      { stdout: 'pipe', stderr: 'pipe' });
+    const [stdout, stderr, exit] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
+    return { stdout, stderr, exit };
+  }
+  const recordBefore = readFileSync(join(root, 'project.json'));
+  const missing = await ingest([]);
+  expect(missing.exit).toBe(2);
+  expect(missing.stderr).toContain('REVIEW_OPTION_MISSING');
+  expect(readFileSync(join(root, 'project.json'))).toEqual(recordBefore);
+
+  const result = await ingest(['--config', workingConfig]);
   expect(result.exit).toBe(0);
-  const out = JSON.parse(result.stdout) as { warnings?: { code: string }[]; corrections: number };
-  expect(out.warnings?.map(w => w.code)).toEqual(['COMMENT_CARRIER_UNSUPPORTED']);
-  expect(out.corrections).toBe(0);
-  const after = JSON.parse(readFileSync(join(view.root, 'project.json'), 'utf8')) as JsonObject;
-  expect((after.comments as JsonObject[]).length).toBe(((before.comments as JsonObject[] | undefined) ?? []).length + 1);
+  const out = JSON.parse(result.stdout);
+  expect(out.warnings?.map((w: { code: string }) => w.code) ?? []).not.toContain('COMMENT_CARRIER_UNSUPPORTED');
+  const after = projectAt(root);
+  expect(after.versions).toEqual(before.versions);
   expect(after.corrections).toEqual(before.corrections);
+  const receipt = (after.review_acts as JsonObject[]).at(-1)!;
+  const bytes = Buffer.from(String(receipt.bytes));
+  const base = `evidence/v1/${jobHash(bytes)}`;
+  const configArg = "'working/owner'\\''s config.json'";
+  const commands = [
+    `rig-parts bust-landmarks --from-act ${base}.act.json --parts outputs/v1/out --config ${configArg} --out ${base}.bust-landmarks.json --write-config`,
+    `rig-parts propose --parts outputs/v1/out --source inputs/painting.png --out ${base}.bust-proposal --write-config ${configArg} --bust-landmarks ${base}.bust-landmarks.json`,
+  ];
+  expect(bytes).toEqual(readFileSync(join(root, `${base}.act.json`)));
+  expect(bytes.equals(host.session.readActExport(actId, false))).toBe(true);
+  expect(out.bust_landmark_commands).toEqual(commands);
+  expect(nextProject(root, testClock.now()).bust_landmark_commands).toEqual(commands);
+  const recorded = readFileSync(join(root, 'project.json'));
+  const replay = await ingest([]);
+  expect(replay.exit).toBe(0);
+  expect(JSON.parse(replay.stdout)).toEqual({ comment: out.comment, replayed: true, bust_landmark_commands: commands });
+  expect(readFileSync(join(root, 'project.json'))).toEqual(recorded);
 }, 90_000);

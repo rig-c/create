@@ -2364,8 +2364,8 @@ test('#1030 next lists missing and stale current outputs upstream-first without 
   expect(treeDigest(dir)).toEqual(before);
 });
 
-test('#1030 next offers in-place adoption only from verified outputs of the latest live legacy version', () => {
-  const at = new Date(CHAIN_NOW - 1000).toISOString();
+function adoptionFixture() {
+  const at = '2026-10-01T00:00:00.000Z';
   const older = 'outputs/v1/out/rig/rig.json';
   const latest = 'outputs/v2/out/rig/rig.json';
   const parts = 'outputs/v2/out/parts.json';
@@ -2373,15 +2373,35 @@ test('#1030 next offers in-place adoption only from verified outputs of the late
   const post = 'outputs/v3/compose/take.json';
   const bindings = (...paths: string[]) => paths.map(path => ({ path, sha256: sha256('{}'), bytes: 2 }));
   const dir = realpathSync(fixture(project => {
-    const build = { at, built_by: 'agent', built_with: { '@rig-c/parts': '2.57.0' }, evidence: [], verdicts: [] };
+    project.stage = 'interview';
+    project.signoffs = [];
+    project.advances = [];
+    project.plan = { steps: [] };
+    project.scenes = [];
+    project.review_acts = [];
+    delete project.direction_contract;
+    const interview = obj(project.interview);
+    for (const item of arr(interview.waypoints).map(obj)) {
+      if (item.id !== 'seethrough' && item.id !== 'assemble') delete item.guide;
+    }
+    for (const item of arr(obj(interview.post).items).map(obj)) delete item.guide;
+    const build = { at, built_by: 'agent', built_with: { '@rig-c/parts': '2.57.0' }, provenance: { sections: {} }, evidence: [], verdicts: [] };
     project.versions = [
       { ...build, n: 1, kind: 'rig', outputs: bindings(older) },
-      { ...build, n: 2, kind: 'rig', outputs: bindings(latest, parts, frames) },
+      { ...build, n: 2, kind: 'rig', outputs: bindings(latest, parts, frames),
+        verdicts: [{ review: 'rig-review', verdict: 'accepted', by: 'user', at, verbatim: 'Accept the synthetic rig.', on_items: [] }] },
       { ...build, n: 3, kind: 'post', rig_version: 2, outputs: bindings(post) },
     ];
-  }, 'project.json', { [older]: '{}', [latest]: '{}', [parts]: '{}', [frames]: '{}', [post]: '{}' }));
+  }, 'example-project.json', { [older]: '{}', [latest]: '{}', [parts]: '{}', [frames]: '{}', [post]: '{}' }));
+  const file = join(dir, 'project.json');
+  return { dir, file, latest, frames, post };
+}
+
+test('#1030 next offers in-place adoption only from verified outputs of the latest live legacy version', () => {
+  const { dir, file, latest, frames } = adoptionFixture();
   const moves = () => nextProject(dir, CHAIN_NOW).moves.filter(move => isRecordAdoption(move.command));
   const before = treeDigest(dir);
+  expect(nextProject(dir, CHAIN_NOW).refusals).toEqual([]);
   expect(moves().map(move => [move.command, move.act])).toEqual([
     [`rig-create record parts --adopt ${dir}`, 'Adopt the bound parts output of v2 in place.'],
     [`rig-create record rig --adopt ${dir}`, 'Adopt the bound rig output of v2 in place.'],
@@ -2390,11 +2410,19 @@ test('#1030 next offers in-place adoption only from verified outputs of the late
   ]);
   expect(treeDigest(dir)).toEqual(before);
 
+  const original = readFileSync(file);
+  for (const kind of ['parts', 'motion', 'direction', 'rig']) {
+    const command = moves().find(move => move.field === `current.${kind}`)!.command!;
+    expect(runMainCapture(printedArgs(command).slice(1), CHAIN_NOW)).toMatchObject({ code: 0, stderr: '' });
+    expect(moves().some(move => move.field === `current.${kind}`)).toBe(false);
+  }
+  expect(moves()).toEqual([]);
+  writeFileSync(file, original);
+
   writeFileSync(join(dir, latest), '[]');
   rmSync(join(dir, frames));
   expect(moves().map(move => move.field)).toEqual(['current.parts', 'current.direction']);
 
-  const file = join(dir, 'project.json');
   const project = JSON.parse(readFileSync(file, 'utf8')) as JsonObject;
   const reopenedAt = new Date(CHAIN_NOW - 500).toISOString();
   project.reopens = [{ stage: 'post', from_stage: 'direction-review', at: reopenedAt, by: 'owner', verbatim: 'Revisit the post.',
@@ -2404,7 +2432,143 @@ test('#1030 next offers in-place adoption only from verified outputs of the late
 
   delete project.reopens;
   writeFileSync(file, JSON.stringify({ ...project, current: {} }));
-  expect(moves()).toEqual([]);
+  const outputs = nextProject(dir, CHAIN_NOW).moves.filter(move => move.field.startsWith('current.'));
+  expect(outputs.map(move => move.command)).toEqual([
+    `rig-create record parts --adopt ${dir}`,
+    `rig-create record parts ${dir} --from outputs/parts.next --config specs/rig/config.json`,
+    `rig-create record rig ${dir} --from outputs/rig.next --config specs/rig/config.json`,
+    `rig-create record motion ${dir} --from outputs/motion.next`,
+    `rig-create record direction --adopt ${dir}`,
+    `rig-create record direction ${dir} --from outputs/direction.next --direction specs/direction/direction.json`,
+  ]);
+});
+
+test('#1030 adopted rig and motion need canonical replacements before downstream producer recording', () => {
+  const { dir, file, frames, post } = adoptionFixture();
+  expect(runMainCapture(['record', 'rig', '--adopt', dir], CHAIN_NOW)).toMatchObject({ code: 0, stderr: '' });
+  const outputChoices = () => {
+    const result = nextProject(dir, CHAIN_NOW);
+    expect(result.refusals).toEqual([]);
+    expect(result.warnings?.filter(warning => warning.code === 'OUTPUT_STALE') ?? []).toEqual([]);
+    return result.moves.filter(move => /^current\.(rig|motion|direction)$/.test(move.field));
+  };
+  const adoptable = outputChoices();
+  expect(adoptable.map(move => move.command)).toEqual([
+    `rig-create record rig ${dir} --from outputs/rig.next --config specs/rig/config.json`,
+    `rig-create record motion --adopt ${dir}`,
+    `rig-create record direction --adopt ${dir}`,
+  ]);
+  expect(adoptable[0]?.act).toContain('Rebuild the adopted rig as a canonical output');
+
+  // Unavailable numbered files leave the canonical producers as the recovery route.
+  rmSync(join(dir, frames));
+  const missingMotion = outputChoices();
+  expect(missingMotion.map(move => move.field)).toEqual(['current.rig', 'current.direction']);
+  expect(missingMotion[0]).toMatchObject({
+    command: `rig-create record rig ${dir} --from outputs/rig.next --config specs/rig/config.json`,
+    act: expect.stringContaining('Rebuild the adopted rig as a canonical output'),
+  });
+  expect(missingMotion[1]?.command).toBe(`rig-create record direction --adopt ${dir}`);
+
+  writeFileSync(join(dir, frames), '{}');
+  expect(runMainCapture(printedArgs(adoptable[1]!.command!).slice(1), CHAIN_NOW)).toMatchObject({ code: 0, stderr: '' });
+  rmSync(join(dir, post));
+  const missingDirection = outputChoices();
+  expect(missingDirection.map(move => move.field)).toEqual(['current.rig', 'current.motion']);
+  expect(missingDirection[1]).toMatchObject({ command: null,
+    act: expect.stringContaining('Rebuild current.rig first. Rebuild the adopted motion as a canonical output') });
+
+  const record = JSON.parse(readFileSync(file, 'utf8')) as JsonObject;
+  delete obj(record.current).rig;
+  writeFileSync(file, JSON.stringify(record));
+  const withoutAdoptedRig = outputChoices();
+  expect(withoutAdoptedRig.filter(move => move.field === 'current.rig').map(move => move.command)).toEqual([
+    `rig-create record rig --adopt ${dir}`,
+    `rig-create record rig ${dir} --from outputs/rig.next --config specs/rig/config.json`,
+  ]);
+  expect(withoutAdoptedRig.find(move => move.field === 'current.motion')?.command)
+    .toBe(`rig-create record motion ${dir} --from outputs/motion.next`);
+  expect(withoutAdoptedRig.some(move => move.field === 'current.direction')).toBe(false);
+});
+
+test('#1030 stale rig hides both adoption and producer offers for missing downstream kinds', () => {
+  const { dir, file, post } = adoptionFixture();
+  expect(runMainCapture(['record', 'rig', '--adopt', dir], CHAIN_NOW)).toMatchObject({ code: 0, stderr: '' });
+  rmSync(join(dir, post));
+  const project = JSON.parse(readFileSync(file, 'utf8')) as JsonObject;
+  const input = 'specs/rig/config.json';
+  mkdirSync(dirname(join(dir, input)), { recursive: true });
+  writeFileSync(join(dir, input), '{}');
+  obj(obj(project.current).rig).built_from = [{ path: input, sha256: sha256('{}') }];
+  writeFileSync(file, JSON.stringify(project));
+  expect(nextProject(dir, CHAIN_NOW).moves.some(move => move.command === `rig-create record motion --adopt ${dir}`)).toBe(true);
+  writeFileSync(join(dir, input), '[]');
+  const result = nextProject(dir, CHAIN_NOW);
+  expect(result.refusals).toEqual([]);
+  expect(result.warnings?.filter(warning => warning.code === 'OUTPUT_STALE').map(warning => warning.path)).toEqual(['current.rig']);
+  expect(result.moves.filter(move => move.field.startsWith('current.')).map(move => move.field)).toEqual(['current.parts', 'current.parts', 'current.rig']);
+  expect(result.awaits).not.toContain('current.motion');
+  expect(result.awaits).not.toContain('current.direction');
+});
+
+test('#1030 stale adopted motion and direction keep rebuild guidance after the canonical rig prerequisite', () => {
+  const { dir, file } = adoptionFixture();
+  for (const kind of ['rig', 'motion', 'direction']) {
+    expect(runMainCapture(['record', kind, '--adopt', dir], CHAIN_NOW)).toMatchObject({ code: 0, stderr: '' });
+  }
+  const record = JSON.parse(readFileSync(file, 'utf8')) as JsonObject;
+  const current = obj(record.current);
+  for (const kind of ['motion', 'direction']) {
+    const input = `specs/${kind}/synthetic.json`;
+    mkdirSync(dirname(join(dir, input)), { recursive: true });
+    writeFileSync(join(dir, input), '[]');
+    obj(current[kind]).built_from = [{ path: input, sha256: sha256('{}') }];
+  }
+  writeFileSync(file, JSON.stringify(record));
+  const original = treeDigest(dir);
+  const report = nextProject(dir, CHAIN_NOW);
+  expect(report.refusals).toEqual([]);
+  expect(report.warnings?.filter(warning => warning.code === 'OUTPUT_STALE').map(warning => warning.path))
+    .toEqual(['current.motion', 'current.direction']);
+  const outputs = report.moves.filter(move => /^current\.(rig|motion|direction)$/.test(move.field));
+  expect(outputs.map(move => move.field)).toEqual(['current.rig', 'current.motion', 'current.direction']);
+  expect(outputs[0]?.act).toContain('Rebuild the adopted rig as a canonical output');
+  expect(outputs[1]).toMatchObject({ command: null, act: expect.stringContaining('Obtain the render arguments from the operator') });
+  expect(outputs[2]).toMatchObject({ command: null, act: expect.stringContaining('obtain the compose arguments from the operator') });
+  expect(treeDigest(dir)).toEqual(original);
+});
+
+test('#1030 canonical rig replacement surfaces stale adopted motion then stale adopted direction', () => {
+  const { dir } = adoptionFixture();
+  for (const kind of ['parts', 'rig', 'motion', 'direction']) {
+    expect(runMainCapture(['record', kind, '--adopt', dir], CHAIN_NOW)).toMatchObject({ code: 0, stderr: '' });
+  }
+  expect(nextProject(dir, CHAIN_NOW).moves.filter(move => move.field.startsWith('current.'))).toEqual([]);
+
+  const producer = join(REPO, 'templates/example-draft');
+  const from = 'outputs/rig.next';
+  const config = 'specs/rig/config.json';
+  cpSync(join(producer, 'out'), join(dir, from), { recursive: true });
+  mkdirSync(dirname(join(dir, config)), { recursive: true });
+  cpSync(join(producer, 'config.json'), join(dir, config));
+  const model = readFileSync(join(dir, from, 'check/build/skeleton.model.json'));
+  writeFileSync(join(dir, from, 'check/check.json'), JSON.stringify({
+    spec: 'rig-parts-check/1', bar_outcomes: {}, build: { model_sha256: sha256(model) }, PASS: true,
+  }));
+  expect(runMainCapture(['record', 'rig', dir, '--from', from, '--config', config], CHAIN_NOW))
+    .toMatchObject({ code: 0, stderr: '' });
+  const original = treeDigest(dir);
+
+  const report = nextProject(dir, CHAIN_NOW);
+  const fields = ['current.motion', 'current.direction'];
+  expect(report.refusals).toEqual([]);
+  expect(report.warnings?.filter(warning => warning.code === 'OUTPUT_STALE').map(warning => warning.path)).toEqual(fields);
+  expect(report.awaits.filter(field => field.startsWith('current.'))).toEqual(fields);
+  expect(report.moves.filter(move => move.field.startsWith('current.'))).toEqual([
+    expect.objectContaining({ field: fields[0], command: null, act: expect.stringContaining('Obtain the render arguments from the operator') }),
+    expect.objectContaining({ field: fields[1], command: null, act: expect.stringContaining('obtain the compose arguments from the operator') }),
+  ]);
+  expect(treeDigest(dir)).toEqual(original);
 });
 
 const isObjectWith = (value: unknown, key: string): boolean => typeof value === 'object' && value !== null && Object.hasOwn(value, key);

@@ -1,12 +1,12 @@
 import { expect, test } from 'bun:test';
-import { existsSync, mkdirSync, readFileSync, renameSync, symlinkSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readFileSync, renameSync, symlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { checkProject } from '../src/check.ts';
 import { CURRENT_RIG_MODEL, currentFileBinding, currentShapeFindings, outputSetHash, sha256, treeFiles, type CurrentKind } from '../src/current.ts';
 import { OWNER_CHAT_SOURCE } from '../src/owner-chat.ts';
 import { resolveAdoptSource } from '../src/record-adopt.ts';
 import { recordCommand } from '../src/record.ts';
-import { readTemplate, type JsonObject } from '../src/templates.ts';
+import { readTemplate, TEMPLATES_DIR, type JsonObject } from '../src/templates.ts';
 import { tempDir } from './helpers.ts';
 
 const at = '2026-10-01T00:00:00.000Z';
@@ -43,6 +43,26 @@ function fixture() {
   project.versions = [version];
   save();
   return { dir, project, version, write, save, original, record };
+}
+
+function postVersion(f: ReturnType<typeof fixture>, rigVersion = 4) {
+  return { n: 7, kind: 'post', rig_version: rigVersion, at, built_by: f.version.built_by, built_with: f.version.built_with,
+    outputs: [f.write('outputs/v7/compose/check/build/skeleton.model.json', '{"spec":"rigc-compiled/3"}')] };
+}
+
+function adoptDownstream() {
+  const f = fixture();
+  f.project.versions = [f.version, postVersion(f)];
+  f.save();
+  f.record('motion');
+  f.record('direction');
+  return f;
+}
+
+function staleOutputs(dir: string) {
+  const { refusals, warnings } = checkProject(dir, undefined, { now });
+  expect(refusals.map(f => f.code)).not.toContain('CURRENT_MALFORMED');
+  return warnings.filter(f => f.code === 'OUTPUT_STALE');
 }
 
 test('adopts a sparse registered rig in place and omits its evidence-only report', () => {
@@ -145,6 +165,65 @@ test('check binds adopted paths and hashes to the cited version and keeps canoni
     .toContainEqual(expect.objectContaining({ code: 'CURRENT_MALFORMED', path: 'current.rig.files', message: expect.stringContaining('versions[v4].outputs') }));
   expect(currentShapeFindings('rig', { ...rig, adopted: { version: 99 } }, f.project))
     .toContainEqual(expect.objectContaining({ code: 'CURRENT_MALFORMED', path: 'current.rig.adopted', message: expect.stringContaining('versions[v99].outputs') }));
+});
+
+test('adopted motion and direction can be current before any rig is adopted', () => {
+  const f = adoptDownstream();
+  expect((JSON.parse(f.original().toString()) as JsonObject).current).not.toHaveProperty('rig');
+  expect(staleOutputs(f.dir)).toEqual([]);
+});
+
+test('adopted motion and direction stay current with a matching adopted rig', () => {
+  const f = adoptDownstream();
+  expect(f.record('rig').adopted).toEqual({ version: 4 });
+  expect(staleOutputs(f.dir)).toEqual([]);
+});
+
+test('adopted motion and direction inherit staleness from their matching adopted rig', () => {
+  const f = adoptDownstream();
+  f.record('rig');
+  f.write(config, '{"changed":true}');
+  expect(staleOutputs(f.dir)).toEqual([
+    expect.objectContaining({ path: 'current.rig', message: expect.stringContaining(config) }),
+    expect.objectContaining({ path: 'current.motion', message: expect.stringContaining('upstream rig is stale') }),
+    expect.objectContaining({ path: 'current.direction', message: expect.stringContaining('upstream rig is stale') }),
+  ]);
+});
+
+test('rebuilding an adopted rig canonically stales adopted motion and direction while the legacy bytes survive', () => {
+  const f = adoptDownstream();
+  f.record('rig');
+  const legacyFiles = treeFiles(f.dir, 'outputs');
+  const producer = join(TEMPLATES_DIR, 'example-draft');
+  const from = 'outputs/rig.next';
+  const canonicalConfig = 'specs/rig/config.json';
+  cpSync(join(producer, 'out'), join(f.dir, from), { recursive: true });
+  f.write(canonicalConfig, readFileSync(join(producer, 'config.json'), 'utf8'));
+  const model = readFileSync(join(f.dir, from, 'check/build/skeleton.model.json'));
+  f.write(`${from}/check/check.json`, JSON.stringify({ spec: 'rig-parts-check/1', bar_outcomes: {}, build: { model_sha256: sha256(model) }, PASS: true }));
+  const rig = f.record('rig', ['--from', from, '--config', canonicalConfig]);
+  expect(rig).not.toHaveProperty('adopted');
+  expect(treeFiles(f.dir, 'outputs').filter(file => file.path.startsWith('outputs/v'))).toEqual(legacyFiles);
+  expect(staleOutputs(f.dir)).toEqual(['motion', 'direction'].map(kind => expect.objectContaining({
+    path: `current.${kind}`, message: expect.stringContaining('requires upstream rig v4 (current.rig is canonical)'),
+  })));
+});
+
+test.each([
+  [4, ['current.motion', 'current.direction']],
+  [6, ['current.motion']],
+] as const)('a different adopted rig marks each dependent of v4 stale when the post names rig v%i', (rigVersion, paths) => {
+  const f = fixture();
+  expect(f.record('motion').adopted).toEqual({ version: 4 });
+  f.project.current = (JSON.parse(f.original().toString()) as JsonObject).current!;
+  const newerRig = { ...f.version, n: 6, outputs: [f.write('outputs/v6/out/check/build/skeleton.model.json', '{"spec":"rigc-compiled/3"}')] };
+  f.project.versions = [f.version, newerRig, postVersion(f, rigVersion)];
+  f.save();
+  expect(f.record('rig').adopted).toEqual({ version: 6 });
+  expect(f.record('direction').adopted).toEqual({ version: 7 });
+  expect(staleOutputs(f.dir)).toEqual(paths.map(path => expect.objectContaining({
+    path, message: expect.stringContaining('requires upstream rig v4 (current.rig is adopted from v6)'),
+  })));
 });
 
 test('record motion --from clears adoption and leaves the original idle output available to history', () => {

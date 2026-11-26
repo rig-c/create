@@ -6,8 +6,7 @@ import { checkpointEnabled, checkpointRequired, completedPlanStepNeedsAmendment,
 import { createHash } from 'node:crypto';
 import { existsSync, lstatSync, readdirSync, readFileSync, realpathSync } from './check-reads.ts';
 import { isDeepStrictEqual } from 'node:util';
-import { CURRENT_DIRECTION_PATH } from './current-direction.ts';
-import { CURRENT_KINDS, outputRoot, type CurrentKind } from './current.ts';
+import { CURRENT_KINDS, type CurrentKind } from './current.ts';
 import { eligibleRigDraftModel, optionPublicationStage, publicationFile, riggingDraftPartsChange } from './job-publication.ts';
 import { latestRigDraftVerdict } from './rig-draft-verdict.ts';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
@@ -89,7 +88,7 @@ import { latestPartsApproval, partsApprovalIdentity } from './structure.ts';
 import { resolveAgentCitationSpec } from './scene-authority.ts';
 import { DIRECTION_COMPOSE_SPEC } from './direction-compose.ts';
 import { missingDirectionStepApprovals } from './direction.ts';
-import { withStaleOutputs } from './next-stale.ts';
+import { currentOutputMove, withStaleOutputs } from './next-stale.ts';
 
 export const NEXT_SCHEMA = 'rig-create/next@1';
 
@@ -287,35 +286,13 @@ function shellWord(value: string): string {
   return /^[A-Za-z0-9_./:-]+$/.test(value) ? value : `'${value.replaceAll("'", "'\\''")}'`;
 }
 
-const currentOutputPreparation: Record<CurrentKind, string> = {
-  parts: 'assemble and check the parts with the producer config',
-  rig: 'build and check the rig with the producer config',
-  motion: 'render the motion from the recorded rig',
-  direction: 'write the current scene and direction specs and compose from the recorded rig and motion',
-};
-
-function currentOutputMoves(dir: string, current: JsonObject): NextMove[] {
-  return CURRENT_KINDS.flatMap(kind => {
-    const field = `current.${kind}`;
-    if (current[kind] !== undefined) return [];
-    const from = `${outputRoot(kind)}.next`;
-    const source = kind === 'parts' || kind === 'rig' ? ' --config specs/rig/config.json'
-      : kind === 'direction' ? ` --direction ${CURRENT_DIRECTION_PATH}` : '';
-    return [{ role: 'agent', field, awaits: field,
-      command: `rig-create record ${kind} ${shellWord(dir)} --from ${from}${source}`,
-      act: `Prepare ${from} before recording: ${currentOutputPreparation[kind]}.` }];
-  });
-}
-
-function adoptionMoves(dir: string, project: JsonObject): NextMove[] {
-  return CURRENT_KINDS.flatMap(kind => {
-    const source = resolveAdoptSource(project, kind);
-    if (!source.ok || !source.files.every(file => producerHashMatches(dir, file.path, file.sha256, file.bytes))) return [];
-    const field = `current.${kind}`;
-    return [{ role: 'agent', field, awaits: field,
-      command: `rig-create record ${kind} --adopt ${shellWord(dir)}`,
-      act: `Adopt the bound ${kind} output of v${source.version} in place.` }];
-  });
+function adoptionMove(dir: string, project: JsonObject, kind: CurrentKind): NextMove | undefined {
+  const source = resolveAdoptSource(project, kind);
+  if (!source.ok || !source.files.every(file => producerHashMatches(dir, file.path, file.sha256, file.bytes))) return;
+  const field = `current.${kind}`;
+  return { role: 'agent', field, awaits: field,
+    command: `rig-create record ${kind} --adopt ${shellWord(dir)}`,
+    act: `Adopt the bound ${kind} output of v${source.version} in place.` };
 }
 
 function completedPlanRepairCommand(step: JsonObject, dir: string): string | null {
@@ -1446,13 +1423,24 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
     const step = steps.find(step => finding.path === `plan.steps[${String(step.id)}]`);
     return step ? [{ finding, step }] : [];
   });
-  const next = withStaleOutputs(dir, project, report.warnings, deriveNextProject(dir, project, report, now, steps, staleSteps), shellWord);
-  const permitsOutputMoves = next.stage !== PAUSED_STAGE
-    && !next.refusals.some(finding => finding.code === 'RIGGING_DRAFT_PARTS_CHANGED');
-  // Stale kinds get their upstream-first rebuild from withStaleOutputs; here only kinds with no current entry yet.
-  const outputMoves = permitsOutputMoves && isObject(project.current)
-    ? currentOutputMoves(dir, project.current) : [];
-  const adoptMoves = permitsOutputMoves && project.current === undefined ? adoptionMoves(dir, project) : [];
+  const { blocksOutputMoves, ...derived } = deriveNextProject(dir, project, report, now, steps, staleSteps);
+  let next = derived;
+  const legacyAdoptions: NextMove[] = [];
+  if (!blocksOutputMoves && derived.stage !== PAUSED_STAGE) {
+    const current = project.current;
+    if (isObject(current)) {
+      const missing = new Map(CURRENT_KINDS.flatMap(kind => {
+        if (current[kind] !== undefined) return [];
+        return [[kind, { adoption: adoptionMove(dir, project, kind), producer: currentOutputMove(dir, kind, shellWord) }]] as const;
+      }));
+      next = withStaleOutputs(dir, current, report.warnings, derived, shellWord, missing);
+    } else if (current === undefined) {
+      for (const kind of CURRENT_KINDS) {
+        const adoption = adoptionMove(dir, project, kind);
+        if (adoption) legacyAdoptions.push(adoption);
+      }
+    }
+  }
   // Every stage shows the repairs. Approval gating uses only the steps that approval covers.
   const revisionMoves = staleSteps.map(({ finding, step }): NextMove => {
     if (planStepCompleted(project, step)) {
@@ -1486,16 +1474,15 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
       act: 'Replace <file> with your explanation. Add --resolved-by-answer <question> if a later completed answer or guide resolves the comment.',
     }];
   });
-  const before = [...revisionMoves, ...outputMoves];
-  const after = [...adoptMoves, ...commentMoves];
-  if (before.length === 0 && after.length === 0) return next;
+  const after = [...legacyAdoptions, ...commentMoves];
+  if (revisionMoves.length === 0 && after.length === 0) return next;
   return { ...next,
-    awaits: [...before.map(move => move.awaits), ...next.awaits, ...after.map(move => move.awaits)],
-    moves: [...before, ...next.moves, ...after] };
+    awaits: [...revisionMoves.map(move => move.awaits), ...next.awaits, ...after.map(move => move.awaits)],
+    moves: [...revisionMoves, ...next.moves, ...after] };
 }
 
 function deriveNextProject(dir: string, project: JsonObject, report: CheckReport, now: number,
-  steps: JsonObject[], staleSteps: { finding: Finding; step: JsonObject }[]): NextReport {
+  steps: JsonObject[], staleSteps: { finding: Finding; step: JsonObject }[]): NextReport & { blocksOutputMoves?: true } {
   const stage = String(project.stage ?? '');
   const effectiveStage = String(report.effective_stage ?? stage);
   const legacyWrites = project.current === undefined;
@@ -1578,6 +1565,7 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
     const { code, path, message, command } = partsChange;
     const target = 'amendments[target.stage=parts-review]';
     return { schema: NEXT_SCHEMA, project_id: String(project.name ?? ''), stage, effective_stage: effectiveStage,
+      blocksOutputMoves: true,
       accepted: false, refusals: [...refusals, { code, field: path, message, fix: command }], ...warningFields,
       awaits: [target], moves: [{ role: 'human', field: 'amendments', awaits: target, command,
         act: 'Record the parts change using the owner’s exact words.' }] };
@@ -1637,6 +1625,7 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
       project_id: String(project.name ?? ''),
       stage,
       effective_stage: effectiveStage,
+      blocksOutputMoves: true,
       accepted: false,
       refusals,
       ...warningFields,

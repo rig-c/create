@@ -2764,13 +2764,18 @@ the project's next moves and whose they are from `project.json`:
   `unanswered_by_record` retain their missing-field guidance.
 - **Scene writing does not plan work.** `scene write` adds no plan step.
   Author the post plan steps through `plan add` before post-interview sign-off.
-- **Current outputs.** When `current` is absent, `next` offers
-  `record <kind> --adopt` for each kind whose latest live source version
-  binds the output and whose files match those bindings. The numbered scene
-  and direction moves remain available on this flow. When `current` exists,
-  `next` pairs preparation guidance for `outputs/<kind>.next` with a
-  `record <kind> --from` command for each missing kind or kind with
-  `OUTPUT_STALE`.
+- **Current outputs.** For each missing kind, `next` prefers
+  `record <kind> --adopt` when the latest live source version binds the
+  output and the retained files match. Projects without `current` still
+  get the numbered scene and direction moves. With `current`, `next`
+  also offers preparation guidance for `outputs/<kind>.next` and the
+  corresponding producer recording command.
+  Canonical motion needs a canonical rig, and canonical direction needs
+  both a canonical rig and canonical motion. When one of those inputs
+  is adopted, `next` guides its rebuild before offering the dependent
+  producer command. Stale outputs get upstream-first rebuild guidance
+  and block dependent moves, including adoption of downstream missing
+  kinds. Blocking refusals take precedence over output recording.
 - **Refusals come first.** When `check` reports refusals (or publication holes),
   `next` lists each in `refusals[]` with its `CHECKS.md` remedy (`fix`) before
   any forward move. A project with a blocking refusal has `moves: []` and

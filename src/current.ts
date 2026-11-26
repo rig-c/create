@@ -1,7 +1,8 @@
 /**
  * `current.<kind>`: one current output per kind (docs/CURRENT-DATA.md §1.3), and staleness by content hash (§2.2).
  * A node is stale when a `built_from` path now hashes differently (for `current.parts`' config edge, when Parts'
- * `assemblyConfigChanges` against `outputs/parts/rig/parts.json` is non-empty), or when a node upstream of it is stale.
+ * `assemblyConfigChanges` against `outputs/parts/rig/parts.json` is non-empty), when its adopted rig basis is replaced,
+ * or when a node upstream of it is stale.
  * A producer run record is provenance, not product: an output-set hash leaves it out, and no `built_from` names it (§4.1).
  */
 import { assemblyConfigChanges } from '@rig-c/parts/assembly-reading';
@@ -288,6 +289,17 @@ function partsConfigStaleWhy(dir: string, binding: JsonObject, manifest: Assembl
   }
 }
 
+/** The legacy rig dependency of a shape-checked adopted motion or direction entry. */
+function requiredAdoptedRigVersion(project: JsonObject, kind: CurrentKind, node: JsonObject): number | undefined {
+  const version = isObject(node.adopted) ? node.adopted.version : undefined;
+  if (typeof version !== 'number') return undefined;
+  if (kind === 'motion') return version;
+  if (kind !== 'direction') return undefined;
+  const post = asArray(project.versions).filter(isObject).find(row => row.n === version && row.kind === 'post');
+  const rigVersion = post?.rig_version;
+  if (typeof rigVersion === 'number' && Number.isInteger(rigVersion)) return rigVersion;
+}
+
 /**
  * Check `current`: refusals for a malformed entry, WARN `OUTPUT_STALE` for a stale one (never a refusal, §2.2).
  * A record without `current` (an old-process project) gets nothing from here.
@@ -303,9 +315,22 @@ export function currentFindings(dir: string, project: JsonObject, warnings: Find
     refusals.push(...shape);
     if (!shape.length) nodes.set(key as CurrentKind, node as JsonObject);
   }
-  // Direct staleness: a built_from path now hashes differently (or, for current.parts' config, its assembly reading changed).
+  const rig = nodes.get('rig');
+  const rigVersion = isObject(rig?.adopted) ? rig.adopted.version : undefined;
+  const adoptedRigDependents = new Set<CurrentKind>();
+  // Direct staleness: a replaced rig basis or a changed built_from input.
   const changed = new Map<CurrentKind, string>();
   for (const [kind, node] of nodes) {
+    // Partial adoption can leave current.rig absent.
+    const requiredRig = rig && requiredAdoptedRigVersion(project, kind, node);
+    if (requiredRig !== undefined) {
+      if (rigVersion !== requiredRig) {
+        const replacement = rigVersion === undefined ? 'canonical' : `adopted from v${String(rigVersion)}`;
+        changed.set(kind, `requires upstream rig v${requiredRig} (current.rig is ${replacement})`);
+        continue;
+      }
+      adoptedRigDependents.add(kind);
+    }
     const configPath = kind === 'parts' ? partsConfigPath(dir, node) : undefined;
     const manifest = configPath === undefined ? undefined : partsAssemblyManifest(dir, node);
     for (const entry of asArray(node.built_from)) {
@@ -319,13 +344,14 @@ export function currentFindings(dir: string, project: JsonObject, warnings: Find
       }
     }
   }
-  // Transitive staleness: a built_from path inside a stale upstream output.
+  // Transitive staleness: a bound output path or matching adopted rig is stale upstream.
   const stale = new Map(changed);
   for (let grew = true; grew;) {
     grew = false;
     for (const [kind, node] of nodes) {
       if (stale.has(kind)) continue;
-      const upstream = asArray(node.built_from).map(entry => upstreamKind(String((entry as JsonObject).path))).find(up => up !== undefined && stale.has(up));
+      const upstream = asArray(node.built_from).map(entry => upstreamKind(String((entry as JsonObject).path))).find(up => up !== undefined && stale.has(up))
+        ?? (adoptedRigDependents.has(kind) && stale.has('rig') ? 'rig' : undefined);
       if (upstream) { stale.set(kind, `upstream ${upstream} is stale`); grew = true; }
     }
   }

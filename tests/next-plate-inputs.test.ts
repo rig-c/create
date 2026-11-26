@@ -161,7 +161,11 @@ test('#504 preserves changed-input refusal without suggesting duplicate registra
   writeFileSync(join(f.dir, f.background), 'changed synthetic bytes');
   const report = nextProject(f.dir, EXAMPLE_NOW);
   expect(report.refusals.map(row => row.code)).toContain('INPUT_FILE_CHANGED');
-  expect(report.moves.map(move => printedArgs(move.command!)[2])).toEqual([f.foreground, '--adopt']);
+  expect(report.moves.map(move => printedArgs(move.command!)[2])).toEqual([f.foreground]);
+  writeFileSync(f.file, JSON.stringify({ ...JSON.parse(readFileSync(f.file, 'utf8')), current: {} }));
+  const withCurrent = nextProject(f.dir, EXAMPLE_NOW);
+  expect(withCurrent.refusals.map(row => row.code)).toContain('INPUT_FILE_CHANGED');
+  expect(withCurrent.moves).toEqual(report.moves);
 });
 
 test('#504 keeps existing named refusals and offers registration before a blocked stored scene', () => {
@@ -179,7 +183,6 @@ test('#504 keeps existing named refusals and offers registration before a blocke
   expect(report.refusals.map(row => row.code)).toContain('SCENE_PLATE_UNREGISTERED');
   expect(report.moves.map(move => printedArgs(move.command!))).toEqual([
     ['input', 'add', 'inputs/background.png', dir, '--origin', '<origin>'],
-    ['record', 'rig', '--adopt', dir],
   ]);
   expect(report.accepted).toBe(false);
   expect(readFileSync(file)).toEqual(before);
@@ -208,7 +211,7 @@ test('#504 ignores historical answers and changed option-set bytes', () => {
   writeFileSync(join(f.dir, String(f.binding.path)), '{}');
   const report = nextProject(f.dir, EXAMPLE_NOW);
   expect(report.refusals.map(row => row.code)).toContain('INTERVIEW_OPTIONS_FILE');
-  expect(report.moves).toEqual([expect.objectContaining({ field: 'current.rig' })]);
+  expect(report.moves).toEqual([]);
 });
 
 test('#504 leading-dash plate names remain positional arguments in the printed command', () => {

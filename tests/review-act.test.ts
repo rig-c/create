@@ -1744,6 +1744,21 @@ test('#982 an old verdict act still decodes unchanged, and the comment route ref
   expect(result.exit).toBe(0);
 }, 90_000);
 
+test('#1043 Review rejects a chest carrier bound to a different file before writing', async () => {
+  const view = await publishedChest();
+  const value = view.act.value as unknown as JsonObject;
+  const source = view.act.source as unknown as JsonObject;
+  const bytes = JSON.stringify(commentOnlyAct(view, 'wrong-model', [{
+    kind: 'chest-landmarks', file: { ...source.model as JsonObject, sha256: 'a'.repeat(64) },
+    chestLandmarks: value.chestLandmarks!,
+  }]));
+  const record = join(view.root, 'project.json');
+  const original = readFileSync(record);
+  expect(() => commentCommand(['--from-review', 'wrong-model', view.root, '--config', workingConfig],
+    testClock.now(), { fetch: () => ({ bytes }) })).toThrow(expect.objectContaining({ code: 'REVIEW_ACT_INVALID' }));
+  expect(readFileSync(record)).toEqual(original);
+}, 30_000);
+
 test.each(['numbered', 'adopted'] as const)('#1043 applies a chest comment on the live %s rig and replays without writing', async mode => {
   const { root, host, act, publication, uiRequest, agent } = await publishedChest();
   let live = publication;

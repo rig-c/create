@@ -89,6 +89,7 @@ import { latestPartsApproval, partsApprovalIdentity } from './structure.ts';
 import { resolveAgentCitationSpec } from './scene-authority.ts';
 import { DIRECTION_COMPOSE_SPEC } from './direction-compose.ts';
 import { missingDirectionStepApprovals } from './direction.ts';
+import { withStaleOutputs } from './next-stale.ts';
 
 export const NEXT_SCHEMA = 'rig-create/next@1';
 
@@ -293,11 +294,10 @@ const currentOutputPreparation: Record<CurrentKind, string> = {
   direction: 'write the current scene and direction specs and compose from the recorded rig and motion',
 };
 
-function currentOutputMoves(dir: string, current: JsonObject, warnings: Finding[]): NextMove[] {
-  const stale = new Set(warnings.filter(w => w.code === 'OUTPUT_STALE').map(w => w.path));
+function currentOutputMoves(dir: string, current: JsonObject): NextMove[] {
   return CURRENT_KINDS.flatMap(kind => {
     const field = `current.${kind}`;
-    if (current[kind] !== undefined && !stale.has(field)) return [];
+    if (current[kind] !== undefined) return [];
     const from = `${outputRoot(kind)}.next`;
     const source = kind === 'parts' || kind === 'rig' ? ' --config specs/rig/config.json'
       : kind === 'direction' ? ` --direction ${CURRENT_DIRECTION_PATH}` : '';
@@ -1446,11 +1446,12 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
     const step = steps.find(step => finding.path === `plan.steps[${String(step.id)}]`);
     return step ? [{ finding, step }] : [];
   });
-  const next = deriveNextProject(dir, project, report, now, steps, staleSteps);
+  const next = withStaleOutputs(dir, project, report.warnings, deriveNextProject(dir, project, report, now, steps, staleSteps), shellWord);
   const permitsOutputMoves = next.stage !== PAUSED_STAGE
     && !next.refusals.some(finding => finding.code === 'RIGGING_DRAFT_PARTS_CHANGED');
+  // Stale kinds get their upstream-first rebuild from withStaleOutputs; here only kinds with no current entry yet.
   const outputMoves = permitsOutputMoves && isObject(project.current)
-    ? currentOutputMoves(dir, project.current, report.warnings) : [];
+    ? currentOutputMoves(dir, project.current) : [];
   const adoptMoves = permitsOutputMoves && project.current === undefined ? adoptionMoves(dir, project) : [];
   // Every stage shows the repairs. Approval gating uses only the steps that approval covers.
   const revisionMoves = staleSteps.map(({ finding, step }): NextMove => {

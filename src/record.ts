@@ -8,7 +8,7 @@ import { closeSync, mkdirSync, openSync, renameSync, rmSync } from 'node:fs';
 import { isAbsolute, join, posix, relative, resolve, sep } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import { existsSync, lstatSync, readFileSync, realpathSync } from './check-reads.ts';
-import { checkProject, isObject, PROJECT_SCHEMA } from './check.ts';
+import { activeCurrentSignoffTargetPath, checkProject, isObject, PROJECT_SCHEMA } from './check.ts';
 import { literalFile } from './choices.ts';
 import { readDirectionOutput } from './current-direction.ts';
 import { builtFromNameAllowed, CURRENT_KINDS, CURRENT_RIG_MODEL, currentFileBinding, currentFindings, currentHash, currentShapeFindings, isRunRecordFile, outputRoot, outputSetHash, RUN_RECORD_NAME, sha256, treeFiles, type CurrentKind, type RebuildRunSpec } from './current.ts';
@@ -522,7 +522,13 @@ export function recordCommand(args: string[], now: number): CommandResult {
     const current = isObject(project.current) ? project.current : {};
     const candidate: JsonObject = { ...project, current: { ...current, [kind]: node } };
     const baseline = baselineOf(checkProject(dir, undefined, { now }));
-    const [fresh, ...more] = newFindings(baseline, checkProject(dir, candidate, { now }).refusals);
+    const blocking = newFindings(baseline, checkProject(dir, candidate, { now }).refusals);
+    if (blocking.length && (kind === 'rig' || kind === 'direction')) {
+      const targetPath = activeCurrentSignoffTargetPath(project, kind);
+      const replacedTarget = blocking.findIndex(f => f.code === 'SIGNOFF_TARGET_STALE' && f.path === targetPath);
+      if (replacedTarget >= 0) blocking.splice(replacedTarget, 1);
+    }
+    const [fresh, ...more] = blocking;
     if (fresh) refuse(fresh.code, [fresh.message, ...more.map(f => `${f.code}: ${f.message}`)].join('\n  '));
     if (kind === 'motion' || kind === 'direction') {
       const requireHash = (path: string, expected: string): void => {

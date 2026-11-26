@@ -33,6 +33,13 @@ function validBinding(value: Json | undefined): value is JsonObject {
 
 type CurrentTargetKind = 'rig' | 'direction';
 
+export function signoffTargetFormat(target: Json | undefined): 'current' | 'numbered' | 'mixed' | undefined {
+  if (!isObject(target)) return;
+  const numbered = 'version' in target || 'verdict' in target;
+  if ('subject' in target || 'record_sha256' in target || 'files_sha256' in target) return numbered ? 'mixed' : 'current';
+  if (numbered) return 'numbered';
+}
+
 function currentTargetFor(dir: string, project: JsonObject, kind: CurrentTargetKind) {
   const subject = `current.${kind}` as const;
   if (!isObject(project.current)) throw Error('current is missing or malformed');
@@ -79,9 +86,8 @@ export function checkSignoffTarget(dir: string, project: JsonObject, signoff: Js
   const stage = String(signoff.stage);
   if (!(stage in SIGNOFF_TARGET_KINDS)) return;
   const target = signoff.target;
-  const numbered = isObject(target) && ('version' in target || 'verdict' in target);
-  const claimsCurrent = isObject(target) && ('subject' in target || 'record_sha256' in target || 'files_sha256' in target);
-  const current = claimsCurrent || (!numbered && project.current !== undefined);
+  const format = signoffTargetFormat(target);
+  const current = format === 'current' || format === 'mixed' || (format === undefined && project.current !== undefined);
   const kind = SIGNOFF_TARGET_KINDS[stage] === 'rig' ? 'rig' : 'direction';
   const draft = asArray(project.drafts).filter(isObject).find(d => d.id === signoff.draft_id)
     ?? assembleOnlyDraftTarget(project, !current && isObject(target) ? target.version : undefined);
@@ -144,6 +150,11 @@ export function selectSignoffTarget(dir: string, project: JsonObject, stage: str
     const kind = SIGNOFF_TARGET_KINDS[stage] === 'rig' ? 'rig' : 'direction';
     const path = `signoffs[${asArray(project.signoffs).length}].target`;
     if (requested !== undefined) refuse('SIGNOFF_OPTION_INVALID', `${path}: current.${kind} selects the target; remove --version`, USAGE_EXIT);
+    const node = isObject(project.current) ? project.current[kind] : undefined;
+    if (isObject(node) && 'adopted' in node) {
+      const source = kind === 'rig' ? '--config <rig config>' : '--direction specs/direction/direction.json';
+      refuse('SIGNOFF_TARGET_MISSING', `${path}: current.${kind} is an adopted output; rebuild it and run rig-create record ${kind} --from ${outputRoot(kind)} ${source}, then sign ${stage} again`);
+    }
     try { return currentTargetFor(dir, project, kind); }
     catch (error) {
       const reason = error instanceof Error ? error.message : String(error);

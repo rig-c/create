@@ -1274,11 +1274,13 @@ selection uses `current.rig` or `current.direction` for the corresponding stage.
 The target contains exactly `subject`, `record_sha256` (the SHA-256 of the full
 node as recursively key-sorted JSON) and `files_sha256` (the node's recorded
 output-set hash, checked against disk). A numbered signature still checks its
-accepted verdict and version's reviewed inputs after adoption.
+accepted verdict and version's reviewed inputs after adoption. For each stage,
+`check` validates the latest live current-target signature. A newer current
+signature, reopen or amendment can make an earlier current signature historical.
 
 | Code | Meaning | Remedy |
 | --- | --- | --- |
-| `SIGNOFF_TARGET_MISSING` | A review signature dated on or after `SIGNOFF_TARGET_SINCE` has no target | For a project with `current`, restore or record the stage's current output and sign again. For a numbered project, preserve the reviewed inputs and sign again with `--version` |
+| `SIGNOFF_TARGET_MISSING` | A review signature dated on or after `SIGNOFF_TARGET_SINCE` has no target, or a new signature would bind an adopted current node | For an adopted node, rebuild and use `rig-create record rig --from outputs/rig --config <rig config>` or `rig-create record direction --from outputs/direction --direction specs/direction/direction.json` before signing. For other current targets, restore or record the stage's current output and sign again. For a numbered project, preserve the reviewed inputs and sign again with `--version` |
 | `SIGNOFF_TARGET_STALE` | A current target or required current node is missing, malformed or differs from its recorded hashes or disk. For a numbered target, the version, operative human accepted verdict, package inventory, imported outputs or direction binding no longer resolves, or writer selection is ambiguous | Restore the reviewed current record and outputs or record them with `rig-create record rig` or `rig-create record direction`, then sign again. For numbered selection, restore the reviewed inputs and select the accepted version with `--version` |
 | `SIGNOFF_TARGET_MISSING_LEGACY` | A pre-contract signature has no target | Preserve history and bind the next review signature |
 | `SIGNOFF_TARGET_STALE_LEGACY` | WARN when a signature dated before `SIGNOFF_TARGET_SINCE` has a target that no longer resolves | Preserve history and use the remedy for the target format in `SIGNOFF_TARGET_STALE` |
@@ -1912,8 +1914,8 @@ interview is the existing `WAYPOINT_MISSING` refusal.
 | Code | Meaning and remedy |
 | --- | --- |
 | `OWNER_CHAT_INVALID` | The named project.json answer/signoff lacks exact nonblank owner words, a valid explicit ISO said_at, relay identity, or the relayed source, or mixes chat and Review flags. Supply `--owner-chat`, `--said-at`, `--relayed-by` and owner `--by` together; keep at as the write time and omit act ids. |
-| `OWNER_CHAT_REQUIRED` | A draft amendment lacks relayed owner chat. A human reopen lacks relayed owner chat or a valid immutable Review reopen receipt, or a restart lacks relayed owner chat. For reopen and restart, refuses from `REOPEN_RESTART_OWNER_CHAT_SINCE = 2026-11-19T00:00:00Z` by the entry's `at` and WARNs for earlier records. Preserve earlier records. For a draft amendment or restart, record `--by <owner> --owner-chat <file> --said-at <ISO> --relayed-by <operator>`. For a historical reopen, restore its original authority evidence. |
-| `OWNER_CHAT_GATE_VISUAL` | The named project.json stage signoff has no accepted live verdict for the current draft, rig or post. Get the verdict first in the review tool with `job open --draft <id>` or `job open --rig <n>`, ingest it, then relay the signoff. |
+| `OWNER_CHAT_REQUIRED` | A draft amendment, restart or new stage signoff targeting `current.rig` or `current.direction` lacks relayed owner chat. A human reopen lacks relayed owner chat or a valid immutable Review reopen receipt. For reopen and restart, refuses from `REOPEN_RESTART_OWNER_CHAT_SINCE = 2026-11-19T00:00:00Z` by the entry's `at` and WARNs for earlier records. Preserve earlier records. For an amendment, restart or current-output signoff, relay the owner's exact words with `--by <owner> --owner-chat <file> --said-at <ISO> --relayed-by <operator>`. For a historical reopen, restore its original authority evidence. |
+| `OWNER_CHAT_GATE_VISUAL` | A relayed signoff for parts, a numbered rig or a numbered direction has no accepted live verdict for the reviewed draft or version. Get the verdict first in the review tool with `job open --draft <id>` or `job open --rig <n>`, ingest it, then relay the signoff. |
 
 ## Composed idle direction (direction@3)
 
@@ -2010,6 +2012,11 @@ by scene@2, so a changed frame PNG under `outputs/motion/` yields
 `OUTPUT_STALE` for direction even if `frames.json` is unchanged. See
 [Recording current motion and direction](PROJECT.md#recording-current-motion-and-direction)
 for the post-stage workflow.
+
+`record rig` and `record direction` can replace a signed current output while
+introducing one `SIGNOFF_TARGET_STALE` at the matching active signature. Any
+other new refusal still blocks the write. `check` reports the stale signature
+until the owner signs the new output or a reopen makes the signature historical.
 
 | Code | Fires when | Remedy |
 | --- | --- | --- |

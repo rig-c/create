@@ -328,6 +328,9 @@ function plantV2RunRecords(dir: string, options: { envPath?: string; at?: string
   const rigRun = JSON.parse(readFileSync(join(dir, at, 'run.json'), 'utf8')) as {
     package: { name: string; version: string };
   };
+  const coreBuild = JSON.parse(readFileSync(join(dir, at, 'check/build/run.json'), 'utf8')) as {
+    package: { name: string; version: string };
+  };
   const checkArgv = ['check', '--rig', '..', '--out', '.', '--parts', '../../parts', '--source', '../../../inputs/painting.png', '--no-extremes'];
   const checkFiles = treeFiles(dir, `${at}/check`, '')
     .map(f => ({ path: f.path.slice(1), sha256: f.sha256 }))
@@ -361,7 +364,7 @@ function plantV2RunRecords(dir: string, options: { envPath?: string; at?: string
   }
   write(dir, `${at}/idle/render-run.json`, `${JSON.stringify({
     spec: 'rigc-run/2',
-    package: { name: '@rig-c/core', version: '3.8.1' },
+    package: coreBuild.package,
     command: 'render',
     argv: renderArgv,
     started_at: '2026-11-25T00:00:01.000Z',
@@ -450,7 +453,10 @@ function buildLayoutOut(dir: string, at = NEXT): { buildArgv: string[] } {
     renameSync(join(dir, at, name), join(dir, at, 'rig', name));
   }
   const stampPath = `${at}/check/build/run.json`;
-  const stamp = JSON.parse(readFileSync(join(dir, stampPath), 'utf8')) as { inputs: { path: string }[] };
+  const stamp = JSON.parse(readFileSync(join(dir, stampPath), 'utf8')) as {
+    package: { name: string; version: string };
+    inputs: { path: string }[];
+  };
   for (const input of stamp.inputs) input.path = input.path.replace('../../', '../../rig/');
   write(dir, stampPath, `${JSON.stringify(stamp, null, 2)}\n`);
   for (const [path, bytes] of [
@@ -461,7 +467,7 @@ function buildLayoutOut(dir: string, at = NEXT): { buildArgv: string[] } {
     ['idle.png', 'APNG'], ['idle-indexed.png', 'IAPNG'], ['idle.gif', 'GIF'],
   ] as const) write(dir, `${at}/${path}`, bytes);
   write(dir, `${at}/check/idle_frames/render-run.json`, `${JSON.stringify({
-    spec: 'rigc-run/2', package: { name: '@rig-c/core', version: '3.8.1' }, command: 'render',
+    spec: 'rigc-run/2', package: stamp.package, command: 'render',
     argv: ['--candidate', '../build', '--animation', 'idle', '--out', '.'],
     started_at: '2026-11-25T00:00:01.000Z', finished_at: '2026-11-25T00:00:02.000Z',
     inputs: [{ role: 'skeleton', path: '../build/skeleton.json', sha256: sha(readFileSync(join(dir, at, 'check/build/skeleton.json'))) }],

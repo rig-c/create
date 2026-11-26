@@ -1,4 +1,4 @@
-import { expect, test } from 'bun:test';
+import { expect, spyOn, test } from 'bun:test';
 import { cpSync, existsSync, mkdirSync, readFileSync, renameSync, symlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { checkProject } from '../src/check.ts';
@@ -93,6 +93,33 @@ test('adopts a sparse registered rig in place and omits its evidence-only report
   expect(resolveAdoptSource(saved, 'rig')).toMatchObject({ ok: false, code: 'RECORD_ADOPT_CURRENT_EXISTS' });
   expect(() => f.record('rig')).toThrow(expect.objectContaining({ code: 'RECORD_ADOPT_CURRENT_EXISTS' }));
   expect(f.original()).toEqual(recorded);
+});
+
+test('first manual adoption emits a notice before writing and keeps JSON stdout parseable', () => {
+  const f = fixture();
+  const original = f.original();
+  expect(f.project.current).toBeUndefined();
+  const receipts: { notice: string; record: Buffer }[] = [];
+  const stderr = spyOn(process.stderr, 'write').mockImplementation(chunk => {
+    receipts.push({ notice: String(chunk), record: f.original() });
+    return true;
+  });
+  try {
+    const run = join(f.dir, outputs, 'out/rig/run.json');
+    renameSync(run, `${run}.kept`);
+    expect(() => f.record('rig')).toThrow(expect.objectContaining({ code: 'RECORD_ADOPT_SOURCE_INVALID' }));
+    expect(receipts).toEqual([]);
+    expect(f.original()).toEqual(original);
+    renameSync(`${run}.kept`, run);
+
+    const rig = f.record('rig');
+    expect(receipts).toEqual([{ notice: expect.stringMatching(/numbered verdict moves.*sign off.*rebuild.*record <kind> --from/), record: original }]);
+    expect(JSON.parse(f.original().toString()).current.rig).toEqual(rig);
+
+    const motion = f.record('motion');
+    expect(JSON.parse(f.original().toString()).current).toEqual({ rig, motion });
+    expect(receipts).toHaveLength(1);
+  } finally { stderr.mockRestore(); }
 });
 
 test('adopts each typed inventory and verifies post hashes before measuring absent byte counts', () => {

@@ -2336,7 +2336,7 @@ test('#596 post stage with in-progress step offers direction --adopt then direct
     .toEqual(afterAdopt.moves.filter(move => move.field.startsWith('plan.steps[')));
 });
 
-test('#1030 next lists missing and stale current outputs upstream-first without writing', () => {
+test('#1030 next keeps stale current repairs and defers missing builds until their stages', () => {
   const dir = fixture(project => {
     const frames = { path: 'outputs/motion/frames.json', sha256: sha256('{}'), bytes: 2 };
     const report = { path: 'outputs/direction/check/check.json', sha256: sha256('{}'), bytes: 2 };
@@ -2352,7 +2352,7 @@ test('#1030 next lists missing and stale current outputs upstream-first without 
     };
   }, 'project.json', { 'specs/motion/schedule.json': '[]', 'outputs/motion/frames.json': '{}' });
   const outputs = (report: NextReport) => report.moves.filter(move => move.field.startsWith('current.'));
-  expect(outputs(nextProject(dir, CHAIN_NOW)).map(move => move.field)).toEqual(['current.parts', 'current.rig']);
+  expect(outputs(nextProject(dir, CHAIN_NOW))).toEqual([]);
 
   writeFileSync(join(dir, 'specs/motion/schedule.json'), '[1]');
   const before = treeDigest(dir);
@@ -2361,16 +2361,12 @@ test('#1030 next lists missing and stale current outputs upstream-first without 
   expect(report.warnings?.filter(warning => warning.code === 'OUTPUT_STALE').map(warning => warning.path))
     .toEqual(['current.motion', 'current.direction']);
   const moves = outputs(report);
-  const fields = ['current.parts', 'current.rig', 'current.motion', 'current.direction'];
+  const fields = ['current.motion', 'current.direction'];
   expect(moves.map(move => move.field)).toEqual(fields);
   expect(report.awaits.filter(field => fields.includes(field))).toEqual(fields);
-  expect(moves.slice(0, 2).map(move => move.command)).toEqual([
-    `rig-create record parts ${dir} --from outputs/parts.next --config specs/rig/config.json`,
-    `rig-create record rig ${dir} --from outputs/rig.next --config specs/rig/config.json`,
-  ]);
-  expect(moves[2]).toMatchObject({ role: 'agent', command: null,
+  expect(moves[0]).toMatchObject({ role: 'agent', command: null,
     act: expect.stringContaining('Obtain the render arguments from the operator') });
-  expect(moves[3]).toMatchObject({ role: 'agent', command: null,
+  expect(moves[1]).toMatchObject({ role: 'agent', command: null,
     act: expect.stringContaining('obtain the compose arguments from the operator') });
   expect(treeDigest(dir)).toEqual(before);
 });

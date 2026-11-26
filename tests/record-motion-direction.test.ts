@@ -1,6 +1,8 @@
-import { afterEach, expect, test } from 'bun:test';
-import { cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test';
+import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { delimiter, dirname, join } from 'node:path';
+import { EXAMPLE_ANCHOR } from '../scripts/example-time.ts';
 import { checkProject } from '../src/check.ts';
 import { COMPOSE_CHECK_PATH, COMPOSE_RUN_PATH, CURRENT_DIRECTION_PATH } from '../src/current-direction.ts';
 import { CURRENT_MOTION_FRAMES, CURRENT_RIG_MODEL, currentShapeFindings, outputRoot, outputSetHash, sha256, treeFiles } from '../src/current.ts';
@@ -13,6 +15,7 @@ import type { JsonObject } from '../src/templates.ts';
 import { testClock } from './clock.ts';
 import { composeFixture } from './direction-compose-fixture.ts';
 import { fixture } from './fixtures.ts';
+import { keepTempDirs, run } from './helpers.ts';
 import { sceneFixture } from './scene-fixture.ts';
 
 afterEach(() => testClock.reset());
@@ -296,4 +299,140 @@ test('next offers preparation and recording for missing current direction before
   const next = nextProject(dir, now);
   expect(next.moves).toContainEqual(directionMove);
   expect(next.moves.some(move => move.command?.includes('record motion'))).toBe(false);
+});
+
+describe('#992 real compose from next in two folders', () => {
+  const repo = join(import.meta.dir, '..');
+  const templateDir = join(repo, 'templates/example-current');
+  const cliAt = join(import.meta.dir, 'cli-at.ts');
+  const now = EXAMPLE_ANCHOR + 60_000;
+  let suiteRoot = '';
+  let dirA = '';
+  let dirB = '';
+  let composeCmdA = '';
+  let composeCmdB = '';
+
+  const cleanupSuite = () => {
+    if (suiteRoot && !keepTempDirs()) rmSync(suiteRoot, { recursive: true, force: true });
+  };
+  afterAll(cleanupSuite);
+  process.on('exit', cleanupSuite);
+
+  function buildDirectionFromNext(targetDir: string, env: Record<string, string>): string {
+    cpSync(templateDir, targetDir, { recursive: true });
+    rmSync(join(targetDir, 'outputs/direction'), { recursive: true, force: true });
+    const project = json(targetDir, 'project.json');
+    project.stage = 'post';
+    project.advances = (project.advances as JsonObject[]).filter(
+      move => !['direction-review', 'accepted'].includes(String(move.stage)),
+    );
+    project.signoffs = (project.signoffs as JsonObject[]).filter(
+      signoff => signoff.stage !== 'direction-review',
+    );
+    delete (project.current as JsonObject).direction;
+    writeFileSync(join(targetDir, 'project.json'), `${JSON.stringify(project, null, 2)}\n`);
+
+    expect(run(['git', 'init'], targetDir, env).code).toBe(0);
+    expect(run(['git', 'add', '.'], targetDir, env).code).toBe(0);
+    expect(run(['git', 'commit', '-m', 'seed synthetic project before compose'], targetDir, env).code).toBe(0);
+
+    const beforeCompose = nextProject(targetDir, now);
+    expect(beforeCompose.refusals).toEqual([]);
+    const producerMove = beforeCompose.moves.find(
+      move => move.role === 'producer' && move.field === 'current.direction',
+    );
+    expect(producerMove?.command).toBeDefined();
+    const composeCommand = producerMove!.command!;
+    const composed = run(['sh', '-c', composeCommand], repo, env);
+    expect(composed.code, `${composed.stdout}\n${composed.stderr}`).toBe(0);
+
+    const afterCompose = nextProject(targetDir, now);
+    expect(afterCompose.refusals).toEqual([]);
+    const recordMove = afterCompose.moves.find(
+      move => move.role === 'agent' && move.field === 'current.direction',
+    );
+    expect(recordMove?.command).toBeDefined();
+    const recorded = run(['sh', '-c', recordMove!.command!], repo, env);
+    expect(recorded.code, `${recorded.stdout}\n${recorded.stderr}`).toBe(0);
+
+    const report = checkProject(targetDir, undefined, { now });
+    expect(report.refusals.map(f => f.code)).toEqual([]);
+    expect(report.warnings.map(f => f.code)).toEqual([]);
+    return composeCommand;
+  }
+
+  beforeAll(() => {
+    suiteRoot = mkdtempSync(join(tmpdir(), 'rig-create-992-'));
+    const binDir = join(suiteRoot, 'bin');
+    mkdirSync(binDir, { recursive: true });
+    const createBin = join(binDir, 'rig-create');
+    writeFileSync(
+      createBin,
+      `#!/bin/sh\nexec ${JSON.stringify(process.execPath)} ${JSON.stringify(cliAt)} ${JSON.stringify(new Date(now).toISOString())} "$@"\n`,
+    );
+    chmodSync(createBin, 0o755);
+
+    const gitConfig = join(suiteRoot, 'gitconfig');
+    writeFileSync(
+      gitConfig,
+      '[init]\n\tdefaultBranch = main\n[user]\n\tname = Synthetic Runner\n\temail = synthetic@localhost\n',
+    );
+    const cleanEnv: Record<string, string> = {};
+    for (const [key, value] of Object.entries(process.env)) {
+      if (value !== undefined && !key.startsWith('GIT_')) cleanEnv[key] = value;
+    }
+    const env: Record<string, string> = {
+      ...cleanEnv,
+      GIT_CONFIG_GLOBAL: gitConfig,
+      GIT_CONFIG_NOSYSTEM: '1',
+      PATH: [binDir, join(repo, 'node_modules/.bin'), cleanEnv.PATH ?? ''].filter(Boolean).join(delimiter),
+    };
+
+    dirA = join(suiteRoot, 'alpha', 'synthetic-project');
+    dirB = join(suiteRoot, 'bravo-deeper', 'nested', 'synthetic-project');
+    composeCmdA = buildDirectionFromNext(dirA, env);
+    composeCmdB = buildDirectionFromNext(dirB, env);
+  }, 120_000);
+
+  test('produces byte-identical check/check.json and compose receipts across two folders', () => {
+    expect(composeCmdA).toContain('rig-parts compose --scene specs/direction/compose-scene.json --out outputs/direction.next');
+    expect(composeCmdB).toContain('rig-parts compose --scene specs/direction/compose-scene.json --out outputs/direction.next');
+
+    const checkA = raw(dirA, `outputs/direction/${COMPOSE_CHECK_PATH}`);
+    const checkB = raw(dirB, `outputs/direction/${COMPOSE_CHECK_PATH}`);
+    expect(checkA.equals(checkB)).toBe(true);
+
+    const parsed = JSON.parse(checkA.toString('utf8')) as JsonObject;
+    expect(parsed.PASS).toBe(true);
+    expect(parsed.gate_spine_html_green).toBe(true);
+    for (const key of ['TIP_OVER_ROOT', 'BREATH_VISIBLE', 'RECOMPOSITE_HOLES', 'BLINK_NO_HOLE', 'STILL_REGIONS_DARK'] as const) {
+      expect(typeof (parsed[key] as JsonObject | undefined)?.reason).toBe('string');
+    }
+    expect(typeof (parsed.skipped as JsonObject | undefined)?.seam).toBe('string');
+
+    expect(raw(dirA, `outputs/direction/${COMPOSE_RUN_PATH}`).equals(raw(dirB, `outputs/direction/${COMPOSE_RUN_PATH}`))).toBe(true);
+    expect(raw(dirA, 'outputs/direction/scene.json').equals(raw(dirB, 'outputs/direction/scene.json'))).toBe(true);
+
+    const directionA = (json(dirA, 'project.json').current as JsonObject).direction as JsonObject;
+    const directionB = (json(dirB, 'project.json').current as JsonObject).direction as JsonObject;
+    expect(directionA.files_sha256).toBe(directionB.files_sha256);
+    expect(directionA.report).toEqual(directionB.report);
+    expect(directionA.run).toEqual(directionB.run);
+  });
+
+  test('leaves no absolute project path anywhere in the recorded compose tree', () => {
+    for (const dir of [dirA, dirB]) {
+      const composeTree = join(dir, 'outputs/direction');
+      const candidates = [...new Set([dir, realpathSync(dir)])];
+      for (const absPath of candidates) {
+        const grepped = run(
+          ['sh', '-c', 'command grep -rnF "$1" "$2"', 'grep-check', absPath, composeTree],
+          repo,
+          process.env as Record<string, string>,
+        );
+        expect(grepped.code, `unexpected match for ${absPath}:\n${grepped.stdout}\n${grepped.stderr}`).toBe(1);
+        expect(grepped.stdout).toBe('');
+      }
+    }
+  });
 });

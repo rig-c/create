@@ -3,6 +3,7 @@ import { cpSync, existsSync, mkdirSync, readFileSync, realpathSync, renameSync, 
 import { dirname, join } from 'node:path';
 import { asArray, checkProject, isObject } from '../src/check.ts';
 import { outputSetHash, sha256, treeFiles, type CurrentKind } from '../src/current.ts';
+import { ledgerCommand } from '../src/fix-ledger.ts';
 import { JOB_BINDING_FILE, writePrivateJson } from '../src/job-outbox.ts';
 import { nextCommand, nextProject } from '../src/next.ts';
 import { stageIndex } from '../src/stages.ts';
@@ -43,6 +44,9 @@ const corePackage = { name: '@rig-c/core', version: '3.8.1' };
 /** Reusable by the before/after `next --json` comparison against the base checkout. */
 export function staleFixture(mutate?: Mutate): string {
   const dir = fixture(mutate, 'example-project.json');
+  const reasonFile = join(tempDir(), 'retire-t1.txt');
+  writeFileSync(reasonFile, 'The signed example fix is outside this synthetic rebuild scenario.\n');
+  ledgerCommand(['retire', 'T1', dir, '--by', 'user', '--reason-file', reasonFile], testClock.now());
   put(dir, CONFIG, { synthetic: 'rig config' });
   put(dir, PARTS, { parts: ['face'] });
 

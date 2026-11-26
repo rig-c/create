@@ -6,12 +6,14 @@ import { checkpointEnabled, checkpointRequired, completedPlanStepNeedsAmendment,
 import { createHash } from 'node:crypto';
 import { existsSync, lstatSync, readdirSync, readFileSync, realpathSync } from './check-reads.ts';
 import { isDeepStrictEqual } from 'node:util';
-import { CURRENT_KINDS, type CurrentKind } from './current.ts';
+import { CURRENT_KINDS, isCurrentProject, type CurrentKind } from './current.ts';
+import { currentAdvanceOutputFinding, isPublishAdvanceStage } from './job-advance.ts';
 import { eligibleRigDraftModel, optionPublicationStage, publicationFile, riggingDraftPartsChange } from './job-publication.ts';
 import { latestRigDraftVerdict } from './rig-draft-verdict.ts';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import {
   answered,
+  activeCurrentSignoffTargetPath,
   asArray,
   checkProject,
   collectItems,
@@ -48,8 +50,9 @@ import { Refusal, refuse, USAGE_EXIT } from './refusal.ts';
 import { reopenLapseWarnings } from './reopen-lapses.ts';
 import { collectReopens, liveSignoff, type Reopen } from './reopen.ts';
 import { resolveAdoptSource } from './record-adopt.ts';
-import { acceptedReviewVerdict, handoff, humanReviewVerdicts, latestAccepted, readVersions, type Versions } from './review.ts';
+import { acceptedReviewVerdict, humanReviewVerdicts, latestAccepted, readVersions, type Versions } from './review.ts';
 import { SIGNOFF_TARGET_KINDS } from './review-act.ts';
+import { selectSignoffTarget } from './signoff-target.ts';
 import { bustLandmarkCommands } from './review-bust.ts';
 import {
   directionReviewPostState,
@@ -79,7 +82,7 @@ import {
   VALUE_QUESTIONS,
 } from './stages.ts';
 import type { Json, JsonObject } from './templates.ts';
-import { currentScene, plateRegistration, sceneBytes, sceneCurrentAt, sceneRig, sceneRigAcceptance, SceneError } from './scene.ts';
+import { currentScene, plateRegistration, sceneBytes, sceneRig, SceneError } from './scene.ts';
 import { depthPlanMoves, nextRigRegistrationNumber, NO_DRAFT_VERDICT, rigRegistrationCommand, RIG_VERSION_INPUTS, turnExtraGroupMoves } from './rig-version.ts';
 import { checkVersionDeclarations, type VersionDeclaration } from './version-declarations.ts';
 import { checkRigReport, parseRigCheckReport, RIG_CHECK_REPORT_FILE } from './rig-check-report.ts';
@@ -532,7 +535,23 @@ function checkpointSignoffMove(dir: string, stage: 'parts' | 'rigging' | 'post',
   };
 }
 
+function currentReviewKind(stage: 'rig-review' | 'direction-review'): 'rig' | 'direction' {
+  return stage === 'rig-review' ? 'rig' : 'direction';
+}
+
+function currentReviewOutput(dir: string, project: JsonObject, stage: 'rig-review' | 'direction-review'): boolean {
+  try { return selectSignoffTarget(dir, project, stage) !== undefined; }
+  catch (error) {
+    if (!(error instanceof Refusal)) throw error;
+    return false;
+  }
+}
+
 function ownerChatSignoffCommand(dir: string, project: JsonObject, act: NextReviewAct, writer: string): string | undefined {
+  if (act.kind === 'signoff' && isCurrentProject(project) && isPublishAdvanceStage(act.stage)) {
+    if (!currentReviewOutput(dir, project, act.stage) || correctionApprovalFindings(project, act.stage).length > 0) return;
+    return `rig-create ${writer} ${shellWord(dir)} ${OWNER_CHAT_COMMAND_FLAGS}`;
+  }
   if (act.kind !== 'signoff' || !ownerChatSignoffAllowed(dir, project, act.stage, act.draft_id, act.version_id?.slice(1))) return;
   const version = act.stage === 'rig-review' || act.stage === 'direction-review'
     ? ` --version ${shellWord(act.version_id?.slice(1) ?? '<current-version>')}` : '';
@@ -876,7 +895,14 @@ function candidateAdvance(
   }
   const checked = checkProject(dir, clone, { now, forwardWrite: true, readOnly: true });
   if (newFindings(allowed, checked.refusals).length > 0) return null;
-  if (targetStage === 'direction-review' && directionReviewNeedsNumberedPost(dir, readVersions(clone))) return null;
+  if (isCurrentProject(clone)) {
+    if (isPublishAdvanceStage(targetStage)) {
+      if (readWriterBinding(dir) && currentAdvanceOutputFinding(dir, clone, targetStage, checked)) return null;
+      const path = `current.${currentReviewKind(targetStage)}`;
+      if (!currentReviewOutput(dir, clone, targetStage)
+        || checked.warnings.some(w => w.code === 'OUTPUT_STALE' && w.path === path)) return null;
+    }
+  } else if (targetStage === 'direction-review' && directionReviewNeedsNumberedPost(dir, readVersions(clone))) return null;
   return partsCheck
     ? `rig-create advance ${targetStage} ${shellWord(dir)} --parts-check ${shellWord(partsCheck.report)} --parts ${shellWord(partsCheck.root)}`
     : `rig-create advance ${targetStage} ${shellWord(dir)}`;
@@ -983,7 +1009,7 @@ function resolveLaggingAdvance(
     }
     return null;
   }
-  if (stage === 'post' && !directionReviewPostState(dir, project, now).ready) return null;
+  if (stage === 'post' && !isCurrentProject(project) && !directionReviewPostState(dir, project, now).ready) return null;
   const cmd = candidateAdvance(dir, project, nextStage, now);
   return cmd !== null ? { targetStage: nextStage, command: cmd } : null;
 }
@@ -1490,9 +1516,9 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
   steps: JsonObject[], staleSteps: { finding: Finding; step: JsonObject }[]): NextReport & { blocksOutputMoves?: true } {
   const stage = String(project.stage ?? '');
   const effectiveStage = String(report.effective_stage ?? stage);
-  const legacyWrites = project.current === undefined;
+  const legacyWrites = !isCurrentProject(project);
   const warnings = report.warnings.filter(w => w.code === 'STRUCTURE_DELTA_REVIEW' || w.code === 'REVIEW_ANSWER_COMMENT_ROUTED'
-    || w.code === 'OUTPUT_STALE');
+    || w.code === 'OUTPUT_STALE' || (!legacyWrites && ['FEEDBACK_OPEN', 'REOPEN_SIGNOFF_LAPSED', 'REOPEN_VERDICT_LAPSED'].includes(w.code)));
   const collection = loadCollection(dir);
   const allItems = collectItems(project, { collection });
   const splitOrder = hasStageOrder(project);
@@ -1577,7 +1603,9 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
   }
 
   // A signed current stage is not refused (#981); next still offers the move to the stage after it.
+  const currentStageKind = !legacyWrites && isPublishAdvanceStage(stage) ? currentReviewKind(stage) : undefined;
   const laggingAdvance = stageSignedThrough(project, stage)
+    && (!currentStageKind || activeCurrentSignoffTargetPath(project, currentStageKind) !== undefined)
     ? resolveLaggingAdvance(dir, project, stage, now)
     : null;
 
@@ -1611,6 +1639,10 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
     for (const [stage, ready] of readyToResign) {
       if (!ready) continue;
       if (hasStaleApprovalStep(stage)) continue;
+      if (!legacyWrites && isPublishAdvanceStage(stage)) {
+        const path = `current.${currentReviewKind(stage)}`;
+        if (report.warnings.some(w => w.code === 'OUTPUT_STALE' && w.path === path)) continue;
+      }
       const command = ownerChatSignoffCommand(dir, project, { kind: 'signoff', stage }, `signoff ${shellWord(stage)}`);
       if (command) moves.push({
         role: 'human', field: 'signoffs', awaits: `signoffs[stage=${stage}]`, command,
@@ -1699,7 +1731,9 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
   if (effectiveStage === 'rigging') {
     const feedback = compiledDraftId === undefined && typeof riggingDraft?.id === 'string'
       ? latestRiggingDraftFeedback(project, riggingDraft.id) : undefined;
-    if (compiledVerdict?.value.verdict === 'changes-requested' && rigN === null) {
+    const currentRig = isObject(project.current) ? project.current.rig : undefined;
+    if (compiledVerdict?.value.verdict === 'changes-requested' && (legacyWrites ? rigN === null
+      : !isObject(currentRig) || Date.parse(String(currentRig.at)) <= Date.parse(compiledVerdict.at))) {
       const field = `drafts[${compiledVerdict.source.selector.id}]`;
       const source = `review act ${compiledVerdict.jobId}/${compiledVerdict.actId}`;
       const revision = asArray(project.corrections).filter(isObject)
@@ -1739,6 +1773,7 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
   const pendingMesh = legacyWrites && stage !== PAUSED_STAGE && (effectiveStage === 'rigging' || effectiveStage === 'rig-review')
     ? pendingMeshDeltaRevision(project) : null;
   if (openFeedback.length > 0 || pendingMesh !== null) {
+    const previousMoves = moves.length;
     const n = nextRigN;
     const rigInputs = RIG_VERSION_INPUTS.replace('--rig <dir>', '--rig <rig-dir>');
     const groups = new Map<string, { version: number; verdict: number }[]>();
@@ -1792,7 +1827,7 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
         command: `rig-create ${writer} ${shellWord(dir)} ${inputs.replace(/<[^>]+>/g, shellWord)} ${refs.map(r => `--answers ${r.version}:${r.verdict}`).join(' ')}`,
         act: `build the next ${kind} version with ${writer}, recording answers_feedback ${JSON.stringify(refs)}` });
     }
-    if (moves.length > 0) return { schema: NEXT_SCHEMA, project_id: String(project.name ?? ''), stage, effective_stage: effectiveStage, accepted: false, refusals, ...warningFields, awaits: awaitsList, moves: runnableNextMoves(dir, project, effectiveStage, moves) };
+    if (moves.length > (legacyWrites ? 0 : previousMoves)) return { schema: NEXT_SCHEMA, project_id: String(project.name ?? ''), stage, effective_stage: effectiveStage, accepted: false, refusals, ...warningFields, awaits: awaitsList, moves: runnableNextMoves(dir, project, effectiveStage, moves) };
   }
   const recordedLapseTargets = new Set<string>();
   const stageHasPendingOptions = stageItems.some(pendingInterviewOptions);
@@ -1803,8 +1838,23 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
   const rawSignoffs = asArray(project.signoffs).filter(isObject);
   const rawReopens = asArray(project.reopens).filter(isObject);
   const signoffs = collectSignoffs(project, []);
-  const hasLiveStageSignoff = (targetStage: string): boolean =>
-    signoffs.some(s => s.stage === targetStage && s.checkpoint === null && liveSignoff(reopens, s.stage, s.at));
+  const hasLiveStageSignoff = (targetStage: string): boolean => {
+    if (!legacyWrites && isPublishAdvanceStage(targetStage)) {
+      return activeCurrentSignoffTargetPath(project, currentReviewKind(targetStage)) !== undefined;
+    }
+    return signoffs.some(s => s.stage === targetStage && s.checkpoint === null && liveSignoff(reopens, s.stage, s.at));
+  };
+  const addCurrentReviewSignoff = (targetStage: string, field = 'signoffs', lapse?: NextLapse): void => {
+    if (stage === PAUSED_STAGE || stageIndex(effectiveStage) < stageIndex(targetStage)) return;
+    const awaits = `signoffs[stage=${targetStage}]`;
+    if (hasLiveStageSignoff(targetStage) || recordedLapseTargets.has(awaits)) return;
+    const command = ownerChatSignoffCommand(dir, project, { kind: 'signoff', stage: targetStage }, `signoff ${targetStage}`);
+    if (!command) return;
+    addAwait(awaits);
+    recordedLapseTargets.add(awaits);
+    moves.push({ role: 'human', field, awaits, command,
+      act: `relay the owner's ${targetStage} approval with exact words, owner date and relay identity`, ...(lapse ? { lapse } : {}) });
+  };
   const hasLiveCheckpointSignoff = (targetStage: string, stepId: string): boolean =>
     signoffs.some(s => s.stage === targetStage && s.checkpoint === stepId && liveSignoff(reopens, s.stage, s.at));
   const isHistoryVersion = (n: number, kind?: 'rig' | 'post'): boolean => {
@@ -1844,6 +1894,11 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
       if (hasStaleApprovalStep(lapsedStage, checkpoint)) continue;
       if (checkpoint !== null && withdrawnCheckpoint(checkpoint)) continue;
       if (checkpoint === null && lapsedStage === effectiveStage && stageHasPendingOptions) continue;
+      if (!legacyWrites && checkpoint === null && isPublishAdvanceStage(lapsedStage)) {
+        addCurrentReviewSignoff(lapsedStage, reopenField, { code: warning.code, source_field: reopenField,
+          target_field: warning.path, ...(reopenId ? { reopen_id: reopenId } : {}), message: warning.message });
+        continue;
+      }
       if (checkpoint === null && hasHistorySignoffTarget(lapsedStage, signoffEntry)) continue;
       const awaitTarget = checkpoint
         ? `signoffs[checkpoint=${checkpoint}]`
@@ -1872,7 +1927,7 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
           message: warning.message,
         },
       });
-    } else if (warning.code === 'REOPEN_VERDICT_LAPSED') {
+    } else if (legacyWrites && warning.code === 'REOPEN_VERDICT_LAPSED') {
       const vMatch = /^versions\[v(\d+)\]\.verdicts\[(\d+)\]$/.exec(warning.path);
       const n = vMatch ? Number(vMatch[1]) : 1;
       if (isHistoryVersion(n)) continue;
@@ -1926,10 +1981,15 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
       if (checkpoint !== null && withdrawnCheckpoint(checkpoint)) continue;
       if (checkpoint !== null ? hasLiveCheckpointSignoff(targetStage, checkpoint) : hasLiveStageSignoff(targetStage)) continue;
       if (checkpoint === null && targetStage === effectiveStage && stageHasPendingOptions) continue;
+      const vMatch = /^versions\[(\d+)\]\.verdicts\[\d+\]$/.exec(lapsedApproval.path);
+      if (!legacyWrites && checkpoint === null && isPublishAdvanceStage(targetStage)) {
+        if (!vMatch) addCurrentReviewSignoff(targetStage, amendField, { code: 'AMENDED_STEP', source_field: amendField,
+          target_field: lapsedApproval.path, ...(targetId ? { amendment_id: targetId } : {}), message: lapsedApproval.reason });
+        continue;
+      }
       const signoffMatch = /^signoffs\[(\d+)\]$/.exec(lapsedApproval.path);
       const signoffEntry = signoffMatch ? rawSignoffs[Number(signoffMatch[1])] : undefined;
       if (checkpoint === null && hasHistorySignoffTarget(targetStage, signoffEntry)) continue;
-      const vMatch = /^versions\[(\d+)\]\.verdicts\[\d+\]$/.exec(lapsedApproval.path);
       if (vMatch) {
         const versionEntry = asArray(project.versions).filter(isObject)[Number(vMatch[1])];
         const n = typeof versionEntry?.n === 'number' ? versionEntry.n : null;
@@ -2277,7 +2337,7 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
       }
     }
 
-    const offerDraftReview = rigN === null && compiledDraftId !== undefined && compiledVerdict?.value.verdict !== 'approved';
+    const offerDraftReview = legacyWrites && rigN === null && compiledDraftId !== undefined && compiledVerdict?.value.verdict !== 'approved';
     if (offerDraftReview) {
       const field = `drafts[${compiledDraftId}]`;
       addAwait(field);
@@ -2294,7 +2354,7 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
       addAwait(move.awaits);
       moves.push(move);
     } else if (!checked && !hasOpenRigSteps && (!offerDraftReview || hasHistoryRig)) {
-      if (effectiveStage === 'rigging' && rigN !== null) {
+      if (effectiveStage === 'rigging' && (!legacyWrites || rigN !== null)) {
         const advCmd = candidateAdvance(dir, project, 'rig-review', now);
         if (advCmd !== null) {
           addAwait('project.stage');
@@ -2308,11 +2368,13 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
         }
       }
 
-      if (legacyWrites && rigN === null && compiledDraftId !== undefined && compiledVerdict?.value.verdict === 'approved') {
+      if (!legacyWrites) {
+        if (effectiveStage === 'rig-review') addCurrentReviewSignoff('rig-review');
+      } else if (rigN === null && compiledDraftId !== undefined && compiledVerdict?.value.verdict === 'approved') {
         const move = rigRegistrationMove(dir, nextRigN);
         addAwait(move.awaits);
         moves.push({ ...move, act: `Register the frozen rig from draft ${compiledDraftId}. Byte-identical inputs carry review act ${compiledVerdict.actId}.` });
-      } else if (legacyWrites && rigN === null && hasHistoryRig) {
+      } else if (rigN === null && hasHistoryRig) {
         const move = rigRegistrationMove(dir, nextRigN);
         addAwait(move.awaits);
         moves.push(move);
@@ -2358,7 +2420,7 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
       }
 
       const signoffAwait = 'signoffs[stage=rig-review]';
-      if (!hasLiveStageSignoff('rig-review') && !recordedLapseTargets.has(signoffAwait)
+      if (legacyWrites && !hasLiveStageSignoff('rig-review') && !recordedLapseTargets.has(signoffAwait)
         && !((effectiveStage === 'rig-review' || hasHistoryRig) && (rigN === null || reviewVerdictSignable(project, rigN, 'rig-review')))) {
         addAwait(signoffAwait);
         moves.push({
@@ -2397,44 +2459,17 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
       s => (s.phase === 'rig' || s.phase === 'post') && stageOfStep(s.phase, String(s.id)) === 'post',
     );
     const openPostSteps = postSteps.filter(s => s.status !== 'done');
-    const recordedPost = directionReviewPostState(dir, project, now);
-    // Bound Review publishes a numbered post on advance, even if current direction passes the stage check.
-    const postState = recordedPost.ready && recordedPost.postN === null && isObject(project.current)
-      && directionReviewNeedsNumberedPost(dir, parsedVersions)
-      ? directionReviewPostState(dir, { ...project, current: { ...project.current, direction: null } }, now)
-      : recordedPost;
-    const {
-      ready: postReady,
-      latestPost,
-      postN,
-      nextPostN,
-      composed,
-      currentScene,
-      missingScene,
-    } = postState;
+    const postState = legacyWrites ? directionReviewPostState(dir, project, now) : undefined;
     const addPostAuthoringMove = (): void => {
-      if (postReady) return;
+      if (!postState || postState.ready) return;
+      const { nextPostN, composed, currentScene } = postState;
       if (!isObject(project.direction_contract)) {
         addAwait('direction_contract');
-        if (legacyWrites) moves.push({ role: 'agent', field: 'direction_contract', awaits: 'direction_contract',
+        moves.push({ role: 'agent', field: 'direction_contract', awaits: 'direction_contract',
           command: `rig-create direction --adopt ${shellWord(dir)}`, act: 'adopt direction before authoring the post' });
         return;
       }
       const acceptedRig = latestAccepted(parsedVersions);
-      if (!legacyWrites) {
-        // Direction Review still needs a numbered post even when all current outputs are recorded.
-        const { current } = project;
-        if (postN !== null || !isObject(current) || !CURRENT_KINDS.every(kind => isObject(current[kind]))
-          || acceptedRig === null || openFeedback.length > 0 || missingDirectionStepApprovals(project, allItems).length > 0) return;
-        try {
-          handoff(dir, acceptedRig.n, now);
-          if (composed) sceneRigAcceptance(project, acceptedRig.n);
-          else if (sceneCurrentAt(dir, project, now) === undefined) return;
-        } catch (error) {
-          if (!(error instanceof Refusal || error instanceof SceneError)) throw error;
-          return;
-        }
-      }
       const rig = acceptedRig ?? parsedVersions.rigs.filter(r => r.live).at(-1);
       const rigN = typeof rig?.n === 'number' ? String(rig.n) : '<rig-version>';
       if (composed) {
@@ -2485,7 +2520,7 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
         }
       }
     } else {
-      if (effectiveStage === 'post' && postReady) {
+      if (effectiveStage === 'post' && (!postState || postState.ready)) {
         const advCmd = candidateAdvance(dir, project, 'direction-review', now);
         if (advCmd !== null) {
           moves.push({
@@ -2498,82 +2533,87 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
         }
       }
 
-      addPostAuthoringMove();
-      if (missingScene) addAwait('scenes[n=1]');
-      if (postN === null) {
-        addAwait(`versions[n=${nextPostN}]`);
-        const verdictAwait = `versions[n=${nextPostN}].verdicts[review=direction-review]`;
-        addAwait(verdictAwait);
-        moves.push({
-          role: 'human',
-          field: 'versions',
-          awaits: verdictAwait,
-          command: null,
-          act: `review-tool act review-verdict for direction-review (unanswered by record: ${missingScene ? 'scenes[n=1] and ' : ''}versions[n=${nextPostN}] are not recorded in project.json)`,
-          review_act: {
-            kind: 'review-verdict',
-            stage: 'direction-review',
-            version_id: `v${nextPostN}`,
-            review: 'direction-review',
-            ...(jobId ? { job_id: jobId } : {}),
-          },
-          unanswered_by_record: missingScene ? `scenes[n=1], versions[n=${nextPostN}]` : `versions[n=${nextPostN}]`,
-        });
+      if (!postState) {
+        if (effectiveStage === 'direction-review') addCurrentReviewSignoff('direction-review');
       } else {
-        const acceptedIdx = latestPost !== undefined ? acceptedReviewVerdict(latestPost, 'direction-review') : -1;
-        const acceptedEntry = acceptedIdx >= 0 ? asArray(latestPost?.verdicts)[acceptedIdx] : undefined;
-        const hasLiveAcceptedPostVerdict =
-          isObject(acceptedEntry) &&
-          liveSignoff(reopens, 'post', Date.parse(String(acceptedEntry.at)));
-        const verdictAwait = `versions[n=${postN}].verdicts[review=direction-review]`;
-        if (!hasLiveAcceptedPostVerdict && !recordedLapseTargets.has(verdictAwait)) {
+        const { latestPost, postN, nextPostN, missingScene } = postState;
+        addPostAuthoringMove();
+        if (missingScene) addAwait('scenes[n=1]');
+        if (postN === null) {
+          addAwait(`versions[n=${nextPostN}]`);
+          const verdictAwait = `versions[n=${nextPostN}].verdicts[review=direction-review]`;
           addAwait(verdictAwait);
           moves.push({
             role: 'human',
-            field: `versions[v${postN}].verdicts`,
+            field: 'versions',
             awaits: verdictAwait,
             command: null,
-            act: `review-tool act review-verdict for versions[v${postN}] (direction-review) on the post page: job open --rig ${postN}; ingest with review ${postN} --from-review <actId>`,
+            act: `review-tool act review-verdict for direction-review (unanswered by record: ${missingScene ? 'scenes[n=1] and ' : ''}versions[n=${nextPostN}] are not recorded in project.json)`,
             review_act: {
               kind: 'review-verdict',
               stage: 'direction-review',
-              version_id: `v${postN}`,
+              version_id: `v${nextPostN}`,
               review: 'direction-review',
               ...(jobId ? { job_id: jobId } : {}),
             },
+            unanswered_by_record: missingScene ? `scenes[n=1], versions[n=${nextPostN}]` : `versions[n=${nextPostN}]`,
+          });
+        } else {
+          const acceptedIdx = latestPost !== undefined ? acceptedReviewVerdict(latestPost, 'direction-review') : -1;
+          const acceptedEntry = acceptedIdx >= 0 ? asArray(latestPost?.verdicts)[acceptedIdx] : undefined;
+          const hasLiveAcceptedPostVerdict =
+            isObject(acceptedEntry) &&
+            liveSignoff(reopens, 'post', Date.parse(String(acceptedEntry.at)));
+          const verdictAwait = `versions[n=${postN}].verdicts[review=direction-review]`;
+          if (!hasLiveAcceptedPostVerdict && !recordedLapseTargets.has(verdictAwait)) {
+            addAwait(verdictAwait);
+            moves.push({
+              role: 'human',
+              field: `versions[v${postN}].verdicts`,
+              awaits: verdictAwait,
+              command: null,
+              act: `review-tool act review-verdict for versions[v${postN}] (direction-review) on the post page: job open --rig ${postN}; ingest with review ${postN} --from-review <actId>`,
+              review_act: {
+                kind: 'review-verdict',
+                stage: 'direction-review',
+                version_id: `v${postN}`,
+                review: 'direction-review',
+                ...(jobId ? { job_id: jobId } : {}),
+              },
+            });
+          }
+        }
+
+        const signoffAwait = 'signoffs[stage=direction-review]';
+        if (!hasLiveStageSignoff('direction-review') && !recordedLapseTargets.has(signoffAwait)) {
+          addAwait(signoffAwait);
+          moves.push({
+            role: 'human',
+            field: 'signoffs',
+            awaits: signoffAwait,
+            command: null,
+            act:
+              postN === null
+                ? `after recording the current post and accepted direction verdict, review-tool act signoff for direction-review (unanswered by record: ${missingScene ? 'scenes[n=1] and ' : ''}versions[n=${nextPostN}] are not recorded in project.json)`
+                : `after ingesting the accepted direction-review verdict for v${postN}, record signoff for stage direction-review, then advance accepted`,
+            review_act: {
+              kind: 'signoff',
+              stage: 'direction-review',
+              version_id: `v${nextPostN}`,
+              ...(jobId ? { job_id: jobId } : {}),
+            },
+            ...(postN === null
+              ? {
+                  unanswered_by_record:
+                    missingScene ? `scenes[n=1], versions[n=${nextPostN}]` : `versions[n=${nextPostN}]`,
+                }
+              : {}),
           });
         }
       }
 
-      const signoffAwait = 'signoffs[stage=direction-review]';
-      if (!hasLiveStageSignoff('direction-review') && !recordedLapseTargets.has(signoffAwait)) {
-        addAwait(signoffAwait);
-        moves.push({
-          role: 'human',
-          field: 'signoffs',
-          awaits: signoffAwait,
-          command: null,
-          act:
-            postN === null
-              ? `after recording the current post and accepted direction verdict, review-tool act signoff for direction-review (unanswered by record: ${missingScene ? 'scenes[n=1] and ' : ''}versions[n=${nextPostN}] are not recorded in project.json)`
-              : `after ingesting the accepted direction-review verdict for v${postN}, record signoff for stage direction-review, then advance accepted`,
-          review_act: {
-            kind: 'signoff',
-            stage: 'direction-review',
-            version_id: `v${nextPostN}`,
-            ...(jobId ? { job_id: jobId } : {}),
-          },
-          ...(postN === null
-            ? {
-                unanswered_by_record:
-                  missingScene ? `scenes[n=1], versions[n=${nextPostN}]` : `versions[n=${nextPostN}]`,
-              }
-            : {}),
-        });
-      }
-
       if (effectiveStage === 'post') {
-        addAwait('project.stage');
+        if (legacyWrites || moves.some(move => move.field === 'stage')) addAwait('project.stage');
       } else if (hasLiveStageSignoff('direction-review')) {
         const nextStage = nextStageInOrder(project, stage);
         if (nextStage !== null) {

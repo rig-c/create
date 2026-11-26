@@ -11,6 +11,7 @@ import { CHOICE_ORDER_SPEC } from './stages.ts';
 import { readTemplate, type JsonObject } from './templates.ts';
 import { JOB_BINDING_FILE, JOB_OUTBOX_DIRECTORY } from './job-outbox.ts';
 import { parseOwnerLanguage, withOwnerLanguage } from './owner-language.ts';
+import { OUTPUTS_IGNORE } from './project-step-commit.ts';
 
 export const INTERVIEW_DOC_URL = 'https://github.com/rig-c/create/blob/main/docs/INTERVIEW.md';
 
@@ -19,7 +20,7 @@ export const TRACKED_EMPTY_DIRS = ['inputs/references', 'evidence'] as const;
 /** Folders git ignores (docs/PROJECT.md: not tracked). Created empty. */
 export const IGNORED_DIRS = ['derived', 'outputs', 'scratch'] as const;
 
-export const GITIGNORE = ['/derived/', '/outputs/', '/scratch/', 'node_modules/', `/${JOB_BINDING_FILE}`, `/${JOB_OUTBOX_DIRECTORY}/`, ''].join('\n');
+export const GITIGNORE = ['/derived/', ...OUTPUTS_IGNORE, '/scratch/', 'node_modules/', `/${JOB_BINDING_FILE}`, `/${JOB_OUTBOX_DIRECTORY}/`, ''].join('\n');
 
 /** Used for the first commit only, and only when git has no identity configured. */
 export const FALLBACK_IDENTITY = { name: 'rig-create', email: 'rig-create@localhost' } as const;

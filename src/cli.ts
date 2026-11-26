@@ -37,6 +37,7 @@ import { DERIVED_HELP, derivedCommand } from './prepared-inputs.ts';
 import { SPLIT_CAPTIONS_HELP, splitCaptionsCommand } from './split-captions.ts';
 import { jobRuntimeCommand, takePendingNotices, takePublishedLines } from './job-writer.ts';
 import { NEXT_HELP, nextCommand } from './next.ts';
+import { historyCommand } from './history.ts';
 import { parseOwnerLanguage } from './owner-language.ts';
 import { ownerLanguageCommand } from './owner-language-writer.ts';
 
@@ -85,6 +86,7 @@ ${INPUT_CLI}  rig-create init <dir> [--no-install]              create a project
   rig-create interview --check [<project dir>] [--json]
                                                     refuse by name every hole the interview and plan still have
   rig-create next [<project dir>] [--json]          derive the next moves and whose they are from project.json
+  rig-create history [<project dir>] [--json]       list Create's step-data commits and their back commands
   rig-create handoff [<project dir>] [--rig <n>] [--json]
                                                     name the accepted rig version post work runs on, or refuse
   rig-create review <version> --verdict <v> --by <who> --review <r> --verbatim <s> --source <s> [--item <id>[:<answer_was>]]... [<project dir>]
@@ -293,6 +295,7 @@ const COMMANDS: Record<string, Command> = {
   'intake-report': intakeReportCommand,
   interview: interviewCommand,
   next: nextCommand,
+  history: historyCommand,
   'interview-options': interviewOptionsCommand,
   'interview-answer': interviewAnswerCommand,
   'interview-decision': interviewDecisionCommand,
@@ -457,7 +460,7 @@ export function main(argv: string[], now: number): number {
     const jobLines = takePublishedLines();
     const text = typeof result === 'string' ? result : result.stdout;
     const output = !rest.includes('--json') && jobLines.length ? `${text}\n${jobLines.join('\n')}` : text;
-    process.stdout.write(`${output}\n`);
+    if (output || first !== 'history') process.stdout.write(`${output}\n`);
     if (typeof result !== 'string' && result.stderr) process.stderr.write(`${result.stderr}\n`);
     // A committed record whose publication is pending is a success with a named WARN (create#844).
     const pending = takePendingNotices();

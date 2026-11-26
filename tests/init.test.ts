@@ -1,11 +1,22 @@
 import { describe, expect, test } from 'bun:test';
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 import { FALLBACK_IDENTITY, GITIGNORE, IGNORED_DIRS, TRACKED_EMPTY_DIRS, packageNameFor } from '../src/init.ts';
 import { PINNED_PACKAGES } from '../src/pins.ts';
 import { readTemplate } from '../src/templates.ts';
 import { cli, gitEnv, run, tempDir } from './helpers.ts';
+
+test('#1029 the step commit helper can be imported before init in a fresh process', () => {
+  const helper = pathToFileURL(join(import.meta.dir, '../src/project-step-commit.ts')).href;
+  const init = pathToFileURL(join(import.meta.dir, '../src/init.ts')).href;
+  const result = run([process.execPath, '-e', `await import(${JSON.stringify(helper)}); process.stdout.write((await import(${JSON.stringify(init)})).GITIGNORE)`],
+    tempDir(), gitEnv());
+  expect(result.stderr).toBe('');
+  expect(result.code).toBe(0);
+  expect(result.stdout).toBe(GITIGNORE);
+});
 
 function listTree(dir: string, prefix = ''): string[] {
   const out: string[] = [];
@@ -73,9 +84,11 @@ describe('init --no-install into an empty folder', () => {
     expect(template.name).toBeNull();
   });
 
-  test('.gitignore drops derived/, outputs/, scratch/ and node_modules/', () => {
+  test('.gitignore keeps current parts trackable and ignores the other output trees', () => {
     expect(readFileSync(join(dir, '.gitignore'), 'utf8')).toBe(GITIGNORE);
-    expect(GITIGNORE.split('\n')).toEqual(['/derived/', '/outputs/', '/scratch/', 'node_modules/', '/.rig-create-review-binding.json', '/.rig-create-review/', '']);
+    expect(GITIGNORE.split('\n')).toEqual(['/derived/', '/outputs/*', '!/outputs/parts/', '/scratch/', 'node_modules/', '/.rig-create-review-binding.json', '/.rig-create-review/', '']);
+    expect(run(['git', 'check-ignore', '--', 'outputs/parts/parts.json'], dir, env).code).toBe(1);
+    expect(run(['git', 'check-ignore', '--', 'outputs/rig/rig.json'], dir, env).stdout).toBe('outputs/rig/rig.json\n');
   });
 
   test('package.json pins the rig-c packages exactly', () => {

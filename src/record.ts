@@ -1,7 +1,7 @@
 /**
  * `record <kind>`: write `current.<kind>` and install the producer's output by rename (docs/CURRENT-DATA.md §1.3).
  * create reads the producer's run records and check report and never re-derives them (AGENTS.md invariant 1).
- * Every refusal comes before the first rename, so a refused write leaves project.json and outputs/<kind>/ byte-identical.
+ * A refused write leaves project.json and outputs/<kind>/ byte-identical.
  */
 import { randomUUID } from 'node:crypto';
 import { closeSync, mkdirSync, openSync, renameSync, rmSync } from 'node:fs';
@@ -11,13 +11,13 @@ import { existsSync, lstatSync, readFileSync, realpathSync } from './check-reads
 import { checkProject, isObject, PROJECT_SCHEMA } from './check.ts';
 import { literalFile } from './choices.ts';
 import { readDirectionOutput } from './current-direction.ts';
-import { builtFromNameAllowed, CURRENT_KINDS, CURRENT_RIG_MODEL, currentFileBinding, currentFindings, currentHash, currentShapeFindings, isRunRecordFile, outputRoot, outputSetHash, RUN_RECORD_NAME, sha256, treeFiles, type CurrentKind, type RebuildRunSpec } from './current.ts';
+import { builtFromNameAllowed, CURRENT_KINDS, CURRENT_RIG_MODEL, currentFileBinding, currentHash, currentShapeFindings, isRunRecordFile, outputRoot, outputSetHash, RUN_RECORD_NAME, sha256, treeFiles, type CurrentKind, type RebuildRunSpec } from './current.ts';
 import { DirectionError } from './direction.ts';
 import { readProject } from './feedback.ts';
 import { acquireBoundJobWrite } from './job-writer.ts';
 import type { CommandResult } from './interview.ts';
 import { PARTS_CHECK_FILE, PARTS_CHECK_SPEC, partsCheckFindings, partsCheckRecord } from './parts-check.ts';
-import { commitProjectStep } from './project-step-commit.ts';
+import { commitProjectStep, GITIGNORE_MIGRATION_LINE, migrateProjectGitignore } from './project-step-commit.ts';
 import { writeRecord } from './record-input.ts';
 import { Refusal, refuse, USAGE_EXIT } from './refusal.ts';
 import { baselineOf, newFindings } from './refusal-baseline.ts';
@@ -521,9 +521,15 @@ export function recordCommand(args: string[], now: number): CommandResult {
     if (shape) refuse(shape.code, shape.message);
     const current = isObject(project.current) ? project.current : {};
     const candidate: JsonObject = { ...project, current: { ...current, [kind]: node } };
-    const baseline = baselineOf(checkProject(dir, undefined, { now }));
-    const [fresh, ...more] = newFindings(baseline, checkProject(dir, candidate, { now }).refusals);
-    if (fresh) refuse(fresh.code, [fresh.message, ...more.map(f => `${f.code}: ${f.message}`)].join('\n  '));
+    const before = checkProject(dir, undefined, { now });
+    const baseline = baselineOf(before);
+    const checkCandidate = (): ReturnType<typeof checkProject> => {
+      const report = checkProject(dir, candidate, { now });
+      const [fresh, ...more] = newFindings(baseline, report.refusals);
+      if (fresh) refuse(fresh.code, [fresh.message, ...more.map(f => `${f.code}: ${f.message}`)].join('\n  '));
+      return report;
+    };
+    let after = checkCandidate();
     if (kind === 'motion' || kind === 'direction') {
       const requireHash = (path: string, expected: string): void => {
         let actual: string | undefined;
@@ -546,6 +552,7 @@ export function recordCommand(args: string[], now: number): CommandResult {
     let movedOld = false;
     let movedNew = false;
     let recorded = false;
+    let migration: ReturnType<typeof migrateProjectGitignore> | undefined;
     try {
       if (from !== root) {
         mkdirSync(join(dir, posix.dirname(root)), { recursive: true });
@@ -554,26 +561,40 @@ export function recordCommand(args: string[], now: number): CommandResult {
         movedNew = true;
       }
       if (!isDeepStrictEqual(treeFiles(dir, root), files)) refuse('RECORD_SOURCE_CHANGED', `${from}: changed while record ${kind} was validating; let the producer finish and record again`);
+      migration = migrateProjectGitignore(dir);
+      // Check the installed bytes while the output trees and ignore file can still be restored.
+      if (movedNew || migration.changed) after = checkCandidate();
       writeRecord(file, original, candidate, `record-${kind}`, 'RECORD_SOURCE_CHANGED');
       recorded = true;
     } finally {
       if (!recorded) {
-        if (movedNew) renameSync(join(dir, root), join(dir, from));
-        if (movedOld) renameSync(join(dir, aside), join(dir, root));
+        try { if (migration?.changed) migration.restore(); }
+        finally {
+          if (movedNew) renameSync(join(dir, root), join(dir, from));
+          if (movedOld) renameSync(join(dir, aside), join(dir, root));
+        }
       }
     }
     if (movedOld) rmSync(join(dir, aside), { recursive: true, force: true });
-    let stderr: string | undefined;
-    if (kind === 'motion' || kind === 'direction') {
-      const warnings: ReturnType<typeof currentFindings> = [];
-      currentFindings(dir, candidate, warnings);
-      const stale = warnings.filter(f => f.code === 'OUTPUT_STALE').map(f => f.path.slice('current.'.length));
-      const writer = ['record', kind, '--from', from, ...(kind === 'direction' ? ['--direction', options['--direction']!] : [])].join(' ');
-      stderr = commitProjectStep(dir, kind, writer, 'project.json', root, stale);
-    }
+    const staleBefore = new Set(before.warnings.filter(f => f.code === 'OUTPUT_STALE').map(f => f.path));
+    const stale = after.warnings.filter(f => f.code === 'OUTPUT_STALE' && !staleBefore.has(f.path))
+      .map(f => f.path.slice('current.'.length));
+    const writer = ['record', kind, '--from', from,
+      ...(sourceFlag ? [sourceFlag, config ?? options[sourceFlag]!] : []),
+      ...(options['--by'] ? ['--by', options['--by']] : []),
+    ].map(value => /^[\w./@+-]+$/.test(value) ? value : JSON.stringify(value)).join(' ');
+    const migrationWarning = migration.changed ? undefined : migration.warning;
+    const commitWarning = !migration.changed && migration.failed ? undefined : commitProjectStep(dir, kind, writer, 'project.json', root, stale, {
+      migratedGitignore: migration.changed,
+      ...(kind === 'parts' ? { partsFiles: files.map(f => f.path) } : {}),
+    });
+    // Keep machine-readable stdout a single JSON value.
+    const notice = migration.changed ? GITIGNORE_MIGRATION_LINE : undefined;
+    const stderr = [json ? notice : undefined, migrationWarning, commitWarning].filter(Boolean).join('\n');
     const bytes = files.reduce((total, f) => total + f.bytes, 0);
-    return { stdout: json ? JSON.stringify(node, null, 2)
-      : `record ${kind}: ${root} recorded (${files.length} files, ${bytes} bytes); built from ${details.built_from.map(b => b.path).join(', ')}`, exit: 0, ...(stderr ? { stderr } : {}) };
+    const summary = `record ${kind}: ${root} recorded (${files.length} files, ${bytes} bytes); built from ${details.built_from.map(b => b.path).join(', ')}`;
+    return { stdout: json ? JSON.stringify(node, null, 2) : [summary, notice].filter(Boolean).join('\n'),
+      exit: 0, ...(stderr ? { stderr } : {}) };
   } catch (error) {
     if (error instanceof Refusal) throw error;
     if (error instanceof DirectionError) return refuse(error.code, error.message);

@@ -162,6 +162,10 @@ test('#504 preserves changed-input refusal without suggesting duplicate registra
   const report = nextProject(f.dir, EXAMPLE_NOW);
   expect(report.refusals.map(row => row.code)).toContain('INPUT_FILE_CHANGED');
   expect(report.moves.map(move => printedArgs(move.command!)[2])).toEqual([f.foreground]);
+  writeFileSync(f.file, JSON.stringify({ ...JSON.parse(readFileSync(f.file, 'utf8')), current: {} }));
+  const withCurrent = nextProject(f.dir, EXAMPLE_NOW);
+  expect(withCurrent.refusals.map(row => row.code)).toContain('INPUT_FILE_CHANGED');
+  expect(withCurrent.moves).toEqual(report.moves);
 });
 
 test('#504 keeps existing named refusals and offers registration before a blocked stored scene', () => {

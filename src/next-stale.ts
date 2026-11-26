@@ -3,12 +3,34 @@ import { isDeepStrictEqual } from 'node:util';
 import { readFileSync, realpathSync } from './check-reads.ts';
 import { asArray, isObject, type Finding } from './check.ts';
 import { literalFile } from './choices.ts';
+import { CURRENT_DIRECTION_PATH } from './current-direction.ts';
 import { CURRENT_KINDS, isRunRecordFile, outputRoot, sha256, type CurrentKind } from './current.ts';
 import type { NextMove, NextReport } from './next.ts';
 import { RunRecordError, validateRunRecord } from './run-record.ts';
 import type { Json, JsonObject } from './templates.ts';
 
 type ShellWord = (value: string) => string;
+
+const CURRENT_OUTPUT_PREPARATION: Record<CurrentKind, string> = {
+  parts: 'assemble and check the parts with the producer config',
+  rig: 'build and check the rig with the producer config',
+  motion: 'render the motion from the recorded rig',
+  direction: 'write the current scene and direction specs and compose from the recorded rig and motion',
+};
+
+export function currentOutputMove(dir: string, kind: CurrentKind, quote: ShellWord): NextMove {
+  const field = `current.${kind}`;
+  const from = `${outputRoot(kind)}.next`;
+  const source = kind === 'parts' || kind === 'rig' ? ' --config specs/rig/config.json'
+    : kind === 'direction' ? ` --direction ${CURRENT_DIRECTION_PATH}` : '';
+  return { role: 'agent', field, awaits: field,
+    command: `rig-create record ${kind} ${quote(dir)} --from ${from}${source}`,
+    act: `Prepare ${from} before recording: ${CURRENT_OUTPUT_PREPARATION[kind]}.` };
+}
+
+const CANONICAL_INPUTS: Readonly<Record<CurrentKind, readonly CurrentKind[]>> = {
+  parts: [], rig: [], motion: ['rig'], direction: ['rig', 'motion'],
+};
 
 function inDirectory(dir: string, step: string, quote: ShellWord): string {
   const cwd = quote(dir);
@@ -182,18 +204,42 @@ function forwardOutput(move: NextMove, next: NextReport): CurrentKind | undefine
   if (move.field === 'versions') return STAGE_OUTPUT[next.effective_stage];
 }
 
-export function withStaleOutputs(dir: string, project: JsonObject, warnings: Finding[], next: NextReport, quote: ShellWord): NextReport {
-  if (!isObject(project.current)) return next;
-  const current = project.current;
-  const stale = CURRENT_KINDS.flatMap(kind => {
+export function withStaleOutputs(dir: string, current: JsonObject, warnings: Finding[], next: NextReport, quote: ShellWord,
+  missing: ReadonlyMap<CurrentKind, { adoption?: NextMove; producer: NextMove }>): NextReport {
+  const stale = new Map(CURRENT_KINDS.flatMap(kind => {
     const finding = warnings.find(w => w.code === 'OUTPUT_STALE' && w.path === `current.${kind}`);
     const node = current[kind];
-    return finding && isObject(node) ? [{ kind, move: rebuildMove(dir, kind, node, finding, quote) }] : [];
-  });
-  if (stale.length === 0) return next;
+    return finding && isObject(node) ? [[kind, rebuildMove(dir, kind, node, finding, quote)]] as const : [];
+  }));
 
-  const earliest = CURRENT_KINDS.indexOf(stale[0]!.kind);
+  const firstStale = stale.keys().next().value;
+  const earliest = firstStale === undefined ? CURRENT_KINDS.length : CURRENT_KINDS.indexOf(firstStale);
   const blocked = (kind: CurrentKind | undefined): boolean => kind !== undefined && CURRENT_KINDS.indexOf(kind) >= earliest;
+  const offered = new Map([...missing].filter(([kind]) => !blocked(kind)));
+  const adopted = (input: CurrentKind): boolean => {
+    const node = current[input];
+    return isObject(node) && isObject(node.adopted);
+  };
+  // An adopted output lives under outputs/vN. Keep its replacement in the upstream
+  // sequence when a canonical writer needs it, without inventing an OUTPUT_STALE warning.
+  const replacements = new Set([...stale.keys(), ...offered.keys()]
+    .flatMap(kind => CANONICAL_INPUTS[kind].filter(adopted)));
+  const outputs = CURRENT_KINDS.flatMap(kind => {
+    const rebuild = stale.get(kind);
+    if (rebuild) return [rebuild];
+    const waitsFor = CANONICAL_INPUTS[kind].filter(adopted);
+    if (replacements.has(kind)) {
+      const move = currentOutputMove(dir, kind, quote);
+      const act = `Rebuild the adopted ${kind} as a canonical output under ${outputRoot(kind)}/. Record the replacement before recording dependent producer outputs. ${move.act}`;
+      if (waitsFor.length === 0) return [{ ...move, act }];
+      const upstream = waitsFor.map(input => `current.${input}`).join(' and ');
+      return [{ ...move, command: null, act: `Rebuild ${upstream} first. ${act} Then run ${move.command}.` }];
+    }
+    const offer = offered.get(kind);
+    if (!offer) return [];
+    return [...(offer.adoption ? [offer.adoption] : []), ...(waitsFor.length === 0 ? [offer.producer] : [])];
+  });
+
   const blockPostOptions = blocked('rig');
   const blockedReviews = new Set(next.moves.filter(move => move.review_act?.kind === 'review-verdict'
     && blocked(STAGE_OUTPUT[move.review_act.stage])).map(move => move.awaits));
@@ -205,7 +251,6 @@ export function withStaleOutputs(dir: string, project: JsonObject, warnings: Fin
     return false;
   });
   const retained = new Set(forward.map(move => move.awaits));
-  const rebuilds = stale.map(({ move }) => move);
   const awaits = next.awaits.filter(target => !removed.has(target) || retained.has(target));
   // The answer view can also offer option preparation for already recorded picks.
   const answerView = blockPostOptions && next.effective_stage === 'post-interview' && next.answers
@@ -215,5 +260,5 @@ export function withStaleOutputs(dir: string, project: JsonObject, warnings: Fin
         return recorded;
       }) }
     : {};
-  return { ...next, ...answerView, moves: [...rebuilds, ...forward], awaits: [...new Set([...rebuilds.map(move => move.awaits), ...awaits])] };
+  return { ...next, ...answerView, moves: [...outputs, ...forward], awaits: [...new Set([...outputs.map(move => move.awaits), ...awaits])] };
 }

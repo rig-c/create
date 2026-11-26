@@ -658,9 +658,9 @@ replaced would accept something that no longer matches the rig.
 rig-create handoff [<project dir>] [--rig <n>] [--json]
 ```
 
-Post-production tooling runs this before it runs. It exits `0` and prints the
-latest accepted rig version and its acceptance. The result includes `still`
-when the rig has a well-formed historical still. It exits `1` with
+Numbered post-production tooling uses this reader to find the latest accepted
+rig version. It exits `0` and prints that version and its acceptance. The
+result includes `still` when the rig has a well-formed historical still. It exits `1` with
 `RIG_VERSION_UNACCEPTED` when there is no accepted rig or a newer rig awaits
 review. With
 `--rig <n>` it also refuses when `<n>` is not that version
@@ -671,6 +671,34 @@ the post version's `rig_version` holds. It reads the record and writes nothing.
 `post-interview` (a collection member whose composition belongs to the
 collection, for example), the sign-off of `post-interview` says so and the
 project moves from there to `accepted`.
+
+### Adopting existing numbered outputs
+
+Use `rig-create record <kind> [<dir>] --adopt [--json]` to bring a retained
+output into `current.<kind>` when that entry is absent. The writer selects the
+latest live rig version for parts, rig or motion, and the latest live post
+version for direction. The selected version must bind the requested output.
+`adopted: { version }` names that source, and the complete kind-specific
+inventory must match its retained paths, SHA-256 hashes and any declared byte
+counts. The command writes metadata to `project.json` and leaves the numbered
+records and their files in place.
+
+The adopted `built_from` list can be incomplete. It omits inputs that the
+source version did not bind, so staleness checks cover the dependencies on
+record. The writer includes `run` and `report` when the numbered inventory
+binds the corresponding receipts. It marks rebuild arguments unrecorded
+for adopted rig and motion, and omits `rebuild` for adopted parts and direction.
+Rebuild into the normal producer staging folder, such as
+`outputs/rig.next/`, and use `record <kind> --from …` with the kind's usual
+options when you need a canonical output. This replaces the adopted entry
+for that kind with a producer-backed entry under `outputs/<kind>/`.
+
+The numbered write flow applies to projects without `current`. Once a project
+has `current`, use the current writers. Historical readers still resolve
+numbered rigs, scenes and posts through their retained bindings. Current
+consumers that require canonical inputs, such as the current scene writer,
+use the recorded files under `outputs/<kind>/`. See
+[Current-output checks](CHECKS.md#current-outputs-record-parts-record-rig-record-motion-record-direction).
 
 ### Recording current motion and direction
 
@@ -719,9 +747,8 @@ Each unnumbered spec writer commits only its own generated spec. Any unrelated
 staged `project.json` bytes stay staged.
 
 Run `rig-create interview --check <dir> --json` at `post` to verify the current
-record shapes and input hashes. Continue using the numbered scene and
-direction writers and their prerequisites for `direction-review`. Existing
-numbered posts still open and check through their retained version bindings.
+record shapes and input hashes. Advancing to `direction-review` still requires
+a live numbered post (#1032).
 
 ### Split approval is a plan checkpoint
 
@@ -2029,7 +2056,8 @@ Review previews through the published `@rig-c/play` runtime (review README,
 *delivery flow*); create renders nothing. A document is authored data, not proof
 of a rendered take, seamless looping, source-animation extent, or a parts gate.
 
-Adopt with `rig-create direction --adopt <dir>`. It writes
+On the numbered flow for a project without `current`, adopt the direction
+contract with `rig-create direction --adopt <dir>`. It writes
 `direction_contract:{schema:"rig-create/direction-contract@1",adopted_at,
 grandfathered_posts}`. The sorted, unique post numbers are existing posts at
 adoption. They remain exempt from a missing direction document; explicit
@@ -2749,13 +2777,18 @@ the project's next moves and whose they are from `project.json`:
   `unanswered_by_record` retain their missing-field guidance.
 - **Scene writing does not plan work.** `scene write` adds no plan step.
   Author the post plan steps through `plan add` before post-interview sign-off.
-- **Motion and direction.** `next` retains the numbered scene and direction
-  moves and their prerequisites for `direction-review`. At `post` or
-  `direction-review`, a current rig model binding and staged
-  `outputs/motion.next/frames.json` allow a `record motion` move. For
-  `record direction`, `next` looks for the current rig model binding, a
-  numbered post, the current direction spec and both staged compose receipts
-  in `outputs/direction.next`.
+- **Current outputs.** For each missing kind, `next` prefers
+  `record <kind> --adopt` when the latest live source version binds the
+  output and the retained files match. Projects without `current` still
+  get the numbered scene and direction moves. With `current`, `next`
+  also offers preparation guidance for `outputs/<kind>.next` and the
+  corresponding producer recording command.
+  Canonical motion needs a canonical rig, and canonical direction needs
+  both a canonical rig and canonical motion. When one of those inputs
+  is adopted, `next` guides its rebuild before offering the dependent
+  producer command. Stale outputs get upstream-first rebuild guidance
+  and block dependent moves, including adoption of downstream missing
+  kinds. Blocking refusals take precedence over output recording.
 - **Refusals come first.** When `check` reports refusals (or publication holes),
   `next` lists each in `refusals[]` with its `CHECKS.md` remedy (`fix`) before
   any forward move. A project with a blocking refusal has `moves: []` and

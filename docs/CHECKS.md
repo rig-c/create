@@ -1954,6 +1954,35 @@ Feedback is discussion; no code here fires because a plan has none.
 
 ## Current outputs (`record parts`, `record rig`, `record motion`, `record direction`)
 
+### Adopting numbered outputs in place
+
+`rig-create record <kind> [<dir>] --adopt [--json]` records metadata in
+`current.<kind>` from the latest live rig version for parts, rig or motion,
+or the latest live post version for direction. If that version has no bound
+output for the kind, adoption refuses. The writer sets `adopted: { version }`
+and verifies each file against the retained SHA-256 and any recorded byte
+count. `check` requires the full kind-specific `files[]` inventory to match
+the cited version by path, SHA-256 and any recorded byte count, even if that
+version later lapses. Adoption leaves the numbered outputs and their records
+in place.
+
+`built_from` is empty for adopted parts and motion. For rig it can bind the
+recorded config source, and for direction it can bind the retained direction
+document and compose scene. The writer omits missing bindings, and
+`OUTPUT_STALE` covers the dependencies actually recorded. The writer includes
+`run` and `report` when their receipts are bound in the retained inventory. Adopted
+rig and motion record `rebuild: { recorded: false, note }`. The writer omits
+`rebuild` for adopted parts and direction. Current consumers that require
+canonical output paths still need a producer-backed record at
+`outputs/<kind>/`. Rebuild and run `record <kind> --from …` to replace the
+adopted entry for that kind and install the canonical output.
+
+The legacy numbered write flow is for projects without `current`. Readers
+continue to validate retained numbered records and their evidence whether or
+not the project has `current`. See [Adopting existing numbered outputs](PROJECT.md#adopting-existing-numbered-outputs).
+
+### Recording producer output
+
 `rig-create record parts [<dir>] --from <producer out> --config <rig config>`
 writes `current.parts` and renames the producer's folder, normally
 `outputs/parts.next/`, into `outputs/parts/`. It reads `run.json` (`rig-run/1`,
@@ -2008,8 +2037,11 @@ for the post-stage workflow.
 
 | Code | Fires when | Remedy |
 | --- | --- | --- |
-| `RECORD_USAGE` | the kind is outside `parts`, `rig`, `motion` and `direction`, a required option is absent, or an option is unknown or repeated | use `--from` for each kind, `--config` for parts or rig, and `--direction specs/direction/direction.json` for direction |
+| `RECORD_USAGE` | the kind is outside `parts`, `rig`, `motion` and `direction`, a required option is absent, an option is unknown or repeated, or `--adopt` is combined with a producer-backed option | use `--adopt` with an optional project folder and `--json`. For a producer-backed write, use `--from`, add `--config` for parts or rig, and add `--direction specs/direction/direction.json` for direction |
 | `RECORD_BUSY` | another record writer holds the project lock | let it finish and retry |
+| `RECORD_ADOPT_CURRENT_EXISTS` | `current.<kind>` already exists | rebuild and use `record <kind> --from` to replace that entry |
+| `RECORD_ADOPT_SOURCE_MISSING` | there is no live version of the applicable role, or the latest live version has no retained output bindings for the requested kind | restore the source version's bound inventory or produce new output and record it with `--from` |
+| `RECORD_ADOPT_SOURCE_INVALID` | `current` has an invalid shape, the source version is ambiguous or has invalid build metadata, a source binding is malformed or duplicated, or a bound file is missing, unreadable, symlinked or differs from its recorded SHA-256 or byte count | restore valid legacy bindings and their exact files, or produce new output and record it with `--from` |
 | `RECORD_FROM_INVALID` | `--from` is outside the project, is neither `outputs/<kind>` nor a sibling folder beside `outputs/<kind>/`, is not a real folder, or holds a symlink or other non-regular entry | point `--from` at a folder beside `outputs/<kind>/` (normally `outputs/<kind>.next`) or `outputs/<kind>` itself |
 | `RECORD_CONFIG_MISMATCH` | `--config` is outside the project, inside the output, not a regular file, or its sha256 differs from the config the `rig-run/1` record or the `rig-run/2` or `rig-run/3` build record names | pass the config the parts or rig output was built from, kept under `specs/rig/` |
 | `RECORD_MOTION_RIG_INVALID` | the current rig lacks a valid compiled-model binding, those model bytes are missing or changed, or the render run's skeleton or any supplied atlas or model input differs in path or hash from the recorded rig | restore or record the current rig, render from its bound build and record motion again |
@@ -2024,8 +2056,8 @@ for the post-stage workflow.
 | `RECORD_DESTINATION_INVALID` | `outputs/<kind>` exists and is not a folder | move that file away and record again |
 | `RECORD_SOURCE_CHANGED` | the folder or `project.json` changed while the writer was validating; the renames are undone | let the producer finish and record again |
 | `RECORD_WRITE_FAILED` | a rename or the record write failed for another reason; the renames are undone | fix the project storage and record again |
-| `CURRENT_MALFORMED` | `current` or a `current.<kind>` entry has the wrong shape. Each entry has `at`, `built_by`, `built_with`, sorted `files[]` under `outputs/<kind>/`, `files_sha256` and `built_from[]`. Parts, rig and direction require `run` and `report`. Rig requires `rebuild` (`{ recorded: false, note }` or `{ recorded: true, runs }`). Motion with `rebuild` has an optional `report`, requires `run` when `rebuild.recorded` is true and omits it when false, and allows only `rigc-run/2` in `rebuild.runs`. Earlier motion entries without `rebuild` require both `run` and `report`. Each `run` or `report` binding present must match a `files[]` entry by path and sha256. A `built_from` entry naming a run record (`run.json` or any `*-run.json`), the compose check report or the output itself also refuses. | restore the record `record` wrote, or record the output again |
-| `OUTPUT_STALE` | WARN: a `built_from` path is missing or now hashes differently — except the `current.parts` config entry when `outputs/parts/rig/parts.json` still has its recorded sha256 and carries `assembly_config`, which is stale only when the config is missing, unreadable, or `@rig-c/parts/assembly-reading`'s `assemblyConfigChanges` reports changed fields (named in the message; legacy `parts.json` without `assembly_config` keeps the whole-file sha256 comparison) — or a `built_from` path lies in an upstream output that is stale | rebuild it upstream-first and record it with `record <kind>` |
+| `CURRENT_MALFORMED` | `current` or a `current.<kind>` entry has the wrong shape. Each entry has `at`, `built_by`, `built_with`, sorted `files[]`, `files_sha256` and `built_from[]`. For producer-backed entries, `files[]` is under `outputs/<kind>/`. Producer-backed parts, rig and direction require `run` and `report`. Rig requires `rebuild` (`{ recorded: false, note }` or `{ recorded: true, runs }`). Producer-backed motion with `rebuild` has an optional `report`, requires `run` when `rebuild.recorded` is true and omits it when false, and allows only `rigc-run/2` in `rebuild.runs`. Earlier producer-backed motion entries without `rebuild` require both `run` and `report`. An adopted entry must cite one numbered version with `adopted: { version }` and match its full kind-specific output inventory. An adopted entry may omit `report` and may omit `run` except for motion with `rebuild.recorded: true`. Each `run` or `report` binding present must match a `files[]` entry by path and sha256. A `built_from` entry naming a run record (`run.json` or any `*-run.json`), the compose check report or the output itself also refuses. | restore the record and its original source bindings, or record the output again |
+| `OUTPUT_STALE` | WARN: a `built_from` path is missing or now hashes differently — except the `current.parts` config entry when `outputs/parts/rig/parts.json` still has its recorded sha256 and carries `assembly_config`, which is stale only when the config is missing, unreadable, or `@rig-c/parts/assembly-reading`'s `assemblyConfigChanges` reports changed fields (named in the message; legacy `parts.json` without `assembly_config` keeps the whole-file sha256 comparison) — or a `built_from` path lies in an upstream output that is stale. Adopted motion uses its adoption version as its rig basis, and adopted direction uses the post's `rig_version`. When present, `current.rig` makes these dependents stale if it is canonical, adopts a different version, or matches their rig basis and is itself stale. | rebuild it upstream-first and record it with `record <kind>` |
 | `REBUILD_ARGS_UNRECORDED` | WARN for any valid `current.<kind>` entry with `rebuild.recorded: false`. Rig and motion producers can write this form. For rig, a producer run in `outputs/rig` lacks a supported run record carrying its `argv` (`/2`, or `rig-run/3` for Parts `build`). Motion from the pinned renderer uses `{ recorded: false, note }` and omits `run`. | rebuild with producers that record `argv`, then record again to bind it. For motion, use a renderer that supplies a `rigc-run/2` run record. |
 | `PROJECT_NOT_IN_GIT` | a current record or spec writer saved its data without a Git work tree at the project root or its collection root, or `history` found no such work tree or no Create step-data commits for the project at HEAD. Both warn on stderr and exit 0. History leaves stdout empty, including in JSON mode. | use a project or collection work tree and run a Create step-data writer to establish history, or fetch the existing history |
 | `GITIGNORE_PATTERN_ABSENT` | the record writer found neither the exact legacy `/outputs/` line to migrate nor the current rule pair. The record succeeds and the writer preserves the existing `.gitignore`. | if parts are still ignored, update the applicable rules by hand so `/outputs/*` is followed by `!/outputs/parts/` |

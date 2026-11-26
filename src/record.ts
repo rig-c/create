@@ -18,6 +18,7 @@ import { acquireBoundJobWrite } from './job-writer.ts';
 import type { CommandResult } from './interview.ts';
 import { PARTS_CHECK_FILE, PARTS_CHECK_SPEC, partsCheckFindings, partsCheckRecord } from './parts-check.ts';
 import { commitProjectStep, GITIGNORE_MIGRATION_LINE, migrateProjectGitignore } from './project-step-commit.ts';
+import { resolveAdoptSource } from './record-adopt.ts';
 import { writeRecord } from './record-input.ts';
 import { Refusal, refuse, USAGE_EXIT } from './refusal.ts';
 import { baselineOf, newFindings } from './refusal-baseline.ts';
@@ -40,7 +41,9 @@ export const RECORD_HELP = `record:
   rig-create record motion [<dir>] --from <render out> [--by <who>] [--json]
                  record rigc frames.json and its render tree beside outputs/motion/, with render-run.json when present.
   rig-create record direction [<dir>] --from <compose out> --direction specs/direction/direction.json [--by <who>] [--json]
-                 record green rig-parts compose output beside outputs/direction/, with compose-run.json and check/check.json.`;
+                 record green rig-parts compose output beside outputs/direction/, with compose-run.json and check/check.json.
+  rig-create record <kind> [<dir>] --adopt [--json]
+                 record the latest live legacy version's bound output in place, when current.<kind> is absent.`;
 
 type RecordableKind = CurrentKind;
 type FileHash = { path: string; sha256: string };
@@ -58,7 +61,7 @@ const isAtOrUnder = (path: string, root: string): boolean => path === root || pa
 
 const usage = (why: string, kind: RecordableKind = 'rig'): never => refuse(
   'RECORD_USAGE',
-  `record: ${why}; rig-create record ${kind} [<dir>] --from <producer out>${kind === 'motion' ? '' : kind === 'direction' ? ' --direction specs/direction/direction.json' : ' --config <rig config>'} [--by <who>] [--json]`,
+  `record: ${why}; rig-create record ${kind} [<dir>] --from <producer out>${kind === 'motion' ? '' : kind === 'direction' ? ' --direction specs/direction/direction.json' : ' --config <rig config>'} [--by <who>] [--json], or rig-create record ${kind} [<dir>] --adopt [--json]`,
   USAGE_EXIT,
 );
 
@@ -446,6 +449,56 @@ function recordMotion(dir: string, project: JsonObject, from: string, byPath: Ma
   };
 }
 
+function validateCandidate(dir: string, project: JsonObject, kind: RecordableKind, node: JsonObject, now: number): JsonObject {
+  const current = isObject(project.current) ? project.current : {};
+  const candidate: JsonObject = { ...project, current: { ...current, [kind]: node } };
+  const shape = currentShapeFindings(kind, node, candidate)[0];
+  if (shape) refuse(shape.code, shape.message);
+  const baseline = baselineOf(checkProject(dir, undefined, { now }));
+  const [fresh, ...more] = newFindings(baseline, checkProject(dir, candidate, { now }).refusals);
+  if (fresh) refuse(fresh.code, [fresh.message, ...more.map(f => `${f.code}: ${f.message}`)].join('\n  '));
+  return candidate;
+}
+
+function adoptedFileSize(dir: string, file: FileHash & { bytes?: number }, version: number, code: string): number {
+  let bytes: Buffer;
+  const remedy = `restore the exact output bound by versions[v${version}].outputs and retry --adopt`;
+  try { bytes = readFileSync(literalFile(dir, file.path)); }
+  catch { return refuse(code, `${file.path}: expected a readable regular file without symlinks; ${remedy}`); }
+  if (sha256(bytes) !== file.sha256 || (file.bytes !== undefined && bytes.length !== file.bytes)) {
+    refuse(code, `${file.path}: its SHA-256 or byte count differs from the legacy binding; ${remedy}`);
+  }
+  return bytes.length;
+}
+
+function recordAdoption(dir: string, file: string, original: Buffer, project: JsonObject, kind: RecordableKind, now: number, json: boolean): CommandResult {
+  const source = resolveAdoptSource(project, kind);
+  if (!source.ok) {
+    const remedy = source.code === 'RECORD_ADOPT_CURRENT_EXISTS' ? 'use record --from to replace the current output'
+      : 'restore the legacy binding or rebuild the output and record it with --from';
+    return refuse(source.code, `${source.path}: ${source.why}; ${remedy}`);
+  }
+  const files = source.files.map(binding => ({ ...binding, bytes: adoptedFileSize(dir, binding, source.version, 'RECORD_ADOPT_SOURCE_INVALID') }));
+  const node: JsonObject = {
+    at: source.at,
+    built_by: source.builtBy,
+    built_with: source.builtWith,
+    adopted: { version: source.version },
+    files,
+    files_sha256: outputSetHash(files),
+    built_from: source.builtFrom,
+    ...(source.run ? { run: source.run } : {}),
+    ...(source.report ? { report: source.report } : {}),
+    ...(kind === 'rig' || kind === 'motion' ? {
+      rebuild: { recorded: false, note: `Adoption of legacy v${source.version} preserves the bound outputs without verifying rebuild arguments.` },
+    } : {}),
+  };
+  const candidate = validateCandidate(dir, project, kind, node, now);
+  for (const binding of files) adoptedFileSize(dir, binding, source.version, 'RECORD_SOURCE_CHANGED');
+  writeRecord(file, original, candidate, `record-${kind}-adopt`, 'RECORD_SOURCE_CHANGED');
+  return { stdout: json ? JSON.stringify(node, null, 2) : `record ${kind}: adopted v${source.version} in place (${files.length} files)`, exit: 0 };
+}
+
 export function recordCommand(args: string[], now: number): CommandResult {
   const [rawKind, ...rest] = args;
   if (!(CURRENT_KINDS as readonly string[]).includes(rawKind ?? '')) return usage(`${JSON.stringify(rawKind ?? null)} is not a kind this release records; choose ${CURRENT_KINDS.join(', ')}`);
@@ -453,10 +506,12 @@ export function recordCommand(args: string[], now: number): CommandResult {
   const sourceFlag = kind === 'direction' ? '--direction' : kind === 'motion' ? undefined : '--config';
   const positional: string[] = [];
   const options: Record<string, string> = {};
+  let adopt = false;
   let json = false;
   for (let i = 0; i < rest.length; i++) {
     const arg = rest[i]!;
     if (arg === '--json' && !json) json = true;
+    else if (arg === '--adopt' && !adopt) adopt = true;
     else if (['--from', '--by', sourceFlag].includes(arg) && options[arg] === undefined) {
       const value = rest[++i];
       if (value === undefined || value.startsWith('--') || !value.trim()) usage(`${arg} needs one value`, kind);
@@ -464,13 +519,16 @@ export function recordCommand(args: string[], now: number): CommandResult {
     } else if (arg.startsWith('-')) usage(`unexpected or repeated option ${arg}`, kind);
     else positional.push(arg);
   }
-  if (positional.length > 1 || !options['--from'] || (sourceFlag && !options[sourceFlag])) {
+  if (adopt && (positional.length > 1 || Object.keys(options).length)) {
+    usage('pass --adopt with at most one project folder and optional --json', kind);
+  }
+  if (!adopt && (positional.length > 1 || !options['--from'] || (sourceFlag && !options[sourceFlag]))) {
     usage(`pass --from${sourceFlag ? ` and ${sourceFlag}` : ''}, and at most one project folder`, kind);
   }
   const dir = resolve(positional[0] ?? process.cwd());
   const root = outputRoot(kind);
-  const from = projectPath(dir, options['--from']!, '--from', 'RECORD_FROM_INVALID', kind);
-  const config = sourceFlag === '--config'
+  const from = adopt ? root : projectPath(dir, options['--from']!, '--from', 'RECORD_FROM_INVALID', kind);
+  const config = !adopt && sourceFlag === '--config'
     ? projectPath(dir, options[sourceFlag]!, sourceFlag, 'RECORD_CONFIG_MISMATCH', kind)
     : undefined;
   if (posix.dirname(from) !== posix.dirname(root) || (from !== root && CURRENT_KINDS.some(other => from === outputRoot(other)))) {
@@ -489,6 +547,7 @@ export function recordCommand(args: string[], now: number): CommandResult {
     const original = readFileSync(file);
     const project = JSON.parse(original.toString('utf8')) as JsonObject;
     if (project.schema !== PROJECT_SCHEMA) refuse('SCHEMA_UNKNOWN', `project.json.schema: record ${kind} reads ${PROJECT_SCHEMA}`);
+    if (adopt) return recordAdoption(dir, file, original, project, kind, now, json);
 
     // The producer's tree, read in place: every regular file, recorded at its path after the rename.
     let fromIsDir = false;
@@ -517,10 +576,10 @@ export function recordCommand(args: string[], now: number): CommandResult {
       ...(details.report ? { report: details.report } : {}),
       ...(details.rebuild ? { rebuild: details.rebuild } : {}),
     };
-    const shape = currentShapeFindings(kind, node)[0];
-    if (shape) refuse(shape.code, shape.message);
     const current = isObject(project.current) ? project.current : {};
     const candidate: JsonObject = { ...project, current: { ...current, [kind]: node } };
+    const shape = currentShapeFindings(kind, node, candidate)[0];
+    if (shape) refuse(shape.code, shape.message);
     const before = checkProject(dir, undefined, { now });
     const baseline = baselineOf(before);
     const checkCandidate = (): ReturnType<typeof checkProject> => {

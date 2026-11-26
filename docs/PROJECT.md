@@ -2341,10 +2341,10 @@ checks every live pilot for new same-day refusals.
 
 ### Scene option context
 
-A post option set takes one of two contexts: the rig kind
-([INTERVIEW.md](INTERVIEW.md)) or the scene kind. The rig kind copies the
-accepted rig's recorded config binding `{path,sha256,bytes}`; older bindings
-may omit the byte count. This section is the scene kind's contract.
+A post option set uses a `scene`, `current-rig` or numbered `rig` context.
+The numbered `rig` kind ([INTERVIEW.md](INTERVIEW.md)) copies the accepted
+rig's recorded config binding `{path,sha256,bytes}`. Older bindings may omit
+the byte count.
 
 1. **Entries.** `project.scenes[]` is append-only. Each entry is exactly
    `{n,path,sha256,at,by}`: `n` counts from 1 in array order, `path` is
@@ -2367,13 +2367,12 @@ may omit the byte count. This section is the scene kind's contract.
      (`checkpoint:null`) whose target names that version: its
      `{stage,checkpoint,at}`, `verdict` and `review_package`.
 
-   No live post is needed. When the gate fails, the set takes the rig kind
-   exactly as if no scene existed, so a scene built on an earlier rig never
-   anchors a post set. The rig kind keeps its own refusals: with no live
-   accepted rig and live rig-review signoff at *t*, for example after a
-   rig-review amendment or historical reopen, it refuses `INTERVIEW_OPTIONS_STALE`. An unreadable,
-   changed or malformed candidate refuses `INTERVIEW_OPTIONS_STALE` instead
-   of falling back.
+   No live post is needed. With no applicable scene, a project with `current`
+   uses `current-rig` and a numbered project uses `rig`. For the numbered `rig`
+   context, missing live rig acceptance or signoff at *t*, for example after a
+   rig-review amendment or historical reopen, refuses `INTERVIEW_OPTIONS_STALE`.
+   An unreadable, changed or malformed scene candidate refuses
+   `INTERVIEW_OPTIONS_STALE` instead of falling back.
 
    The closed scene@1 shape in this rule is exactly the structure below.
    "Closed" means the listed keys must be present, optional keys may be
@@ -2400,7 +2399,10 @@ may omit the byte count. This section is the scene kind's contract.
    the scene is written and in the full scene check above. They are not part of
    this option-context gate, so a reader of option contexts doesn't have to
    reproduce them.
-5. **Freshness.** These rules apply to the rig and scene kinds alike.
+5. **Freshness.** Fresh `current-rig` sets bind the live rig-review approval
+   and the sealed current rig and config. Historical answered sets are checked
+   against their own retained context and matching owner relay. The numbered
+   `rig` and `scene` rules are as follows.
    - The context is recomputed at `drafted_at` and again at the selection or
      decision time, and both must equal `set.context` exactly. A writer uses
      now. `check` uses the answer's or decision's `at`, and `drafted_at` for a

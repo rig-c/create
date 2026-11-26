@@ -455,7 +455,9 @@ export function readRecordPublished({ root, record, result, phase, parts: sealed
         const choice = item.state.answer.choice;
         if (!isObject(choice)) continue;
         seal(choice.set!);
-        sealContext(optionFile(root, choice.set).set.context as JsonObject);
+        const context = optionFile(root, choice.set).set.context as JsonObject;
+        // The record check validates the sealed answer against its historical rig approval.
+        if (context.kind !== 'current-rig') sealContext(context);
       }
       const approval = latestPartsApproval(project);
       if (isObject(approval?.evidence)) seal(approval.evidence);

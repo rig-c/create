@@ -7,8 +7,13 @@ import { lstatSync, readFileSync, realpathSync } from './check-reads.ts';
 import { isAbsolute, relative, resolve, sep } from 'node:path';
 import { isDeepStrictEqual as equal } from 'node:util';
 import { answered, asArray, collectItems, collectSignoffs, collectionQuestion, loadCollection, isDecision, isObject, type Ctx, type Finding, type Item } from './check.ts';
+import { builtFromNameAllowed } from './current.ts';
 import { draftFileUnavailable } from './drafts.ts';
-import { collectReopens, liveSignoff } from './reopen.ts';
+import { ownerChatAuthorityFinding } from './owner-chat.ts';
+import { Refusal } from './refusal.ts';
+import { collectReopens, liveSignoff, type Reopen } from './reopen.ts';
+import { RunRecordError, validateRunRecord } from './run-record.ts';
+import { selectSignoffTarget, signoffTargetFormat } from './signoff-target.ts';
 import { latestPartsApproval, partsApprovalIdentity, rigPartsApproval, structurePathIsIgnored } from './structure.ts';
 import { CHOICE_ORDER_SPEC, approvalStageOfGuide, hasStageOrder, interviewStageOfGuide, stageIndex, stepPlanValue } from './stages.ts';
 import { WAYPOINT_ASKS } from './waypoints.ts';
@@ -26,6 +31,7 @@ export const INTERVIEW_PAINTING_FIRST_SINCE = '2026-11-24T00:00:00Z';
 export const sha256 = (bytes: Uint8Array): string => createHash('sha256').update(bytes).digest('hex');
 const text = (v: Json | undefined): v is string => typeof v === 'string' && v.trim() !== '';
 const date = (v: Json | undefined): number => typeof v === 'string' ? Date.parse(v) : NaN;
+const digest = (v: Json | undefined): v is string => typeof v === 'string' && /^[a-f0-9]{64}$/.test(v);
 const ID_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/;
 const id = (v: Json | undefined): v is string => typeof v === 'string' && ID_PATTERN.test(v);
 const objects = (v: Json | undefined): JsonObject[] => asArray(v).filter(isObject);
@@ -150,6 +156,58 @@ export function validateSet(project: JsonObject, item: Item, set: JsonObject, co
   }
 }
 
+function currentRigApproval(project: JsonObject, reopens: Reopen[], at: number) {
+  const cutoffs = reopens.filter(reopen => reopen.at <= at);
+  const approval = collectSignoffs(project, []).filter(signoff => signoff.stage === 'rig-review' && signoff.checkpoint === null
+    && signoff.at <= at && liveSignoff(cutoffs, signoff.stage, signoff.at)
+    && signoffTargetFormat(signoff.record.target) === 'current')
+    .sort((a, b) => b.at - a.at || b.index - a.index)[0];
+  if (approval && !ownerChatAuthorityFinding(approval.record, `signoffs[${approval.index}]`, approval.record.verbatim)) return approval;
+}
+
+function currentRigOptionContext(project: JsonObject, at: number, dir?: string): JsonObject {
+  if (dir === undefined) fail('INTERVIEW_OPTIONS_STALE', 'current.rig: pass the project folder to verify current rig option context');
+  const rig = isObject(project.current) ? project.current.rig : undefined;
+  if (!isObject(rig) || !Number.isFinite(date(rig.at)) || date(rig.at) > at || !isObject(rig.run) || !text(rig.run.path) || !text(rig.run.sha256)) {
+    fail('INTERVIEW_OPTIONS_STALE', 'current.rig: record the current rig and its producer run before drafting post options');
+  }
+  const approval = currentRigApproval(project, collectReopens(project, []), at);
+  if (!approval || approval.at < date(rig.at)) {
+    fail('INTERVIEW_OPTIONS_STALE', 'current.rig: relay the live rig-review approval before drafting post options');
+  }
+  let target: JsonObject | undefined;
+  try { target = selectSignoffTarget(dir, project, 'rig-review'); }
+  catch (error) {
+    if (!(error instanceof Refusal)) throw error;
+    fail('INTERVIEW_OPTIONS_STALE', error.message);
+  }
+  if (target === undefined || !equal(target, approval.record.target)) fail('INTERVIEW_OPTIONS_STALE', 'current.rig: the rig-review approval binds a different output; sign the current rig again');
+
+  const run = { path: rig.run.path, sha256: rig.run.sha256 };
+  const bytes = verifyBinding(dir, run, true)!;
+  let producer: ReturnType<typeof validateRunRecord>;
+  try { producer = validateRunRecord(bytes, run.path, { specs: ['rig-run/1', 'rig-run/2', 'rig-run/3'] }); }
+  catch (error) {
+    if (!(error instanceof RunRecordError)) throw error;
+    fail('INTERVIEW_OPTIONS_STALE', `${error.path}: ${error.why}; rebuild and record the current rig`);
+  }
+  const { spec, record } = producer;
+  const expectedRun = spec === 'rig-run/1' ? 'outputs/rig/run.json' : 'outputs/rig/build-run.json';
+  if (run.path !== expectedRun || record.command !== (spec === 'rig-run/1' ? 'rig' : 'build') || !isObject(record.config) || !text(record.config.sha256)) {
+    fail('INTERVIEW_OPTIONS_STALE', `${run.path}: retain the current rig's primary producer run and config`);
+  }
+  // record rig binds --config by the producer digest. The run's path is relative to its original output directory.
+  const configHash = record.config.sha256;
+  const inputs = objects(rig.built_from);
+  const matches = inputs.filter(binding => binding.sha256 === configHash);
+  if (matches.length !== 1 || inputs.filter(binding => binding.path === matches[0]!.path).length !== 1) {
+    fail('INTERVIEW_OPTIONS_STALE', 'current.rig.built_from: the producer config digest must bind one file; record the rig with an unambiguous config');
+  }
+  const config = { path: matches[0]!.path!, sha256: configHash };
+  verifyBinding(dir, config, true);
+  return { kind: 'current-rig', target, signoff_at: approval.record.at!, run, config };
+}
+
 /**
  * A context is a projection of existing identities, never a producer report reconstructed by create.
  * A post set takes the scene kind only while the scene is current at `at`, which reads the scene
@@ -185,6 +243,7 @@ export function optionContext(project: JsonObject, stage: string, at: number, di
     if (error instanceof SceneError) fail('INTERVIEW_OPTIONS_STALE', error.message);
     throw error;
   }
+  if (project.current !== undefined) return currentRigOptionContext(project, at, dir);
   const signoff = collectSignoffs(project, []).filter(s => s.stage === 'rig-review' && s.checkpoint === null && s.at <= at && liveSignoff(reopens, s.stage, s.at)).sort((a,b) => b.at - a.at)[0];
   const rigs = objects(project.versions).filter(v => v.kind === 'rig' && date(v.at) <= at && liveSignoff(reopens, 'rig-review', date(v.at)))
     .filter(v => { const verdicts = humanReviewVerdicts(v.verdicts, 'rig-review').map(v => v.record).filter(d => date(d.at) <= at); return verdicts.at(-1)?.verdict === 'accepted'; }).sort((a,b) => Number(b.n) - Number(a.n));
@@ -198,8 +257,8 @@ export function optionContext(project: JsonObject, stage: string, at: number, di
   return { kind: 'rig', rig_version: rig.n as Json, signoff_at: signoff.record.at as Json, config: provenance.config, parts: draft.parts };
 }
 
-function verifyBinding(dir: string, binding: Json, fresh: boolean): void {
-  if (!isObject(binding) || !text(binding.path) || typeof binding.sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(binding.sha256) || isAbsolute(binding.path)) fail('INTERVIEW_OPTIONS_STALE', 'invalid context file binding');
+function verifyBinding(dir: string, binding: Json, fresh: boolean): Buffer | undefined {
+  if (!isObject(binding) || !text(binding.path) || !digest(binding.sha256) || isAbsolute(binding.path)) fail('INTERVIEW_OPTIONS_STALE', 'invalid context file binding');
   try {
     if (binding.path.startsWith('derived/drafts/')) {
       const root = binding.path.split('/').slice(0,3).join('/');
@@ -207,7 +266,10 @@ function verifyBinding(dir: string, binding: Json, fresh: boolean): void {
     }
     const file = literalFile(dir, binding.path);
     const rel = relative(realpathSync(dir), realpathSync(file));
-    if (rel === '' || rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel) || !lstatSync(file).isFile() || sha256(readFileSync(file)) !== binding.sha256) throw Error('context file changed or escaped');
+    if (rel === '' || rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel) || !lstatSync(file).isFile()) throw Error('context file changed or escaped');
+    const bytes = readFileSync(file);
+    if (sha256(bytes) !== binding.sha256) throw Error('context file changed or escaped');
+    return bytes;
   } catch (e) { fail('INTERVIEW_OPTIONS_STALE', `${String(binding.path)}: ${e instanceof Error ? e.message : String(e)}; redraft against current retained context`); }
 }
 function contextDifference(expected: Json | undefined, actual: Json | undefined, path: string): string {
@@ -226,11 +288,29 @@ function contextDifference(expected: Json | undefined, actual: Json | undefined,
   return `${path} is different`;
 }
 
+function retainedPostOptionSet(dir: string, project: JsonObject, set: JsonObject): boolean {
+  const item = collectItems(project, { collection: null }).find(item => item.kind === 'post' && item.id === set.question);
+  if (!item) return false;
+  const answers = [item.raw, ...asArray(item.record.history)].filter(isObject);
+  const bindings = [item.record.pending_options, ...answers.map(answer => isObject(answer.choice) ? answer.choice.set : undefined)];
+  return bindings.some(binding => isObject(binding) && equal(optionFile(dir, binding).set, set));
+}
+
+function validateContextReopens(reopens: Reopen[], set: JsonObject, drafted: number, at: number): void {
+  if (reopens.some(r => r.at > drafted && r.at <= at && stageIndex(r.stage) <= stageIndex(String(set.stage)))) fail('INTERVIEW_OPTIONS_STALE', 'context was reopened after drafting; redraft the option set');
+}
+
 /** `warn` receives the reason when a set drafted before SCENE_CONTEXT_SINCE holds only under that day's rule. */
 export function validateContext(dir: string, project: JsonObject, set: JsonObject, at: number, fresh = false, warn?: (why: string) => void): void {
   const drafted = date(set.drafted_at);
   if (!Number.isFinite(at) || drafted > at) fail('INTERVIEW_OPTIONS_STALE','selection must follow drafting; redraft against current accepted inputs');
-  const contextProject = isObject(set.context) && set.context.kind === 'rig' ? { ...project, scenes: [] } : project;
+  const kind = isObject(set.context) ? set.context.kind : undefined;
+  const contextProject = kind === 'rig' || kind === 'current-rig' ? { ...project, scenes: [] } : project;
+  if (kind === 'rig' && project.current !== undefined) {
+    if (fresh && !retainedPostOptionSet(dir, project, set)) fail('INTERVIEW_OPTIONS_STALE', 'context: draft new post options against current.rig or the current scene');
+    // A retained numbered ask still binds the version the owner originally saw.
+    delete contextProject.current;
+  }
   if (isObject(set.context) && set.context.kind === 'inputs' && !fresh) {
     // Inputs are append-only and older declarations need not carry their own clock.
     // A later additional input must not rewrite which immutable input an earlier person saw.
@@ -239,7 +319,9 @@ export function validateContext(dir: string, project: JsonObject, set: JsonObjec
   } else {
     const live = (legacyScene: boolean): void => {
       for (const time of [drafted, at]) {
-        const expected = optionContext(contextProject, String(set.stage), time, dir, legacyScene, drafted);
+        // A scene that was already current at drafting takes priority. Later scenes do not rewrite the rig ask.
+        const basis = kind === 'current-rig' && time === drafted ? project : contextProject;
+        const expected = optionContext(basis, String(set.stage), time, dir, legacyScene, drafted);
         if (!equal(expected, set.context)) {
           const difference = contextDifference(expected, set.context, 'context');
           fail('INTERVIEW_OPTIONS_STALE', `options no longer match the live context: ${difference}; redraft against current accepted inputs`);
@@ -256,12 +338,13 @@ export function validateContext(dir: string, project: JsonObject, set: JsonObjec
       }
     }
   }
-  if (collectReopens(project, []).some(r => r.at > drafted && r.at <= at && stageIndex(r.stage) <= stageIndex(String(set.stage)))) fail('INTERVIEW_OPTIONS_STALE', 'context was reopened after drafting; redraft the option set');
+  validateContextReopens(collectReopens(project, []), set, drafted, at);
   for (const file of optionContextFiles(set.context as JsonObject)) verifyBinding(dir, file, fresh);
 }
 
-/** The exact retained bindings read by validateContext, shared with publication. */
+/** The context file bindings needed when publishing or validating live options. */
 export function optionContextFiles(context: JsonObject): Json[] {
+  if (context.kind === 'current-rig') return [context.run as Json, context.config as Json];
   const files: Json[] = [...(context.kind === 'inputs' ? asArray(context.files) : isObject(context.parts) ? asArray(context.parts.files) : [])];
   if (context.kind === 'parts') files.push(context.structure as Json, (context.accepted_parts as JsonObject).evidence as Json);
   if (context.kind === 'rig') files.push(context.config as Json);
@@ -345,12 +428,39 @@ export function refusalBaseline(answer: JsonObject): JsonObject[] {
   return (answer.refusal_baseline ?? []) as JsonObject[];
 }
 
+function historicalBinding(binding: Json | undefined): binding is JsonObject & { path: string; sha256: string } {
+  return isObject(binding) && Object.keys(binding).length === 2 && digest(binding.sha256) && text(binding.path)
+    && !/[\\:]/.test(binding.path) && !binding.path.includes('\0') && binding.path.split('/').every(part => part !== '' && part !== '.' && part !== '..');
+}
+
+function validateAnsweredContext(dir: string, project: JsonObject, set: JsonObject, at: number, warn?: (why: string) => void): void {
+  const context = set.context;
+  if (!isObject(context) || context.kind !== 'current-rig') return validateContext(dir, project, set, at, false, warn);
+  const drafted = date(set.drafted_at);
+  const { target, config, run } = context;
+  if (!Number.isFinite(drafted) || !Number.isFinite(at) || drafted > at || set.stage !== 'post-interview'
+    || Object.keys(context).length !== 5 || !isObject(target) || Object.keys(target).length !== 3
+    || target.subject !== 'current.rig' || !digest(target.record_sha256) || !digest(target.files_sha256)
+    || !historicalBinding(config) || !builtFromNameAllowed(config.path) || config.path.startsWith('outputs/rig/') || config.path === 'outputs/rig'
+    || !historicalBinding(run) || !['outputs/rig/run.json', 'outputs/rig/build-run.json'].includes(run.path)) {
+    fail('INTERVIEW_OPTIONS_STALE', 'context: restore the sealed current-rig target, producer run and config shown for this answer');
+  }
+  // The answer seals the shown context. Only the retained approval is read here, so later rig records cannot rewrite it.
+  const reopens = collectReopens(project, []);
+  const approval = currentRigApproval(project, reopens, at);
+  if (!approval || currentRigApproval(project, reopens, drafted)?.index !== approval.index
+    || context.signoff_at !== approval.record.at || !equal(target, approval.record.target)) {
+    fail('INTERVIEW_OPTIONS_STALE', 'context: restore the matching owner-relayed rig approval live when these options were drafted and answered');
+  }
+  validateContextReopens(reopens, set, drafted, at);
+}
+
 export function validateChoice(dir: string, project: JsonObject, item: Item, answer: JsonObject, warn?: (why: string) => void): void {
   if (!isObject(answer.choice)) badChoice('choice must be an object');
   refusalBaseline(answer);
   const choice = answer.choice;
   const { set } = optionFile(dir, choice.set);
-  validateSet(answersAt(project, date(set.drafted_at),loadCollection(dir)), item, set); validateContext(dir, project, set, date(answer.at), false, warn);
+  validateSet(answersAt(project, date(set.drafted_at),loadCollection(dir)), item, set); validateAnsweredContext(dir, project, set, date(answer.at), warn);
   if (!text(answer.by) || answer.by.toLowerCase() === 'agent' || !Number.isFinite(date(answer.at))) badChoice('a selection needs a human identity and valid clock');
   const projected = selection(set, choice);
   if (answer.delegated !== projected.delegated || !equal(answer.asks, projected.asks) || answer.verbatim !== choiceVerbatim(objects(choice.picks), choice.note)
@@ -369,7 +479,7 @@ export function validateChoice(dir: string, project: JsonObject, item: Item, ans
       || date(decision.at) < date(answer.at) || !Number.isFinite(date(decision.at)) || decision.covers !== projected.autos.join(',')
       || !Array.isArray(decision.fragments) || !equal(objects(decision.fragments).map(f => f.ask), projected.autos)
       || objects(decision.fragments).length !== decision.fragments.length || objects(decision.fragments).some(f => !('fragment' in f))) badChoice('decision must record exactly the auto asks in order, exact covers, author, clock and reasoning');
-    validateContext(dir, project, set, date(decision.at), false, warn);
+    validateAnsweredContext(dir, project, set, date(decision.at), warn);
     const entries = objects(decision.fragments);
     const assembled = assembleFragments(String((set.assembly as JsonObject).rule), entries.map(f => f.fragment as Json));
     if (!equal(decision.value, assembled)) badChoice('agent_decision.value differs from its per-ask fragments');

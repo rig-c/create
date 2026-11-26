@@ -2292,7 +2292,12 @@ test('#596 post stage with in-progress step offers direction --adopt then direct
   const beforeContract = readFileSync(file);
   writeFileSync(file, JSON.stringify({ ...JSON.parse(beforeContract.toString()), current: {} }));
   const currentBeforeContract = nextProject(dir, CHAIN_NOW);
-  expect(currentBeforeContract.awaits).toContain('direction_contract');
+  expect(currentBeforeContract.refusals).toEqual([]);
+  expect(currentBeforeContract.awaits).not.toContain('direction_contract');
+  expect(currentBeforeContract.moves.find(move => move.field === 'current.direction')).toMatchObject({
+    role: 'agent', awaits: 'current.direction',
+    command: `rig-create record direction ${dir} --from outputs/direction.next --direction specs/direction/direction.json`,
+  });
   expect(currentBeforeContract.moves.some(move => move.command?.startsWith('rig-create direction --adopt '))).toBe(false);
   expect(currentBeforeContract.moves.some(move => move.command?.startsWith('rig-create advance direction-review '))).toBe(false);
   writeFileSync(file, beforeContract);
@@ -3450,7 +3455,11 @@ test('#773 a reopened rigging with an unreviewed compiled draft names both the d
   const project = JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')) as JsonObject;
   writeFileSync(join(dir, 'project.json'), JSON.stringify({ ...project, current: {} }));
   const withCurrent = nextProject(dir, reopenAt + 1000);
-  expect(withCurrent.moves.find(move => move.review_act?.draft_id === draftId))
-    .toEqual(report.moves.find(move => move.review_act?.draft_id === draftId));
+  expect(withCurrent.refusals).toEqual([]);
+  expect(withCurrent.moves.some(move => move.review_act?.kind === 'review-verdict')).toBe(false);
+  expect(withCurrent.awaits).not.toContain(`drafts[${draftId}]`);
+  expect(withCurrent.moves).toContainEqual(expect.objectContaining({
+    field: 'current.rig', command: `rig-create record rig ${dir} --from outputs/rig.next --config specs/rig/config.json`,
+  }));
   expect(withCurrent.moves.some(move => move.command?.startsWith('rig-create rig-version '))).toBe(false);
 });

@@ -13,7 +13,7 @@ import { EXAMPLE_NOW } from '../scripts/example-time.ts';
 import { directionCommand } from '../src/direction-writers.ts';
 import { inputCommand } from '../src/inputs.ts';
 import { askDeclaredSubjects, closeCreateJob, openCreateJob, openDraftPublication, publishPending, reconcileCreateJob, refuseAskOutcomes } from '../src/job-host.ts';
-import { acknowledgePublication, enqueuePublication, isRecordResult, jobHash, jobHostStateRoot, jobPrivateRoot, pendingPublications, publicationVersionHash, readAcknowledgedPublication, readWriterBinding, type AcknowledgedPublication } from '../src/job-outbox.ts';
+import { acknowledgePublication, enqueuePublication, failPublication, isRecordResult, jobHash, jobHostStateRoot, jobPrivateRoot, pendingPublications, publicationVersionHash, readAcknowledgedPublication, readWriterBinding, type AcknowledgedPublication } from '../src/job-outbox.ts';
 import { draftPublicationContext, livePublicationSubjects, prepareLiveManifest, readPublished } from '../src/job-publication.ts';
 import { draftPublicationResult, jobRuntimeExecArgv } from '../src/job-writer.ts';
 import { hostPortRefuses } from '../src/job-host-state.ts';
@@ -461,6 +461,20 @@ async function page(root: string, url: URL, expectedAsks = 2) {
   let expectedGeneration = Number(events.at(-1)!.generation);
   return {
     head: head!, asks,
+    inspect: async (): Promise<JsonObject> => {
+      const route = `publications/${String(head.publicationId)}/instances/${String(head.instanceKey)}/api/review`;
+      const response = await fetch(base + route, { headers });
+      expect(response.status).toBe(200);
+      return response.json() as Promise<JsonObject>;
+    },
+    comment: async (text: string): Promise<JsonObject> => {
+      const result = await post('ui/acts', { publicationId: head.publicationId, pageId,
+        displayedNonce: (displayed.value as JsonObject).displayedNonce, expectedGeneration, submissionId: randomUUID(),
+        kind: 'comments', value: { comments: [{ text }] } });
+      expect(result.error).toBeUndefined();
+      expectedGeneration++;
+      return result.value as JsonObject;
+    },
     act: async (subject: string, kind: string, value: object): Promise<JsonObject> => {
       const ask = asks.find(item => (item.subject as JsonObject).kind === subject)!;
       const png = subject === 'review-verdict' && (value as JsonObject).stage === 'rig-review'
@@ -906,6 +920,69 @@ function registeredPost(advance = true): string {
   if (advance) advanceCommand(['direction-review', root], EXAMPLE_NOW);
   return root;
 }
+
+test.each(['rig', 'post'] as const)('current project publishes retained %s for viewing and comments without asks', async kind => {
+  const root = kind === 'rig' ? registeredRig() : registeredPost(false);
+  const file = join(root, 'project.json');
+  writeFileSync(file, `${JSON.stringify({ ...read(root), current: {} }, null, 2)}\n`);
+  const version = kind === 'rig' ? 1 : 2;
+  const opening = await open(root, ['--rig', String(version)]);
+  expect(opening.lines).toEqual([publishedLine(`${kind} v${version} published`, root)]);
+  expect(latestReceipt(root).subjects).toEqual([]);
+  if (kind === 'post') {
+    const writer = await cli(root, ['direction', 'write', '3', root, '--file', 'evidence/direction-input.json', '--rig', '1']);
+    expect(writer).toMatchObject({ exit: 0, stderr: '' });
+    expect(latestReceipt(root)).toMatchObject({ result: { selector: { kind: 'post', version: 3, rigVersion: 1 } }, subjects: [] });
+    expect(pendingPublications(root)).toEqual([]);
+  }
+  const selected = kind === 'rig' ? version : 3;
+  const person = await page(root, opening.url, 0);
+  expect(person.asks).toEqual([]);
+  expect(await person.inspect()).toMatchObject({ capabilities: { playback: true, preRig: false } });
+  expect(await person.comment(WORDS)).toMatchObject({ kind: 'comments', publicationId: person.head.publicationId,
+    source: { selector: { kind, version: selected } }, value: { comments: [{ text: WORDS }] } });
+  const before = readFileSync(file);
+  const again = await cli(root, ['job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner']);
+  expect(again).toEqual({ exit: 0, stderr: '', stdout: `${opening.url.href}\n${publishedLine(`${kind} v${selected} already published`, root)}\n` });
+  expect(latestReceipt(root).publicationId).toBe(person.head.publicationId as string);
+  expect(readFileSync(file)).toEqual(before);
+}, 30_000);
+
+test('current numbered open and old outbox replay keep immutable verdict subjects without reissuing an ask', async () => {
+  const root = registeredRig('rig-review', project => { project.current = {}; });
+  const subjects = [{ kind: 'review-verdict', stage: 'rig-review' }] as const;
+  const host = await openCreateJob(root, { id: 'synthetic-owner', role: 'owner' }, EXAMPLE_NOW, options => startJobHost({
+    ...options, readPublished: async input => ({ ...await readPublished(input), subjects }),
+  }));
+  try {
+    const binding = readWriterBinding(root)!;
+    const result = { path: prepareLiveManifest(root, read(root), 1), selector: { kind: 'rig' as const, version: 1 } };
+    const entry = enqueuePublication(root, binding, result);
+    entry.generation = host.session.status().generation;
+    failPublication(root, entry, null);
+    const attempt = jobHash(JSON.stringify([entry.id, entry.recordHash]));
+    const response = await host.ports.handleJobApi(new Request(`${host.origin}/jobs/${host.session.jobId}/api`, {
+      method: 'POST', headers: { authorization: `Bearer ${host.session.hostCredentials().agent}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ schema: binding.identity.apiSchema, verb: 'publish', jobId: binding.jobId,
+        requestId: attempt, idempotencyKey: attempt, expectedGeneration: entry.generation, result,
+        freeze: { kind: 'producer-held', holdId: entry.id, record: { path: 'project.json', sha256: entry.recordHash } } }),
+    }));
+    const reply = await response.json() as { ok: boolean; error?: unknown; value: { publicationId: string; generation: number } };
+    expect(reply.error).toBeUndefined();
+    expect(reply.ok).toBe(true);
+    const { publicationId, generation } = reply.value;
+    acknowledgePublication(entry, publicationId, generation, attempt, subjects);
+    const prior = latestReceipt(root);
+    const before = readFileSync(join(root, 'project.json'));
+    expect(await openDraftPublication(root, host, EXAMPLE_NOW)).toEqual([publishedLine('rig v1 already published', root)]);
+    expect(host.session.status().pending).toEqual([]);
+    expect(await reconcileCreateJob(root)).toBe(1);
+    expect(host.session.status()).toMatchObject({ generation, publication: { publicationId }, pending: [] });
+    expect(latestReceipt(root)).toEqual(prior);
+    expect(pendingPublications(root)).toEqual([]);
+    expect(readFileSync(join(root, 'project.json'))).toEqual(before);
+  } finally { host.stop(); }
+}, 20_000);
 
 test('#754 a post page opened before direction-review asks a direction verdict that review --from-review ingests', async () => {
   // Measured for #754: the direction verdict has no stage fold, so the rig-review mismatch does not occur here.

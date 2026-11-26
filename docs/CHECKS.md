@@ -70,6 +70,10 @@ match their recorded hashes.
 | `JOB_WRITE_BUSY` | A bound writer, `job reconcile`, a feedback route, or a `job open` host publishing into the job holds the shared publication freeze (the `.rig-create-job-write.lock` job write lock). Wait for that operation before retrying. `job close` waits up to 120 s for the lock, as after a host restart, printing the holder's pid on stderr, and then closes; when the wait runs out it refuses with the holding pid and leaves `project.json` and the job state byte-identical. |
 | `JOB_RECORD_INCOMPLETE` | Review 2.8.0 carries answered scene-context choices and historical diagnostics in `publication.interview` (`rig-review/job-interview@1`), and refuses invalid or stale editable `pending_options` sets before publication. Restore a current editable option set before reconciling. |
 
+A bound current `rig-review` or `direction-review` advance also refuses with
+`JOB_PUBLICATION_INVALID` if its recorded output is missing, stale or differs
+from the output tree. Rebuild and record the current output before advancing.
+
 
 ## Finalized Review acts
 

@@ -20,13 +20,21 @@ Read this before choosing work. It ranks every issue in this repository.
    from parts, review and core. When a project hits a gap in another
    package, file the issue in that package's repository, name the step it
    blocks, and follow it until it lands. Don't work around the gap here.
-3. **Agents route verdict acts through the review tool.** Parts, rig and
-   direction verdicts remain review-tool acts. Stage signoffs and interview
-   answers relay owner chat through the existing writers with
+3. **Agents route stage approvals through the owner's relayed chat.**
+   Stage signoffs and interview answers relay owner chat through the
+   existing writers with
    `--owner-chat <words file> --said-at <ISO date> --relayed-by <operator>`
    and the owner's `--by`. Interview picks still bind the displayed set and
-   option ids; verdict-bearing signoffs need the current accepted live verdict.
-   A stage signoff on `current.<kind>` relayed from the owner's chat needs no numbered verdict; it quotes the owner's words, when they were said and who relayed them.
+   option ids. A rig-review or direction-review signoff on `current.<kind>`
+   binds the live recorded output and quotes the owner's words, when they
+   were said and who relayed them. A numbered project keeps its review-tool
+   verdicts, and its verdict-bearing signoffs need the current accepted
+   live verdict, until the numbered writers are deleted. Until #1040 lands,
+   a numbered project's parts verdicts remain review-tool acts and its
+   parts-review signoff requires the accepted live parts verdict; on
+   `current.parts` a parts-review signoff binds the live recorded output by
+   the owner's relayed words. A stored signoff with a verdict reference
+   still validates that reference.
    Shared context images and option images shown in Review do not remove an
    interview question from this route.
    Typing a pick or signoff into a record without the owner's recorded words,

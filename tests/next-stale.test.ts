@@ -1,14 +1,15 @@
 import { expect, test } from 'bun:test';
-import { existsSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { asArray, checkProject, isObject } from '../src/check.ts';
 import { outputSetHash, sha256, treeFiles, type CurrentKind } from '../src/current.ts';
 import { JOB_BINDING_FILE, writePrivateJson } from '../src/job-outbox.ts';
 import { nextCommand, nextProject } from '../src/next.ts';
 import { stageIndex } from '../src/stages.ts';
-import type { Json, JsonObject } from '../src/templates.ts';
-import { advanceCommand, testClock } from './clock.ts';
-import { fixture, retainSignoffs, type Mutate } from './fixtures.ts';
+import { readTemplate, type Json, type JsonObject } from '../src/templates.ts';
+import { advanceCommand, signoffCommand, testClock } from './clock.ts';
+import { fixture, plantLegacyReopen, retainSignoffs, type Mutate } from './fixtures.ts';
+import { ownerChatArgs, tempDir } from './helpers.ts';
 
 const CONFIG = 'specs/rig/config.json';
 const PARTS = 'outputs/parts/parts.json';
@@ -342,32 +343,124 @@ test('stale direction suppresses the advance to direction-review and its stage a
   expect(readProject(dir).stage).toBe('direction-review');
 });
 
-test('a Review writer binding requires a numbered post before advancing a fresh current direction', () => {
-  const dir = postFixture('done');
-  const staleRecord = readProject(dir);
-  put(dir, 'project.json', freshPost(dir, staleRecord));
-  const file = join(dir, 'project.json');
-  const original = readFileSync(file);
-  // This private binding exercises the writer gate without starting a listener.
+function bindReviewWriter(dir: string): void {
   writePrivateJson(join(dir, JOB_BINDING_FILE), {
     schema: 'rig-create/job-binding@1', identity: { root: realpathSync(dir) },
     jobId: 'synthetic-job', origin: 'http://127.0.0.1', fetchCapability: 'synthetic', listenerIncarnation: '',
   }, true);
-  expect(() => advanceCommand(['direction-review', dir])).toThrow(expect.objectContaining({ code: 'JOB_PUBLICATION_INVALID' }));
-  expect(readFileSync(file)).toEqual(original);
+}
+
+function expectCurrentReview(dir: string, stage: 'rig-review' | 'direction-review'): void {
+  const report = next(dir);
+  const awaits = `signoffs[stage=${stage}]`;
+  expect(report).toMatchObject({ effective_stage: stage, refusals: [] });
+  expect(report.awaits).toContain(awaits);
+  expect(report.awaits.some(field => field.startsWith('versions['))).toBe(false);
+  expect(report.moves.some(move => move.review_act?.kind === 'review-verdict')).toBe(false);
+  expect(report.moves.find(move => move.awaits === awaits)).toMatchObject({
+    role: 'human',
+    command: `rig-create signoff ${stage} ${dir} --by '<owner>' --owner-chat '<words file>' --said-at '<ISO date>' --relayed-by '<operator>'`,
+  });
+}
+
+test('next guides current rigging through owner chat approval and onward to post-interview without an accepted rig verdict', () => {
+  const unstartedPost = (readTemplate('project.json').interview as JsonObject).post!;
+  const dir = staleFixture(project => {
+    project.stage = 'rigging';
+    project.versions = asArray(project.versions).filter(v => isObject(v) && v.kind === 'rig');
+    for (const version of asArray(project.versions).filter(isObject)) {
+      version.verdicts = asArray(version.verdicts).filter(verdict => isObject(verdict) && verdict.verdict !== 'accepted');
+    }
+    (project.direction_contract as JsonObject).grandfathered_posts = [];
+    // No post options or scene have been authored against the still-unsigned rig.
+    (project.interview as JsonObject).post = unstartedPost;
+    project.scenes = [];
+    const plan = project.plan as JsonObject;
+    plan.steps = asArray(plan.steps).filter(step => isObject(step) && step.phase === 'rig');
+    retainSignoffs(project, row => stageIndex(String(row.stage)) < stageIndex('rig-review'));
+    project.advances = asArray(project.advances).filter(row => isObject(row) && stageIndex(String(row.stage)) <= stageIndex('rigging'));
+  });
+  put(dir, 'project.json', freshPost(dir, readProject(dir)));
+  bindReviewWriter(dir);
+  const rigging = next(dir);
+  expect(rigging.refusals).toEqual([]);
+  expect(rigging.moves).toContainEqual(expect.objectContaining({ command: `rig-create advance rig-review ${dir}` }));
+  expect(advanceCommand(['rig-review', dir])).toMatchObject({ exit: 0 });
+  expectCurrentReview(dir, 'rig-review');
+  const words = join(dir, 'owner-rig-approval.txt');
+  writeFileSync(words, 'The synthetic rig is approved.\n');
+  expect(signoffCommand(['rig-review', dir, '--by', 'owner', ...ownerChatArgs(words)])).toMatchObject({ exit: 0 });
+  expect(asArray(readProject(dir).signoffs).at(-1)).toMatchObject({ target: { subject: 'current.rig' } });
+  expect(next(dir).moves).toContainEqual(expect.objectContaining({ command: `rig-create advance post-interview ${dir}` }));
+});
+
+test('a bound current direction advances, signs in owner chat and reaches accepted without a numbered post', () => {
+  const dir = postFixture('done');
+  const staleRecord = readProject(dir);
+  const freshRecord = freshPost(dir, staleRecord);
+  put(dir, 'project.json', freshRecord);
+  bindReviewWriter(dir);
 
   const bound = next(dir);
   expect(bound).toMatchObject({ effective_stage: 'post', refusals: [] });
-  expect(bound.moves.filter(move => move.field === 'stage')).toEqual([]);
-  expect(bound.moves.filter(move => move.role === 'agent' && move.field === 'versions')).toEqual([{
-    role: 'agent', field: 'versions', awaits: 'versions[n=3]',
-    command: `rig-create direction write 3 ${dir} --file '<direction.json>' --rig 2`,
-    act: 'author a direction document binding the current scene, then record the post version',
+  expect(bound.moves.filter(move => move.field === 'stage')).toEqual([{
+    role: 'agent', field: 'stage', awaits: 'project.stage',
+    command: `rig-create advance direction-review ${dir}`, act: 'advance stage from post to direction-review',
   }]);
-  expect(bound.awaits).toContain('versions[n=3]');
+  expect(bound.awaits).toContain('project.stage');
+  expect(bound.awaits.some(field => field.startsWith('versions['))).toBe(false);
+  expect(bound.moves.some(move => move.command?.startsWith('rig-create direction write '))).toBe(false);
 
   put(dir, 'project.json', staleRecord);
   const stale = next(dir);
   expect(stale.moves.map(move => move.field)).toEqual(rebuildTargets);
-  expect(stale.awaits).not.toContain('versions[n=3]');
+  expect(stale.awaits).not.toContain('project.stage');
+
+  put(dir, 'project.json', freshRecord);
+  const output = join(dir, 'outputs/direction');
+  const moved = join(dir, 'unavailable-direction');
+  renameSync(output, moved);
+  expect(next(dir).awaits).not.toContain('project.stage');
+  expect(() => advanceCommand(['direction-review', dir])).toThrow(expect.objectContaining({ code: 'JOB_PUBLICATION_INVALID' }));
+  renameSync(moved, output);
+
+  expect(advanceCommand(['direction-review', dir])).toMatchObject({ exit: 0 });
+  expectCurrentReview(dir, 'direction-review');
+  renameSync(output, moved);
+  expect(next(dir).awaits).not.toContain('signoffs[stage=direction-review]');
+  renameSync(moved, output);
+
+  const words = join(dir, 'owner-direction-approval.txt');
+  writeFileSync(words, 'The synthetic direction is approved.\n');
+  expect(signoffCommand(['direction-review', dir, '--by', 'owner', ...ownerChatArgs(words)])).toMatchObject({ exit: 0 });
+  expect(asArray(readProject(dir).signoffs).at(-1)).toMatchObject({ target: { subject: 'current.direction' } });
+  expect(next(dir).moves).toContainEqual(expect.objectContaining({ command: `rig-create advance accepted ${dir}` }));
+  expect(advanceCommand(['accepted', dir])).toMatchObject({ exit: 0 });
+  expect(next(dir)).toMatchObject({ stage: 'accepted', accepted: true, refusals: [] });
+  expect(readProject(dir).versions).toEqual(freshRecord.versions!);
+});
+
+test('next keeps the numbered rig verdict move for a project without current', () => {
+  const dir = tempDir('rig-create-next-legacy-');
+  cpSync(join(import.meta.dir, '../templates/example-chain/checkpoints/3-rig-review'), dir, { recursive: true });
+  expect(readProject(dir).current).toBeUndefined();
+  const report = next(dir);
+  const awaits = 'versions[n=1].verdicts[review=rig-review]';
+  expect(report.awaits).toContain(awaits);
+  expect(report.moves.find(move => move.awaits === awaits && move.role === 'human'
+    && move.review_act?.kind === 'review-verdict')).toMatchObject({
+    role: 'human', command: null,
+    review_act: { kind: 'review-verdict', stage: 'rig-review', version_id: 'v1', review: 'rig-review' },
+  });
+});
+
+test('a lapsed numbered direction verdict stays visible while next offers current owner chat re-signoff', () => {
+  const dir = staleFixture();
+  put(dir, 'project.json', freshPost(dir, readProject(dir)));
+  plantLegacyReopen(dir, 'direction-review', { at: new Date(testClock.now() - 1_000).toISOString() });
+  expectCurrentReview(dir, 'direction-review');
+  const report = next(dir);
+  expect(report.warnings).toContainEqual(expect.objectContaining({ code: 'REOPEN_VERDICT_LAPSED' }));
+  expect(report.moves.find(move => move.awaits === 'signoffs[stage=direction-review]')?.lapse)
+    .toMatchObject({ code: 'REOPEN_SIGNOFF_LAPSED' });
 });

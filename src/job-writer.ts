@@ -5,6 +5,7 @@ import { isDeepStrictEqual } from 'node:util';
 import { acquireJobLock, enqueuePublication, failPublication, jobPrivateRoot, pendingPublications, readWriterBinding, type PendingPublication, type WriterBinding } from './job-outbox.ts';
 import { liveManifestPath, livePublicationSubjects, draftPackageIdentity, inspectDraftPublication, prepareDraftManifest, prepareLiveManifest, publicationSelector } from './job-publication.ts';
 import { asArray, checkProject, isObject, type Finding } from './check.ts';
+import { isCurrentProject } from './current.ts';
 import { rigVerdictDeferred } from './rig-signoff.ts';
 import { Refusal, refuse } from './refusal.ts';
 import { shellWord, type JobWriteAskTarget } from './job-acts.ts';
@@ -69,7 +70,7 @@ export function prepareVersionIntent(root: string, bytes: Buffer, n: number): Pe
   const project = JSON.parse(bytes.toString('utf8')) as JsonObject;
   const selector = publicationSelector(project, n);
   const head = assertBoundJobAskReady(root, binding, selector);
-  if (head !== null && livePublicationSubjects(root, project, selector).length === 0) {
+  if (head !== null && !isCurrentProject(project) && livePublicationSubjects(root, project, selector).length === 0) {
     const version = asArray(project.versions).filter(isObject).find(row => row.n === n);
     const verdict = version && asArray(version.verdicts)[acceptedReviewVerdict(version, 'rig-review')];
     if (!version || !isObject(verdict) || !validCarriedRigDraftVerdict(root, project, version, verdict)) {

@@ -49,7 +49,7 @@ import { Refusal, refuse, USAGE_EXIT } from './refusal.ts';
 import { reopenLapseWarnings } from './reopen-lapses.ts';
 import { collectReopens, liveSignoff, type Reopen } from './reopen.ts';
 import { resolveAdoptSource } from './record-adopt.ts';
-import { acceptedReviewVerdict, humanReviewVerdicts, latestAccepted, readVersions } from './review.ts';
+import { acceptedReviewVerdict, handoff, humanReviewVerdicts, latestAccepted, readVersions } from './review.ts';
 import { SIGNOFF_TARGET_KINDS } from './review-act.ts';
 import { bustLandmarkCommands } from './review-bust.ts';
 import {
@@ -80,7 +80,7 @@ import {
   VALUE_QUESTIONS,
 } from './stages.ts';
 import type { Json, JsonObject } from './templates.ts';
-import { currentScene, plateRegistration, sceneBytes, sceneCurrentAt, sceneRig, SceneError } from './scene.ts';
+import { currentScene, plateRegistration, sceneBytes, sceneCurrentAt, sceneRig, sceneRigAcceptance, SceneError } from './scene.ts';
 import { depthPlanMoves, nextRigRegistrationNumber, NO_DRAFT_VERDICT, rigRegistrationCommand, RIG_VERSION_INPUTS, turnExtraGroupMoves } from './rig-version.ts';
 import { checkVersionDeclarations, type VersionDeclaration } from './version-declarations.ts';
 import { checkRigReport, parseRigCheckReport, RIG_CHECK_REPORT_FILE } from './rig-check-report.ts';
@@ -2420,8 +2420,22 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
           command: `rig-create direction --adopt ${shellWord(dir)}`, act: 'adopt direction before authoring the post' });
         return;
       }
-      if (!legacyWrites) return;
-      const rig = latestAccepted(parsedVersions) ?? parsedVersions.rigs.filter(r => r.live).at(-1);
+      const acceptedRig = latestAccepted(parsedVersions);
+      if (!legacyWrites) {
+        // Direction Review still needs a numbered post even when all current outputs are recorded.
+        const { current } = project;
+        if (postN !== null || !isObject(current) || !CURRENT_KINDS.every(kind => isObject(current[kind]))
+          || acceptedRig === null || openFeedback.length > 0 || missingDirectionStepApprovals(project, allItems).length > 0) return;
+        try {
+          handoff(dir, acceptedRig.n, now);
+          if (composed) sceneRigAcceptance(project, acceptedRig.n);
+          else if (sceneCurrentAt(dir, project, now) === undefined) return;
+        } catch (error) {
+          if (!(error instanceof Refusal || error instanceof SceneError)) throw error;
+          return;
+        }
+      }
+      const rig = acceptedRig ?? parsedVersions.rigs.filter(r => r.live).at(-1);
       const rigN = typeof rig?.n === 'number' ? String(rig.n) : '<rig-version>';
       if (composed) {
         addAwait(`versions[n=${nextPostN}]`);

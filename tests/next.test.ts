@@ -2349,9 +2349,18 @@ test('#1030 next lists missing and stale current outputs upstream-first without 
   expect(report.refusals.filter(finding => finding.code === 'CURRENT_MALFORMED')).toEqual([]);
   expect(report.warnings?.filter(warning => warning.code === 'OUTPUT_STALE').map(warning => warning.path))
     .toEqual(['current.motion', 'current.direction']);
-  expect(outputs(report).map(move => [move.field, move.command?.split(' ')[2]])).toEqual([
-    ['current.parts', 'parts'], ['current.rig', 'rig'], ['current.motion', 'motion'], ['current.direction', 'direction'],
+  const moves = outputs(report);
+  const fields = ['current.parts', 'current.rig', 'current.motion', 'current.direction'];
+  expect(moves.map(move => move.field)).toEqual(fields);
+  expect(report.awaits.filter(field => fields.includes(field))).toEqual(fields);
+  expect(moves.slice(0, 2).map(move => move.command)).toEqual([
+    `rig-create record parts ${dir} --from outputs/parts.next --config specs/rig/config.json`,
+    `rig-create record rig ${dir} --from outputs/rig.next --config specs/rig/config.json`,
   ]);
+  expect(moves[2]).toMatchObject({ role: 'agent', command: null,
+    act: expect.stringContaining('Obtain the render arguments from the operator') });
+  expect(moves[3]).toMatchObject({ role: 'agent', command: null,
+    act: expect.stringContaining('obtain the compose arguments from the operator') });
   expect(treeDigest(dir)).toEqual(before);
 });
 

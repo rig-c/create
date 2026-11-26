@@ -112,6 +112,12 @@ export function generateExampleCurrent(destination: string): string {
   generateExampleParts(producer);
   write(['init', dir, '--no-install', '--owner-language', 'en', '--painting', join(producer, 'painting.png'),
     '--origin', 'Synthetic geometric painting.', '--projects-root', scratch]);
+  // Init's fallback is for its first commit only. Give the disposable repository
+  // an identity for the stage and output writers' own commits as well.
+  for (const [key, value] of [['user.name', 'Synthetic example'], ['user.email', 'example@localhost']] as const) {
+    const result = Bun.spawnSync(['git', 'config', '--local', key, value], { cwd: dir, stderr: 'pipe' });
+    if (result.exitCode !== 0) throw new Error(`could not configure the synthetic project: ${result.stderr}`);
+  }
   propose('parts', 'Build a standing idle character. Use core projection and keep the synthetic painted outlines.\n');
   decide('rig_type', 'character.idle', 'Build a standing idle character.');
   decide('assemble', { project: 'core' }, 'Use core projection and keep the synthetic painted outlines.');

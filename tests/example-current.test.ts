@@ -27,6 +27,7 @@ consumerOnlyTest('tests/example-current.test.ts', 'the current-path example repr
       stdout: 'pipe', stderr: 'pipe', timeout: 120_000,
     });
     expect(run.exitCode, `${run.stdout}\n${run.stderr}`).toBe(0);
+    expect(run.stderr.toString()).not.toContain('PROJECT_COMMIT_FAILED');
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

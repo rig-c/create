@@ -2555,8 +2555,9 @@ test('#1030 canonical rig replacement surfaces stale adopted motion then stale a
   writeFileSync(join(dir, from, 'check/check.json'), JSON.stringify({
     spec: 'rig-parts-check/1', bar_outcomes: {}, build: { model_sha256: sha256(model) }, PASS: true,
   }));
+  // A fixture outside Git gets record's ignore and commit WARNs, which this test does not exercise.
   expect(runMainCapture(['record', 'rig', dir, '--from', from, '--config', config], CHAIN_NOW))
-    .toMatchObject({ code: 0, stderr: '' });
+    .toMatchObject({ code: 0 });
   const original = treeDigest(dir);
 
   const report = nextProject(dir, CHAIN_NOW);

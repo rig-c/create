@@ -779,11 +779,16 @@ The command records a signature without moving the stage. Exit 0 records it. Exi
 refuses the record and exit 2 refuses usage. All refusals leave the project
 file unchanged. The shared `VERBATIM_*` codes also apply to `review`.
 
+For `current.parts`, `signoff parts-review --draft` refuses with
+`SIGNOFF_OPTION_INVALID`. Run `structure-snapshot` for the current build and
+use its default file or pass `--structure-file` for a custom retained path.
+An empty declaration list is `entries: []`.
+
 | Code | Fires when |
 | --- | --- |
 | `SIGNOFF_PICKS_REQUIRED` | `--from-picks` needs the current interview, plan-approved or rigging-interview stage and an ingested owner pick for every relevant answer; record the missing picks or use the regular sign-off route for other answers |
 | `SIGNOFF_PICKS_PLAN_INCOMPLETE` | `--from-picks` cannot sign until the stage's required plan steps exist; add those steps through the plan writer |
-| `SIGNOFF_OPTION_INVALID` | missing or repeated options, unknown stage, extra positional arguments, `--from-review` with `--by`, `--verbatim-file`, `--steps` or owner-chat flags (the act supplies the person, words and covered steps), `--steps` outside a plan approval stage or with `--checkpoint`, `--draft` or `--structure-file` outside `parts-review`, `--version` on a current output target, or `--draft` when signing `current.parts` (exit 2; remove the numbered selector to sign the current output) |
+| `SIGNOFF_OPTION_INVALID` | missing or repeated options, unknown stage, extra positional arguments, `--from-review` with `--by`, `--verbatim-file`, `--steps` or owner-chat flags (the act supplies the person, words and covered steps), `--steps` outside a plan approval stage or with `--checkpoint`, `--draft` or `--structure-file` outside `parts-review`, or `--version` on a current output target (exit 2; remove `--version` to sign the current output) |
 | `SIGNOFF_NOT_HUMAN` | `--by` is `agent`, case-insensitively |
 | `SIGNOFF_MALFORMED` | the record's `signoffs` is not a list |
 | `SIGNOFF_REASK_PENDING` | a new `interview`, `rigging-interview` or `post-interview` stage signature has a pending option set in that stage. Open the named question with `rig-create job open --question <id>`, record the owner's pick with `interview-answer`, then ask for sign-off. The refusal applies to Review acts and relayed owner chat. |
@@ -1060,7 +1065,7 @@ identity as for a full draft. Existing standalone and build drafts have no
 | `DRAFT_PRODUCER_ASSUMED` | WARN at any date: no `run.json` is bound beside the draft's `rig.json` or at the assemble output root, so `drafts[].producer` is the installed `@rig-c/parts` assumed when `draft-rig` recorded it | regenerate the output with `rig-parts rig` or `rig-parts assemble` and register a new draft with its `run.json` |
 | `DRAFT_PRODUCER_MISMATCH` | WARN at any date: `drafts[].producer` differs from the `package` in the bound `rig-run/1` stamp | record the draft again with `draft-rig` under a new id |
 | `DRAFT_RIG_AS_VERSION` | draft role/identity/reserved paths are offered as a numbered version, review, package or handoff | build an independently authorised production rig |
-| `STRUCTURE_DECISIONS_MISSING` | new-order numbered parts approval lacks its draft or explicit structure snapshot, or a current parts approval lacks its snapshot | for numbered parts supply `--draft` and `--structure-file`. For current parts run `structure-snapshot` for the current build and use its default file or pass `--structure-file`. An empty declaration list is `entries: []` |
+| `STRUCTURE_DECISIONS_MISSING` | new-order numbered parts approval lacks its draft or explicit structure snapshot, or a current parts approval lacks its snapshot | supply --draft and --structure-file, including entries:[] when unchanged |
 | `STRUCTURE_DECISIONS_INVALID` | snapshot schema/declarations/config binding are malformed or changed | retain the exact human-approved structure file |
 | `STRUCTURE_DECISIONS_CONFLICT` | a structure snapshot contradicts the mesh/chest declaration of the config it binds | retain the snapshot written from that config |
 | `STRUCTURE_DELTA_MISMATCH` | recorded structure_delta differs from the snapshot/config comparison | register a new rig version with its exact computed delta |
@@ -1285,10 +1290,14 @@ Numbered signatures still check their retained review evidence after adoption. F
 `check` validates the latest live current-target signature. A newer current
 signature, reopen or amendment can make an earlier current signature historical.
 
+To sign an adopted or replaced `current.parts`, record the producer output
+with `rig-create record parts --from <producer out> --config <rig config>` as
+needed, then prepare its structure snapshot and relay the owner's approval.
+
 | Code | Meaning | Remedy |
 | --- | --- | --- |
-| `SIGNOFF_TARGET_MISSING` | A rig-review or direction-review signature dated on or after `SIGNOFF_TARGET_SINCE` has no target, or a new signature would bind an adopted current node | Rebuild and record the adopted kind with `rig-create record <kind> --from <producer out>` and the kind's configuration or direction flag, then sign again. For numbered rig or direction, preserve the reviewed inputs and sign again with `--version` |
-| `SIGNOFF_TARGET_STALE` | A current target or required current node is missing, malformed or differs from its recorded hashes or disk. A current parts signature can also predate its output record or carry numbered review fields. For a numbered target, the version, operative human accepted verdict, package inventory, imported outputs or direction binding no longer resolves, or writer selection is ambiguous | Restore the reviewed current record and outputs or record them with `rig-create record <kind>`, then sign again. For numbered selection, restore the reviewed inputs and select the accepted version with `--version` |
+| `SIGNOFF_TARGET_MISSING` | A rig-review or direction-review signature dated on or after `SIGNOFF_TARGET_SINCE` has no target, or a new signature would bind an adopted current node | For an adopted node, rebuild and use `rig-create record rig --from outputs/rig --config <rig config>` or `rig-create record direction --from outputs/direction --direction specs/direction/direction.json` before signing. For other current targets, restore or record the stage's current output and sign again. For a numbered project, preserve the reviewed inputs and sign again with `--version` |
+| `SIGNOFF_TARGET_STALE` | A current target or required current node is missing, malformed or differs from its recorded hashes or disk. A current parts signature can also predate its output record or carry numbered review fields. For a numbered target, the version, operative human accepted verdict, package inventory, imported outputs or direction binding no longer resolves, or writer selection is ambiguous | Restore the reviewed current record and outputs or record them with `rig-create record rig` or `rig-create record direction`, then sign again. For numbered selection, restore the reviewed inputs and select the accepted version with `--version` |
 | `SIGNOFF_TARGET_MISSING_LEGACY` | A pre-contract signature has no target | Preserve history and bind the next review signature |
 | `SIGNOFF_TARGET_STALE_LEGACY` | WARN when a signature dated before `SIGNOFF_TARGET_SINCE` has a target that no longer resolves | Preserve history and use the remedy for the target format in `SIGNOFF_TARGET_STALE` |
 | `SIGNOFF_PAIR_MISMATCH` | A rig-review or direction-review sign-off predates its target verdict without a human accepted pair bound by unique immutable act receipts to the same job, publication and version. Ingest always refuses; check refuses from `SIGNOFF_PAIR_SINCE = 2026-11-13T00:00:00Z`, dated by `signoffs[].at` | Accept the intended version and sign it again in Review, then ingest both acts |
@@ -1932,11 +1941,16 @@ interview is the existing `WAYPOINT_MISSING` refusal.
 
 ### Relayed owner chat
 
+Signing `current.parts` requires `--owner-chat`, `--said-at` and `--relayed-by`.
+Omitting any of these flags refuses with `OWNER_CHAT_REQUIRED`. The visual
+verdict gate applies to numbered targets. The relay supplies approval for the
+current parts target and its bound snapshot.
+
 | Code | Meaning and remedy |
 | --- | --- |
 | `OWNER_CHAT_INVALID` | The named project.json answer/signoff lacks exact nonblank owner words, a valid explicit ISO said_at, relay identity, or the relayed source, or mixes chat and Review flags. Supply `--owner-chat`, `--said-at`, `--relayed-by` and owner `--by` together; keep at as the write time and omit act ids. |
-| `OWNER_CHAT_REQUIRED` | A draft amendment, restart or current-output signoff lacks relayed owner chat. For a current parts writer, omission of any of `--owner-chat`, `--said-at` or `--relayed-by` refuses. A human reopen lacks relayed owner chat or a valid immutable Review reopen receipt. For reopen and restart, refuses from `REOPEN_RESTART_OWNER_CHAT_SINCE = 2026-11-19T00:00:00Z` by the entry's `at` and WARNs for earlier records. Preserve earlier records. For an amendment, restart or current-output signoff, relay the owner's exact words with `--by <owner> --owner-chat <file> --said-at <ISO> --relayed-by <operator>`. For a historical reopen, restore its original authority evidence. |
-| `OWNER_CHAT_GATE_VISUAL` | A relayed numbered parts, rig or direction signoff has no accepted live verdict for the reviewed draft or version. Get the verdict first in the review tool with `job open --draft <id>` or `job open --rig <n>`, ingest it, then relay the signoff. |
+| `OWNER_CHAT_REQUIRED` | A draft amendment, restart or new stage signoff targeting `current.rig` or `current.direction` lacks relayed owner chat. A human reopen lacks relayed owner chat or a valid immutable Review reopen receipt. For reopen and restart, refuses from `REOPEN_RESTART_OWNER_CHAT_SINCE = 2026-11-19T00:00:00Z` by the entry's `at` and WARNs for earlier records. Preserve earlier records. For an amendment, restart or current-output signoff, relay the owner's exact words with `--by <owner> --owner-chat <file> --said-at <ISO> --relayed-by <operator>`. For a historical reopen, restore its original authority evidence. |
+| `OWNER_CHAT_GATE_VISUAL` | A relayed signoff for parts, a numbered rig or a numbered direction has no accepted live verdict for the reviewed draft or version. Get the verdict first in the review tool with `job open --draft <id>` or `job open --rig <n>`, ingest it, then relay the signoff. |
 
 ## Composed idle direction (direction@3)
 
@@ -2023,6 +2037,9 @@ input names `<dir>`). A malformed, stale-against-`rig/` or red
 (`PARTS_CHECK_INVALID`, `PARTS_CHECK_STALE`, `PARTS_CHECK_FAILED`; § Parts-stage
 check at the parts → parts-review move).
 
+Only producer-backed parts take `--ledger-report`. If a bound ledger report
+changes during recording, restore the retained report bytes before retrying.
+
 `rig-create record rig [<dir>] --from <producer out> --config <rig config>`
 writes `current.rig` (docs/CURRENT-DATA.md §1.3) and renames the producer's
 folder, normally `outputs/rig.next/`, into `outputs/rig/`; the old tree is
@@ -2070,7 +2087,7 @@ until the owner signs the new output or a reopen makes the signature historical.
 
 | Code | Fires when | Remedy |
 | --- | --- | --- |
-| `RECORD_USAGE` | the kind is outside `parts`, `rig`, `motion` and `direction`, a required option is absent, an option is unknown or repeated, or `--adopt` is combined with a producer-backed option | use `--adopt` with an optional project folder and `--json`. For a producer-backed write, use `--from`, add `--config` for parts or rig, and add `--direction specs/direction/direction.json` for direction. Only producer-backed parts take `--ledger-report` |
+| `RECORD_USAGE` | the kind is outside `parts`, `rig`, `motion` and `direction`, a required option is absent, an option is unknown or repeated, or `--adopt` is combined with a producer-backed option | use `--adopt` with an optional project folder and `--json`. For a producer-backed write, use `--from`, add `--config` for parts or rig, and add `--direction specs/direction/direction.json` for direction |
 | `RECORD_BUSY` | another record writer holds the project lock | let it finish and retry |
 | `RECORD_ADOPT_CURRENT_EXISTS` | `current.<kind>` already exists | rebuild and use `record <kind> --from` to replace that entry |
 | `RECORD_ADOPT_SOURCE_MISSING` | there is no live version of the applicable role, or the latest live version has no retained output bindings for the requested kind | restore the source version's bound inventory or produce new output and record it with `--from` |
@@ -2087,7 +2104,7 @@ until the owner signs the new output or a reopen makes the signature historical.
 | `RECORD_BUILT_FROM_INVALID` | a producer input is a run record (`run.json` or any `*-run.json`), the compose check report, or lies inside `outputs/<kind>/`. A `rig-run/3` build input also triggers this refusal if it resolves into reserved `outputs/rig.next/` even with a custom `--from`, or into the actual `--from` tree | keep inputs and configs outside `outputs/<kind>/` and build from product files, not run records. For a `rig-run/3` build, also keep inputs outside `outputs/rig.next/` and the actual `--from` tree |
 | `RECORD_REPORT_INVALID` | `check/parts-check.json` (`parts`) or `check/check.json` (`rig`) is missing, unreadable, has the wrong spec, or (for `rig`) its `build.model_sha256` differs from `check/build/skeleton.model.json` | run `rig-parts check-parts --parts <folder>/rig --out <folder>/check` or `rig-parts check --out <folder>/check` and record again |
 | `RECORD_DESTINATION_INVALID` | `outputs/<kind>` exists and is not a folder | move that file away and record again |
-| `RECORD_SOURCE_CHANGED` | the folder, a bound parts ledger report or `project.json` changed while the writer was validating. Any output renames are undone | let the producer finish, restore any changed bound report and record again |
+| `RECORD_SOURCE_CHANGED` | the folder, a bound parts ledger report or `project.json` changed while the writer was validating. Any output renames are undone | let the producer finish and record again |
 | `RECORD_WRITE_FAILED` | a rename or the record write failed for another reason; the renames are undone | fix the project storage and record again |
 | `CURRENT_MALFORMED` | `current` or a `current.<kind>` entry has the wrong shape. Each entry has `at`, `built_by`, `built_with`, sorted `files[]`, `files_sha256` and `built_from[]`. For producer-backed entries, `files[]` is under `outputs/<kind>/`. Producer-backed parts, rig and direction require `run` and `report`. Rig requires `rebuild` (`{ recorded: false, note }` or `{ recorded: true, runs }`). Producer-backed motion with `rebuild` has an optional `report`, requires `run` when `rebuild.recorded` is true and omits it when false, and allows only `rigc-run/2` in `rebuild.runs`. Earlier producer-backed motion entries without `rebuild` require both `run` and `report`. An adopted entry must cite one numbered version with `adopted: { version }` and match its full kind-specific output inventory. An adopted entry may omit `report` and may omit `run` except for motion with `rebuild.recorded: true`. Each `run` or `report` binding present must match a `files[]` entry by path and sha256. A `built_from` entry naming a run record (`run.json` or any `*-run.json`), the compose check report or the output itself also refuses. | restore the record and its original source bindings, or record the output again |
 | `OUTPUT_STALE` | WARN: a `built_from` path is missing or now hashes differently — except the `current.parts` config entry when `outputs/parts/rig/parts.json` still has its recorded sha256 and carries `assembly_config`, which is stale only when the config is missing, unreadable, or `@rig-c/parts/assembly-reading`'s `assemblyConfigChanges` reports changed fields (named in the message; legacy `parts.json` without `assembly_config` keeps the whole-file sha256 comparison) — or a `built_from` path lies in an upstream output that is stale. Adopted motion uses its adoption version as its rig basis, and adopted direction uses the post's `rig_version`. When present, `current.rig` makes these dependents stale if it is canonical, adopts a different version, or matches their rig basis and is itself stale. | rebuild it upstream-first and record it with `record <kind>` |

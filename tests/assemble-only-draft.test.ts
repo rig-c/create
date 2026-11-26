@@ -146,10 +146,10 @@ test('requires the second assemble after propose changes turn', () => {
   }
 });
 
-test('next names reassembly before draft registration and publication', () => {
+test('next on a numbered project names reassembly before draft registration and publication', () => {
   const dir = fixture(project => {
     project.stage = 'parts';
-    project.versions = [];
+    project.versions = arr(project.versions).filter(version => obj(version).kind === 'rig');
     project.signoffs = arr(project.signoffs).slice(0, 2);
     retimeFixture(project, Date.parse('2026-11-16T00:00:00Z'));
     for (const raw of arr(obj(project.plan).steps)) obj(raw).status = 'pending';

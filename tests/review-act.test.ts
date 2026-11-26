@@ -1798,7 +1798,7 @@ test.each(['numbered', 'adopted'] as const)('#1043 applies a chest comment on th
     `rig-parts propose --parts outputs/v1/out --source inputs/painting.png --out ${base}.bust-proposal --write-config ${configArg} --bust-landmarks ${base}.bust-landmarks.json`,
   ];
   expect(bytes).toEqual(readFileSync(join(root, `${base}.act.json`)));
-  expect(bytes).toEqual(host.session.readActExport(actId, false));
+  expect(bytes.equals(host.session.readActExport(actId, false))).toBe(true);
   expect(out.bust_landmark_commands).toEqual(commands);
   expect(nextProject(root, testClock.now()).bust_landmark_commands).toEqual(commands);
   const recorded = readFileSync(join(root, 'project.json'));

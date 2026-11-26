@@ -297,7 +297,7 @@ test('#1054 a fresh project records current parts and advances with a retained c
   const root = tempDir();
   const dir = join(root, "synthetic owner's project");
   const source = join(dir, 'inputs/source');
-  const env = gitEnv();
+  const env = gitEnv({ name: 'Synthetic author', email: 'synthetic@example.test' });
   expect(spawnCli(['init', dir, '--no-install'], root, env).code).toBe(0);
   cpSync(join(REPO, 'templates/example-composed-direction/inputs/source'), source, { recursive: true });
   expect(cli(['input', 'add', 'inputs/source/painting.png', dir, '--origin', 'synthetic source']).code).toBe(0);
@@ -334,7 +334,8 @@ test('#1054 a fresh project records current parts and advances with a retained c
   expect(assembled).toMatchObject({ code: 0, stderr: '' });
   const checked = run([process.execPath, partsBin, 'check-parts', '--parts', `${staged}/rig`, '--out', `${staged}/check`], dir, env);
   expect(checked).toMatchObject({ code: 0, stderr: '' });
-  expect(cli(['record', 'parts', dir, '--from', staged, '--config', config])).toMatchObject({ code: 0, stderr: '' });
+  expect(spawnCli(['record', 'parts', dir, '--from', staged, '--config', config], root, env))
+    .toMatchObject({ code: 0, stderr: '' });
 
   const advance = next().moves.find(move => move.field === 'stage')?.command;
   expect(advance).toContain('rig-create advance parts-review ');

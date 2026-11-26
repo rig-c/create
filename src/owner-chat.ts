@@ -13,16 +13,59 @@ export const OWNER_CHAT_FLAGS = ['--owner-chat', '--said-at', '--relayed-by'];
 export const OWNER_CHAT_USAGE = '--by <owner> --owner-chat <file> --said-at <ISO> --relayed-by <operator>';
 export const REOPEN_RESTART_OWNER_CHAT_SINCE = '2026-11-19T00:00:00Z';
 const nonblank = (value: unknown): value is string => typeof value === 'string' && value.trim() !== '';
+const blankValue = (value: unknown): boolean => value === undefined || value === null || (typeof value === 'string' && value.trim() === '');
+const ISO_SAID_AT = /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?(?:Z|[+-]\d\d:\d\d)$/;
+
+function ownerWordsField(record: JsonObject, path: string): string {
+  if (record.owner_words !== undefined) return 'owner_words';
+  if (record.verbatim !== undefined) return 'verbatim';
+  if (record.reason !== undefined) return 'reason';
+  if (/\brestarts(?:\b|\[)/.test(path)) return 'reason';
+  if (/\b(?:signoffs|reopens|amendments)(?:\b|\[)/.test(path)) return 'verbatim';
+  return 'owner_words';
+}
 
 export function ownerChatFinding(record: JsonObject, path: string, words = record.owner_words ?? record.verbatim): Finding | undefined {
   if (record.source !== OWNER_CHAT_SOURCE && record.said_at === undefined && record.relayed_by === undefined && record.owner_words === undefined) return;
+  const problems: string[] = [];
+  if (record.source !== OWNER_CHAT_SOURCE) {
+    problems.push(`\`source\` must be ${JSON.stringify(OWNER_CHAT_SOURCE)}; record relayed chat with --owner-chat --said-at --relayed-by`);
+  }
+  if (!nonblank(words)) {
+    problems.push(`\`${ownerWordsField(record, path)}\` is missing or blank; pass nonblank owner words with --owner-chat <file>`);
+  }
+  if (!nonblank(record.by)) {
+    problems.push('`by` is missing or blank; a person must be named with --by <owner>');
+  } else if (record.by.toLowerCase() === 'agent') {
+    problems.push('`by` is agent; a person must be named with --by <owner>');
+  }
+  if (!nonblank(record.relayed_by)) {
+    problems.push('`relayed_by` is missing or blank; name the relaying operator with --relayed-by <operator>');
+  }
   const said = record.said_at;
-  if (record.source !== OWNER_CHAT_SOURCE || !nonblank(words)
-    || !nonblank(record.by) || record.by.toLowerCase() === 'agent' || !nonblank(record.relayed_by)
-    || typeof said !== 'string' || !/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?(?:Z|[+-]\d\d:\d\d)$/.test(said)
-    || !Number.isFinite(Date.parse(said)) || !Number.isFinite(Date.parse(String(record.at)))
-    || Date.parse(said) > Date.parse(String(record.at)) || record.actId !== undefined || record.act_id !== undefined) {
-    return {code:'OWNER_CHAT_INVALID',path,message:`${path}: relayed owner chat needs exact nonblank words, owner identity, ISO said_at, relayed_by and a separate write at without an act id; record the owner's words with --owner-chat --said-at --relayed-by`};
+  const saidValid = typeof said === 'string' && ISO_SAID_AT.test(said) && Number.isFinite(Date.parse(said));
+  if (!saidValid) {
+    problems.push(blankValue(said)
+      ? '`said_at` is missing or blank; pass an ISO timestamp with timezone to --said-at <ISO>'
+      : `\`said_at\` ${JSON.stringify(said)} is not a valid ISO timestamp with timezone; pass --said-at <ISO>`);
+  }
+  const atText = String(record.at);
+  const atMs = Date.parse(atText);
+  const atValid = Number.isFinite(atMs);
+  if (!atValid) {
+    problems.push(blankValue(record.at)
+      ? '`at` is missing or blank; keep the write timestamp `at` on the record'
+      : `\`at\` ${JSON.stringify(record.at)} is not a valid timestamp; keep the write timestamp \`at\` on the record`);
+  }
+  if (saidValid && atValid && Date.parse(said) > atMs) {
+    problems.push(`\`said_at\` ${said} is after the write time \`at\` ${atText}; pass the time the owner spoke with --said-at, not a later one`);
+  }
+  const actFields = (['actId', 'act_id'] as const).filter(key => record[key] !== undefined);
+  if (actFields.length > 0) {
+    problems.push(`${actFields.map(key => `\`${key}\``).join(' and ')} must be absent on relayed owner chat; omit Review act ids`);
+  }
+  if (problems.length > 0) {
+    return { code: 'OWNER_CHAT_INVALID', path, message: `${path}: ${problems.join('. ')}` };
   }
 }
 

@@ -472,7 +472,7 @@ function makeReviewEvidenceDirectory(directory: string, created: string[]): void
   created.push(...made);
 }
 
-function retainReviewSidecar(root: string, file: ReviewEvidenceFile, created: string[], target: ReviewEvidenceWrite): void {
+export function retainReviewSidecar(root: string, file: ReviewEvidenceFile, created: string[], target: ReviewEvidenceWrite): void {
   const destination = join(root, file.path);
   if (hasRetainedReviewEvidence(destination, file, target)) return;
   makeReviewEvidenceDirectory(dirname(destination), created);
@@ -502,7 +502,7 @@ function writeReviewActRecord(root: string, file: string, project: JsonObject, o
 }
 
 /** Remove what a refused write created, newest first, so its directories are empty when removed. */
-function discardReviewActOutputs(created: string[], discardMesh?: () => void): void {
+export function discardReviewActOutputs(created: string[], discardMesh?: () => void): void {
   discardMesh?.();
   for (const path of [...created].reverse()) {
     if (!lstatSync(path, { throwIfNoEntry: false })?.isDirectory()) rmSync(path, { force: true });

@@ -147,6 +147,18 @@ export function commentMeshAct(act: CommentOnlyAct): CommentMeshAct | undefined 
   return { ...act, value: { ...act.value, meshEdits: carrier.meshEdits } } as unknown as CommentMeshAct;
 }
 
+/** A chest carrier must address a numbered rig publication. Keep the original act bytes for Parts. */
+export function commentChestAct(act: CommentOnlyAct) {
+  const carrier = act.value.carriers?.find(row => row.kind === 'chest-landmarks');
+  if (!carrier) return undefined;
+  const source = act.source;
+  const selector = source.selector;
+  if (!('model' in source) || selector?.kind !== 'rig' || !source.model || !source.parts) {
+    return failure('REVIEW_ACT_SOURCE_STALE', 'chest landmark carrier needs a live rig publication; publish the current rig and request a new edit');
+  }
+  return { ...act, source: { ...source, selector }, value: { chestLandmarks: carrier.chestLandmarks } };
+}
+
 /** The scalar consumed by the existing feedback writers and immutable replay checks. */
 export function reviewActVerbatim(act: ReviewVerdictAct | PartsVerdictAct | CheckpointAct | SignoffAct | CommentOnlyAct): string {
   if (!('comments' in act.value)) return act.value.words;
@@ -544,7 +556,9 @@ export function fetchReviewActRuntime(transport: ReviewActTransport): { bytes: s
   return reviewActRuntime<{ bytes: string }>(transport);
 }
 
-export function fetchBustPublicationSeeds(root: string, act: ChestReviewVerdictAct): readonly JobPublishedChestLandmark[] {
+export function fetchBustPublicationSeeds(root: string, act: Pick<ChestReviewVerdictAct, 'jobId' | 'publicationId'> & {
+  source: Pick<ChestReviewVerdictAct['source'], 'sourceHash'>;
+}): readonly JobPublishedChestLandmark[] {
   const { jobId, publicationId, source: { sourceHash } } = act;
   return reviewActRuntime<{ seeds: JobPublishedChestLandmark[] }>(
     { root: realpathSync(root), jobId, publicationId, sourceHash }, 'bust-publication',
@@ -664,8 +678,11 @@ export function reviewActPublicationWarning(root: string, project: JsonObject, a
 
 export function assertReviewActSource(root: string, project: JsonObject, act: ReviewVerdictAct): void {
   if (isDraftReviewVerdict(act)) { assertDraftReviewActSource(root, project, act); return; }
+  assertVersionReviewActSource(root, project, act.source);
+}
+
+export function assertVersionReviewActSource(root: string, project: JsonObject, source: Exclude<ReviewVerdictAct, DraftReviewVerdictAct>['source']): void {
   const stale = (detail: string): never => failure('REVIEW_ACT_SOURCE_STALE', detail);
-  const source = act.source;
   const selector = source.selector!;
   if ('version' in selector) {
     assertDraftHasRig(assembleOnlyDraftTarget(project, selector.version), 'project.json.review_acts');
@@ -968,12 +985,21 @@ export function reviewActFindings(project: JsonObject, warnings?: Finding[], rou
         seen.add(key);
         const comments = asArray(project.comments);
         const at = Number.isSafeInteger(entry.comment) && Number(entry.comment) >= 0 ? comments[Number(entry.comment)] : undefined;
-        if (Object.keys(entry).some(field => !['schema', 'kind', 'jobId', 'actId', 'bytes', 'sha256', 'comment'].includes(field))
+        if (Object.keys(entry).some(field => !['schema', 'kind', 'jobId', 'actId', 'bytes', 'sha256', 'comment', 'bust_config'].includes(field))
           || !object(at) || asArray(project.comments).filter(object).filter(row => row.source === commentSource(act)).length !== 1) {
           failure('REVIEW_ACT_LEDGER_INVALID', 'comment receipt must name exactly one comments[] entry made from its act');
         }
         const problem = commentEntryFinding(at as JsonObject, act, reviewActBy(act));
         if (problem) failure('REVIEW_ACT_LEDGER_INVALID', `comments[${String(entry.comment)}]: ${problem}`);
+        if (Object.hasOwn(entry, 'bust_config')) {
+          const chest = commentChestAct(act);
+          const version = asArray(project.versions).filter(isObject)
+            .find(row => row.kind === 'rig' && row.n === chest?.source.selector.version);
+          if (!chest || !file(entry.bust_config) || !bustConfigPath(entry.bust_config.path)
+            || !version || entry.bust_config.sha256 !== frozenBustConfigHash(version)) {
+            failure('REVIEW_ACT_LEDGER_INVALID', 'comment working bust config binding differs from the rig registration or does not name an editable path');
+          }
+        }
         const mesh = commentMeshAct(act);
         if (mesh) assertCommentMeshCorrections(project, mesh);
         return;

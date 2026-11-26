@@ -48,7 +48,8 @@ export function seedHistoricalCheckpointAsk(host: JobOwnerHost, publicationId: s
 
 /** Store the answered ask and finalized event as Review did before retiring checkpoint submissions. */
 export function seedHistoricalCheckpointAct(host: JobOwnerHost, askId: string, outcome: 'pass' | 'fail',
-  content: { words: string } | { comments: readonly JobComment[] }, { actId = randomUUID(), at = new Date().toISOString() } = {}) {
+  content: { words: string } | { comments: readonly JobComment[] },
+  { actId = randomUUID(), at = new Date().toISOString() }: { actId?: string; at?: string } = {}) {
   const session = historicalSession(host);
   const { data } = session.store.update(session.jobId, null, ({ data }) => {
     const ask = data.asks[askId]!;

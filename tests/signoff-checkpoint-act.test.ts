@@ -123,7 +123,7 @@ test('@6 sealed record checkpoint ingests and replays after normal withdrawal', 
     const args = ['parts', dir, '--checkpoint', 'assemble', '--from-review', String(act.actId), '--json'];
     const hooks: SignoffHooks = { fetch: () => ({ bytes: raw }) };
     const otherStep = arr(obj(obj(publication.source).plan).steps).map(obj).find(step => step.id !== 'assemble')!;
-    const contradiction = JSON.stringify({ ...act, value: { ...obj(act.value), comments: [{ text: 'Contradictory pin',
+    const contradiction = JSON.stringify({ ...act, value: { ...act.value, comments: [{ text: 'Contradictory pin',
       anchor: { checkpointId: 'assemble', planStepId: otherStep.id } }] } });
     expect(refused(dir, () => rawSignoff(args, now, { fetch: () => ({ bytes: contradiction }) })).code).toBe('REVIEW_ACT_INVALID');
     const first = rawSignoff(args, now, hooks);
@@ -137,7 +137,7 @@ test('@6 sealed record checkpoint ingests and replays after normal withdrawal', 
     expect(rawSignoff(args, now, hooks).exit).toBe(0);
     expect(readFileSync(join(dir, 'project.json'))).toEqual(frozen);
     expect(reviewActFindings(load(dir))).toEqual([]);
-    const changed = JSON.stringify({ ...act, value: { ...obj(act.value), comments: [{ text: 'Changed original words' }] } });
+    const changed = JSON.stringify({ ...act, value: { ...act.value, comments: [{ text: 'Changed original words' }] } });
     expect(refused(dir, () => rawSignoff(args, now, { fetch: () => ({ bytes: changed }) })).code).toBe('REVIEW_ACT_REPLAY_CONFLICT');
     let fetched = false;
     expect(refused(dir, () => rawSignoff(['parts', dir, '--checkpoint', 'assemble', '--from-review', 'fresh-comments-checkpoint'], now,

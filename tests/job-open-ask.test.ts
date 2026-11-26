@@ -1029,10 +1029,10 @@ test.each(['signoff', 'checkpoint', 'both'] as const)('#467 replaces an unchange
     expect(reply.ok).toBe(true);
     previousId = reply.value.publicationId;
     acknowledgePublication(entry, previousId, reply.value.generation, requestId, subjects);
-    const live = subjects.filter(subject => subject.kind !== 'signoff');
+    const live = subjects.filter(subject => subject.kind === 'review-verdict');
     expect((await askDeclaredSubjects(legacy, previousId, live, false)).map(outcome => outcome.status)).toEqual(live.map(() => 'asked'));
     for (const subject of subjects) {
-      if (subject.kind === 'signoff') {
+      if (subject.kind === 'signoff' || subject.kind === 'checkpoint') {
         const session = legacy.session as unknown as {
           jobId: string;
           store: { update(jobId: string, rev: null, fn: (row: { data: { generation: number; publications: Record<string, { retained: { source: unknown } }>; asks: Record<string, unknown> } }) => { data: unknown }): unknown };

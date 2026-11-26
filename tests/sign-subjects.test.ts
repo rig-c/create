@@ -1,7 +1,6 @@
 /**
- * Live sign-off routes over package publications (#324): the publication declares the
- * `signoff` and `checkpoint` subjects the record can sign, Review asks and finalizes the
- * act through its own host, and `signoff … --from-review` records it.
+ * Live verdicts and historical sign-off routes over package publications (#324).
+ * Create binds owner acts to the publication's acknowledged subjects on ingestion.
  */
 import { afterEach, expect, test } from 'bun:test';
 import { randomUUID } from 'node:crypto';
@@ -19,6 +18,7 @@ import { enqueuePublication, jobHostStateRoot, readAcknowledgedPublication, read
 import { currentScene, sceneReference } from '../src/scene.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { plantLegacyReopen } from './fixtures.ts';
+import { seedHistoricalCheckpointAct, seedHistoricalCheckpointAsk } from './historical-review-fixture.ts';
 
 const roots: string[] = [];
 const hosts: JobOwnerHost[] = [];
@@ -111,7 +111,7 @@ test('a fresh rig version published in rig-review folds its approval into the di
   enqueuePublication(root, readWriterBinding(root)!, { path: 'review-live-v1.json', selector: { kind: 'rig', version: 1 } });
   expect(await reconcileCreateJob(root)).toBe(1);
   expect(declared(root, host)).toEqual([{ kind: 'review-verdict', stage: 'rig-review' }]);
-  // Review binds an ask only to a declared subject: a stage the record cannot sign here is refused by name.
+  // Fresh signoff asks are disabled for both review stages.
   expect((await ask(host, { kind: 'signoff', stage: 'direction-review' })).error?.code).toBe('JOB_ASK_INVALID');
   const verdictAsk = await ask(host, { kind: 'review-verdict', stage: 'rig-review' });
   expect(verdictAsk.ok).toBe(true);
@@ -138,19 +138,22 @@ test('an act for a subject create did not declare refuses by name and leaves the
   const root = partsAtCheckpoint();
   const drafted = await cli(root, draftArgs);
   expect({ exit: drafted.exit, stderr: drafted.stderr }).toEqual({ exit: 0, stderr: '' });
-  // A host that declares more than create's records allow: Review asks and finalizes the extra subject.
+  // Model a historical host that declared and finalized more than Create's receipt allowed.
+  const subject = { kind: 'checkpoint', checkpointId: 'assemble' } as const;
   const wider = (options: JobHostOptions) => startJobHost({ ...options, readPublished: async input => {
     const context = await options.readPublished!(input);
-    return { ...context, subjects: [...context.subjects, { kind: 'checkpoint', checkpointId: 'assemble' }] };
+    return { ...context, subjects: [...context.subjects, subject] };
   } });
   const host = await open(root, wider);
   enqueuePublication(root, readWriterBinding(root)!, draftPublicationResult('chain'));
   expect(await reconcileCreateJob(root, entry => publishPending(entry, undefined, undefined, wider))).toBe(1);
   expect(declared(root, host)).toEqual([]);
-  const asked = await ask(host, { kind: 'checkpoint', checkpointId: 'assemble' });
-  expect(asked.error).toBeUndefined();
-  const planted = await (await page(host)).act(String(asked.value.askId), 'checkpoint', { checkpointId: 'assemble', outcome: 'pass', words: WORDS });
-  // Only these two consumers run at the finalized act's instant; Review's producer is unchanged.
+  expect(await ask(host, subject)).toMatchObject({ ok: false, error: { code: 'JOB_ASK_INVALID' } });
+  const askId = seedHistoricalCheckpointAsk(host, host.session.status().publication!.publicationId, subject);
+  const planted = seedHistoricalCheckpointAct(host, askId, 'pass', {
+    comments: [{ text: WORDS, anchor: { checkpointId: 'assemble', planStepId: 'assemble' } }],
+  });
+  // Run both CLI consumers at the stored act's instant.
   const signoff = async () => {
     const requested = { jobId: readWriterBinding(root)!.jobId, actId: planted.actId };
     const commandClock = planted.at;

@@ -1,0 +1,39 @@
+{
+  "spec": "spine-parts-scene-report/1",
+  "scene": "specs/direction/compose-scene.json",
+  "canvas": {
+    "width": 64,
+    "height": 48
+  },
+  "characters": [
+    {
+      "id": "actor",
+      "build": "../../derived/compose-input",
+      "offset": [
+        0,
+        0
+      ],
+      "scale": 1,
+      "rig_size": [
+        64,
+        48
+      ],
+      "shift": [
+        0,
+        0
+      ]
+    }
+  ],
+  "plates": [
+    {
+      "name": "backdrop",
+      "image": "../../inputs/backdrop.png",
+      "at": [
+        0,
+        0
+      ],
+      "opaque_backdrop": true,
+      "sha256": "4e53525df46aafed8e01b5d70fd68c30862a32aae093f0a73d94a1ada74dea7a"
+    }
+  ]
+}

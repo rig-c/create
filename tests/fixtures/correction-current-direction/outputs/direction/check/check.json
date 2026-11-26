@@ -1,0 +1,8 @@
+{
+  "spec": "rig-parts-check/1",
+  "PASS": true,
+  "gate_spine_html_green": true,
+  "build": {
+    "model_sha256": "bd8b061728da35c56a95aef5b31b5990ae94263c359e35c3d2b1a8744509799e"
+  }
+}

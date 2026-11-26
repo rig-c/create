@@ -1,0 +1,13 @@
+{
+  "spec": "rigc-frames/1",
+  "sets": [
+    {
+      "dir": "idle@1fps",
+      "animation": "idle",
+      "fps": 1,
+      "sampled": 2,
+      "written": 2,
+      "stride": 1
+    }
+  ]
+}

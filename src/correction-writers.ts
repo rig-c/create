@@ -6,7 +6,7 @@ import { mkdtempSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, posix, relative, resolve, sep } from 'node:path';
 import { lstatSync } from './check-reads.ts';
 import { asArray, checkProject, collectSignoffs, isObject, type Finding } from './check.ts';
-import { CORRECTIONS_SPEC, CORRECTION_SPEC, CORRECTION_STAGES, CorrectionError, checkCorrections, correctionApplied, correctionCheckCoverage, correctionApprovalFindings, feedbackPackageInput, correctionBinding, correctionBytes, correctionFinding, correctionHash, correctionIsLive, correctionJson, correctionsAdopted, draftPartBinding, meshDeltaKey, validatePartImageArtifact, validateCorrectionIdentity, versionRecord } from './corrections.ts';
+import { CORRECTIONS_SPEC, CORRECTION_SPEC, CORRECTION_STAGES, CorrectionError, checkCorrections, correctionApplied, correctionCheckCoverage, correctionApprovalFindings, currentDirectionIdentity, feedbackPackageInput, correctionBinding, correctionBytes, correctionFinding, correctionHash, correctionIsLive, correctionJson, correctionsAdopted, draftPartBinding, meshDeltaKey, validatePartImageArtifact, validateCorrectionIdentity, versionRecord } from './corrections.ts';
 import { readProject } from './feedback.ts';
 import { assertDraftHasRig, draftRigDirectory } from './draft-layout.ts';
 import { checkReviewPackages } from './review-package.ts';
@@ -21,13 +21,13 @@ import type { JsonObject } from './templates.ts';
 
 export const CORRECTION_HELP = `correction --adopt [<dir>]
 correction record [<dir>] --id <id> --path described|made --stage <review-stage>
-  (--version <n> | --draft <id> | --parts-file <inventory JSON>) [--model-file <post output>]
+  [--version <n> | --draft <id> | --parts-file <inventory JSON>] [--model-file <post output>]
   --by <human|agent> [--verbatim-file <UTF-8 file>] [--source <text>] [--resolves <id>]
   made: (--patch-file <review package> | --feedback-file <review package>) --item <id> | --part-image-file <after.png> --part <name> --mask-file <mask.png> --tool <text> [--before-file <before.png>]
 correction resolve <id> [<dir>]
-  (--version <n> | --draft <id> | --parts-file <inventory JSON>) [--model-file <post output>]
+  [--version <n> | --draft <id> | --parts-file <inventory JSON>] [--model-file <post output>]
   --by agent --reasoning-file <file> [--applied-feedback <review package> --feedback-id <id>]
-  described direction-review: --version binds the authored direction and compiled model.
+  described direction-review: omit --version to bind current.direction, or pass --version for a numbered post.
   --json prints the recorded object. No command executes a patch or producer.
   Config patches come only from the selected applied item through Review feedback.`;
 const common = ['--version', '--draft', '--parts-file', '--model-file', '--by'];
@@ -346,13 +346,19 @@ function command(args:string[],now:number,runner?:ReviewReadRunner): {stdout:str
     const partImage=['--part-image-file','--part','--mask-file','--tool','--before-file'].some(f=>opts[f]!==undefined);
     const by=partImage ? (opts['--by']??'agent') : opts['--by'];
     if(!opts['--id']||!stage||!CORRECTION_STAGES.includes(stage)||!['described','made'].includes(path??'')||!by)usage('record requires id/path/stage/by');
-    openStage(next,stage);
     if(partImage && (path!=='made'||stage!=='parts-review'||!opts['--draft']||opts['--version']||opts['--parts-file']||opts['--model-file']||!opts['--part-image-file']||!opts['--part']||!opts['--mask-file']||!opts['--tool']||opts['--patch-file']||opts['--feedback-file']||opts['--item']||opts['--verbatim-file']))usage('part-image requires made at parts-review with --draft, --part, --part-image-file, --mask-file and --tool');
+    const selectors = ['--version', '--draft', '--parts-file'].filter(f => opts[f] !== undefined);
+    const currentDirection = path === 'described' && stage === 'direction-review' && selectors.length === 0;
+    if (currentDirection && opts['--model-file'] !== undefined) usage('--model-file requires --version');
+    if (!currentDirection && selectors.length !== 1) usage('select exactly one version/draft/parts identity');
+    openStage(next,stage);
     const version = path === 'described' && stage === 'direction-review' && opts['--version'] && !opts['--draft'] && !opts['--parts-file']
       ? versionRecord(next, Number(opts['--version'].replace(/^v/, ''))) : null;
-    const describedDirection = path === 'described' && stage === 'direction-review' && version?.kind === 'post' && isObject(version.provenance) && isObject(version.provenance.direction);
+    const describedDirection = currentDirection || (path === 'described' && stage === 'direction-review' && version?.kind === 'post' && isObject(version.provenance) && isObject(version.provenance.direction));
     let on: JsonObject;
-    if (describedDirection) {
+    if (currentDirection) {
+      on = currentDirectionIdentity(next);
+    } else if (describedDirection && version) {
       if (opts['--draft'] || opts['--parts-file']) usage('select only --version for a direction description');
       on = directionPostIdentity(dir, next, version.n);
       if (opts['--model-file'] && opts['--model-file'] !== (on.model as JsonObject).path) throw new CorrectionError('CORRECTION_SOURCE', '--model-file must name the direction source compiled model');
@@ -416,9 +422,18 @@ function command(args:string[],now:number,runner?:ReviewReadRunner): {stdout:str
       artifact.state='applied-and-checked';
     }
     if (record.schema === DIRECTION_CORRECTION_SPEC && artifact.kind === 'description') {
-      if (!opts['--version'] || opts['--draft'] || opts['--parts-file']) usage('direction description closure requires only --version and optional --model-file');
-      record.outcome = directionPostIdentity(dir, next, Number(opts['--version'].replace(/^v/, '')));
-      if (opts['--model-file'] && opts['--model-file'] !== (record.outcome.model as JsonObject).path) throw new CorrectionError('CORRECTION_SOURCE', '--model-file must name the direction source compiled model');
+      if (opts['--draft'] || opts['--parts-file']) usage('direction description closure rejects --draft and --parts-file');
+      const onCurrent = isObject(record.on) && record.on.kind === 'current.direction';
+      if (onCurrent) {
+        if (opts['--version'] || opts['--model-file']) usage('current.direction description closure takes no --version or --model-file');
+        record.outcome = currentDirectionIdentity(next, 'CORRECTION_OUTCOME');
+      } else if (opts['--version'] !== undefined) {
+        record.outcome = directionPostIdentity(dir, next, Number(opts['--version'].replace(/^v/, '')));
+        if (opts['--model-file'] && opts['--model-file'] !== (record.outcome.model as JsonObject).path) throw new CorrectionError('CORRECTION_SOURCE', '--model-file must name the direction source compiled model');
+      } else {
+        if (opts['--model-file']) usage('--model-file requires --version');
+        record.outcome = currentDirectionIdentity(next, 'CORRECTION_OUTCOME');
+      }
     } else {
       record.outcome=identity(dir,next,opts,String(record.stage),artifact.kind==='part-image');
       if (artifact.kind === 'description' && record.outcome.kind === 'post') {

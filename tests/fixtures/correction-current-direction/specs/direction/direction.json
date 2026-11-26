@@ -1,0 +1,40 @@
+{
+  "schema": "rig-create/direction@4",
+  "rig": {
+    "model": {
+      "path": "outputs/rig/check/build/skeleton.model.json",
+      "sha256": "a96c20acdfefd7730457a54684ae662e3b85a34fe5da2bdfb59a106d1fe53d94"
+    }
+  },
+  "scene": {
+    "path": "specs/direction/scene.json",
+    "sha256": "52df2690659c04587e4d54100d2a192f06922c79e8e35352af86e1cdf8f0fc92"
+  },
+  "take": {
+    "duration": 4,
+    "loop": true
+  },
+  "citations": {
+    "timing": {
+      "guide": "post_timing",
+      "asks": [
+        "post_timing"
+      ],
+      "quote": "Four-second seamless loop."
+    },
+    "composition": {
+      "guide": "post_composition",
+      "asks": [
+        "post_composition"
+      ],
+      "quote": "Place the backdrop behind the actor."
+    },
+    "camera": {
+      "guide": "camera_depth",
+      "asks": [
+        "camera_depth"
+      ],
+      "quote": "Keep the upper margin clear."
+    }
+  }
+}

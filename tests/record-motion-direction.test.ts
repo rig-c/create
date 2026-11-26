@@ -259,8 +259,17 @@ test('next offers preparation and recording for missing current direction before
   write(dir, `${directionFrom}/${COMPOSE_RUN_PATH}`, {});
   write(dir, `${directionFrom}/${COMPOSE_CHECK_PATH}`, {});
   const withPost = f.load();
-  f.save({ ...withPost, versions: (withPost.versions as JsonObject[]).filter(version => version.kind !== 'post') });
+  const versions = (withPost.versions as JsonObject[]).filter(version => version.kind !== 'post');
+  f.save({ ...withPost, versions });
+  const danglingPost = nextProject(dir, now);
+  expect(danglingPost.refusals.map(({ code, field }) => ({ code, field }))).toEqual([
+    { code: 'DIRECTION_CONTRACT_INVALID', field: 'direction_contract.grandfathered_posts' },
+  ]);
+  expect(danglingPost.moves).toEqual([]);
+
+  f.save({ ...withPost, versions, direction_contract: { ...withPost.direction_contract as JsonObject, grandfathered_posts: [] } });
   const withoutPost = nextProject(dir, now);
+  expect(withoutPost.refusals).toEqual([]);
   expect(withoutPost.moves).toContainEqual(directionMove);
   expect(withoutPost.moves.some(move => move.command?.startsWith('rig-create advance direction-review '))).toBe(false);
   f.save(withPost);

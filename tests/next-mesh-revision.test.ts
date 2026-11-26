@@ -120,7 +120,10 @@ test('next guides the final chained mesh revision until a later rig retains its 
 
     writeFileSync(file, JSON.stringify({ ...project, current: {} }));
     const current = nextProject(dir, EXAMPLE_NOW + 1000);
-    expect(current.moves.find(move => move.field === 'current.rig')?.command).toStartWith(`rig-create record rig ${dir} `);
+    expect(current.moves.filter(move => move.field === 'current.rig').map(move => move.command)).toEqual([
+      `rig-create record rig --adopt ${dir}`,
+      `rig-create record rig ${dir} --from outputs/rig.next --config specs/rig/config.json`,
+    ]);
     expect(current.moves.some(move => move.command?.includes('--answers') || move.command?.startsWith('rig-create rig-version '))).toBe(false);
 
     project.versions[0].verdicts = [];

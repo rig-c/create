@@ -1,0 +1,216 @@
+{
+  "skeleton": {
+    "spine": "4.3.13",
+    "x": -68.00001,
+    "y": -4,
+    "width": 136,
+    "height": 136,
+    "images": "../../rig/images/"
+  },
+  "bones": [
+    {
+      "name": "root"
+    },
+    {
+      "name": "backdrop",
+      "parent": "root"
+    },
+    {
+      "name": "actor:body",
+      "parent": "root",
+      "y": 64
+    }
+  ],
+  "slots": [
+    {
+      "name": "backdrop",
+      "bone": "backdrop",
+      "attachment": "backdrop"
+    },
+    {
+      "name": "actor:background",
+      "bone": "actor:body",
+      "attachment": "actor:background"
+    },
+    {
+      "name": "actor:torso",
+      "bone": "actor:body",
+      "attachment": "actor:torso"
+    },
+    {
+      "name": "actor:lantern",
+      "bone": "actor:body",
+      "attachment": "actor:lantern"
+    },
+    {
+      "name": "actor:face",
+      "bone": "actor:body",
+      "attachment": "actor:face"
+    },
+    {
+      "name": "actor:eye_r",
+      "bone": "actor:body",
+      "attachment": "actor:eye_r"
+    },
+    {
+      "name": "actor:eye_l",
+      "bone": "actor:body",
+      "attachment": "actor:eye_l"
+    }
+  ],
+  "skins": [
+    {
+      "name": "default",
+      "attachments": {
+        "actor:background": {
+          "actor:background": {
+            "width": 136,
+            "height": 136,
+            "path": "actor.background"
+          }
+        },
+        "actor:eye_l": {
+          "actor:eye_l": {
+            "x": 10,
+            "y": 32,
+            "path": "actor.eye_l",
+            "width": 16,
+            "height": 16
+          }
+        },
+        "actor:eye_r": {
+          "actor:eye_r": {
+            "x": -10,
+            "y": 32,
+            "path": "actor.eye_r",
+            "width": 16,
+            "height": 16
+          }
+        },
+        "actor:face": {
+          "actor:face": {
+            "y": 32,
+            "width": 48,
+            "path": "actor.face",
+            "height": 40
+          }
+        },
+        "actor:lantern": {
+          "actor:lantern": {
+            "x": 40,
+            "y": -20,
+            "path": "actor.lantern",
+            "width": 24,
+            "height": 32
+          }
+        },
+        "actor:torso": {
+          "actor:torso": {
+            "y": -24,
+            "width": 56,
+            "path": "actor.torso",
+            "height": 72
+          }
+        },
+        "backdrop": {
+          "backdrop": {
+            "y": 64,
+            "width": 128,
+            "path": "scene-plate.0",
+            "height": 128
+          }
+        }
+      }
+    }
+  ],
+  "animations": {
+    "idle": {
+      "bones": {
+        "actor:body": {
+          "translatey": [
+            {
+              "curve": [
+                0.166667,
+                0.2356,
+                0.333333,
+                0.4698
+              ]
+            },
+            {
+              "time": 0.5,
+              "value": 0.6364,
+              "curve": [
+                0.666667,
+                0.803,
+                0.833333,
+                0.9
+              ]
+            },
+            {
+              "time": 1,
+              "value": 0.9,
+              "curve": [
+                1.166667,
+                0.9,
+                1.333333,
+                0.803
+              ]
+            },
+            {
+              "time": 1.5,
+              "value": 0.6364,
+              "curve": [
+                1.666667,
+                0.4698,
+                1.833333,
+                0.2356
+              ]
+            },
+            {
+              "time": 2,
+              "curve": [
+                2.166667,
+                -0.2356,
+                2.333333,
+                -0.4698
+              ]
+            },
+            {
+              "time": 2.5,
+              "value": -0.6364,
+              "curve": [
+                2.666667,
+                -0.803,
+                2.833333,
+                -0.9
+              ]
+            },
+            {
+              "time": 3,
+              "value": -0.9,
+              "curve": [
+                3.166667,
+                -0.9,
+                3.333333,
+                -0.803
+              ]
+            },
+            {
+              "time": 3.5,
+              "value": -0.6364,
+              "curve": [
+                3.666667,
+                -0.4698,
+                3.833333,
+                -0.2356
+              ]
+            },
+            {
+              "time": 4
+            }
+          ]
+        }
+      }
+    }
+  }
+}

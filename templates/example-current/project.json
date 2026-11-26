@@ -1,0 +1,2870 @@
+{
+  "schema": "rig-create/project@0",
+  "corrections_contract": {
+    "schema": "rig-create/corrections@1",
+    "adopted_at": "2026-11-26T00:00:01.000Z"
+  },
+  "corrections": [],
+  "name": "example-current",
+  "title": null,
+  "stage": "accepted",
+  "stage_values": [
+    "interview",
+    "plan-approved",
+    "parts",
+    "parts-review",
+    "rigging-interview",
+    "rigging",
+    "rig-review",
+    "post-interview",
+    "post",
+    "direction-review",
+    "accepted",
+    "paused"
+  ],
+  "signoffs": [
+    {
+      "stage": "interview",
+      "checkpoint": null,
+      "by": "owner",
+      "at": "2026-11-26T00:00:07.000Z",
+      "verbatim": "I approve the synthetic interview work as presented.\n",
+      "source": "owner chat, relayed",
+      "said_at": "2026-11-26T00:00:06.000Z",
+      "relayed_by": "example-agent",
+      "answer_hashes": {
+        "rig_type": "634671e491cc5563e55f41db52c77860ef54b88518ef7067c6a18abeaf4de04c",
+        "reference": "46f25257a8d9a08fc12d209024740fa723b3027dfb0fd0e3c5e5ba51c799e148",
+        "seethrough": "46f25257a8d9a08fc12d209024740fa723b3027dfb0fd0e3c5e5ba51c799e148",
+        "assemble": "8381b6f91eb77a543eec14483ef84e1dbdab81d2ff09ae8caadb23838a2255a0"
+      }
+    },
+    {
+      "stage": "plan-approved",
+      "checkpoint": null,
+      "by": "owner",
+      "at": "2026-11-26T00:00:09.000Z",
+      "verbatim": "I approve the synthetic plan-approved work as presented.\n",
+      "source": "owner chat, relayed",
+      "said_at": "2026-11-26T00:00:08.000Z",
+      "relayed_by": "example-agent",
+      "steps": [
+        "seethrough",
+        "assemble"
+      ],
+      "step_hashes": {
+        "seethrough": "ce8b57432aa1174f1077b825b70c96e74fee6e0a7722f1a902494bbd0f43ea5f",
+        "assemble": "9d77a02083035a739a05d9548b4e07c2234a878500b51a2396bae80e572ef65f"
+      },
+      "answer_hashes": {
+        "seethrough": "46f25257a8d9a08fc12d209024740fa723b3027dfb0fd0e3c5e5ba51c799e148",
+        "assemble": "201a8c579ca20b03a080e7ad1b9f56bc4d79a47f4f252e9a241883e886ea8d65"
+      }
+    },
+    {
+      "stage": "parts-review",
+      "checkpoint": null,
+      "by": "owner",
+      "at": "2026-11-26T00:00:18.000Z",
+      "verbatim": "I approve the synthetic parts-review work as presented.\n",
+      "source": "owner chat, relayed",
+      "said_at": "2026-11-26T00:00:17.000Z",
+      "relayed_by": "example-agent",
+      "target": {
+        "subject": "current.parts",
+        "record_sha256": "387ba1a75a600e15c59864d01cefb95f968869834c576feada78f919cccc1584",
+        "files_sha256": "8086da1cca9944f02b9a2b838c3430e1f8069519661c0df6f33c692c5611ae74"
+      },
+      "structure": {
+        "path": "evidence/structure/current-parts/387ba1a75a600e15c59864d01cefb95f968869834c576feada78f919cccc1584.json",
+        "sha256": "f10bd7e7b8bdead27f3cd6133c538a9eddbe0c5fb77175bd21073afc353df409"
+      }
+    },
+    {
+      "stage": "rigging-interview",
+      "checkpoint": null,
+      "by": "owner",
+      "at": "2026-11-26T00:00:28.000Z",
+      "verbatim": "I approve the synthetic rigging-interview work as presented.\n",
+      "source": "owner chat, relayed",
+      "said_at": "2026-11-26T00:00:27.000Z",
+      "relayed_by": "example-agent",
+      "steps": [
+        "bones",
+        "meshes",
+        "constraints",
+        "motion"
+      ],
+      "step_hashes": {
+        "bones": "495f8f243e018a8773bca8088e8c174a5ee82d35958298f529a36cc223ff73f2",
+        "meshes": "7c4b7a94f75f2aca70f08fba4b4e7111a697070ba16d03a7db51adb0b1ff20d8",
+        "constraints": "acf5eb6a00405bd9d55010e3ae8f94053054ee052a449f7801c357858a4101ac",
+        "motion": "644b0408c254dd7a20fcc4282a09c14000a6c29fd03ee3ebca4c933fa15f7c02"
+      },
+      "answer_hashes": {
+        "bones": "ec381b505f54dfcb1ab012936d82c8278ca942a7ca00cef959e68fae702841a9",
+        "meshes": "96b08b8c27857025a3c86ccc04c6537eaaee406a21e2d1a2c48f300b7dc4ff7f",
+        "constraints": "ec381b505f54dfcb1ab012936d82c8278ca942a7ca00cef959e68fae702841a9",
+        "motion": "09d56968ea05186997f4960eb95adc1439fc98ac580c3fa90c666b07146a839a"
+      },
+      "accepted_parts": {
+        "signoff_at": "2026-11-26T00:00:18.000Z",
+        "target": {
+          "subject": "current.parts",
+          "record_sha256": "387ba1a75a600e15c59864d01cefb95f968869834c576feada78f919cccc1584",
+          "files_sha256": "8086da1cca9944f02b9a2b838c3430e1f8069519661c0df6f33c692c5611ae74"
+        }
+      },
+      "structure": {
+        "path": "evidence/structure/current-parts/387ba1a75a600e15c59864d01cefb95f968869834c576feada78f919cccc1584.json",
+        "sha256": "f10bd7e7b8bdead27f3cd6133c538a9eddbe0c5fb77175bd21073afc353df409"
+      }
+    },
+    {
+      "stage": "rig-review",
+      "checkpoint": null,
+      "by": "owner",
+      "at": "2026-11-26T00:00:40.000Z",
+      "verbatim": "I approve the synthetic rig-review work as presented.\n",
+      "source": "owner chat, relayed",
+      "said_at": "2026-11-26T00:00:39.000Z",
+      "relayed_by": "example-agent",
+      "target": {
+        "subject": "current.rig",
+        "record_sha256": "8aabe9559945bb3ed438185e9c53b5a4a4fdcc263a36a3c4380ae5dc24cb5e09",
+        "files_sha256": "a1493faa8c4de2e13339b7f8cd5919693bb76805cd277b212ac9107efda9673a"
+      }
+    },
+    {
+      "stage": "post-interview",
+      "checkpoint": null,
+      "by": "owner",
+      "at": "2026-11-26T00:00:52.000Z",
+      "verbatim": "I approve the synthetic post-interview work as presented.\n",
+      "source": "owner chat, relayed",
+      "said_at": "2026-11-26T00:00:51.000Z",
+      "relayed_by": "example-agent",
+      "steps": [
+        "camera",
+        "timing",
+        "composition"
+      ],
+      "step_hashes": {
+        "camera": "da40689cf9467f5af9addcfc2d2c7a44afe27efd9c0dd06ecb4d30e89fd407ca",
+        "timing": "e42c52750e3c2a4e5602d34fa50473ec9b56c2f6526ddaebb64a3ff510682666",
+        "composition": "0450c792d91c8967438d0432f79f0f474991243f5844c3dff6e91edb4b55d3e9"
+      },
+      "answer_hashes": {
+        "camera_depth": "04d8773e2d8d3586c1e021c146ac3a28b0cd79cde8ee97b75311fcb345658229",
+        "post_timing": "f26f5da068ec3d6d85bede0796712c6665de15c04509a976b9c5781cc88f0d8e",
+        "post_composition": "bf7ee1de308c2b0dc1c5ad1e006843c4749bfa9fac8c172756780c3a11a25304"
+      }
+    },
+    {
+      "stage": "direction-review",
+      "checkpoint": null,
+      "by": "owner",
+      "at": "2026-11-26T00:01:05.000Z",
+      "verbatim": "I approve the synthetic direction-review work as presented.\n",
+      "source": "owner chat, relayed",
+      "said_at": "2026-11-26T00:01:04.000Z",
+      "relayed_by": "example-agent",
+      "target": {
+        "subject": "current.direction",
+        "record_sha256": "4b69adbd2cdbf36eec521c353935e79dfc12e6450f595c27a54e5f71d6c84d04",
+        "files_sha256": "3f9b01e0d28a2734c1a34292e4313e543ca9a417145d36fab528c3aae7daf46f"
+      }
+    }
+  ],
+  "interview": {
+    "question_set": "rig-create/interview@2 (waypoints read from @rig-c/parts 2.60.0)",
+    "turn_question": "rig-create/turn-question@1",
+    "held": false,
+    "date": null,
+    "interviewer": null,
+    "respondent": null,
+    "framing": [
+      {
+        "id": "rig_type",
+        "text": "What is this: a character rig (standing idle / complex motion / a monster with its own moves) or a full-screen scene (minimal motion: breath, blink / motion tied to game logic)?",
+        "source": "rig-create",
+        "required_for": [
+          "all"
+        ],
+        "answer": {
+          "delegated": true,
+          "by": "agent",
+          "at": "2026-11-26T00:00:03.000Z",
+          "source": "step plan",
+          "step_plan": {
+            "step": "parts",
+            "sha256": "ca2964dc994c0d488895ea89b2383058d611f50aa17a7c5960752601fcb3e73a"
+          },
+          "plan_quote": "Build a standing idle character.",
+          "agent_decision": {
+            "by": "agent",
+            "at": "2026-11-26T00:00:03.000Z",
+            "reasoning": "Follow the proposed synthetic plan.\n",
+            "value": "character.idle"
+          }
+        },
+        "history": []
+      },
+      {
+        "id": "reference",
+        "text": "'Make it feel like this': a video, an existing demo, a game you have in mind?",
+        "source": "rig-create",
+        "required_for": [
+          "all"
+        ],
+        "answer": null,
+        "history": []
+      }
+    ],
+    "waypoints": [
+      {
+        "id": "seethrough",
+        "config": [
+          "seethrough"
+        ],
+        "prompts": [
+          {
+            "id": "x_layers",
+            "text": "Is there anything the layer split must keep together or keep apart: a hat with the head, a held object on its own?",
+            "source": "rig-create",
+            "required_for": [
+              "all"
+            ]
+          }
+        ],
+        "guide": null,
+        "history": []
+      },
+      {
+        "id": "assemble",
+        "config": [
+          "assemble",
+          "limbs",
+          "scene",
+          "waist"
+        ],
+        "prompts": [
+          {
+            "id": "split_granularity",
+            "text": "How finely should it be cut?",
+            "source": "rig-create",
+            "required_for": [
+              "all"
+            ]
+          },
+          {
+            "id": "split_emphasis",
+            "text": "Which parts matter most: more detail, or kept exactly as painted?",
+            "source": "rig-create",
+            "required_for": [
+              "all"
+            ]
+          }
+        ],
+        "guide": {
+          "delegated": true,
+          "by": "agent",
+          "at": "2026-11-26T00:00:04.000Z",
+          "source": "step plan",
+          "step_plan": {
+            "step": "parts",
+            "sha256": "ca2964dc994c0d488895ea89b2383058d611f50aa17a7c5960752601fcb3e73a"
+          },
+          "plan_quote": "Use core projection and keep the synthetic painted outlines.",
+          "asks": [
+            {
+              "id": "projection",
+              "state": "delegated"
+            },
+            {
+              "id": "cut",
+              "state": "delegated"
+            },
+            {
+              "id": "emphasis",
+              "state": "delegated"
+            },
+            {
+              "id": "draw_order",
+              "state": "delegated"
+            },
+            {
+              "id": "authored",
+              "state": "delegated"
+            },
+            {
+              "id": "occluders",
+              "state": "delegated"
+            },
+            {
+              "id": "outfits",
+              "state": "delegated"
+            }
+          ],
+          "agent_decision": {
+            "by": "agent",
+            "at": "2026-11-26T00:00:04.000Z",
+            "reasoning": "Follow the proposed synthetic plan.\n",
+            "value": {
+              "project": "core"
+            }
+          }
+        },
+        "history": []
+      },
+      {
+        "id": "bones",
+        "config": [
+          "bones"
+        ],
+        "prompts": [
+          {
+            "id": "x_chains",
+            "text": "What moves on its own: hair strands, coat tails, sleeves, held things?",
+            "source": "rig-create",
+            "required_for": [
+              "all"
+            ]
+          }
+        ],
+        "guide": null,
+        "history": []
+      },
+      {
+        "id": "meshes",
+        "config": [
+          "meshes",
+          "regions"
+        ],
+        "prompts": [
+          {
+            "id": "x_deform",
+            "text": "What must bend smoothly as one piece, and what must stay rigid?",
+            "source": "rig-create",
+            "required_for": [
+              "all"
+            ]
+          }
+        ],
+        "guide": {
+          "delegated": true,
+          "by": "agent",
+          "at": "2026-11-26T00:00:23.000Z",
+          "source": "step plan",
+          "step_plan": {
+            "step": "rigging",
+            "sha256": "45555bfd5ebe7f512ee787e7c3b3dfcd1b23426ca76a7146262f35cce5f0fbfb"
+          },
+          "plan_quote": "Keep the torso rigid.",
+          "asks": [
+            {
+              "id": "bend",
+              "state": "delegated"
+            },
+            {
+              "id": "rigid",
+              "state": "delegated"
+            },
+            {
+              "id": "density",
+              "state": "delegated"
+            }
+          ],
+          "agent_decision": {
+            "by": "agent",
+            "at": "2026-11-26T00:00:23.000Z",
+            "reasoning": "Follow the proposed synthetic plan.\n",
+            "value": {}
+          }
+        },
+        "history": []
+      },
+      {
+        "id": "constraints",
+        "config": [
+          "constraints",
+          "stops",
+          "cloth"
+        ],
+        "prompts": [
+          {
+            "id": "split_effects",
+            "text": "Which parts have special effects (sway on physics, move in wind, jiggle, glow, flicker), and how far do they move?",
+            "source": "rig-create",
+            "required_for": [
+              "all"
+            ]
+          }
+        ],
+        "guide": null,
+        "history": []
+      },
+      {
+        "id": "turn",
+        "config": [
+          "turn",
+          "depth"
+        ],
+        "prompts": [
+          {
+            "id": "view",
+            "text": "Should this rig keep the painted view, or turn its head with depth?",
+            "source": "rig-create",
+            "required_for": [
+              "all"
+            ]
+          }
+        ],
+        "guide": {
+          "delegated": true,
+          "by": "agent",
+          "at": "2026-11-26T00:00:22.000Z",
+          "source": "step plan",
+          "step_plan": {
+            "step": "rigging",
+            "sha256": "45555bfd5ebe7f512ee787e7c3b3dfcd1b23426ca76a7146262f35cce5f0fbfb"
+          },
+          "plan_quote": "Keep the painted view.",
+          "asks": [
+            {
+              "id": "view",
+              "state": "delegated"
+            }
+          ],
+          "agent_decision": {
+            "by": "agent",
+            "at": "2026-11-26T00:00:22.000Z",
+            "reasoning": "Follow the proposed synthetic plan.\n",
+            "value": {
+              "mode": "fixed"
+            }
+          }
+        },
+        "history": []
+      },
+      {
+        "id": "motion",
+        "config": [
+          "motion"
+        ],
+        "prompts": [
+          {
+            "id": "motions",
+            "text": "Which moves? Name each one.",
+            "source": "rig-create",
+            "required_for": [
+              "character.idle",
+              "character.complex",
+              "character.monster",
+              "fullscreen.minimal"
+            ]
+          },
+          {
+            "id": "game_states",
+            "text": "Which states, and what moves it from one to the next?",
+            "source": "rig-create",
+            "required_for": [
+              "fullscreen.game_logic"
+            ]
+          }
+        ],
+        "guide": null,
+        "history": []
+      }
+    ],
+    "post": {
+      "held": false,
+      "date": null,
+      "items": [
+        {
+          "id": "camera_depth",
+          "config": [],
+          "text": "Is the view fixed, or does it move along a camera-box path such as a push-in?",
+          "source": "rig-create",
+          "guide": {
+            "delegated": false,
+            "by": "owner",
+            "at": "2026-11-26T00:00:44.000Z",
+            "verbatim": "Keep the proposed camera_depth\nUse the proposed value.",
+            "source": "owner chat, relayed",
+            "choice": {
+              "spec": "rig-create/interview-choice@1",
+              "set": {
+                "path": "evidence/interview/camera_depth.json",
+                "sha256": "728cabe3e0eb370fa99fd4ce570b661b9bb018888e99ca2397e2db66111d0072"
+              },
+              "picks": [
+                {
+                  "ask": "camera_depth",
+                  "option_id": "keep",
+                  "shown": {
+                    "label": "Keep the proposed camera_depth",
+                    "effect": "Use the proposed value."
+                  }
+                }
+              ]
+            },
+            "asks": [
+              {
+                "id": "camera_depth",
+                "state": "user"
+              }
+            ],
+            "owner_words": "Choose the proposed camera_depth for the synthetic scene.",
+            "said_at": "2026-11-26T00:00:43.000Z",
+            "relayed_by": "example-agent",
+            "value": {
+              "camera": "fixed",
+              "depth": false
+            }
+          },
+          "history": []
+        },
+        {
+          "id": "post_timing",
+          "config": [],
+          "text": "How long, does it loop, and where are the beats?",
+          "source": "rig-create",
+          "guide": {
+            "delegated": false,
+            "by": "owner",
+            "at": "2026-11-26T00:00:46.000Z",
+            "verbatim": "Keep the proposed post_timing\nUse the proposed value.",
+            "source": "owner chat, relayed",
+            "choice": {
+              "spec": "rig-create/interview-choice@1",
+              "set": {
+                "path": "evidence/interview/post_timing.json",
+                "sha256": "ce7218322e92f5e220edc0c12b5ddadc16f34ea9aff50c9e851c78ba87aa7a31"
+              },
+              "picks": [
+                {
+                  "ask": "post_timing",
+                  "option_id": "keep",
+                  "shown": {
+                    "label": "Keep the proposed post_timing",
+                    "effect": "Use the proposed value."
+                  }
+                }
+              ]
+            },
+            "asks": [
+              {
+                "id": "post_timing",
+                "state": "user"
+              }
+            ],
+            "owner_words": "Choose the proposed post_timing for the synthetic scene.",
+            "said_at": "2026-11-26T00:00:45.000Z",
+            "relayed_by": "example-agent",
+            "value": {
+              "seconds": 4,
+              "loop": true
+            }
+          },
+          "history": []
+        },
+        {
+          "id": "post_composition",
+          "config": [],
+          "text": "What is around the figure: background, framing, other figures, light?",
+          "source": "rig-create",
+          "guide": {
+            "delegated": false,
+            "by": "owner",
+            "at": "2026-11-26T00:00:48.000Z",
+            "verbatim": "Keep the proposed post_composition\nUse the proposed value.",
+            "source": "owner chat, relayed",
+            "choice": {
+              "spec": "rig-create/interview-choice@1",
+              "set": {
+                "path": "evidence/interview/post_composition.json",
+                "sha256": "43eda060bebb6bfea6980bfbe7496333e9964e865dd1d7d0419f36ff08c9e189"
+              },
+              "picks": [
+                {
+                  "ask": "post_composition",
+                  "option_id": "keep",
+                  "shown": {
+                    "label": "Keep the proposed post_composition",
+                    "effect": "Use the proposed value."
+                  }
+                }
+              ]
+            },
+            "asks": [
+              {
+                "id": "post_composition",
+                "state": "user"
+              }
+            ],
+            "owner_words": "Choose the proposed post_composition for the synthetic scene.",
+            "said_at": "2026-11-26T00:00:47.000Z",
+            "relayed_by": "example-agent",
+            "value": {
+              "compose": {
+                "canvas": {
+                  "width": 128,
+                  "height": 128
+                },
+                "plates": [
+                  {
+                    "name": "backdrop",
+                    "image": "inputs/background.png",
+                    "at": [
+                      0,
+                      0
+                    ],
+                    "opaque_backdrop": true
+                  }
+                ],
+                "order": [
+                  "backdrop",
+                  "actor"
+                ],
+                "character": {
+                  "offset": [
+                    0,
+                    0
+                  ]
+                },
+                "idle_tracks": []
+              }
+            }
+          },
+          "history": []
+        }
+      ]
+    },
+    "order": {
+      "spec": "rig-create/stage-order@2",
+      "adopted_at": "2026-11-26T00:00:01.000Z",
+      "choices_adopted_at": "2026-11-26T00:00:01.000Z"
+    },
+    "step_plans": [
+      {
+        "schema": "rig-create/step-plan@1",
+        "step": "parts",
+        "path": "plans/parts.md",
+        "sha256": "ca2964dc994c0d488895ea89b2383058d611f50aa17a7c5960752601fcb3e73a",
+        "bytes": 94,
+        "inputs": [
+          {
+            "path": "inputs/painting.png",
+            "sha256": "02e6ea41dfec89a7eced0f66b98e0fea048846c6f4174fa1cc7631fe360e614f"
+          }
+        ],
+        "by": "agent",
+        "at": "2026-11-26T00:00:02.000Z",
+        "feedback": []
+      },
+      {
+        "schema": "rig-create/step-plan@1",
+        "step": "rigging",
+        "path": "plans/rigging.md",
+        "sha256": "45555bfd5ebe7f512ee787e7c3b3dfcd1b23426ca76a7146262f35cce5f0fbfb",
+        "bytes": 45,
+        "inputs": [
+          {
+            "path": "inputs/painting.png",
+            "sha256": "02e6ea41dfec89a7eced0f66b98e0fea048846c6f4174fa1cc7631fe360e614f"
+          }
+        ],
+        "by": "agent",
+        "at": "2026-11-26T00:00:20.000Z",
+        "feedback": []
+      },
+      {
+        "schema": "rig-create/step-plan@1",
+        "step": "motion",
+        "path": "plans/motion.md",
+        "sha256": "3965f9710add13955a90350a541ecc7ac80a7e3dd74dd96f93619221c43cb2de",
+        "bytes": 44,
+        "inputs": [
+          {
+            "path": "inputs/painting.png",
+            "sha256": "02e6ea41dfec89a7eced0f66b98e0fea048846c6f4174fa1cc7631fe360e614f"
+          }
+        ],
+        "by": "agent",
+        "at": "2026-11-26T00:00:21.000Z",
+        "feedback": []
+      }
+    ],
+    "rigging_context": {
+      "accepted_parts": {
+        "signoff_at": "2026-11-26T00:00:18.000Z",
+        "target": {
+          "subject": "current.parts",
+          "record_sha256": "387ba1a75a600e15c59864d01cefb95f968869834c576feada78f919cccc1584",
+          "files_sha256": "8086da1cca9944f02b9a2b838c3430e1f8069519661c0df6f33c692c5611ae74"
+        }
+      },
+      "structure": {
+        "path": "evidence/structure/current-parts/387ba1a75a600e15c59864d01cefb95f968869834c576feada78f919cccc1584.json",
+        "sha256": "f10bd7e7b8bdead27f3cd6133c538a9eddbe0c5fb77175bd21073afc353df409"
+      }
+    }
+  },
+  "plan": {
+    "drafted_by": "agent",
+    "drafted_at": "2026-11-26T00:00:06.000Z",
+    "steps": [
+      {
+        "id": "seethrough",
+        "phase": "rig",
+        "order": 1,
+        "does": "Prepare synthetic seethrough.",
+        "produces": "Synthetic seethrough evidence.",
+        "rests_on": [
+          "seethrough"
+        ],
+        "bar": "Retain the proposed synthetic result.",
+        "checkpoint_proposed": false,
+        "checkpoint": {
+          "delegated": false,
+          "by": "owner",
+          "at": "2026-11-26T00:00:09.000Z",
+          "verbatim": "I approve the synthetic plan-approved work as presented.\n",
+          "value": false
+        },
+        "status": "done",
+        "drafted_at": "2026-11-26T00:00:05.000Z",
+        "status_history": [
+          {
+            "from_status": "pending",
+            "status": "in-progress",
+            "by": "agent",
+            "at": "2026-11-26T00:00:11.000Z",
+            "checkpoint_required": false,
+            "signoff": null
+          },
+          {
+            "from_status": "in-progress",
+            "status": "done",
+            "by": "agent",
+            "at": "2026-11-26T00:00:13.000Z",
+            "checkpoint_required": false,
+            "signoff": null
+          }
+        ]
+      },
+      {
+        "id": "assemble",
+        "phase": "rig",
+        "order": 2,
+        "does": "Prepare synthetic assemble.",
+        "produces": "Synthetic assemble evidence.",
+        "rests_on": [
+          "assemble"
+        ],
+        "bar": "Retain the proposed synthetic result.",
+        "checkpoint_proposed": false,
+        "checkpoint": {
+          "delegated": false,
+          "by": "owner",
+          "at": "2026-11-26T00:00:09.000Z",
+          "verbatim": "I approve the synthetic plan-approved work as presented.\n",
+          "value": false
+        },
+        "status": "done",
+        "drafted_at": "2026-11-26T00:00:06.000Z",
+        "status_history": [
+          {
+            "from_status": "pending",
+            "status": "in-progress",
+            "by": "agent",
+            "at": "2026-11-26T00:00:12.000Z",
+            "checkpoint_required": false,
+            "signoff": null
+          },
+          {
+            "from_status": "in-progress",
+            "status": "done",
+            "by": "agent",
+            "at": "2026-11-26T00:00:14.000Z",
+            "checkpoint_required": false,
+            "signoff": null
+          }
+        ]
+      },
+      {
+        "id": "bones",
+        "phase": "rig",
+        "order": 3,
+        "does": "Prepare synthetic bones.",
+        "produces": "Synthetic bones evidence.",
+        "rests_on": [
+          "bones"
+        ],
+        "bar": "Retain the proposed synthetic result.",
+        "checkpoint_proposed": false,
+        "checkpoint": {
+          "delegated": false,
+          "by": "owner",
+          "at": "2026-11-26T00:00:28.000Z",
+          "verbatim": "I approve the synthetic rigging-interview work as presented.\n",
+          "value": false
+        },
+        "status": "done",
+        "drafted_at": "2026-11-26T00:00:24.000Z",
+        "status_history": [
+          {
+            "from_status": "pending",
+            "status": "in-progress",
+            "by": "agent",
+            "at": "2026-11-26T00:00:30.000Z",
+            "checkpoint_required": false,
+            "signoff": null
+          },
+          {
+            "from_status": "in-progress",
+            "status": "done",
+            "by": "agent",
+            "at": "2026-11-26T00:00:35.000Z",
+            "checkpoint_required": false,
+            "signoff": null
+          }
+        ]
+      },
+      {
+        "id": "meshes",
+        "phase": "rig",
+        "order": 4,
+        "does": "Prepare synthetic meshes.",
+        "produces": "Synthetic meshes evidence.",
+        "rests_on": [
+          "meshes"
+        ],
+        "bar": "Retain the proposed synthetic result.",
+        "checkpoint_proposed": false,
+        "checkpoint": {
+          "delegated": false,
+          "by": "owner",
+          "at": "2026-11-26T00:00:28.000Z",
+          "verbatim": "I approve the synthetic rigging-interview work as presented.\n",
+          "value": false
+        },
+        "status": "done",
+        "drafted_at": "2026-11-26T00:00:25.000Z",
+        "status_history": [
+          {
+            "from_status": "pending",
+            "status": "in-progress",
+            "by": "agent",
+            "at": "2026-11-26T00:00:31.000Z",
+            "checkpoint_required": false,
+            "signoff": null
+          },
+          {
+            "from_status": "in-progress",
+            "status": "done",
+            "by": "agent",
+            "at": "2026-11-26T00:00:36.000Z",
+            "checkpoint_required": false,
+            "signoff": null
+          }
+        ]
+      },
+      {
+        "id": "constraints",
+        "phase": "rig",
+        "order": 5,
+        "does": "Prepare synthetic constraints.",
+        "produces": "Synthetic constraints evidence.",
+        "rests_on": [
+          "constraints"
+        ],
+        "bar": "Retain the proposed synthetic result.",
+        "checkpoint_proposed": false,
+        "checkpoint": {
+          "delegated": false,
+          "by": "owner",
+          "at": "2026-11-26T00:00:28.000Z",
+          "verbatim": "I approve the synthetic rigging-interview work as presented.\n",
+          "value": false
+        },
+        "status": "done",
+        "drafted_at": "2026-11-26T00:00:26.000Z",
+        "status_history": [
+          {
+            "from_status": "pending",
+            "status": "in-progress",
+            "by": "agent",
+            "at": "2026-11-26T00:00:32.000Z",
+            "checkpoint_required": false,
+            "signoff": null
+          },
+          {
+            "from_status": "in-progress",
+            "status": "done",
+            "by": "agent",
+            "at": "2026-11-26T00:00:37.000Z",
+            "checkpoint_required": false,
+            "signoff": null
+          }
+        ]
+      },
+      {
+        "id": "motion",
+        "phase": "rig",
+        "order": 6,
+        "does": "Prepare synthetic motion.",
+        "produces": "Synthetic motion evidence.",
+        "rests_on": [
+          "motion"
+        ],
+        "bar": "Retain the proposed synthetic result.",
+        "checkpoint_proposed": false,
+        "checkpoint": {
+          "delegated": false,
+          "by": "owner",
+          "at": "2026-11-26T00:00:28.000Z",
+          "verbatim": "I approve the synthetic rigging-interview work as presented.\n",
+          "value": false
+        },
+        "status": "done",
+        "drafted_at": "2026-11-26T00:00:27.000Z",
+        "status_history": [
+          {
+            "from_status": "pending",
+            "status": "in-progress",
+            "by": "agent",
+            "at": "2026-11-26T00:00:33.000Z",
+            "checkpoint_required": false,
+            "signoff": null
+          },
+          {
+            "from_status": "in-progress",
+            "status": "done",
+            "by": "agent",
+            "at": "2026-11-26T00:00:38.000Z",
+            "checkpoint_required": false,
+            "signoff": null
+          }
+        ]
+      },
+      {
+        "id": "camera",
+        "phase": "post",
+        "order": 7,
+        "does": "Prepare synthetic camera.",
+        "produces": "Synthetic camera evidence.",
+        "rests_on": [
+          "camera_depth"
+        ],
+        "bar": "Retain the proposed synthetic result.",
+        "checkpoint_proposed": false,
+        "checkpoint": {
+          "delegated": false,
+          "by": "owner",
+          "at": "2026-11-26T00:00:52.000Z",
+          "verbatim": "I approve the synthetic post-interview work as presented.\n",
+          "value": false
+        },
+        "status": "done",
+        "drafted_at": "2026-11-26T00:00:49.000Z",
+        "status_history": [
+          {
+            "from_status": "pending",
+            "status": "in-progress",
+            "by": "agent",
+            "at": "2026-11-26T00:00:54.000Z",
+            "checkpoint_required": false,
+            "signoff": null
+          },
+          {
+            "from_status": "in-progress",
+            "status": "done",
+            "by": "agent",
+            "at": "2026-11-26T00:01:01.000Z",
+            "checkpoint_required": false,
+            "signoff": null
+          }
+        ]
+      },
+      {
+        "id": "timing",
+        "phase": "post",
+        "order": 8,
+        "does": "Prepare synthetic timing.",
+        "produces": "Synthetic timing evidence.",
+        "rests_on": [
+          "post_timing"
+        ],
+        "bar": "Retain the proposed synthetic result.",
+        "checkpoint_proposed": false,
+        "checkpoint": {
+          "delegated": false,
+          "by": "owner",
+          "at": "2026-11-26T00:00:52.000Z",
+          "verbatim": "I approve the synthetic post-interview work as presented.\n",
+          "value": false
+        },
+        "status": "done",
+        "drafted_at": "2026-11-26T00:00:50.000Z",
+        "status_history": [
+          {
+            "from_status": "pending",
+            "status": "in-progress",
+            "by": "agent",
+            "at": "2026-11-26T00:00:55.000Z",
+            "checkpoint_required": false,
+            "signoff": null
+          },
+          {
+            "from_status": "in-progress",
+            "status": "done",
+            "by": "agent",
+            "at": "2026-11-26T00:01:02.000Z",
+            "checkpoint_required": false,
+            "signoff": null
+          }
+        ]
+      },
+      {
+        "id": "composition",
+        "phase": "post",
+        "order": 9,
+        "does": "Prepare synthetic composition.",
+        "produces": "Synthetic composition evidence.",
+        "rests_on": [
+          "post_composition"
+        ],
+        "bar": "Retain the proposed synthetic result.",
+        "checkpoint_proposed": false,
+        "checkpoint": {
+          "delegated": false,
+          "by": "owner",
+          "at": "2026-11-26T00:00:52.000Z",
+          "verbatim": "I approve the synthetic post-interview work as presented.\n",
+          "value": false
+        },
+        "status": "done",
+        "drafted_at": "2026-11-26T00:00:51.000Z",
+        "status_history": [
+          {
+            "from_status": "pending",
+            "status": "in-progress",
+            "by": "agent",
+            "at": "2026-11-26T00:00:56.000Z",
+            "checkpoint_required": false,
+            "signoff": null
+          },
+          {
+            "from_status": "in-progress",
+            "status": "done",
+            "by": "agent",
+            "at": "2026-11-26T00:01:03.000Z",
+            "checkpoint_required": false,
+            "signoff": null
+          }
+        ]
+      }
+    ],
+    "rigging_drafted_at": "2026-11-26T00:00:27.000Z"
+  },
+  "split": {
+    "label_values": [
+      "physics",
+      "wind",
+      "jiggle",
+      "rigid",
+      "still"
+    ],
+    "proposal_image": null,
+    "proposed_by": null,
+    "proposed_at": null,
+    "parts": []
+  },
+  "inputs": [
+    {
+      "path": "inputs/painting.png",
+      "sha256": "02e6ea41dfec89a7eced0f66b98e0fea048846c6f4174fa1cc7631fe360e614f",
+      "bytes": 421,
+      "origin": "Synthetic geometric painting.",
+      "at": "2026-11-26T00:00:01.000Z"
+    },
+    {
+      "path": "inputs/background.png",
+      "sha256": "c180182b6666fb4d90d4f91e210bda103a4081f1ad7c45006db392fa6c4eaf36",
+      "bytes": 300,
+      "origin": "Synthetic backdrop from Parts assemble.",
+      "at": "2026-11-26T00:00:42.000Z"
+    }
+  ],
+  "fix_ledger": [],
+  "derived": [],
+  "versions": [],
+  "archive": null,
+  "notes": [],
+  "owner": {
+    "language": "en"
+  },
+  "painting": "inputs/painting.png",
+  "advances": [
+    {
+      "stage": "plan-approved",
+      "from_stage": "interview",
+      "at": "2026-11-26T00:00:08.000Z",
+      "post_not_passed": false,
+      "order": "split",
+      "signoffs_before": [
+        {
+          "stage": "interview",
+          "checkpoint": null,
+          "at": "2026-11-26T00:00:07.000Z"
+        }
+      ],
+      "signoff": {
+        "stage": "interview",
+        "checkpoint": null,
+        "at": "2026-11-26T00:00:07.000Z"
+      },
+      "steps_before": [
+        {
+          "id": "seethrough",
+          "phase": "rig",
+          "status": "pending"
+        },
+        {
+          "id": "assemble",
+          "phase": "rig",
+          "status": "pending"
+        }
+      ]
+    },
+    {
+      "stage": "parts",
+      "from_stage": "plan-approved",
+      "at": "2026-11-26T00:00:10.000Z",
+      "post_not_passed": false,
+      "order": "split",
+      "signoffs_before": [
+        {
+          "stage": "interview",
+          "checkpoint": null,
+          "at": "2026-11-26T00:00:07.000Z"
+        },
+        {
+          "stage": "plan-approved",
+          "checkpoint": null,
+          "at": "2026-11-26T00:00:09.000Z"
+        }
+      ],
+      "signoff": {
+        "stage": "plan-approved",
+        "checkpoint": null,
+        "at": "2026-11-26T00:00:09.000Z"
+      },
+      "steps_before": [
+        {
+          "id": "seethrough",
+          "phase": "rig",
+          "status": "pending"
+        },
+        {
+          "id": "assemble",
+          "phase": "rig",
+          "status": "pending"
+        }
+      ]
+    },
+    {
+      "stage": "parts-review",
+      "from_stage": "parts",
+      "at": "2026-11-26T00:00:16.000Z",
+      "post_not_passed": false,
+      "order": "split",
+      "signoffs_before": [
+        {
+          "stage": "interview",
+          "checkpoint": null,
+          "at": "2026-11-26T00:00:07.000Z"
+        },
+        {
+          "stage": "plan-approved",
+          "checkpoint": null,
+          "at": "2026-11-26T00:00:09.000Z"
+        }
+      ],
+      "signoff": {
+        "stage": "plan-approved",
+        "checkpoint": null,
+        "at": "2026-11-26T00:00:09.000Z"
+      },
+      "steps_before": [
+        {
+          "id": "seethrough",
+          "phase": "rig",
+          "status": "done"
+        },
+        {
+          "id": "assemble",
+          "phase": "rig",
+          "status": "done"
+        }
+      ],
+      "parts_check": {
+        "path": "evidence/parts-check.json",
+        "sha256": "70e6ac16afb822b42d3d178e3002a67fd478c144b741c6fc27c1e6912329177c",
+        "spec": "rig-parts-parts-check/1",
+        "parts": "outputs/parts/rig",
+        "exit_code": 0,
+        "holes": [
+          {
+            "code": "PARTS_PLATE_GHOST",
+            "object": "parts",
+            "reason": "no adopted plate-ghost discriminator; assemble outputs do not bind a background plate or composed figure outline",
+            "line": "PARTS_PLATE_GHOST: HOLE — no adopted plate-ghost discriminator; assemble outputs do not bind a background plate or composed figure outline"
+          },
+          {
+            "code": "PARTS_PLATE_STRUCTURE",
+            "object": "parts",
+            "reason": "no adopted background-structure continuation measure or reference",
+            "line": "PARTS_PLATE_STRUCTURE: HOLE — no adopted background-structure continuation measure or reference"
+          },
+          {
+            "code": "PARTS_PLATE_SMEAR",
+            "object": "parts",
+            "reason": "no adopted plate-smear discriminator",
+            "line": "PARTS_PLATE_SMEAR: HOLE — no adopted plate-smear discriminator"
+          },
+          {
+            "code": "PARTS_PLATE_STEPS",
+            "object": "parts",
+            "reason": "no adopted plate-fill continuity measure",
+            "line": "PARTS_PLATE_STEPS: HOLE — no adopted plate-fill continuity measure"
+          },
+          {
+            "code": "PARTS_INVENTED_MATERIAL",
+            "object": "parts",
+            "reason": "no validated producer-bound per-pixel painted-versus-invented record",
+            "line": "PARTS_INVENTED_MATERIAL: HOLE — no validated producer-bound per-pixel painted-versus-invented record"
+          },
+          {
+            "code": "PARTS_INVENTED_EXPOSURE",
+            "object": "parts",
+            "reason": "invented-material identity and posed-frame observations are unavailable at the parts stage",
+            "line": "PARTS_INVENTED_EXPOSURE: HOLE — invented-material identity and posed-frame observations are unavailable at the parts stage"
+          },
+          {
+            "code": "PARTS_PAINTING_ALLOCATION",
+            "object": "painting_allocation.json",
+            "reason": "painting_allocation.json is absent; painting-edge transfer membership is unavailable",
+            "line": "PARTS_PAINTING_ALLOCATION: HOLE — painting_allocation.json is absent; painting-edge transfer membership is unavailable"
+          }
+        ],
+        "reported": []
+      }
+    },
+    {
+      "stage": "rigging-interview",
+      "from_stage": "parts-review",
+      "at": "2026-11-26T00:00:19.000Z",
+      "post_not_passed": false,
+      "order": "split",
+      "signoffs_before": [
+        {
+          "stage": "interview",
+          "checkpoint": null,
+          "at": "2026-11-26T00:00:07.000Z"
+        },
+        {
+          "stage": "plan-approved",
+          "checkpoint": null,
+          "at": "2026-11-26T00:00:09.000Z"
+        },
+        {
+          "stage": "parts-review",
+          "checkpoint": null,
+          "at": "2026-11-26T00:00:18.000Z"
+        }
+      ],
+      "signoff": {
+        "stage": "parts-review",
+        "checkpoint": null,
+        "at": "2026-11-26T00:00:18.000Z"
+      },
+      "steps_before": [
+        {
+          "id": "seethrough",
+          "phase": "rig",
+          "status": "done"
+        },
+        {
+          "id": "assemble",
+          "phase": "rig",
+          "status": "done"
+        }
+      ]
+    },
+    {
+      "stage": "rigging",
+      "from_stage": "rigging-interview",
+      "at": "2026-11-26T00:00:29.000Z",
+      "post_not_passed": false,
+      "order": "split",
+      "signoffs_before": [
+        {
+          "stage": "interview",
+          "checkpoint": null,
+          "at": "2026-11-26T00:00:07.000Z"
+        },
+        {
+          "stage": "plan-approved",
+          "checkpoint": null,
+          "at": "2026-11-26T00:00:09.000Z"
+        },
+        {
+          "stage": "parts-review",
+          "checkpoint": null,
+          "at": "2026-11-26T00:00:18.000Z"
+        },
+        {
+          "stage": "rigging-interview",
+          "checkpoint": null,
+          "at": "2026-11-26T00:00:28.000Z"
+        }
+      ],
+      "signoff": {
+        "stage": "rigging-interview",
+        "checkpoint": null,
+        "at": "2026-11-26T00:00:28.000Z"
+      },
+      "steps_before": [
+        {
+          "id": "seethrough",
+          "phase": "rig",
+          "status": "done"
+        },
+        {
+          "id": "assemble",
+          "phase": "rig",
+          "status": "done"
+        },
+        {
+          "id": "bones",
+          "phase": "rig",
+          "status": "pending"
+        },
+        {
+          "id": "meshes",
+          "phase": "rig",
+          "status": "pending"
+        },
+        {
+          "id": "constraints",
+          "phase": "rig",
+          "status": "pending"
+        },
+        {
+          "id": "motion",
+          "phase": "rig",
+          "status": "pending"
+        }
+      ]
+    },
+    {
+      "stage": "rig-review",
+      "from_stage": "rigging",
+      "at": "2026-11-26T00:00:39.000Z",
+      "post_not_passed": false,
+      "order": "split",
+      "signoffs_before": [
+        {
+          "stage": "interview",
+          "checkpoint": null,
+          "at": "2026-11-26T00:00:07.000Z"
+        },
+        {
+          "stage": "plan-approved",
+          "checkpoint": null,
+          "at": "2026-11-26T00:00:09.000Z"
+        },
+        {
+          "stage": "parts-review",
+          "checkpoint": null,
+          "at": "2026-11-26T00:00:18.000Z"
+        },
+        {
+          "stage": "rigging-interview",
+          "checkpoint": null,
+          "at": "2026-11-26T00:00:28.000Z"
+        }
+      ],
+      "signoff": {
+        "stage": "rigging-interview",
+        "checkpoint": null,
+        "at": "2026-11-26T00:00:28.000Z"
+      },
+      "steps_before": [
+        {
+          "id": "seethrough",
+          "phase": "rig",
+          "status": "done"
+        },
+        {
+          "id": "assemble",
+          "phase": "rig",
+          "status": "done"
+        },
+        {
+          "id": "bones",
+          "phase": "rig",
+          "status": "done"
+        },
+        {
+          "id": "meshes",
+          "phase": "rig",
+          "status": "done"
+        },
+        {
+          "id": "constraints",
+          "phase": "rig",
+          "status": "done"
+        },
+        {
+          "id": "motion",
+          "phase": "rig",
+          "status": "done"
+        }
+      ]
+    },
+    {
+      "stage": "post-interview",
+      "from_stage": "rig-review",
+      "at": "2026-11-26T00:00:41.000Z",
+      "post_not_passed": false,
+      "order": "split",
+      "signoffs_before": [
+        {
+          "stage": "interview",
+          "checkpoint": null,
+          "at": "2026-11-26T00:00:07.000Z"
+        },
+        {
+          "stage": "plan-approved",
+          "checkpoint": null,
+          "at": "2026-11-26T00:00:09.000Z"
+        },
+        {
+          "stage": "parts-review",
+          "checkpoint": null,
+          "at": "2026-11-26T00:00:18.000Z"
+        },
+        {
+          "stage": "rigging-interview",
+          "checkpoint": null,
+          "at": "2026-11-26T00:00:28.000Z"
+        },
+        {
+          "stage": "rig-review",
+          "checkpoint": null,
+          "at": "2026-11-26T00:00:40.000Z"
+        }
+      ],
+      "signoff": {
+        "stage": "rig-review",
+        "checkpoint": null,
+        "at": "2026-11-26T00:00:40.000Z"
+      },
+      "steps_before": [
+        {
+          "id": "seethrough",
+          "phase": "rig",
+          "status": "done"
+        },
+        {
+          "id": "assemble",
+          "phase": "rig",
+          "status": "done"
+        },
+        {
+          "id": "bones",
+          "phase": "rig",
+          "status": "done"
+        },
+        {
+          "id": "meshes",
+          "phase": "rig",
+          "status": "done"
+        },
+        {
+          "id": "constraints",
+          "phase": "rig",
+          "status": "done"
+        },
+        {
+          "id": "motion",
+          "phase": "rig",
+          "status": "done"
+        }
+      ]
+    },
+    {
+      "stage": "post",
+      "from_stage": "post-interview",
+      "at": "2026-11-26T00:00:53.000Z",
+      "post_not_passed": false,
+      "order": "split",
+      "signoffs_before": [
+        {
+          "stage": "interview",
+          "checkpoint": null,
+          "at": "2026-11-26T00:00:07.000Z"
+        },
+        {
+          "stage": "plan-approved",
+          "checkpoint": null,
+          "at": "2026-11-26T00:00:09.000Z"
+        },
+        {
+          "stage": "parts-review",
+          "checkpoint": null,
+          "at": "2026-11-26T00:00:18.000Z"
+        },
+        {
+          "stage": "rigging-interview",
+          "checkpoint": null,
+          "at": "2026-11-26T00:00:28.000Z"
+        },
+        {
+          "stage": "rig-review",
+          "checkpoint": null,
+          "at": "2026-11-26T00:00:40.000Z"
+        },
+        {
+          "stage": "post-interview",
+          "checkpoint": null,
+          "at": "2026-11-26T00:00:52.000Z"
+        }
+      ],
+      "signoff": {
+        "stage": "post-interview",
+        "checkpoint": null,
+        "at": "2026-11-26T00:00:52.000Z"
+      },
+      "steps_before": [
+        {
+          "id": "seethrough",
+          "phase": "rig",
+          "status": "done"
+        },
+        {
+          "id": "assemble",
+          "phase": "rig",
+          "status": "done"
+        },
+        {
+          "id": "bones",
+          "phase": "rig",
+          "status": "done"
+        },
+        {
+          "id": "meshes",
+          "phase": "rig",
+          "status": "done"
+        },
+        {
+          "id": "constraints",
+          "phase": "rig",
+          "status": "done"
+        },
+        {
+          "id": "motion",
+          "phase": "rig",
+          "status": "done"
+        },
+        {
+          "id": "camera",
+          "phase": "post",
+          "status": "pending"
+        },
+        {
+          "id": "timing",
+          "phase": "post",
+          "status": "pending"
+        },
+        {
+          "id": "composition",
+          "phase": "post",
+          "status": "pending"
+        }
+      ]
+    },
+    {
+      "stage": "direction-review",
+      "from_stage": "post",
+      "at": "2026-11-26T00:01:04.000Z",
+      "post_not_passed": false,
+      "order": "split",
+      "signoffs_before": [
+        {
+          "stage": "interview",
+          "checkpoint": null,
+          "at": "2026-11-26T00:00:07.000Z"
+        },
+        {
+          "stage": "plan-approved",
+          "checkpoint": null,
+          "at": "2026-11-26T00:00:09.000Z"
+        },
+        {
+          "stage": "parts-review",
+          "checkpoint": null,
+          "at": "2026-11-26T00:00:18.000Z"
+        },
+        {
+          "stage": "rigging-interview",
+          "checkpoint": null,
+          "at": "2026-11-26T00:00:28.000Z"
+        },
+        {
+          "stage": "rig-review",
+          "checkpoint": null,
+          "at": "2026-11-26T00:00:40.000Z"
+        },
+        {
+          "stage": "post-interview",
+          "checkpoint": null,
+          "at": "2026-11-26T00:00:52.000Z"
+        }
+      ],
+      "signoff": {
+        "stage": "post-interview",
+        "checkpoint": null,
+        "at": "2026-11-26T00:00:52.000Z"
+      },
+      "steps_before": [
+        {
+          "id": "seethrough",
+          "phase": "rig",
+          "status": "done"
+        },
+        {
+          "id": "assemble",
+          "phase": "rig",
+          "status": "done"
+        },
+        {
+          "id": "bones",
+          "phase": "rig",
+          "status": "done"
+        },
+        {
+          "id": "meshes",
+          "phase": "rig",
+          "status": "done"
+        },
+        {
+          "id": "constraints",
+          "phase": "rig",
+          "status": "done"
+        },
+        {
+          "id": "motion",
+          "phase": "rig",
+          "status": "done"
+        },
+        {
+          "id": "camera",
+          "phase": "post",
+          "status": "done"
+        },
+        {
+          "id": "timing",
+          "phase": "post",
+          "status": "done"
+        },
+        {
+          "id": "composition",
+          "phase": "post",
+          "status": "done"
+        }
+      ]
+    },
+    {
+      "stage": "accepted",
+      "from_stage": "direction-review",
+      "at": "2026-11-26T00:01:06.000Z",
+      "post_not_passed": false,
+      "order": "split",
+      "signoffs_before": [
+        {
+          "stage": "interview",
+          "checkpoint": null,
+          "at": "2026-11-26T00:00:07.000Z"
+        },
+        {
+          "stage": "plan-approved",
+          "checkpoint": null,
+          "at": "2026-11-26T00:00:09.000Z"
+        },
+        {
+          "stage": "parts-review",
+          "checkpoint": null,
+          "at": "2026-11-26T00:00:18.000Z"
+        },
+        {
+          "stage": "rigging-interview",
+          "checkpoint": null,
+          "at": "2026-11-26T00:00:28.000Z"
+        },
+        {
+          "stage": "rig-review",
+          "checkpoint": null,
+          "at": "2026-11-26T00:00:40.000Z"
+        },
+        {
+          "stage": "post-interview",
+          "checkpoint": null,
+          "at": "2026-11-26T00:00:52.000Z"
+        },
+        {
+          "stage": "direction-review",
+          "checkpoint": null,
+          "at": "2026-11-26T00:01:05.000Z"
+        }
+      ],
+      "signoff": {
+        "stage": "direction-review",
+        "checkpoint": null,
+        "at": "2026-11-26T00:01:05.000Z"
+      },
+      "steps_before": [
+        {
+          "id": "seethrough",
+          "phase": "rig",
+          "status": "done"
+        },
+        {
+          "id": "assemble",
+          "phase": "rig",
+          "status": "done"
+        },
+        {
+          "id": "bones",
+          "phase": "rig",
+          "status": "done"
+        },
+        {
+          "id": "meshes",
+          "phase": "rig",
+          "status": "done"
+        },
+        {
+          "id": "constraints",
+          "phase": "rig",
+          "status": "done"
+        },
+        {
+          "id": "motion",
+          "phase": "rig",
+          "status": "done"
+        },
+        {
+          "id": "camera",
+          "phase": "post",
+          "status": "done"
+        },
+        {
+          "id": "timing",
+          "phase": "post",
+          "status": "done"
+        },
+        {
+          "id": "composition",
+          "phase": "post",
+          "status": "done"
+        }
+      ]
+    }
+  ],
+  "current": {
+    "parts": {
+      "at": "2026-11-26T00:00:15.000Z",
+      "built_by": "agent",
+      "built_with": {
+        "@rig-c/parts": "2.60.0"
+      },
+      "files": [
+        {
+          "path": "outputs/parts/check/parts-check.json",
+          "sha256": "70e6ac16afb822b42d3d178e3002a67fd478c144b741c6fc27c1e6912329177c",
+          "bytes": 34394
+        },
+        {
+          "path": "outputs/parts/render/recomposite_error_rig.png",
+          "sha256": "5960c514c5ad5321172ff02209a94160f76e0dac95c7340a746615657b05e96a",
+          "bytes": 416
+        },
+        {
+          "path": "outputs/parts/render/recomposite_rig.png",
+          "sha256": "02e6ea41dfec89a7eced0f66b98e0fea048846c6f4174fa1cc7631fe360e614f",
+          "bytes": 421
+        },
+        {
+          "path": "outputs/parts/rig/painting_in_rig.png",
+          "sha256": "02e6ea41dfec89a7eced0f66b98e0fea048846c6f4174fa1cc7631fe360e614f",
+          "bytes": 421
+        },
+        {
+          "path": "outputs/parts/rig/part_support_domains.json",
+          "sha256": "d684b26d00ce63fb836888722b9d4ea3b4e20749fb2f8d55847e8fe234d318fb",
+          "bytes": 2038
+        },
+        {
+          "path": "outputs/parts/rig/parts.json",
+          "sha256": "d93e07d90bb34132c296265585160cb37009cfac3c4eda0c19114636ddb41dca",
+          "bytes": 5121
+        },
+        {
+          "path": "outputs/parts/rig/parts/background.png",
+          "sha256": "c180182b6666fb4d90d4f91e210bda103a4081f1ad7c45006db392fa6c4eaf36",
+          "bytes": 300
+        },
+        {
+          "path": "outputs/parts/rig/parts/eye_l.png",
+          "sha256": "c080dceac3b4d8fbc824ebb0ebffe61047f10af4e2cdd8d51b32bf779691617e",
+          "bytes": 76
+        },
+        {
+          "path": "outputs/parts/rig/parts/eye_r.png",
+          "sha256": "c080dceac3b4d8fbc824ebb0ebffe61047f10af4e2cdd8d51b32bf779691617e",
+          "bytes": 76
+        },
+        {
+          "path": "outputs/parts/rig/parts/face.png",
+          "sha256": "9626a5008eb90b22ab7623cb79048ed521c6aa651254287bbc9df8606b9f0bf7",
+          "bytes": 109
+        },
+        {
+          "path": "outputs/parts/rig/parts/lantern.png",
+          "sha256": "79ff42136a509e98032352ef9f8c0857a5d7f16667eb629bc048b9b8ef24d96a",
+          "bytes": 87
+        },
+        {
+          "path": "outputs/parts/rig/parts/torso.png",
+          "sha256": "adf6cd5d92568c5f51028df2874b69f4df5ff1d0e3a94484784c867e543cd912",
+          "bytes": 137
+        },
+        {
+          "path": "outputs/parts/rig/source_cover.json",
+          "sha256": "c861771591ccb20edeaec500a85c535b8e0c78c27f58fbe2b5f36964f714c4d1",
+          "bytes": 25875
+        },
+        {
+          "path": "outputs/parts/run.json",
+          "sha256": "f56b2364a6c4f0b060e874ce7f8684e06e5407284cdf74f8917f39d178a4744d",
+          "bytes": 2192
+        }
+      ],
+      "files_sha256": "8086da1cca9944f02b9a2b838c3430e1f8069519661c0df6f33c692c5611ae74",
+      "built_from": [
+        {
+          "path": "derived/layers/layers.json",
+          "sha256": "971b779b55418fd5387aece386e910ca78e9c511352de70cf33f48d8a403e3e7"
+        },
+        {
+          "path": "inputs/painting.png",
+          "sha256": "02e6ea41dfec89a7eced0f66b98e0fea048846c6f4174fa1cc7631fe360e614f"
+        },
+        {
+          "path": "specs/rig/assemble.json",
+          "sha256": "09894c45fb493a697713d2055cbd294b0cb2c9c28cf9d2cda41334d8f1904100"
+        }
+      ],
+      "run": {
+        "path": "outputs/parts/run.json",
+        "sha256": "f56b2364a6c4f0b060e874ce7f8684e06e5407284cdf74f8917f39d178a4744d"
+      },
+      "report": {
+        "path": "outputs/parts/check/parts-check.json",
+        "sha256": "70e6ac16afb822b42d3d178e3002a67fd478c144b741c6fc27c1e6912329177c"
+      }
+    },
+    "rig": {
+      "at": "2026-11-26T00:00:34.000Z",
+      "built_by": "agent",
+      "built_with": {
+        "@rig-c/parts": "2.60.0",
+        "@rig-c/core": "3.9.2"
+      },
+      "files": [
+        {
+          "path": "outputs/rig/check/build-report.json",
+          "sha256": "140d18ff6863b2456c2c2978881335880fc8a0afafa5aa5fc01b4fa54e3a6626",
+          "bytes": 14974
+        },
+        {
+          "path": "outputs/rig/check/build/run.json",
+          "sha256": "29c984b6152e20e500699a1c05dbba5f3fa7f54ac76d48498fb0e39f3605736b",
+          "bytes": 1197
+        },
+        {
+          "path": "outputs/rig/check/build/skeleton.atlas",
+          "sha256": "68f9cb5eea7a194d59fb14d5c2363894b2eca78c26bf9aee67a760955a6125f3",
+          "bytes": 442
+        },
+        {
+          "path": "outputs/rig/check/build/skeleton.json",
+          "sha256": "ddf366446f30bdda13dea626976e719b8ebc6018322c38c64cfdd6e16cc4a47c",
+          "bytes": 3660
+        },
+        {
+          "path": "outputs/rig/check/build/skeleton.model.json",
+          "sha256": "15146157bfafc565b4eb0da7b66195283504692dc06d512dc404fd8f5849aa7e",
+          "bytes": 10328
+        },
+        {
+          "path": "outputs/rig/check/build/skeleton.png",
+          "sha256": "1b1836dc1a2700302723ebfebc8fd2be918ba69dff41029788a90595c426c6b2",
+          "bytes": 571
+        },
+        {
+          "path": "outputs/rig/check/check-run.json",
+          "sha256": "5b182feaebdd94cc1aff2ebc623048e27a753fe7a7a5e58fbad4760a7cc4b0f2",
+          "bytes": 8363
+        },
+        {
+          "path": "outputs/rig/check/check.json",
+          "sha256": "7362675e6a3f71de7b4a5d8a174cf13ac576820a3d1c5d10c3f25413255add7a",
+          "bytes": 17775
+        },
+        {
+          "path": "outputs/rig/check/contact.png",
+          "sha256": "d998f9721fd76d6c2790d0a2fe94c00450f2e6e3c52d20fd24ae41cb7b86d792",
+          "bytes": 21596
+        },
+        {
+          "path": "outputs/rig/check/gate_spine-html.txt",
+          "sha256": "db2dbd0bef9b6b909ef61b038d857dda8b13d571b5cf2622de4c90d3620f6f86",
+          "bytes": 1392
+        },
+        {
+          "path": "outputs/rig/check/idle_frames/frames.json",
+          "sha256": "b9ba2112bbd82a867e0686d43f04b30c8430f83c81c3268352ceee79e726403d",
+          "bytes": 486
+        },
+        {
+          "path": "outputs/rig/check/idle_frames/idle/contact.png",
+          "sha256": "d998f9721fd76d6c2790d0a2fe94c00450f2e6e3c52d20fd24ae41cb7b86d792",
+          "bytes": 21596
+        },
+        {
+          "path": "outputs/rig/check/idle_frames/idle/f0000.png",
+          "sha256": "e58a499d3cecbfa758aa95249eda1000809b81cd7bae840e0deda1f0591b1fb1",
+          "bytes": 6956
+        },
+        {
+          "path": "outputs/rig/check/idle_frames/idle/f0001.png",
+          "sha256": "5e25ff4d2be105b9e37a29958d5cf9b6111f930f2811bef31b95870abf8b5160",
+          "bytes": 6819
+        },
+        {
+          "path": "outputs/rig/check/idle_frames/idle/f0002.png",
+          "sha256": "da7c0e8d89739c1753fa61cd30395c187c346ea8d60e2cdd7e2a5300106a5962",
+          "bytes": 6955
+        },
+        {
+          "path": "outputs/rig/check/idle_frames/idle/f0003.png",
+          "sha256": "de17ecc4c890c527536a9a9ffa69b30a6c38f2e07dcbbe298551f83524d589cb",
+          "bytes": 6829
+        },
+        {
+          "path": "outputs/rig/check/idle_frames/idle/f0004.png",
+          "sha256": "6253648270257d4ee29e73c0f43c2d10d2eb76f0674e6cc16f44d80df6b92907",
+          "bytes": 6839
+        },
+        {
+          "path": "outputs/rig/check/idle_frames/idle/f0005.png",
+          "sha256": "999ea956dceec604288f57418ca6a7fba9cc1d22dcd1236199e2ea92d5c880ad",
+          "bytes": 6894
+        },
+        {
+          "path": "outputs/rig/check/idle_frames/idle/f0006.png",
+          "sha256": "3fb43c7aa63ebfbc9bf2b664b9917d94c158d47989be64de09f77c2ac4ef2837",
+          "bytes": 6906
+        },
+        {
+          "path": "outputs/rig/check/idle_frames/idle/f0007.png",
+          "sha256": "e76aad080f42f480252152258200ff7ebaa09ef0575b52cee03b359efca7dedc",
+          "bytes": 6936
+        },
+        {
+          "path": "outputs/rig/check/idle_frames/idle/f0008.png",
+          "sha256": "2d131f6dc60bbfd3060874447044ebfdc6f27e7d2c08db0aea99f104933e5e78",
+          "bytes": 6886
+        },
+        {
+          "path": "outputs/rig/check/idle_frames/idle/f0009.png",
+          "sha256": "f1bac6bbd549de4de25e2309fb799a1854955c4084029510d193427c21bb4666",
+          "bytes": 6872
+        },
+        {
+          "path": "outputs/rig/check/idle_frames/idle/f0010.png",
+          "sha256": "40e227d9f0c5e2e0c7914895cad1aa00cb103991ba87255cde3c74d3da1007f0",
+          "bytes": 6907
+        },
+        {
+          "path": "outputs/rig/check/idle_frames/idle/f0011.png",
+          "sha256": "ab20c0639bf5caee67a1dd375cdf6b8c3ca5c46bedf5b457b320ab388a685884",
+          "bytes": 6855
+        },
+        {
+          "path": "outputs/rig/check/idle_frames/idle/f0012.png",
+          "sha256": "d85207e4e6ac5be8114c92c6729b2bdfb9fef659de1610896554c87a3fb2512b",
+          "bytes": 6813
+        },
+        {
+          "path": "outputs/rig/check/idle_frames/idle/f0013.png",
+          "sha256": "ab20c0639bf5caee67a1dd375cdf6b8c3ca5c46bedf5b457b320ab388a685884",
+          "bytes": 6855
+        },
+        {
+          "path": "outputs/rig/check/idle_frames/idle/f0014.png",
+          "sha256": "40e227d9f0c5e2e0c7914895cad1aa00cb103991ba87255cde3c74d3da1007f0",
+          "bytes": 6907
+        },
+        {
+          "path": "outputs/rig/check/idle_frames/idle/f0015.png",
+          "sha256": "f1bac6bbd549de4de25e2309fb799a1854955c4084029510d193427c21bb4666",
+          "bytes": 6872
+        },
+        {
+          "path": "outputs/rig/check/idle_frames/idle/f0016.png",
+          "sha256": "2d131f6dc60bbfd3060874447044ebfdc6f27e7d2c08db0aea99f104933e5e78",
+          "bytes": 6886
+        },
+        {
+          "path": "outputs/rig/check/idle_frames/idle/f0017.png",
+          "sha256": "e76aad080f42f480252152258200ff7ebaa09ef0575b52cee03b359efca7dedc",
+          "bytes": 6936
+        },
+        {
+          "path": "outputs/rig/check/idle_frames/idle/f0018.png",
+          "sha256": "3fb43c7aa63ebfbc9bf2b664b9917d94c158d47989be64de09f77c2ac4ef2837",
+          "bytes": 6906
+        },
+        {
+          "path": "outputs/rig/check/idle_frames/idle/f0019.png",
+          "sha256": "999ea956dceec604288f57418ca6a7fba9cc1d22dcd1236199e2ea92d5c880ad",
+          "bytes": 6894
+        },
+        {
+          "path": "outputs/rig/check/idle_frames/idle/f0020.png",
+          "sha256": "6253648270257d4ee29e73c0f43c2d10d2eb76f0674e6cc16f44d80df6b92907",
+          "bytes": 6839
+        },
+        {
+          "path": "outputs/rig/check/idle_frames/idle/f0021.png",
+          "sha256": "de17ecc4c890c527536a9a9ffa69b30a6c38f2e07dcbbe298551f83524d589cb",
+          "bytes": 6829
+        },
+        {
+          "path": "outputs/rig/check/idle_frames/idle/f0022.png",
+          "sha256": "da7c0e8d89739c1753fa61cd30395c187c346ea8d60e2cdd7e2a5300106a5962",
+          "bytes": 6955
+        },
+        {
+          "path": "outputs/rig/check/idle_frames/idle/f0023.png",
+          "sha256": "5e25ff4d2be105b9e37a29958d5cf9b6111f930f2811bef31b95870abf8b5160",
+          "bytes": 6819
+        },
+        {
+          "path": "outputs/rig/check/idle_frames/idle/f0024.png",
+          "sha256": "e58a499d3cecbfa758aa95249eda1000809b81cd7bae840e0deda1f0591b1fb1",
+          "bytes": 6956
+        },
+        {
+          "path": "outputs/rig/check/idle_frames/idle/f0025.png",
+          "sha256": "2fd322448fc98f0f38263ffd3207e3884d72fa9261aeb6fdfc27550fd71cc62b",
+          "bytes": 6830
+        },
+        {
+          "path": "outputs/rig/check/idle_frames/idle/f0026.png",
+          "sha256": "03b24c72915961ed5d0f51fddb456e619b548c40a8eebf98a1b3dd825c6572c5",
+          "bytes": 6956
+        },
+        {
+          "path": "outputs/rig/check/idle_frames/idle/f0027.png",
+          "sha256": "3eff9555f7feab455748b4c67f48057642f92c6991c20d172be12dcc5ece31fd",
+          "bytes": 6831
+        },
+        {
+          "path": "outputs/rig/check/idle_frames/idle/f0028.png",
+          "sha256": "6e966a88ec1dc27ccbc4ab1003132995e9a2c83892520786c90d2727a029ba74",
+          "bytes": 6936
+        },
+        {
+          "path": "outputs/rig/check/idle_frames/idle/f0029.png",
+          "sha256": "dfd07a7869e769f9f214aab95202fd3dba647f33e72429d2774167886bf88329",
+          "bytes": 6914
+        },
+        {
+          "path": "outputs/rig/check/idle_frames/idle/f0030.png",
+          "sha256": "5fb86a73106aa3068e7ef22cdf23deab5de414533261cc7a0308794c6eb5dfd7",
+          "bytes": 6863
+        },
+        {
+          "path": "outputs/rig/check/idle_frames/idle/f0031.png",
+          "sha256": "938fd0444f7b05994cada218eb0616e460bdcde5770ceb786e6c1f5a159e5ba8",
+          "bytes": 6839
+        },
+        {
+          "path": "outputs/rig/check/idle_frames/idle/f0032.png",
+          "sha256": "3ee5bc53f0192f5ca8601c1d4bbdff836527f1fd1b1ec8e89ec1d9d88dd48184",
+          "bytes": 6908
+        },
+        {
+          "path": "outputs/rig/check/idle_frames/idle/f0033.png",
+          "sha256": "d3f3693ac3c4915786c6a3927e76f2552d948da3f69560eee6cd9aa2aae3da15",
+          "bytes": 6847
+        },
+        {
+          "path": "outputs/rig/check/idle_frames/idle/f0034.png",
+          "sha256": "3f15c4997247eebf23be51c2995a495bdee05ab979403c0e5ccdf6444c6cc4d3",
+          "bytes": 6880
+        },
+        {
+          "path": "outputs/rig/check/idle_frames/idle/f0035.png",
+          "sha256": "5b798adc5e6f737ffd50cffd4ae149cd31ef1e7819485f847cf17b3cd8ed9c5c",
+          "bytes": 6938
+        },
+        {
+          "path": "outputs/rig/check/idle_frames/idle/f0036.png",
+          "sha256": "7e1bad2732d380bca28c796bde186b4f1405855cf2deac0e148779808f3df642",
+          "bytes": 6929
+        },
+        {
+          "path": "outputs/rig/check/idle_frames/idle/f0037.png",
+          "sha256": "5b798adc5e6f737ffd50cffd4ae149cd31ef1e7819485f847cf17b3cd8ed9c5c",
+          "bytes": 6938
+        },
+        {
+          "path": "outputs/rig/check/idle_frames/idle/f0038.png",
+          "sha256": "3f15c4997247eebf23be51c2995a495bdee05ab979403c0e5ccdf6444c6cc4d3",
+          "bytes": 6880
+        },
+        {
+          "path": "outputs/rig/check/idle_frames/idle/f0039.png",
+          "sha256": "d3f3693ac3c4915786c6a3927e76f2552d948da3f69560eee6cd9aa2aae3da15",
+          "bytes": 6847
+        },
+        {
+          "path": "outputs/rig/check/idle_frames/idle/f0040.png",
+          "sha256": "3ee5bc53f0192f5ca8601c1d4bbdff836527f1fd1b1ec8e89ec1d9d88dd48184",
+          "bytes": 6908
+        },
+        {
+          "path": "outputs/rig/check/idle_frames/idle/f0041.png",
+          "sha256": "938fd0444f7b05994cada218eb0616e460bdcde5770ceb786e6c1f5a159e5ba8",
+          "bytes": 6839
+        },
+        {
+          "path": "outputs/rig/check/idle_frames/idle/f0042.png",
+          "sha256": "5fb86a73106aa3068e7ef22cdf23deab5de414533261cc7a0308794c6eb5dfd7",
+          "bytes": 6863
+        },
+        {
+          "path": "outputs/rig/check/idle_frames/idle/f0043.png",
+          "sha256": "dfd07a7869e769f9f214aab95202fd3dba647f33e72429d2774167886bf88329",
+          "bytes": 6914
+        },
+        {
+          "path": "outputs/rig/check/idle_frames/idle/f0044.png",
+          "sha256": "6e966a88ec1dc27ccbc4ab1003132995e9a2c83892520786c90d2727a029ba74",
+          "bytes": 6936
+        },
+        {
+          "path": "outputs/rig/check/idle_frames/idle/f0045.png",
+          "sha256": "3eff9555f7feab455748b4c67f48057642f92c6991c20d172be12dcc5ece31fd",
+          "bytes": 6831
+        },
+        {
+          "path": "outputs/rig/check/idle_frames/idle/f0046.png",
+          "sha256": "03b24c72915961ed5d0f51fddb456e619b548c40a8eebf98a1b3dd825c6572c5",
+          "bytes": 6956
+        },
+        {
+          "path": "outputs/rig/check/idle_frames/idle/f0047.png",
+          "sha256": "2fd322448fc98f0f38263ffd3207e3884d72fa9261aeb6fdfc27550fd71cc62b",
+          "bytes": 6830
+        },
+        {
+          "path": "outputs/rig/check/idle_frames/idle/f0048.png",
+          "sha256": "e58a499d3cecbfa758aa95249eda1000809b81cd7bae840e0deda1f0591b1fb1",
+          "bytes": 6956
+        },
+        {
+          "path": "outputs/rig/check/idle_frames/idle/geometry.json",
+          "sha256": "eb2ece21fe4dd13ba9bcd5afce1f4e7d3ba9520a2bc19f8a228695f1abde3b83",
+          "bytes": 83170
+        },
+        {
+          "path": "outputs/rig/check/idle_frames/render-run.json",
+          "sha256": "655e360f126678736f28c7fb81a51c9850d524c8cfb04ded366da79fc287ee0e",
+          "bytes": 7561
+        },
+        {
+          "path": "outputs/rig/check/motion_heat.png",
+          "sha256": "b1c8975e2870870643b70bafc84d4efa09c8b683d55c6af6d2b5a12457b06a98",
+          "bytes": 8721
+        },
+        {
+          "path": "outputs/rig/images/background.png",
+          "sha256": "24eb570320b9e27ce6449b54e82abd811043b9a63f48387f13cbba2dbed5c5f8",
+          "bytes": 332
+        },
+        {
+          "path": "outputs/rig/images/eye_l.png",
+          "sha256": "97da226ecba85a1af18173df4eb28d72b0828cda8c171f8d4a2995a3da9cc733",
+          "bytes": 84
+        },
+        {
+          "path": "outputs/rig/images/eye_r.png",
+          "sha256": "97da226ecba85a1af18173df4eb28d72b0828cda8c171f8d4a2995a3da9cc733",
+          "bytes": 84
+        },
+        {
+          "path": "outputs/rig/images/face.png",
+          "sha256": "e2bd0d0736b3ecda20d6a08840468a2d46738c226631fd73e280dab3719c9e4c",
+          "bytes": 122
+        },
+        {
+          "path": "outputs/rig/images/lantern.png",
+          "sha256": "733d1cc36c0d1a01f1d330085316f8bcccb8d4331e2f20b9a3dfe2a3407a7041",
+          "bytes": 101
+        },
+        {
+          "path": "outputs/rig/images/torso.png",
+          "sha256": "356a2a89f530ef7ab5719eefa2cfbff37f8f39a274f41689f13a9c7a2d76adf5",
+          "bytes": 150
+        },
+        {
+          "path": "outputs/rig/mesh_report.json",
+          "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+          "bytes": 3
+        },
+        {
+          "path": "outputs/rig/motion.json",
+          "sha256": "6c6c105be9c818556061aabc366357460712a7f7d0a5e3f8b25b0af6c533cceb",
+          "bytes": 1918
+        },
+        {
+          "path": "outputs/rig/rig.json",
+          "sha256": "3e9666933af397939671c9d07e117cf3ab192d0a1d601109225986bc4e15f894",
+          "bytes": 1372
+        },
+        {
+          "path": "outputs/rig/run.json",
+          "sha256": "cf2c282234dab6bdf8f119731622a595ccb9b8823b911e2ab5233d6ce77b72a3",
+          "bytes": 1424
+        }
+      ],
+      "files_sha256": "a1493faa8c4de2e13339b7f8cd5919693bb76805cd277b212ac9107efda9673a",
+      "built_from": [
+        {
+          "path": "specs/rig/config.json",
+          "sha256": "03bcce31341844dc3cffff836caa947720748dc8741be404be90af07b0090290"
+        }
+      ],
+      "run": {
+        "path": "outputs/rig/run.json",
+        "sha256": "cf2c282234dab6bdf8f119731622a595ccb9b8823b911e2ab5233d6ce77b72a3"
+      },
+      "report": {
+        "path": "outputs/rig/check/check.json",
+        "sha256": "7362675e6a3f71de7b4a5d8a174cf13ac576820a3d1c5d10c3f25413255add7a"
+      },
+      "rebuild": {
+        "recorded": true,
+        "runs": [
+          {
+            "path": "outputs/rig/check/check-run.json",
+            "sha256": "5b182feaebdd94cc1aff2ebc623048e27a753fe7a7a5e58fbad4760a7cc4b0f2",
+            "spec": "rig-run/2",
+            "argv": [
+              "check",
+              "--rig",
+              "..",
+              "--out",
+              ".",
+              "--parts",
+              "../../parts/rig",
+              "--source",
+              "../../../inputs/painting.png",
+              "--page-edges",
+              "free",
+              "--pack-shape",
+              "polygon",
+              "--requirements",
+              "../../../specs/rig/interview-requirements.json",
+              "--no-extremes"
+            ]
+          }
+        ]
+      }
+    },
+    "motion": {
+      "at": "2026-11-26T00:00:57.000Z",
+      "built_by": "agent",
+      "built_with": {
+        "@rig-c/core": "3.9.2"
+      },
+      "files": [
+        {
+          "path": "outputs/motion/frames.json",
+          "sha256": "956b1fbce5b71778b4f9856452f5ae1158b6c29f967e031e2ede68f723d7206a",
+          "bytes": 488
+        },
+        {
+          "path": "outputs/motion/idle@1fps/contact.png",
+          "sha256": "681623dc07807bb1fb6a846e7f7357e3c946911cc1d6587c68adb979dc549854",
+          "bytes": 2236
+        },
+        {
+          "path": "outputs/motion/idle@1fps/f0000.png",
+          "sha256": "62c672a82c4802891267c8db63ab2420dafd45a155ba72169be7c754b9efe811",
+          "bytes": 169
+        },
+        {
+          "path": "outputs/motion/idle@1fps/f0001.png",
+          "sha256": "d43869ec14fcb8b70bfe9428ce5a4c82ac74f6d74c9fcbd55d5cea0f73a10168",
+          "bytes": 185
+        },
+        {
+          "path": "outputs/motion/idle@1fps/f0002.png",
+          "sha256": "62c672a82c4802891267c8db63ab2420dafd45a155ba72169be7c754b9efe811",
+          "bytes": 169
+        },
+        {
+          "path": "outputs/motion/idle@1fps/f0003.png",
+          "sha256": "1cb2e50c5913d4c64ff45727feaf599e4efcb601f635f0e0551cc4a3ed1aa06a",
+          "bytes": 192
+        },
+        {
+          "path": "outputs/motion/idle@1fps/f0004.png",
+          "sha256": "62c672a82c4802891267c8db63ab2420dafd45a155ba72169be7c754b9efe811",
+          "bytes": 169
+        },
+        {
+          "path": "outputs/motion/render-run.json",
+          "sha256": "1b8ca048784113b02991e373aad544d88b76d617792d03e0b224540ae0ecc6f8",
+          "bytes": 1874
+        }
+      ],
+      "files_sha256": "06dbcd27bf34a3d9231367d0a3a070a8a30e061fe11316ce6abe82bd7e09e67b",
+      "built_from": [
+        {
+          "path": "outputs/rig/check/build/skeleton.atlas",
+          "sha256": "68f9cb5eea7a194d59fb14d5c2363894b2eca78c26bf9aee67a760955a6125f3"
+        },
+        {
+          "path": "outputs/rig/check/build/skeleton.json",
+          "sha256": "ddf366446f30bdda13dea626976e719b8ebc6018322c38c64cfdd6e16cc4a47c"
+        },
+        {
+          "path": "outputs/rig/check/build/skeleton.model.json",
+          "sha256": "15146157bfafc565b4eb0da7b66195283504692dc06d512dc404fd8f5849aa7e"
+        }
+      ],
+      "run": {
+        "path": "outputs/motion/render-run.json",
+        "sha256": "1b8ca048784113b02991e373aad544d88b76d617792d03e0b224540ae0ecc6f8"
+      },
+      "rebuild": {
+        "recorded": true,
+        "runs": [
+          {
+            "path": "outputs/motion/render-run.json",
+            "sha256": "1b8ca048784113b02991e373aad544d88b76d617792d03e0b224540ae0ecc6f8",
+            "spec": "rigc-run/2",
+            "argv": [
+              "--candidate",
+              "../rig/check/build",
+              "--out",
+              ".",
+              "--animation",
+              "idle",
+              "--fps",
+              "1",
+              "--max",
+              "32",
+              "--poser",
+              "core"
+            ]
+          }
+        ]
+      }
+    },
+    "direction": {
+      "at": "2026-11-26T00:01:00.000Z",
+      "built_by": "agent",
+      "built_with": {},
+      "files": [
+        {
+          "path": "outputs/direction/check/build-report.json",
+          "sha256": "ae767ff1e6f0a12c648b3e7533d752a8b25988c1e8c75cc8048c3fac1fe4f242",
+          "bytes": 14818
+        },
+        {
+          "path": "outputs/direction/check/build/run.json",
+          "sha256": "4391737f3b93da74d2b4f1623e73704e13cf373c094b771725739c426147a763",
+          "bytes": 1205
+        },
+        {
+          "path": "outputs/direction/check/build/skeleton.atlas",
+          "sha256": "528f05d78f47751321efa1281fdc74dc9f8248891561ac8be196d918b66cdd3e",
+          "bytes": 551
+        },
+        {
+          "path": "outputs/direction/check/build/skeleton.json",
+          "sha256": "17a5d3f4e8547bc421dd16e7bdc79bb4fd48e61378b06a66bd1e7857d073b5db",
+          "bytes": 4409
+        },
+        {
+          "path": "outputs/direction/check/build/skeleton.model.json",
+          "sha256": "69c07b3493f2eff0cba41870b39ed147214590fb4c69740cda55c33c8febfb5c",
+          "bytes": 12086
+        },
+        {
+          "path": "outputs/direction/check/build/skeleton.png",
+          "sha256": "3cbaab9dc4c5dac0dcd5163221070ef7d17e52a905a0bc977bbddf32b3dec776",
+          "bytes": 818
+        },
+        {
+          "path": "outputs/direction/check/check.json",
+          "sha256": "e827f341f5be972c8dc69e7c51a4f24d0d6907c7c094d17849cafe1596799d78",
+          "bytes": 3580
+        },
+        {
+          "path": "outputs/direction/check/contact.png",
+          "sha256": "80f40fb41c6633c274f36d2166979304f326aaa9ed46a8be4ca4b5bb91c6f1e2",
+          "bytes": 21262
+        },
+        {
+          "path": "outputs/direction/check/extremes/idle/extremes.json",
+          "sha256": "705ac08b9f11f0acab66d82a23eae9e59e1612eb602a6343774ce992591181c5",
+          "bytes": 15849
+        },
+        {
+          "path": "outputs/direction/check/extremes/idle/extremes.png",
+          "sha256": "0bb16aac342ff2c8c0122b667f7c4aecf4298cb5de10f1395a3f3e200ea8824f",
+          "bytes": 5138
+        },
+        {
+          "path": "outputs/direction/check/gate_spine-html.txt",
+          "sha256": "fc544c492bf9b6507587a41b4efd3d34648ca8e4d2aae9f8d3a559ce506548b8",
+          "bytes": 1366
+        },
+        {
+          "path": "outputs/direction/check/idle_frames/frames.json",
+          "sha256": "b9ba2112bbd82a867e0686d43f04b30c8430f83c81c3268352ceee79e726403d",
+          "bytes": 486
+        },
+        {
+          "path": "outputs/direction/check/idle_frames/idle/contact.png",
+          "sha256": "80f40fb41c6633c274f36d2166979304f326aaa9ed46a8be4ca4b5bb91c6f1e2",
+          "bytes": 21262
+        },
+        {
+          "path": "outputs/direction/check/idle_frames/idle/f0000.png",
+          "sha256": "dbff805d0d11531fb9c7c88a752a32ca7a705168679c3fade929184dbedc0c52",
+          "bytes": 6838
+        },
+        {
+          "path": "outputs/direction/check/idle_frames/idle/f0001.png",
+          "sha256": "8b3cac6cfcdd0c183640464de4f788ade4f8c37311516ad5f5f3cef922c243f9",
+          "bytes": 6703
+        },
+        {
+          "path": "outputs/direction/check/idle_frames/idle/f0002.png",
+          "sha256": "2f17b66bff014370eebc6e7cbd6ed1df5969fd5a9e6d9980c1412a3384c17199",
+          "bytes": 6829
+        },
+        {
+          "path": "outputs/direction/check/idle_frames/idle/f0003.png",
+          "sha256": "290f2ca3042ec73f9737601ec620ae3218ece996837ea7b1df0af646b790297b",
+          "bytes": 6715
+        },
+        {
+          "path": "outputs/direction/check/idle_frames/idle/f0004.png",
+          "sha256": "11b212f63b1bb6016b1516138385bb995058927fda01c45ce74ed9a773808663",
+          "bytes": 6716
+        },
+        {
+          "path": "outputs/direction/check/idle_frames/idle/f0005.png",
+          "sha256": "8b19298f2f61f0527f29fab7f898154f7fa26cb8efdbe1299d57d1bed130e920",
+          "bytes": 6766
+        },
+        {
+          "path": "outputs/direction/check/idle_frames/idle/f0006.png",
+          "sha256": "3fe8d901659fa2afa499c2a9e1515d5f99cab380e99c16efbee78824f3713968",
+          "bytes": 6788
+        },
+        {
+          "path": "outputs/direction/check/idle_frames/idle/f0007.png",
+          "sha256": "01d54e19792216afc481cf720e3d65ecffb8d413009fcdefed58f85f0f841666",
+          "bytes": 6844
+        },
+        {
+          "path": "outputs/direction/check/idle_frames/idle/f0008.png",
+          "sha256": "4fc22c5059d3d2fb61cf5d045a15b7088f3d75525c77e9d0a5b08121f3300113",
+          "bytes": 6788
+        },
+        {
+          "path": "outputs/direction/check/idle_frames/idle/f0009.png",
+          "sha256": "23356a1b48e12b62ba11dd95f3e65d2d575bbccf51d97762cde5934c1f817ca3",
+          "bytes": 6781
+        },
+        {
+          "path": "outputs/direction/check/idle_frames/idle/f0010.png",
+          "sha256": "f8433aa44505a4286a70ccf69fd47e89c1ca18ed9bf162536951c81620e117db",
+          "bytes": 6797
+        },
+        {
+          "path": "outputs/direction/check/idle_frames/idle/f0011.png",
+          "sha256": "bdce999db562a724876940df781d311c5c0d68e9733c31b29c4e70d4284135d2",
+          "bytes": 6751
+        },
+        {
+          "path": "outputs/direction/check/idle_frames/idle/f0012.png",
+          "sha256": "876bbce6419dba23d5d9033d5b9b7f5b961114a956fff53ab1a559e966406120",
+          "bytes": 6728
+        },
+        {
+          "path": "outputs/direction/check/idle_frames/idle/f0013.png",
+          "sha256": "bdce999db562a724876940df781d311c5c0d68e9733c31b29c4e70d4284135d2",
+          "bytes": 6751
+        },
+        {
+          "path": "outputs/direction/check/idle_frames/idle/f0014.png",
+          "sha256": "f8433aa44505a4286a70ccf69fd47e89c1ca18ed9bf162536951c81620e117db",
+          "bytes": 6797
+        },
+        {
+          "path": "outputs/direction/check/idle_frames/idle/f0015.png",
+          "sha256": "23356a1b48e12b62ba11dd95f3e65d2d575bbccf51d97762cde5934c1f817ca3",
+          "bytes": 6781
+        },
+        {
+          "path": "outputs/direction/check/idle_frames/idle/f0016.png",
+          "sha256": "4fc22c5059d3d2fb61cf5d045a15b7088f3d75525c77e9d0a5b08121f3300113",
+          "bytes": 6788
+        },
+        {
+          "path": "outputs/direction/check/idle_frames/idle/f0017.png",
+          "sha256": "01d54e19792216afc481cf720e3d65ecffb8d413009fcdefed58f85f0f841666",
+          "bytes": 6844
+        },
+        {
+          "path": "outputs/direction/check/idle_frames/idle/f0018.png",
+          "sha256": "3fe8d901659fa2afa499c2a9e1515d5f99cab380e99c16efbee78824f3713968",
+          "bytes": 6788
+        },
+        {
+          "path": "outputs/direction/check/idle_frames/idle/f0019.png",
+          "sha256": "8b19298f2f61f0527f29fab7f898154f7fa26cb8efdbe1299d57d1bed130e920",
+          "bytes": 6766
+        },
+        {
+          "path": "outputs/direction/check/idle_frames/idle/f0020.png",
+          "sha256": "11b212f63b1bb6016b1516138385bb995058927fda01c45ce74ed9a773808663",
+          "bytes": 6716
+        },
+        {
+          "path": "outputs/direction/check/idle_frames/idle/f0021.png",
+          "sha256": "290f2ca3042ec73f9737601ec620ae3218ece996837ea7b1df0af646b790297b",
+          "bytes": 6715
+        },
+        {
+          "path": "outputs/direction/check/idle_frames/idle/f0022.png",
+          "sha256": "2f17b66bff014370eebc6e7cbd6ed1df5969fd5a9e6d9980c1412a3384c17199",
+          "bytes": 6829
+        },
+        {
+          "path": "outputs/direction/check/idle_frames/idle/f0023.png",
+          "sha256": "8b3cac6cfcdd0c183640464de4f788ade4f8c37311516ad5f5f3cef922c243f9",
+          "bytes": 6703
+        },
+        {
+          "path": "outputs/direction/check/idle_frames/idle/f0024.png",
+          "sha256": "dbff805d0d11531fb9c7c88a752a32ca7a705168679c3fade929184dbedc0c52",
+          "bytes": 6838
+        },
+        {
+          "path": "outputs/direction/check/idle_frames/idle/f0025.png",
+          "sha256": "8f887e4a902c945c553e020ef65f65f6f10a5cb5932998fe2b372f64a3f0f106",
+          "bytes": 6718
+        },
+        {
+          "path": "outputs/direction/check/idle_frames/idle/f0026.png",
+          "sha256": "ca29317f36d8fac0600da30d86d9856edd8f878c2877c2ee4b219e5ddfb66e1d",
+          "bytes": 6831
+        },
+        {
+          "path": "outputs/direction/check/idle_frames/idle/f0027.png",
+          "sha256": "e0ddd8b1e0070147c393ce041fa779f17c351da9ea68f548fea32ee12183f6ff",
+          "bytes": 6727
+        },
+        {
+          "path": "outputs/direction/check/idle_frames/idle/f0028.png",
+          "sha256": "4f7d9c37c68190bcd08fa8404ea3afc4faf8aa22c3cdbc779d94e8e29f6ebd4b",
+          "bytes": 6816
+        },
+        {
+          "path": "outputs/direction/check/idle_frames/idle/f0029.png",
+          "sha256": "17287ddb77ea6be9b8fbd0b3e402cddbbe6fdfcd5643712817284fda5830d221",
+          "bytes": 6783
+        },
+        {
+          "path": "outputs/direction/check/idle_frames/idle/f0030.png",
+          "sha256": "9b83eea3f4902b972f54e413afbe6aed996aff65fc750d35c970996e987d70b5",
+          "bytes": 6751
+        },
+        {
+          "path": "outputs/direction/check/idle_frames/idle/f0031.png",
+          "sha256": "5f6fe648d14c6be0505ef68f3b66f39a9440379b022419f4e11b625e52b7be62",
+          "bytes": 6738
+        },
+        {
+          "path": "outputs/direction/check/idle_frames/idle/f0032.png",
+          "sha256": "d872ab20fc930ceabd8d177ca583e1e7a3585add4a97159985a9debfa2e534df",
+          "bytes": 6803
+        },
+        {
+          "path": "outputs/direction/check/idle_frames/idle/f0033.png",
+          "sha256": "32e17120f10c05220256124bc579ab7e67fbbae87153b4cd251fcf2158d53072",
+          "bytes": 6754
+        },
+        {
+          "path": "outputs/direction/check/idle_frames/idle/f0034.png",
+          "sha256": "3f70ee64689238ad8120e6ade5eb902881d6d6ff951c2a70b6bc390dc955cf5a",
+          "bytes": 6768
+        },
+        {
+          "path": "outputs/direction/check/idle_frames/idle/f0035.png",
+          "sha256": "8c61ec9c79465a69e3005775a97b9598dd054163d5fcd926bfd6e9b16dea7514",
+          "bytes": 6834
+        },
+        {
+          "path": "outputs/direction/check/idle_frames/idle/f0036.png",
+          "sha256": "6c26a333a07555f204e3150c106abb5007fcd1c22b366afe0e77c33a3cc08f4e",
+          "bytes": 6841
+        },
+        {
+          "path": "outputs/direction/check/idle_frames/idle/f0037.png",
+          "sha256": "8c61ec9c79465a69e3005775a97b9598dd054163d5fcd926bfd6e9b16dea7514",
+          "bytes": 6834
+        },
+        {
+          "path": "outputs/direction/check/idle_frames/idle/f0038.png",
+          "sha256": "3f70ee64689238ad8120e6ade5eb902881d6d6ff951c2a70b6bc390dc955cf5a",
+          "bytes": 6768
+        },
+        {
+          "path": "outputs/direction/check/idle_frames/idle/f0039.png",
+          "sha256": "32e17120f10c05220256124bc579ab7e67fbbae87153b4cd251fcf2158d53072",
+          "bytes": 6754
+        },
+        {
+          "path": "outputs/direction/check/idle_frames/idle/f0040.png",
+          "sha256": "d872ab20fc930ceabd8d177ca583e1e7a3585add4a97159985a9debfa2e534df",
+          "bytes": 6803
+        },
+        {
+          "path": "outputs/direction/check/idle_frames/idle/f0041.png",
+          "sha256": "5f6fe648d14c6be0505ef68f3b66f39a9440379b022419f4e11b625e52b7be62",
+          "bytes": 6738
+        },
+        {
+          "path": "outputs/direction/check/idle_frames/idle/f0042.png",
+          "sha256": "9b83eea3f4902b972f54e413afbe6aed996aff65fc750d35c970996e987d70b5",
+          "bytes": 6751
+        },
+        {
+          "path": "outputs/direction/check/idle_frames/idle/f0043.png",
+          "sha256": "17287ddb77ea6be9b8fbd0b3e402cddbbe6fdfcd5643712817284fda5830d221",
+          "bytes": 6783
+        },
+        {
+          "path": "outputs/direction/check/idle_frames/idle/f0044.png",
+          "sha256": "4f7d9c37c68190bcd08fa8404ea3afc4faf8aa22c3cdbc779d94e8e29f6ebd4b",
+          "bytes": 6816
+        },
+        {
+          "path": "outputs/direction/check/idle_frames/idle/f0045.png",
+          "sha256": "e0ddd8b1e0070147c393ce041fa779f17c351da9ea68f548fea32ee12183f6ff",
+          "bytes": 6727
+        },
+        {
+          "path": "outputs/direction/check/idle_frames/idle/f0046.png",
+          "sha256": "ca29317f36d8fac0600da30d86d9856edd8f878c2877c2ee4b219e5ddfb66e1d",
+          "bytes": 6831
+        },
+        {
+          "path": "outputs/direction/check/idle_frames/idle/f0047.png",
+          "sha256": "8f887e4a902c945c553e020ef65f65f6f10a5cb5932998fe2b372f64a3f0f106",
+          "bytes": 6718
+        },
+        {
+          "path": "outputs/direction/check/idle_frames/idle/f0048.png",
+          "sha256": "dbff805d0d11531fb9c7c88a752a32ca7a705168679c3fade929184dbedc0c52",
+          "bytes": 6838
+        },
+        {
+          "path": "outputs/direction/check/idle_frames/idle/geometry.json",
+          "sha256": "04e1af32d0873996e4689f86babde30846f29b0e990ebc26f69274376e635c58",
+          "bytes": 100735
+        },
+        {
+          "path": "outputs/direction/check/idle_frames/render-run.json",
+          "sha256": "3489ed769f420ebc32d348ae6971a7b80e988c6730b1eb4154a2d3ee3ea6c31a",
+          "bytes": 7561
+        },
+        {
+          "path": "outputs/direction/check/motion_heat.png",
+          "sha256": "c4e98fcea546f26f98489eadb0d79912420eb39e9ce5a96f152709b6a2ee0eac",
+          "bytes": 8501
+        },
+        {
+          "path": "outputs/direction/compose-run.json",
+          "sha256": "c478a44080d079c67a10f51968e95b06c5dc5951f80712df85520054eb521444",
+          "bytes": 1773
+        },
+        {
+          "path": "outputs/direction/rig/images/actor.background.png",
+          "sha256": "24eb570320b9e27ce6449b54e82abd811043b9a63f48387f13cbba2dbed5c5f8",
+          "bytes": 332
+        },
+        {
+          "path": "outputs/direction/rig/images/actor.eye_l.png",
+          "sha256": "97da226ecba85a1af18173df4eb28d72b0828cda8c171f8d4a2995a3da9cc733",
+          "bytes": 84
+        },
+        {
+          "path": "outputs/direction/rig/images/actor.eye_r.png",
+          "sha256": "97da226ecba85a1af18173df4eb28d72b0828cda8c171f8d4a2995a3da9cc733",
+          "bytes": 84
+        },
+        {
+          "path": "outputs/direction/rig/images/actor.face.png",
+          "sha256": "e2bd0d0736b3ecda20d6a08840468a2d46738c226631fd73e280dab3719c9e4c",
+          "bytes": 122
+        },
+        {
+          "path": "outputs/direction/rig/images/actor.lantern.png",
+          "sha256": "733d1cc36c0d1a01f1d330085316f8bcccb8d4331e2f20b9a3dfe2a3407a7041",
+          "bytes": 101
+        },
+        {
+          "path": "outputs/direction/rig/images/actor.torso.png",
+          "sha256": "356a2a89f530ef7ab5719eefa2cfbff37f8f39a274f41689f13a9c7a2d76adf5",
+          "bytes": 150
+        },
+        {
+          "path": "outputs/direction/rig/images/scene-plate.0.png",
+          "sha256": "c180182b6666fb4d90d4f91e210bda103a4081f1ad7c45006db392fa6c4eaf36",
+          "bytes": 300
+        },
+        {
+          "path": "outputs/direction/rig/motion.json",
+          "sha256": "727890e1e349eb77bbdd4118dbb136a48f8f6e23ad05126d9b59a61e19784d94",
+          "bytes": 1910
+        },
+        {
+          "path": "outputs/direction/rig/rig.json",
+          "sha256": "9752efcbafe9119194ae99cff4c51df879f09c65ba57f3dd9f1f3457ddea0ef0",
+          "bytes": 1846
+        },
+        {
+          "path": "outputs/direction/scene.json",
+          "sha256": "5b1326b5fef80367a88d6dccba3135e194645069723d26a9d41a5155fdea09fa",
+          "bytes": 1356
+        }
+      ],
+      "files_sha256": "3f9b01e0d28a2734c1a34292e4313e543ca9a417145d36fab528c3aae7daf46f",
+      "built_from": [
+        {
+          "path": "inputs/background.png",
+          "sha256": "c180182b6666fb4d90d4f91e210bda103a4081f1ad7c45006db392fa6c4eaf36"
+        },
+        {
+          "path": "outputs/motion",
+          "sha256": "06dbcd27bf34a3d9231367d0a3a070a8a30e061fe11316ce6abe82bd7e09e67b"
+        },
+        {
+          "path": "outputs/motion/frames.json",
+          "sha256": "956b1fbce5b71778b4f9856452f5ae1158b6c29f967e031e2ede68f723d7206a"
+        },
+        {
+          "path": "outputs/parts/rig/parts.json",
+          "sha256": "d93e07d90bb34132c296265585160cb37009cfac3c4eda0c19114636ddb41dca"
+        },
+        {
+          "path": "outputs/rig/check/build/skeleton.model.json",
+          "sha256": "15146157bfafc565b4eb0da7b66195283504692dc06d512dc404fd8f5849aa7e"
+        },
+        {
+          "path": "outputs/rig/images/background.png",
+          "sha256": "24eb570320b9e27ce6449b54e82abd811043b9a63f48387f13cbba2dbed5c5f8"
+        },
+        {
+          "path": "outputs/rig/images/eye_l.png",
+          "sha256": "97da226ecba85a1af18173df4eb28d72b0828cda8c171f8d4a2995a3da9cc733"
+        },
+        {
+          "path": "outputs/rig/images/eye_r.png",
+          "sha256": "97da226ecba85a1af18173df4eb28d72b0828cda8c171f8d4a2995a3da9cc733"
+        },
+        {
+          "path": "outputs/rig/images/face.png",
+          "sha256": "e2bd0d0736b3ecda20d6a08840468a2d46738c226631fd73e280dab3719c9e4c"
+        },
+        {
+          "path": "outputs/rig/images/lantern.png",
+          "sha256": "733d1cc36c0d1a01f1d330085316f8bcccb8d4331e2f20b9a3dfe2a3407a7041"
+        },
+        {
+          "path": "outputs/rig/images/torso.png",
+          "sha256": "356a2a89f530ef7ab5719eefa2cfbff37f8f39a274f41689f13a9c7a2d76adf5"
+        },
+        {
+          "path": "outputs/rig/motion.json",
+          "sha256": "6c6c105be9c818556061aabc366357460712a7f7d0a5e3f8b25b0af6c533cceb"
+        },
+        {
+          "path": "outputs/rig/rig.json",
+          "sha256": "3e9666933af397939671c9d07e117cf3ab192d0a1d601109225986bc4e15f894"
+        },
+        {
+          "path": "specs/direction/compose-scene.json",
+          "sha256": "6bcd155f803ed798444df4847397311bc886f38fbbcae9edb22867914b1c7106"
+        },
+        {
+          "path": "specs/direction/direction.json",
+          "sha256": "590bcbcba19148cd0bb90fe66a8a7c9d3a3017e76fd4d8f1075499d5e1133259"
+        },
+        {
+          "path": "specs/direction/scene.json",
+          "sha256": "2e9813b3095ccf69ea1b556b80c01dc19ff2193e97dfc5cba57905ac4be042f4"
+        }
+      ],
+      "run": {
+        "path": "outputs/direction/compose-run.json",
+        "sha256": "c478a44080d079c67a10f51968e95b06c5dc5951f80712df85520054eb521444"
+      },
+      "report": {
+        "path": "outputs/direction/check/check.json",
+        "sha256": "e827f341f5be972c8dc69e7c51a4f24d0d6907c7c094d17849cafe1596799d78"
+      }
+    }
+  }
+}

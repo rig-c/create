@@ -1,0 +1,63 @@
+{
+ "spec": "rig-compose-run/1",
+ "scene": {
+  "path": "specs/direction/compose-scene.json",
+  "sha256": "6bcd155f803ed798444df4847397311bc886f38fbbcae9edb22867914b1c7106"
+ },
+ "characters": [
+  {
+   "id": "actor",
+   "build": "../../derived/compose-character",
+   "files": [
+    {
+     "path": "check/check.json",
+     "sha256": "7362675e6a3f71de7b4a5d8a174cf13ac576820a3d1c5d10c3f25413255add7a"
+    },
+    {
+     "path": "parts.json",
+     "sha256": "d93e07d90bb34132c296265585160cb37009cfac3c4eda0c19114636ddb41dca"
+    },
+    {
+     "path": "rig/images/background.png",
+     "sha256": "24eb570320b9e27ce6449b54e82abd811043b9a63f48387f13cbba2dbed5c5f8"
+    },
+    {
+     "path": "rig/images/eye_l.png",
+     "sha256": "97da226ecba85a1af18173df4eb28d72b0828cda8c171f8d4a2995a3da9cc733"
+    },
+    {
+     "path": "rig/images/eye_r.png",
+     "sha256": "97da226ecba85a1af18173df4eb28d72b0828cda8c171f8d4a2995a3da9cc733"
+    },
+    {
+     "path": "rig/images/face.png",
+     "sha256": "e2bd0d0736b3ecda20d6a08840468a2d46738c226631fd73e280dab3719c9e4c"
+    },
+    {
+     "path": "rig/images/lantern.png",
+     "sha256": "733d1cc36c0d1a01f1d330085316f8bcccb8d4331e2f20b9a3dfe2a3407a7041"
+    },
+    {
+     "path": "rig/images/torso.png",
+     "sha256": "356a2a89f530ef7ab5719eefa2cfbff37f8f39a274f41689f13a9c7a2d76adf5"
+    },
+    {
+     "path": "rig/motion.json",
+     "sha256": "6c6c105be9c818556061aabc366357460712a7f7d0a5e3f8b25b0af6c533cceb"
+    },
+    {
+     "path": "rig/rig.json",
+     "sha256": "3e9666933af397939671c9d07e117cf3ab192d0a1d601109225986bc4e15f894"
+    }
+   ]
+  }
+ ],
+ "plate": null,
+ "plates": [
+  {
+   "name": "backdrop",
+   "path": "../../inputs/background.png",
+   "sha256": "c180182b6666fb4d90d4f91e210bda103a4081f1ad7c45006db392fa6c4eaf36"
+  }
+ ]
+}

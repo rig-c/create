@@ -1,0 +1,274 @@
+{
+ "spec": "rig-run/2",
+ "package": {
+  "name": "@rig-c/parts",
+  "version": "2.60.0"
+ },
+ "command": "check",
+ "started_at": "2026-11-26T00:00:00.000Z",
+ "finished_at": "2026-11-26T00:00:00.000Z",
+ "outputs": [
+  {
+   "path": "build-report.json",
+   "sha256": "140d18ff6863b2456c2c2978881335880fc8a0afafa5aa5fc01b4fa54e3a6626"
+  },
+  {
+   "path": "build/skeleton.atlas",
+   "sha256": "68f9cb5eea7a194d59fb14d5c2363894b2eca78c26bf9aee67a760955a6125f3"
+  },
+  {
+   "path": "build/skeleton.json",
+   "sha256": "ddf366446f30bdda13dea626976e719b8ebc6018322c38c64cfdd6e16cc4a47c"
+  },
+  {
+   "path": "build/skeleton.model.json",
+   "sha256": "15146157bfafc565b4eb0da7b66195283504692dc06d512dc404fd8f5849aa7e"
+  },
+  {
+   "path": "build/skeleton.png",
+   "sha256": "1b1836dc1a2700302723ebfebc8fd2be918ba69dff41029788a90595c426c6b2"
+  },
+  {
+   "path": "check.json",
+   "sha256": "7362675e6a3f71de7b4a5d8a174cf13ac576820a3d1c5d10c3f25413255add7a"
+  },
+  {
+   "path": "contact.png",
+   "sha256": "d998f9721fd76d6c2790d0a2fe94c00450f2e6e3c52d20fd24ae41cb7b86d792"
+  },
+  {
+   "path": "gate_spine-html.txt",
+   "sha256": "db2dbd0bef9b6b909ef61b038d857dda8b13d571b5cf2622de4c90d3620f6f86"
+  },
+  {
+   "path": "idle_frames/frames.json",
+   "sha256": "b9ba2112bbd82a867e0686d43f04b30c8430f83c81c3268352ceee79e726403d"
+  },
+  {
+   "path": "idle_frames/idle/contact.png",
+   "sha256": "d998f9721fd76d6c2790d0a2fe94c00450f2e6e3c52d20fd24ae41cb7b86d792"
+  },
+  {
+   "path": "idle_frames/idle/f0000.png",
+   "sha256": "e58a499d3cecbfa758aa95249eda1000809b81cd7bae840e0deda1f0591b1fb1"
+  },
+  {
+   "path": "idle_frames/idle/f0001.png",
+   "sha256": "5e25ff4d2be105b9e37a29958d5cf9b6111f930f2811bef31b95870abf8b5160"
+  },
+  {
+   "path": "idle_frames/idle/f0002.png",
+   "sha256": "da7c0e8d89739c1753fa61cd30395c187c346ea8d60e2cdd7e2a5300106a5962"
+  },
+  {
+   "path": "idle_frames/idle/f0003.png",
+   "sha256": "de17ecc4c890c527536a9a9ffa69b30a6c38f2e07dcbbe298551f83524d589cb"
+  },
+  {
+   "path": "idle_frames/idle/f0004.png",
+   "sha256": "6253648270257d4ee29e73c0f43c2d10d2eb76f0674e6cc16f44d80df6b92907"
+  },
+  {
+   "path": "idle_frames/idle/f0005.png",
+   "sha256": "999ea956dceec604288f57418ca6a7fba9cc1d22dcd1236199e2ea92d5c880ad"
+  },
+  {
+   "path": "idle_frames/idle/f0006.png",
+   "sha256": "3fb43c7aa63ebfbc9bf2b664b9917d94c158d47989be64de09f77c2ac4ef2837"
+  },
+  {
+   "path": "idle_frames/idle/f0007.png",
+   "sha256": "e76aad080f42f480252152258200ff7ebaa09ef0575b52cee03b359efca7dedc"
+  },
+  {
+   "path": "idle_frames/idle/f0008.png",
+   "sha256": "2d131f6dc60bbfd3060874447044ebfdc6f27e7d2c08db0aea99f104933e5e78"
+  },
+  {
+   "path": "idle_frames/idle/f0009.png",
+   "sha256": "f1bac6bbd549de4de25e2309fb799a1854955c4084029510d193427c21bb4666"
+  },
+  {
+   "path": "idle_frames/idle/f0010.png",
+   "sha256": "40e227d9f0c5e2e0c7914895cad1aa00cb103991ba87255cde3c74d3da1007f0"
+  },
+  {
+   "path": "idle_frames/idle/f0011.png",
+   "sha256": "ab20c0639bf5caee67a1dd375cdf6b8c3ca5c46bedf5b457b320ab388a685884"
+  },
+  {
+   "path": "idle_frames/idle/f0012.png",
+   "sha256": "d85207e4e6ac5be8114c92c6729b2bdfb9fef659de1610896554c87a3fb2512b"
+  },
+  {
+   "path": "idle_frames/idle/f0013.png",
+   "sha256": "ab20c0639bf5caee67a1dd375cdf6b8c3ca5c46bedf5b457b320ab388a685884"
+  },
+  {
+   "path": "idle_frames/idle/f0014.png",
+   "sha256": "40e227d9f0c5e2e0c7914895cad1aa00cb103991ba87255cde3c74d3da1007f0"
+  },
+  {
+   "path": "idle_frames/idle/f0015.png",
+   "sha256": "f1bac6bbd549de4de25e2309fb799a1854955c4084029510d193427c21bb4666"
+  },
+  {
+   "path": "idle_frames/idle/f0016.png",
+   "sha256": "2d131f6dc60bbfd3060874447044ebfdc6f27e7d2c08db0aea99f104933e5e78"
+  },
+  {
+   "path": "idle_frames/idle/f0017.png",
+   "sha256": "e76aad080f42f480252152258200ff7ebaa09ef0575b52cee03b359efca7dedc"
+  },
+  {
+   "path": "idle_frames/idle/f0018.png",
+   "sha256": "3fb43c7aa63ebfbc9bf2b664b9917d94c158d47989be64de09f77c2ac4ef2837"
+  },
+  {
+   "path": "idle_frames/idle/f0019.png",
+   "sha256": "999ea956dceec604288f57418ca6a7fba9cc1d22dcd1236199e2ea92d5c880ad"
+  },
+  {
+   "path": "idle_frames/idle/f0020.png",
+   "sha256": "6253648270257d4ee29e73c0f43c2d10d2eb76f0674e6cc16f44d80df6b92907"
+  },
+  {
+   "path": "idle_frames/idle/f0021.png",
+   "sha256": "de17ecc4c890c527536a9a9ffa69b30a6c38f2e07dcbbe298551f83524d589cb"
+  },
+  {
+   "path": "idle_frames/idle/f0022.png",
+   "sha256": "da7c0e8d89739c1753fa61cd30395c187c346ea8d60e2cdd7e2a5300106a5962"
+  },
+  {
+   "path": "idle_frames/idle/f0023.png",
+   "sha256": "5e25ff4d2be105b9e37a29958d5cf9b6111f930f2811bef31b95870abf8b5160"
+  },
+  {
+   "path": "idle_frames/idle/f0024.png",
+   "sha256": "e58a499d3cecbfa758aa95249eda1000809b81cd7bae840e0deda1f0591b1fb1"
+  },
+  {
+   "path": "idle_frames/idle/f0025.png",
+   "sha256": "2fd322448fc98f0f38263ffd3207e3884d72fa9261aeb6fdfc27550fd71cc62b"
+  },
+  {
+   "path": "idle_frames/idle/f0026.png",
+   "sha256": "03b24c72915961ed5d0f51fddb456e619b548c40a8eebf98a1b3dd825c6572c5"
+  },
+  {
+   "path": "idle_frames/idle/f0027.png",
+   "sha256": "3eff9555f7feab455748b4c67f48057642f92c6991c20d172be12dcc5ece31fd"
+  },
+  {
+   "path": "idle_frames/idle/f0028.png",
+   "sha256": "6e966a88ec1dc27ccbc4ab1003132995e9a2c83892520786c90d2727a029ba74"
+  },
+  {
+   "path": "idle_frames/idle/f0029.png",
+   "sha256": "dfd07a7869e769f9f214aab95202fd3dba647f33e72429d2774167886bf88329"
+  },
+  {
+   "path": "idle_frames/idle/f0030.png",
+   "sha256": "5fb86a73106aa3068e7ef22cdf23deab5de414533261cc7a0308794c6eb5dfd7"
+  },
+  {
+   "path": "idle_frames/idle/f0031.png",
+   "sha256": "938fd0444f7b05994cada218eb0616e460bdcde5770ceb786e6c1f5a159e5ba8"
+  },
+  {
+   "path": "idle_frames/idle/f0032.png",
+   "sha256": "3ee5bc53f0192f5ca8601c1d4bbdff836527f1fd1b1ec8e89ec1d9d88dd48184"
+  },
+  {
+   "path": "idle_frames/idle/f0033.png",
+   "sha256": "d3f3693ac3c4915786c6a3927e76f2552d948da3f69560eee6cd9aa2aae3da15"
+  },
+  {
+   "path": "idle_frames/idle/f0034.png",
+   "sha256": "3f15c4997247eebf23be51c2995a495bdee05ab979403c0e5ccdf6444c6cc4d3"
+  },
+  {
+   "path": "idle_frames/idle/f0035.png",
+   "sha256": "5b798adc5e6f737ffd50cffd4ae149cd31ef1e7819485f847cf17b3cd8ed9c5c"
+  },
+  {
+   "path": "idle_frames/idle/f0036.png",
+   "sha256": "7e1bad2732d380bca28c796bde186b4f1405855cf2deac0e148779808f3df642"
+  },
+  {
+   "path": "idle_frames/idle/f0037.png",
+   "sha256": "5b798adc5e6f737ffd50cffd4ae149cd31ef1e7819485f847cf17b3cd8ed9c5c"
+  },
+  {
+   "path": "idle_frames/idle/f0038.png",
+   "sha256": "3f15c4997247eebf23be51c2995a495bdee05ab979403c0e5ccdf6444c6cc4d3"
+  },
+  {
+   "path": "idle_frames/idle/f0039.png",
+   "sha256": "d3f3693ac3c4915786c6a3927e76f2552d948da3f69560eee6cd9aa2aae3da15"
+  },
+  {
+   "path": "idle_frames/idle/f0040.png",
+   "sha256": "3ee5bc53f0192f5ca8601c1d4bbdff836527f1fd1b1ec8e89ec1d9d88dd48184"
+  },
+  {
+   "path": "idle_frames/idle/f0041.png",
+   "sha256": "938fd0444f7b05994cada218eb0616e460bdcde5770ceb786e6c1f5a159e5ba8"
+  },
+  {
+   "path": "idle_frames/idle/f0042.png",
+   "sha256": "5fb86a73106aa3068e7ef22cdf23deab5de414533261cc7a0308794c6eb5dfd7"
+  },
+  {
+   "path": "idle_frames/idle/f0043.png",
+   "sha256": "dfd07a7869e769f9f214aab95202fd3dba647f33e72429d2774167886bf88329"
+  },
+  {
+   "path": "idle_frames/idle/f0044.png",
+   "sha256": "6e966a88ec1dc27ccbc4ab1003132995e9a2c83892520786c90d2727a029ba74"
+  },
+  {
+   "path": "idle_frames/idle/f0045.png",
+   "sha256": "3eff9555f7feab455748b4c67f48057642f92c6991c20d172be12dcc5ece31fd"
+  },
+  {
+   "path": "idle_frames/idle/f0046.png",
+   "sha256": "03b24c72915961ed5d0f51fddb456e619b548c40a8eebf98a1b3dd825c6572c5"
+  },
+  {
+   "path": "idle_frames/idle/f0047.png",
+   "sha256": "2fd322448fc98f0f38263ffd3207e3884d72fa9261aeb6fdfc27550fd71cc62b"
+  },
+  {
+   "path": "idle_frames/idle/f0048.png",
+   "sha256": "e58a499d3cecbfa758aa95249eda1000809b81cd7bae840e0deda1f0591b1fb1"
+  },
+  {
+   "path": "idle_frames/idle/geometry.json",
+   "sha256": "eb2ece21fe4dd13ba9bcd5afce1f4e7d3ba9520a2bc19f8a228695f1abde3b83"
+  },
+  {
+   "path": "motion_heat.png",
+   "sha256": "b1c8975e2870870643b70bafc84d4efa09c8b683d55c6af6d2b5a12457b06a98"
+  }
+ ],
+ "argv": [
+  "check",
+  "--rig",
+  "..",
+  "--out",
+  ".",
+  "--parts",
+  "../../parts/rig",
+  "--source",
+  "../../../inputs/painting.png",
+  "--page-edges",
+  "free",
+  "--pack-shape",
+  "polygon",
+  "--requirements",
+  "../../../specs/rig/interview-requirements.json",
+  "--no-extremes"
+ ]
+}

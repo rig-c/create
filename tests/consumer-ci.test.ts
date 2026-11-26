@@ -2,12 +2,13 @@ import { test, expect } from 'bun:test';
 import { consumerCases, guardConsumerCoverage, skippedTestNames } from '../scripts/consumer-ci.ts';
 const entries=consumerCases;
 const row=entries[0]!;
-const registered=[{file:row.file,name:row.name}];
+const registered=entries.map(entry=>({file:entry.file,name:entry.name}));
+const names=new Set(entries.map(entry=>entry.displayName));
 
 test('scripts/consumer-ci-tests.json exclusions must exist and execute in registry check; planted missing and unrun cases refuse',()=>{
- expect(()=>guardConsumerCoverage(entries,registered,new Set([row.displayName]),new Set(),'registry')).not.toThrow();
+ expect(()=>guardConsumerCoverage(entries,registered,names,new Set(),'registry')).not.toThrow();
  for(const [label,registrations,passed] of [
-  ['missing case',[],new Set([row.displayName])],
+  ['missing case',registered.slice(1),names],
   ['registry not run',registered,new Set<string>()],
  ] as const){
   expect(()=>guardConsumerCoverage(entries,registrations,passed,new Set(),'registry')).toThrow('CONSUMER_CI_COVERAGE');
@@ -15,9 +16,9 @@ test('scripts/consumer-ci-tests.json exclusions must exist and execute in regist
  }
 });
 test('scripts/ci-suite.ts source permits only the exact consumer skip, never its pass or any other skip',()=>{
- expect(()=>guardConsumerCoverage(entries,registered,new Set(),new Set([row.displayName]),'source')).not.toThrow();
- expect(()=>guardConsumerCoverage(entries,registered,new Set([row.displayName]),new Set([row.displayName]),'source')).toThrow('must SKIP');
- expect(()=>guardConsumerCoverage(entries,registered,new Set(),new Set([row.displayName,'another test']),'source')).toThrow('unexpected source skip');
+ expect(()=>guardConsumerCoverage(entries,registered,new Set(),names,'source')).not.toThrow();
+ expect(()=>guardConsumerCoverage(entries,registered,new Set([row.displayName]),names,'source')).toThrow('must SKIP');
+ expect(()=>guardConsumerCoverage(entries,registered,new Set(),new Set([...names,'another test']),'source')).toThrow('unexpected source skip');
  expect(skippedTestNames(`(skip) ${row.displayName}\n(skip) ${row.displayName}`)).toEqual(new Set([row.displayName]));
 });
 

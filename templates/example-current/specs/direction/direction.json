@@ -1,0 +1,40 @@
+{
+  "schema": "rig-create/direction@4",
+  "rig": {
+    "model": {
+      "path": "outputs/rig/check/build/skeleton.model.json",
+      "sha256": "15146157bfafc565b4eb0da7b66195283504692dc06d512dc404fd8f5849aa7e"
+    }
+  },
+  "scene": {
+    "path": "specs/direction/scene.json",
+    "sha256": "2e9813b3095ccf69ea1b556b80c01dc19ff2193e97dfc5cba57905ac4be042f4"
+  },
+  "take": {
+    "duration": 4,
+    "loop": true
+  },
+  "citations": {
+    "camera": {
+      "guide": "camera_depth",
+      "asks": [
+        "camera_depth"
+      ],
+      "quote": "Keep the proposed camera_depth\nUse the proposed value."
+    },
+    "timing": {
+      "guide": "post_timing",
+      "asks": [
+        "post_timing"
+      ],
+      "quote": "Keep the proposed post_timing\nUse the proposed value."
+    },
+    "composition": {
+      "guide": "post_composition",
+      "asks": [
+        "post_composition"
+      ],
+      "quote": "Keep the proposed post_composition\nUse the proposed value."
+    }
+  }
+}

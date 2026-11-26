@@ -193,6 +193,7 @@ A scene puts a background, and optionally a foreground, around an accepted rig
   skeletons, and a worked example ([example-interview.md](templates/example-interview.md),
   [example-project.json](templates/example-project.json)) on a made-up painting.
   Its sign-offs are [synthetic fixture records](templates/example-draft/README.md).
+  The [current-path example](templates/example-current/project.json) takes a fresh synthetic project through all four steps.
   The remesh example records a request for a finer torso mesh as a forward
   amendment. [Remesh record](templates/example-remesh/project.json)
 

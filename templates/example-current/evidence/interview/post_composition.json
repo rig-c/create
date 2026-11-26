@@ -1,0 +1,125 @@
+{
+  "schema": "rig-create/interview-options@1",
+  "id": "current-post-composition",
+  "question": "post_composition",
+  "stage": "post-interview",
+  "drafted_by": "agent",
+  "drafted_at": "2026-11-26T00:00:46.000Z",
+  "context": {
+    "kind": "current-rig",
+    "target": {
+      "subject": "current.rig",
+      "record_sha256": "8aabe9559945bb3ed438185e9c53b5a4a4fdcc263a36a3c4380ae5dc24cb5e09",
+      "files_sha256": "a1493faa8c4de2e13339b7f8cd5919693bb76805cd277b212ac9107efda9673a"
+    },
+    "signoff_at": "2026-11-26T00:00:40.000Z",
+    "run": {
+      "path": "outputs/rig/run.json",
+      "sha256": "cf2c282234dab6bdf8f119731622a595ccb9b8823b911e2ab5233d6ce77b72a3"
+    },
+    "config": {
+      "path": "specs/rig/config.json",
+      "sha256": "03bcce31341844dc3cffff836caa947720748dc8741be404be90af07b0090290"
+    }
+  },
+  "assembly": {
+    "rule": "single"
+  },
+  "asks": [
+    {
+      "id": "post_composition",
+      "prompt": "Choose the synthetic post_composition.",
+      "options": [
+        {
+          "id": "keep",
+          "kind": "value",
+          "label": "Keep the proposed post_composition",
+          "effect": "Use the proposed value.",
+          "fragment": {
+            "compose": {
+              "canvas": {
+                "width": 128,
+                "height": 128
+              },
+              "plates": [
+                {
+                  "name": "backdrop",
+                  "image": "inputs/background.png",
+                  "at": [
+                    0,
+                    0
+                  ],
+                  "opaque_backdrop": true
+                }
+              ],
+              "order": [
+                "backdrop",
+                "actor"
+              ],
+              "character": {
+                "offset": [
+                  0,
+                  0
+                ]
+              },
+              "idle_tracks": []
+            }
+          },
+          "recommended": true,
+          "reason": "Matches the synthetic rig."
+        },
+        {
+          "id": "alternative",
+          "kind": "value",
+          "label": "Change the proposed post_composition",
+          "effect": "Use a different value.",
+          "fragment": {
+            "compose": {
+              "canvas": {
+                "width": 128,
+                "height": 128
+              },
+              "plates": [
+                {
+                  "name": "backdrop",
+                  "image": "inputs/background.png",
+                  "at": [
+                    0,
+                    0
+                  ],
+                  "opaque_backdrop": true
+                }
+              ],
+              "order": [
+                "backdrop",
+                "actor"
+              ],
+              "character": {
+                "offset": [
+                  4,
+                  0
+                ]
+              },
+              "idle_tracks": []
+            }
+          },
+          "recommended": false
+        },
+        {
+          "id": "other",
+          "kind": "other",
+          "label": "Other",
+          "effect": "Supply different words.",
+          "recommended": false
+        },
+        {
+          "id": "auto",
+          "kind": "auto",
+          "label": "Delegate",
+          "effect": "Ask the agent to decide.",
+          "recommended": false
+        }
+      ]
+    }
+  ]
+}

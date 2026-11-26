@@ -1,0 +1,89 @@
+{
+ "spec": "spine-parts-scene-report/1",
+ "scene": "specs/direction/compose-scene.json",
+ "canvas": {
+  "width": 128,
+  "height": 128
+ },
+ "rig_name": "actor",
+ "pack_mode": {
+  "page_edges": "free",
+  "pack_shape": "polygon"
+ },
+ "plate": null,
+ "plates": [
+  {
+   "name": "backdrop",
+   "image": "../../inputs/background.png",
+   "provenance": "generated",
+   "note": null,
+   "at": [
+    0,
+    0
+   ],
+   "opaque_backdrop": true,
+   "bone": "backdrop",
+   "slot": "backdrop",
+   "size": [
+    128,
+    128
+   ],
+   "sha256": "c180182b6666fb4d90d4f91e210bda103a4081f1ad7c45006db392fa6c4eaf36",
+   "judged_by": "nothing"
+  }
+ ],
+ "characters": [
+  {
+   "id": "actor",
+   "build": "../../derived/compose-character",
+   "offset": [
+    0,
+    0
+   ],
+   "rig_size": [
+    128,
+    128
+   ],
+   "rig_scale": 1,
+   "bounds": [
+    0,
+    0,
+    128,
+    128
+   ],
+   "shift": [
+    0,
+    0
+   ],
+   "shifted": {
+    "bones": [
+     "actor:body"
+    ],
+    "root_regions": [],
+    "root_weights": 0
+   },
+   "bones": 1,
+   "slots": 6,
+   "tracks": 1,
+   "constraints": 0,
+   "idle_duration": 4
+  }
+ ],
+ "order": {
+  "declared": [
+   "backdrop",
+   "actor"
+  ],
+  "slots": [
+   "backdrop",
+   "actor:background",
+   "actor:torso",
+   "actor:lantern",
+   "actor:face",
+   "actor:eye_r",
+   "actor:eye_l"
+  ],
+  "judged_by": "nothing"
+ },
+ "idle_duration": 4
+}

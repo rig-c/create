@@ -6,12 +6,12 @@ import { checkpointEnabled, checkpointRequired, completedPlanStepNeedsAmendment,
 import { createHash } from 'node:crypto';
 import { existsSync, lstatSync, readdirSync, readFileSync, realpathSync } from './check-reads.ts';
 import { isDeepStrictEqual } from 'node:util';
-import { CURRENT_KINDS, CURRENT_RIG_MODEL, currentFileBinding, isCurrentProject, outputRoot, type CurrentKind } from './current.ts';
+import { CURRENT_KINDS, CURRENT_RIG_MODEL, currentFileBinding, isCurrentProject, outputRoot, RUN_RECORD_NAME, type CurrentKind } from './current.ts';
 import { COMPOSE_CHECK_PATH, COMPOSE_RUN_PATH, CURRENT_DIRECTION_PATH, currentDirectionSource } from './current-direction.ts';
 import { currentAdvanceOutputFinding, isPublishAdvanceStage } from './job-advance.ts';
 import { eligibleRigDraftModel, optionPublicationStage, publicationFile, riggingDraftPartsChange } from './job-publication.ts';
 import { latestRigDraftVerdict } from './rig-draft-verdict.ts';
-import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { basename, dirname, isAbsolute, join, posix, relative, resolve, sep } from 'node:path';
 import {
   answered,
   activeCurrentSignoffTargetPath,
@@ -1235,6 +1235,94 @@ function currentPartsReviewMove(dir: string, project: JsonObject, now: number): 
     act: "Relay the owner's approval of the recorded parts with their exact words, date and relay identity." };
 }
 
+function stagedBuild(dir: string, kind: 'parts' | 'rig', from: string): { config: string; packed: boolean } | undefined {
+  const runPath = `${from}/${RUN_RECORD_NAME}`;
+  const buildPath = `${from}/build-run.json`;
+  const packed = kind === 'rig' && retouchPathExists(dir, buildPath);
+  if (packed && retouchPathExists(dir, runPath)) return;
+  const path = packed ? buildPath : runPath;
+  try {
+    const { spec, record } = validateRunRecord(readFileSync(literalFile(dir, path)), path, { allowAssembleInputs: kind === 'parts' });
+    const command = kind === 'parts' ? 'assemble' : packed ? 'build' : 'rig';
+    if (record.command !== command || (packed ? spec !== 'rig-run/2' && spec !== 'rig-run/3' : spec !== 'rig-run/1')
+      || !isObject(record.config) || typeof record.config.path !== 'string') return;
+    const marker = kind === 'parts' ? 'rig/parts.json' : packed ? 'rig/rig.json' : 'rig.json';
+    const product = asArray(record.outputs).filter(isObject).find(file => file.path === marker);
+    if (!product || !producerHashMatches(dir, `${from}/${marker}`, product.sha256)) return;
+    const { path: named, sha256 } = record.config;
+    const config = [posix.join(from, named), named].find(candidate =>
+      !candidate.startsWith('outputs/') && producerHashMatches(dir, candidate, sha256));
+    if (config) return { config, packed };
+  } catch { /* The record writer owns validation and refusal reporting. */ }
+}
+
+function hasStagedBuildCheck(dir: string, kind: 'parts' | 'rig', from: string, now: number): boolean {
+  const path = `${from}/check/${kind === 'parts' ? PARTS_CHECK_FILE : RIG_CHECK_REPORT_FILE}`;
+  try {
+    const bytes = readFileSync(literalFile(dir, path));
+    if (kind === 'parts') {
+      const checked = partsCheckRecord(dir, path, `${from}/rig`, path, () => bytes);
+      return !('refusal' in checked) && partsCheckFindings(dir, checked.record, path, true, () => bytes).length === 0;
+    }
+    const report = parseRigCheckReport(bytes);
+    const modelPath = `${from}/check/build/skeleton.model.json`;
+    return report.spec === 'rig-parts-check/1' && report.PASS === true && isObject(report.build)
+      && producerHashMatches(dir, modelPath, report.build.model_sha256)
+      && checkRigReport({ at: new Date(now).toISOString(), check_report: { path, spec: report.spec } },
+        path, path, report.build.model_sha256, () => bytes, []).length === 0;
+  } catch { return false; }
+}
+
+function projectConfig(dir: string, path: string): JsonObject | undefined {
+  try {
+    const value: Json = JSON.parse(readFileSync(literalFile(dir, path), 'utf8'));
+    if (isObject(value)) return value;
+  } catch { /* Ask the operator for a readable spec. */ }
+}
+
+function currentBuildMove(dir: string, project: JsonObject, kind: 'parts' | 'rig', now: number): NextMove {
+  const from = `${outputRoot(kind)}.next`;
+  const field = `current.${kind}`;
+  const producer = (command: string, act: string): NextMove => ({
+    role: 'producer', field, awaits: field, command: `(cd ${shellWord(dir)} && ${command})`, act,
+  });
+  const staged = stagedBuild(dir, kind, from);
+  if (staged && hasStagedBuildCheck(dir, kind, from, now)) return {
+    ...currentOutputMove(dir, kind, shellWord, staged.config),
+    act: `Record the checked ${kind} in ${from} using its bound config.`,
+  };
+  if ((!staged && retouchPathExists(dir, from)) || staged?.packed) return {
+    role: 'producer', field, awaits: field, command: null,
+    act: `Inspect and preserve the incomplete or changed output in ${from}. Restore its matching run, config and green check or set it aside before building a fresh staging tree.`,
+  };
+  const source = shellWord(typeof project.painting === 'string' ? project.painting : '<painting.png>');
+  if (kind === 'parts') {
+    if (staged) return producer(`rig-parts check-parts --parts ${from}/rig --out ${from}/check`,
+      'Check the staged assembly before recording it.');
+    const config = ['specs/rig/assemble.json', 'specs/rig/config.json']
+      .find(path => isObject(projectConfig(dir, path)?.assemble));
+    const full = existsSync(join(dir, 'derived/layers/layers.json')) ? 'derived/layers' : '<full-layers>';
+    const plan = config ? projectConfig(dir, config)?.assemble : undefined;
+    const head = isObject(plan) && asArray(plan.plan).some(part => Array.isArray(part) && part[1] === 'head')
+      ? ` --head ${shellWord('<head-layers>')}` : '';
+    return producer(`rig-parts assemble --source ${source} --full ${shellWord(full)}${head} --config ${shellWord(config ?? '<assemble-config.json>')} --out ${from}`,
+      'Supply the registered source painting, prepared layers and assembly spec for any placeholders.');
+  }
+  const parts = `${outputRoot('parts')}/rig`;
+  if (!staged) {
+    const config = projectConfig(dir, 'specs/rig/config.json') ? 'specs/rig/config.json' : '<rig-config.json>';
+    return producer(`rig-parts rig --config ${shellWord(config)} --parts ${parts} --out ${from}`,
+      'Build the staged rig from the recorded parts and supply the authored rig spec if needed.');
+  }
+  const spec = projectConfig(dir, staged.config);
+  const requirements = spec?.requirements;
+  const requirementsPath = typeof requirements === 'string' && !posix.isAbsolute(requirements)
+    ? posix.join(posix.dirname(staged.config), requirements) : '<requirements-file>';
+  const flag = requirements === undefined ? '' : ` --requirements ${shellWord(requirementsPath.startsWith('../') ? '<requirements-file>' : requirementsPath)}`;
+  return producer(`rig-parts check --rig ${from} --parts ${parts} --source ${source}${flag} --out ${from}/check`,
+    'Check the staged rig against the recorded painting and the requirements named by its spec. Supply any requested check options that the spec leaves open.');
+}
+
 function currentPostOutputMove(dir: string, project: JsonObject, kind: 'motion' | 'direction'): NextMove | undefined {
   const inProject = (command: string) => `(cd ${shellWord(dir)} && ${command})`;
   if (kind === 'motion') {
@@ -1547,9 +1635,16 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
     if (isObject(current)) {
       const missing = new Map(CURRENT_KINDS.flatMap(kind => {
         if (current[kind] !== undefined) return [];
-        const producer = currentPath && (kind === 'motion' || kind === 'direction')
-          ? derived.effective_stage === 'post' ? currentPostOutputMove(dir, project, kind) : undefined
-          : currentOutputMove(dir, kind, shellWord);
+        let producer: NextMove | undefined;
+        if (!currentPath) {
+          producer = currentOutputMove(dir, kind, shellWord);
+        } else if (kind === 'parts' || kind === 'rig') {
+          if (derived.effective_stage === (kind === 'parts' ? 'parts' : 'rigging')) {
+            producer = currentBuildMove(dir, project, kind, now);
+          }
+        } else if (derived.effective_stage === 'post') {
+          producer = currentPostOutputMove(dir, project, kind);
+        }
         return producer ? [[kind, { adoption: adoptionMove(dir, project, kind), producer }]] as const : [];
       }));
       next = withStaleOutputs(dir, current, report.warnings, derived, shellWord, missing);

@@ -320,9 +320,10 @@ test('#1054 a fresh project records current parts and advances with a retained c
   };
   const fresh = next();
   expect(fresh.refusals).toEqual([]);
-  expect(fresh.moves.find(move => move.command !== null)).toMatchObject({
-    field: 'current.parts', command: expect.stringContaining('rig-create record parts '),
-  });
+  const assembleMove = fresh.moves.find(move => move.command !== null);
+  expect(assembleMove).toMatchObject({ role: 'producer', field: 'current.parts' });
+  expect(assembleMove?.command).toContain('rig-parts assemble ');
+  expect(fresh.moves.some(move => move.command?.startsWith('rig-create record parts '))).toBe(false);
   expect(fresh.moves.some(move => /draft-rig/.test(`${move.command} ${move.act}`))).toBe(false);
   expect(readFileSync(projectFile, 'utf8')).toBe(bytes);
 
@@ -332,8 +333,12 @@ test('#1054 a fresh project records current parts and advances with a retained c
   const assembled = run([process.execPath, partsBin, 'assemble', '--source', 'inputs/source/painting.png',
     '--full', 'inputs/source/layers', '--config', config, '--out', staged], dir, env);
   expect(assembled).toMatchObject({ code: 0, stderr: '' });
+  expect(next().moves.find(move => move.field === 'current.parts')).toMatchObject({
+    role: 'producer', command: expect.stringContaining('rig-parts check-parts '),
+  });
   const checked = run([process.execPath, partsBin, 'check-parts', '--parts', `${staged}/rig`, '--out', `${staged}/check`], dir, env);
   expect(checked).toMatchObject({ code: 0, stderr: '' });
+  expect(next().moves.find(move => move.field === 'current.parts')?.command).toContain(`--config ${config}`);
   expect(spawnCli(['record', 'parts', dir, '--from', staged, '--config', config], root, env))
     .toMatchObject({ code: 0, stderr: '' });
 

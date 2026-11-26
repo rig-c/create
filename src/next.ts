@@ -1469,10 +1469,12 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
     return step ? [{ finding, step }] : [];
   });
   const hasNumberedOutputs = [project.drafts, project.versions, project.scenes].some(entries => asArray(entries).length > 0);
-  const { blocksOutputMoves, ...derived } = deriveNextProject(dir, project, report, now, steps, staleSteps, hasNumberedOutputs);
+  // Start offering outputs when the project reaches parts, after interview and plan approval.
+  const partsOnCurrentPath = project.stage === 'parts' && !hasNumberedOutputs;
+  const { blocksOutputMoves, ...derived } = deriveNextProject(dir, project, report, now, steps, staleSteps, partsOnCurrentPath);
   let next = derived;
   if (!blocksOutputMoves && derived.stage !== PAUSED_STAGE) {
-    const current = project.current === undefined && !hasNumberedOutputs ? {} : project.current;
+    const current = project.current === undefined && partsOnCurrentPath ? {} : project.current;
     if (isObject(current)) {
       const missing = new Map(CURRENT_KINDS.flatMap(kind => {
         if (current[kind] !== undefined) return [];
@@ -1521,10 +1523,10 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
 }
 
 function deriveNextProject(dir: string, project: JsonObject, report: CheckReport, now: number,
-  steps: JsonObject[], staleSteps: { finding: Finding; step: JsonObject }[], hasNumberedOutputs: boolean): NextReport & { blocksOutputMoves?: true } {
+  steps: JsonObject[], staleSteps: { finding: Finding; step: JsonObject }[], partsOnCurrentPath: boolean): NextReport & { blocksOutputMoves?: true } {
   const stage = String(project.stage ?? '');
   const effectiveStage = String(report.effective_stage ?? stage);
-  const legacyWrites = hasNumberedOutputs && !isCurrentProject(project);
+  const legacyWrites = !partsOnCurrentPath && !isCurrentProject(project);
   const warnings = report.warnings.filter(w => w.code === 'STRUCTURE_DELTA_REVIEW' || w.code === 'REVIEW_ANSWER_COMMENT_ROUTED'
     || w.code === 'OUTPUT_STALE' || (!legacyWrites && ['FEEDBACK_OPEN', 'REOPEN_SIGNOFF_LAPSED', 'REOPEN_VERDICT_LAPSED'].includes(w.code)));
   const collection = loadCollection(dir);
@@ -2294,7 +2296,7 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
 
       if (effectiveStage === 'parts') {
         addAwait('project.stage');
-        if (stage === 'parts' && !hasNumberedOutputs && refusals.length === 0
+        if (partsOnCurrentPath && refusals.length === 0
           && isObject(project.current) && isObject(project.current.parts)
           && existsSync(join(dir, outputRoot('parts'), 'rig', 'parts.json'))) {
           moves.push(currentPartsAdvanceMove(dir));

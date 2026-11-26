@@ -2458,7 +2458,7 @@ test('#1030 adopted rig and motion need canonical replacements before downstream
     `rig-create record motion --adopt ${dir}`,
     `rig-create record direction --adopt ${dir}`,
   ]);
-  expect(adoptable[0]?.act).toContain('Rebuild the adopted rig as a canonical output');
+  expect(adoptable[0]?.act).toContain('Rebuild the adopted rig as a canonical output under outputs/rig/. Record the replacement before recording dependent producer outputs.');
 
   // Unavailable numbered files leave the canonical producers as the recovery route.
   rmSync(join(dir, frames));

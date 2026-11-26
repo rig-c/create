@@ -230,7 +230,7 @@ export function withStaleOutputs(dir: string, current: JsonObject, warnings: Fin
     const waitsFor = CANONICAL_INPUTS[kind].filter(adopted);
     if (replacements.has(kind)) {
       const move = currentOutputMove(dir, kind, quote);
-      const act = `Rebuild the adopted ${kind} as a canonical output. ${move.act}`;
+      const act = `Rebuild the adopted ${kind} as a canonical output under ${outputRoot(kind)}/. Record the replacement before recording dependent producer outputs. ${move.act}`;
       if (waitsFor.length === 0) return [{ ...move, act }];
       const upstream = waitsFor.map(input => `current.${input}`).join(' and ');
       return [{ ...move, command: null, act: `Rebuild ${upstream} first. ${act} Then run ${move.command}.` }];

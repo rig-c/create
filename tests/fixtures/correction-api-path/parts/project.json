@@ -16,7 +16,7 @@
     "paused"
   ],
   "interview": {
-    "question_set": "rig-create/interview@2 (waypoints read from @rig-c/parts 2.57.0)",
+    "question_set": "rig-create/interview@2 (waypoints read from @rig-c/parts 2.59.0)",
     "turn_question": "rig-create/turn-question@1",
     "held": false,
     "date": null,

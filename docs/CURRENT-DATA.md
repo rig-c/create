@@ -120,6 +120,20 @@ What the writer does, in order:
 2. The writer reads the producer evidence for the kind and binds the input
    hashes in `built_from` along with the spec paths the operator names.
    Direction binds the producer's actual compose run and check report.
+   Parts `assemble` and standalone `rig` use `rig-run/1`. The writer accepts
+   `rig-run/2` or `rig-run/3` for Parts `build`. Parts `check` uses `rig-run/2`.
+   Core run records use `rigc-run/1` or `rigc-run/2`. For a
+   `rig-run/3` build, `record rig` adds each build input to
+   `current.rig.built_from` as a project-relative file path with the exact
+   SHA-256 from the producer. Create checks that the file matches the digest.
+   Each input path resolves from the producer's staging `--out` directory.
+   Parent segments are allowed if the resolved file is inside the project
+   and outside all three trees: final output `outputs/rig/`, reserved staging
+   `outputs/rig.next/` even with a custom `--from`, and the actual staging
+   tree selected by `--from`. A See-through input names the actual
+   `layers.json` file. If a bound input later goes
+   missing or its bytes change, `check` reports `OUTPUT_STALE` for the rig
+   and staleness follows its downstream dependents.
    Create reads producer evidence without re-deriving it (AGENTS.md invariant 1).
 3. It validates the candidate record with the check function. A refusal leaves
    `project.json` and `outputs/<kind>/` byte-identical (invariant 6).

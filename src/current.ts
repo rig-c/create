@@ -16,7 +16,7 @@ import type { Json, JsonObject } from './templates.ts';
 export const CURRENT_KINDS = ['parts', 'rig', 'motion', 'direction'] as const;
 export type CurrentKind = (typeof CURRENT_KINDS)[number];
 export const RUN_RECORD_NAME = 'run.json';
-export const REBUILD_RUN_SPECS = ['rig-run/2', 'rigc-run/2'] as const;
+export const REBUILD_RUN_SPECS = ['rig-run/2', 'rig-run/3', 'rigc-run/2'] as const;
 export type RebuildRunSpec = (typeof REBUILD_RUN_SPECS)[number];
 /**
  * The producers' own rule for run records: a file named `run.json` (`rig-run/1`, `rigc-run/1`) or ending in `-run.json`
@@ -151,15 +151,17 @@ export function currentShapeFindings(kind: CurrentKind, node: Json | undefined):
         }
         if (!(previousRun < entryPath)) findings.push(malformed(`${at}.path`, 'runs must sort by path with no duplicate'));
         previousRun = entryPath;
-        if (entry.spec !== 'rigc-run/2' && (kind === 'motion' || entry.spec !== 'rig-run/2')) {
-          findings.push(malformed(`${at}.spec`, kind === 'motion' ? 'expected rigc-run/2' : 'expected rig-run/2 or rigc-run/2'));
+        const allowed: readonly RebuildRunSpec[] = kind === 'motion' ? ['rigc-run/2'] : REBUILD_RUN_SPECS;
+        const spec = allowed.find(candidate => candidate === entry.spec);
+        if (spec === undefined) {
+          findings.push(malformed(`${at}.spec`, `expected ${allowed.join(' or ')}`));
           continue;
         }
-        if (entry.spec === 'rig-run/2') rigRuns++;
-        const argvProblem = runArgvProblem(entry.argv, entry.spec);
+        if (spec === 'rig-run/2' || spec === 'rig-run/3') rigRuns++;
+        const argvProblem = runArgvProblem(entry.argv, spec);
         if (argvProblem) findings.push(malformed(`${at}.argv`, argvProblem));
       }
-      if (kind === 'rig' && rigRuns !== 1) findings.push(malformed(`${path}.rebuild.runs`, 'expected exactly one rig-run/2 check or build record'));
+      if (kind === 'rig' && rigRuns !== 1) findings.push(malformed(`${path}.rebuild.runs`, 'expected exactly one Parts run record (rig-run/2 check or build, or rig-run/3 build)'));
     }
   }
   return findings;

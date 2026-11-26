@@ -1,0 +1,634 @@
+{
+  "spec": "rigc-extremes/1",
+  "animation": "idle",
+  "fps": 12,
+  "grid": [
+    {
+      "index": 0,
+      "time": 0
+    },
+    {
+      "index": 1,
+      "time": 0.08333333333333333
+    },
+    {
+      "index": 2,
+      "time": 0.16666666666666666
+    },
+    {
+      "index": 3,
+      "time": 0.25
+    },
+    {
+      "index": 4,
+      "time": 0.3333333333333333
+    },
+    {
+      "index": 5,
+      "time": 0.41666666666666663
+    },
+    {
+      "index": 6,
+      "time": 0.5
+    },
+    {
+      "index": 7,
+      "time": 0.5833333333333333
+    },
+    {
+      "index": 8,
+      "time": 0.6666666666666666
+    },
+    {
+      "index": 9,
+      "time": 0.75
+    },
+    {
+      "index": 10,
+      "time": 0.8333333333333333
+    },
+    {
+      "index": 11,
+      "time": 0.9166666666666666
+    },
+    {
+      "index": 12,
+      "time": 1
+    },
+    {
+      "index": 13,
+      "time": 1.0833333333333333
+    },
+    {
+      "index": 14,
+      "time": 1.1666666666666665
+    },
+    {
+      "index": 15,
+      "time": 1.25
+    },
+    {
+      "index": 16,
+      "time": 1.3333333333333333
+    },
+    {
+      "index": 17,
+      "time": 1.4166666666666665
+    },
+    {
+      "index": 18,
+      "time": 1.5
+    },
+    {
+      "index": 19,
+      "time": 1.5833333333333333
+    },
+    {
+      "index": 20,
+      "time": 1.6666666666666665
+    },
+    {
+      "index": 21,
+      "time": 1.75
+    },
+    {
+      "index": 22,
+      "time": 1.8333333333333333
+    },
+    {
+      "index": 23,
+      "time": 1.9166666666666665
+    },
+    {
+      "index": 24,
+      "time": 2
+    },
+    {
+      "index": 25,
+      "time": 2.083333333333333
+    },
+    {
+      "index": 26,
+      "time": 2.1666666666666665
+    },
+    {
+      "index": 27,
+      "time": 2.25
+    },
+    {
+      "index": 28,
+      "time": 2.333333333333333
+    },
+    {
+      "index": 29,
+      "time": 2.4166666666666665
+    },
+    {
+      "index": 30,
+      "time": 2.5
+    },
+    {
+      "index": 31,
+      "time": 2.583333333333333
+    },
+    {
+      "index": 32,
+      "time": 2.6666666666666665
+    },
+    {
+      "index": 33,
+      "time": 2.75
+    },
+    {
+      "index": 34,
+      "time": 2.833333333333333
+    },
+    {
+      "index": 35,
+      "time": 2.9166666666666665
+    },
+    {
+      "index": 36,
+      "time": 3
+    },
+    {
+      "index": 37,
+      "time": 3.083333333333333
+    },
+    {
+      "index": 38,
+      "time": 3.1666666666666665
+    },
+    {
+      "index": 39,
+      "time": 3.25
+    },
+    {
+      "index": 40,
+      "time": 3.333333333333333
+    },
+    {
+      "index": 41,
+      "time": 3.4166666666666665
+    },
+    {
+      "index": 42,
+      "time": 3.5
+    },
+    {
+      "index": 43,
+      "time": 3.583333333333333
+    },
+    {
+      "index": 44,
+      "time": 3.6666666666666665
+    },
+    {
+      "index": 45,
+      "time": 3.75
+    },
+    {
+      "index": 46,
+      "time": 3.833333333333333
+    },
+    {
+      "index": 47,
+      "time": 3.9166666666666665
+    },
+    {
+      "index": 48,
+      "time": 4
+    }
+  ],
+  "method": {
+    "channels": "Sampled posed local bone rotate, translate.x/y, scale.x/y, shear.x/y (including held components), deform offsets per coordinate, and actually applied slider mapped-time; channelStatus/channelRefusals describe independent failures. Deform series with one display-name path but different original sources are refused individually; independent of geometry pair. No key-time interpolation outside this grid.",
+    "geometry": "Exhaustive frame pairs i<j; distance=max over corresponding original attachment vertices of hypot2(dx,dy)=sqrt(dx*dx+dy*dy), dx/dy in world units (the shared deterministic length helper).",
+    "ties": "First in frame-grid order; geometry ties keep earliest (i,j), then attachment identity in UTF-16 code-unit order, then vertex index. Timestamps are copied from sampled frames.",
+    "geometryScope": "Original region/mesh vertices, before clipping, occlusion and tint alpha; filtered explicitly by --slot/--hide. Changing attachment source identity/count is refused, including different sources with equal display names and vertex counts.",
+    "panels": "setup | min | max | abs(max-min) | abs(min-setup) | abs(max-setup). min/max label earlier/later frame of the geometry pair, not joint channel minima/maxima. Native viewport size and scale, legend appended below.",
+    "diff": "L=round(max(abs(Ra*Aa/255-Rb*Ab/255),abs(Ga*Aa/255-Gb*Ab/255),abs(Ba*Aa/255-Bb*Ab/255),abs(Aa-Ab))); opaque (L,L,L,255) on black. No amplification or scaling."
+  },
+  "channels": [
+    {
+      "path": [
+        "bone",
+        "actor:body",
+        "rotate"
+      ],
+      "min": {
+        "index": 0,
+        "time": 0,
+        "value": 0,
+        "reason": "minimum supplied local channel value on this grid; earliest tie; deform/slider samples only where applicable"
+      },
+      "max": {
+        "index": 0,
+        "time": 0,
+        "value": 0,
+        "reason": "maximum supplied local channel value on this grid; earliest tie; deform/slider samples only where applicable"
+      }
+    },
+    {
+      "path": [
+        "bone",
+        "actor:body",
+        "scale.x"
+      ],
+      "min": {
+        "index": 0,
+        "time": 0,
+        "value": 1,
+        "reason": "minimum supplied local channel value on this grid; earliest tie; deform/slider samples only where applicable"
+      },
+      "max": {
+        "index": 0,
+        "time": 0,
+        "value": 1,
+        "reason": "maximum supplied local channel value on this grid; earliest tie; deform/slider samples only where applicable"
+      }
+    },
+    {
+      "path": [
+        "bone",
+        "actor:body",
+        "scale.y"
+      ],
+      "min": {
+        "index": 0,
+        "time": 0,
+        "value": 1,
+        "reason": "minimum supplied local channel value on this grid; earliest tie; deform/slider samples only where applicable"
+      },
+      "max": {
+        "index": 0,
+        "time": 0,
+        "value": 1,
+        "reason": "maximum supplied local channel value on this grid; earliest tie; deform/slider samples only where applicable"
+      }
+    },
+    {
+      "path": [
+        "bone",
+        "actor:body",
+        "shear.x"
+      ],
+      "min": {
+        "index": 0,
+        "time": 0,
+        "value": 0,
+        "reason": "minimum supplied local channel value on this grid; earliest tie; deform/slider samples only where applicable"
+      },
+      "max": {
+        "index": 0,
+        "time": 0,
+        "value": 0,
+        "reason": "maximum supplied local channel value on this grid; earliest tie; deform/slider samples only where applicable"
+      }
+    },
+    {
+      "path": [
+        "bone",
+        "actor:body",
+        "shear.y"
+      ],
+      "min": {
+        "index": 0,
+        "time": 0,
+        "value": 0,
+        "reason": "minimum supplied local channel value on this grid; earliest tie; deform/slider samples only where applicable"
+      },
+      "max": {
+        "index": 0,
+        "time": 0,
+        "value": 0,
+        "reason": "maximum supplied local channel value on this grid; earliest tie; deform/slider samples only where applicable"
+      }
+    },
+    {
+      "path": [
+        "bone",
+        "actor:body",
+        "translate.x"
+      ],
+      "min": {
+        "index": 0,
+        "time": 0,
+        "value": 0,
+        "reason": "minimum supplied local channel value on this grid; earliest tie; deform/slider samples only where applicable"
+      },
+      "max": {
+        "index": 0,
+        "time": 0,
+        "value": 0,
+        "reason": "maximum supplied local channel value on this grid; earliest tie; deform/slider samples only where applicable"
+      }
+    },
+    {
+      "path": [
+        "bone",
+        "actor:body",
+        "translate.y"
+      ],
+      "min": {
+        "index": 36,
+        "time": 3,
+        "value": 63.10000002384186,
+        "reason": "minimum supplied local channel value on this grid; earliest tie; deform/slider samples only where applicable"
+      },
+      "max": {
+        "index": 12,
+        "time": 1,
+        "value": 64.89999997615814,
+        "reason": "maximum supplied local channel value on this grid; earliest tie; deform/slider samples only where applicable"
+      }
+    },
+    {
+      "path": [
+        "bone",
+        "backdrop",
+        "rotate"
+      ],
+      "min": {
+        "index": 0,
+        "time": 0,
+        "value": 0,
+        "reason": "minimum supplied local channel value on this grid; earliest tie; deform/slider samples only where applicable"
+      },
+      "max": {
+        "index": 0,
+        "time": 0,
+        "value": 0,
+        "reason": "maximum supplied local channel value on this grid; earliest tie; deform/slider samples only where applicable"
+      }
+    },
+    {
+      "path": [
+        "bone",
+        "backdrop",
+        "scale.x"
+      ],
+      "min": {
+        "index": 0,
+        "time": 0,
+        "value": 1,
+        "reason": "minimum supplied local channel value on this grid; earliest tie; deform/slider samples only where applicable"
+      },
+      "max": {
+        "index": 0,
+        "time": 0,
+        "value": 1,
+        "reason": "maximum supplied local channel value on this grid; earliest tie; deform/slider samples only where applicable"
+      }
+    },
+    {
+      "path": [
+        "bone",
+        "backdrop",
+        "scale.y"
+      ],
+      "min": {
+        "index": 0,
+        "time": 0,
+        "value": 1,
+        "reason": "minimum supplied local channel value on this grid; earliest tie; deform/slider samples only where applicable"
+      },
+      "max": {
+        "index": 0,
+        "time": 0,
+        "value": 1,
+        "reason": "maximum supplied local channel value on this grid; earliest tie; deform/slider samples only where applicable"
+      }
+    },
+    {
+      "path": [
+        "bone",
+        "backdrop",
+        "shear.x"
+      ],
+      "min": {
+        "index": 0,
+        "time": 0,
+        "value": 0,
+        "reason": "minimum supplied local channel value on this grid; earliest tie; deform/slider samples only where applicable"
+      },
+      "max": {
+        "index": 0,
+        "time": 0,
+        "value": 0,
+        "reason": "maximum supplied local channel value on this grid; earliest tie; deform/slider samples only where applicable"
+      }
+    },
+    {
+      "path": [
+        "bone",
+        "backdrop",
+        "shear.y"
+      ],
+      "min": {
+        "index": 0,
+        "time": 0,
+        "value": 0,
+        "reason": "minimum supplied local channel value on this grid; earliest tie; deform/slider samples only where applicable"
+      },
+      "max": {
+        "index": 0,
+        "time": 0,
+        "value": 0,
+        "reason": "maximum supplied local channel value on this grid; earliest tie; deform/slider samples only where applicable"
+      }
+    },
+    {
+      "path": [
+        "bone",
+        "backdrop",
+        "translate.x"
+      ],
+      "min": {
+        "index": 0,
+        "time": 0,
+        "value": 0,
+        "reason": "minimum supplied local channel value on this grid; earliest tie; deform/slider samples only where applicable"
+      },
+      "max": {
+        "index": 0,
+        "time": 0,
+        "value": 0,
+        "reason": "maximum supplied local channel value on this grid; earliest tie; deform/slider samples only where applicable"
+      }
+    },
+    {
+      "path": [
+        "bone",
+        "backdrop",
+        "translate.y"
+      ],
+      "min": {
+        "index": 0,
+        "time": 0,
+        "value": 0,
+        "reason": "minimum supplied local channel value on this grid; earliest tie; deform/slider samples only where applicable"
+      },
+      "max": {
+        "index": 0,
+        "time": 0,
+        "value": 0,
+        "reason": "maximum supplied local channel value on this grid; earliest tie; deform/slider samples only where applicable"
+      }
+    },
+    {
+      "path": [
+        "bone",
+        "root",
+        "rotate"
+      ],
+      "min": {
+        "index": 0,
+        "time": 0,
+        "value": 0,
+        "reason": "minimum supplied local channel value on this grid; earliest tie; deform/slider samples only where applicable"
+      },
+      "max": {
+        "index": 0,
+        "time": 0,
+        "value": 0,
+        "reason": "maximum supplied local channel value on this grid; earliest tie; deform/slider samples only where applicable"
+      }
+    },
+    {
+      "path": [
+        "bone",
+        "root",
+        "scale.x"
+      ],
+      "min": {
+        "index": 0,
+        "time": 0,
+        "value": 1,
+        "reason": "minimum supplied local channel value on this grid; earliest tie; deform/slider samples only where applicable"
+      },
+      "max": {
+        "index": 0,
+        "time": 0,
+        "value": 1,
+        "reason": "maximum supplied local channel value on this grid; earliest tie; deform/slider samples only where applicable"
+      }
+    },
+    {
+      "path": [
+        "bone",
+        "root",
+        "scale.y"
+      ],
+      "min": {
+        "index": 0,
+        "time": 0,
+        "value": 1,
+        "reason": "minimum supplied local channel value on this grid; earliest tie; deform/slider samples only where applicable"
+      },
+      "max": {
+        "index": 0,
+        "time": 0,
+        "value": 1,
+        "reason": "maximum supplied local channel value on this grid; earliest tie; deform/slider samples only where applicable"
+      }
+    },
+    {
+      "path": [
+        "bone",
+        "root",
+        "shear.x"
+      ],
+      "min": {
+        "index": 0,
+        "time": 0,
+        "value": 0,
+        "reason": "minimum supplied local channel value on this grid; earliest tie; deform/slider samples only where applicable"
+      },
+      "max": {
+        "index": 0,
+        "time": 0,
+        "value": 0,
+        "reason": "maximum supplied local channel value on this grid; earliest tie; deform/slider samples only where applicable"
+      }
+    },
+    {
+      "path": [
+        "bone",
+        "root",
+        "shear.y"
+      ],
+      "min": {
+        "index": 0,
+        "time": 0,
+        "value": 0,
+        "reason": "minimum supplied local channel value on this grid; earliest tie; deform/slider samples only where applicable"
+      },
+      "max": {
+        "index": 0,
+        "time": 0,
+        "value": 0,
+        "reason": "maximum supplied local channel value on this grid; earliest tie; deform/slider samples only where applicable"
+      }
+    },
+    {
+      "path": [
+        "bone",
+        "root",
+        "translate.x"
+      ],
+      "min": {
+        "index": 0,
+        "time": 0,
+        "value": 0,
+        "reason": "minimum supplied local channel value on this grid; earliest tie; deform/slider samples only where applicable"
+      },
+      "max": {
+        "index": 0,
+        "time": 0,
+        "value": 0,
+        "reason": "maximum supplied local channel value on this grid; earliest tie; deform/slider samples only where applicable"
+      }
+    },
+    {
+      "path": [
+        "bone",
+        "root",
+        "translate.y"
+      ],
+      "min": {
+        "index": 0,
+        "time": 0,
+        "value": 0,
+        "reason": "minimum supplied local channel value on this grid; earliest tie; deform/slider samples only where applicable"
+      },
+      "max": {
+        "index": 0,
+        "time": 0,
+        "value": 0,
+        "reason": "maximum supplied local channel value on this grid; earliest tie; deform/slider samples only where applicable"
+      }
+    }
+  ],
+  "channelStatus": "READ",
+  "channelRefusals": [],
+  "status": "READ",
+  "reason": "farthest geometry pair on this frame grid; see method and witness",
+  "geometryPair": {
+    "frames": [
+      {
+        "index": 12,
+        "time": 1
+      },
+      {
+        "index": 36,
+        "time": 3
+      }
+    ],
+    "maxVertexDistance": 1.7999999523162846,
+    "witness": {
+      "slot": "actor:background",
+      "attachment": "actor:background",
+      "vertex": 0
+    }
+  }
+}

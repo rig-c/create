@@ -1,0 +1,68 @@
+{
+  "spec": "rig-parts-support-domains/1",
+  "grid": [
+    128,
+    128
+  ],
+  "declarations_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+  "parts_sha256": "d93e07d90bb34132c296265585160cb37009cfac3c4eda0c19114636ddb41dca",
+  "images": [
+    {
+      "part": "background",
+      "sha256": "c180182b6666fb4d90d4f91e210bda103a4081f1ad7c45006db392fa6c4eaf36"
+    },
+    {
+      "part": "torso",
+      "sha256": "adf6cd5d92568c5f51028df2874b69f4df5ff1d0e3a94484784c867e543cd912"
+    },
+    {
+      "part": "lantern",
+      "sha256": "79ff42136a509e98032352ef9f8c0857a5d7f16667eb629bc048b9b8ef24d96a"
+    },
+    {
+      "part": "face",
+      "sha256": "9626a5008eb90b22ab7623cb79048ed521c6aa651254287bbc9df8606b9f0bf7"
+    },
+    {
+      "part": "eye_r",
+      "sha256": "c080dceac3b4d8fbc824ebb0ebffe61047f10af4e2cdd8d51b32bf779691617e"
+    },
+    {
+      "part": "eye_l",
+      "sha256": "c080dceac3b4d8fbc824ebb0ebffe61047f10af4e2cdd8d51b32bf779691617e"
+    }
+  ],
+  "domains_sha256": "c6a5711676fed1c981ef4961267efb2710d5ec6ff4cfea40eaf4be23448e144f",
+  "domains": [
+    {
+      "part": "background",
+      "status": "unavailable",
+      "reason": "no authored spatial cut domain; config.regions is only a bone binding"
+    },
+    {
+      "part": "torso",
+      "status": "unavailable",
+      "reason": "no authored spatial cut domain; config.regions is only a bone binding"
+    },
+    {
+      "part": "lantern",
+      "status": "unavailable",
+      "reason": "no authored spatial cut domain; config.regions is only a bone binding"
+    },
+    {
+      "part": "face",
+      "status": "unavailable",
+      "reason": "no authored spatial cut domain; config.regions is only a bone binding"
+    },
+    {
+      "part": "eye_r",
+      "status": "unavailable",
+      "reason": "no authored spatial cut domain; config.regions is only a bone binding"
+    },
+    {
+      "part": "eye_l",
+      "status": "unavailable",
+      "reason": "no authored spatial cut domain; config.regions is only a bone binding"
+    }
+  ]
+}

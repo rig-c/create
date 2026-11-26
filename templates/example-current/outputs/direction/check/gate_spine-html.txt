@@ -1,0 +1,7 @@
+  ..    52 assertions: 19 measured (19 passed, 0 failed), 33 skipped, 0 not in profile "rig-play"
+  ..    pages=7 regions=7 bones=3 slots=7 animations=1 version=4.3.13 regionAttachments=7 meshAttachments=0 physicsConstraints=0 rig=actor profile=rig-play
+  ..    here: 42 rule(s) on the model side over the document, 9 of the round trip's own restated over the emitted text; not run: A00_ROUNDTRIP_PARSE — spine-core's parse, which only the entry that links spine-core runs, on build and validate: installed, the same `rigc` once @esotericsoftware/spine-core is installed beside the package; from a source checkout, `bun cli.ts`
+  ..    pack: skeleton.png 140x348, 7 region(s), 86.4% covered, padding 2, page edges free, shape polygon
+  ..    52 assertions: 20 measured (20 passed, 0 failed), 32 skipped, 0 not in profile "rig-play"
+  ..    pages=1 regions=7 bones=3 slots=7 animations=1 version=4.3.13 regionAttachments=7 meshAttachments=0 physicsConstraints=0 rig=actor profile=rig-play
+  ..    here: 42 rule(s) on the model side over the document, 9 of the round trip's own restated over the emitted text; not run: A00_ROUNDTRIP_PARSE — spine-core's parse, which only the entry that links spine-core runs, on build and validate: installed, the same `rigc` once @esotericsoftware/spine-core is installed beside the package; from a source checkout, `bun cli.ts`

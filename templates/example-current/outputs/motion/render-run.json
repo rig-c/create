@@ -1,0 +1,71 @@
+{
+  "spec": "rigc-run/2",
+  "package": {
+    "name": "@rig-c/core",
+    "version": "3.9.2"
+  },
+  "command": "render",
+  "argv": [
+    "--candidate",
+    "../rig/check/build",
+    "--out",
+    ".",
+    "--animation",
+    "idle",
+    "--fps",
+    "1",
+    "--max",
+    "32",
+    "--poser",
+    "core"
+  ],
+  "started_at": "2026-11-26T00:00:00.000Z",
+  "finished_at": "2026-11-26T00:00:00.000Z",
+  "inputs": [
+    {
+      "role": "skeleton",
+      "path": "../rig/check/build/skeleton.json",
+      "sha256": "ddf366446f30bdda13dea626976e719b8ebc6018322c38c64cfdd6e16cc4a47c"
+    },
+    {
+      "role": "atlas",
+      "path": "../rig/check/build/skeleton.atlas",
+      "sha256": "68f9cb5eea7a194d59fb14d5c2363894b2eca78c26bf9aee67a760955a6125f3"
+    },
+    {
+      "role": "model",
+      "path": "../rig/check/build/skeleton.model.json",
+      "sha256": "15146157bfafc565b4eb0da7b66195283504692dc06d512dc404fd8f5849aa7e"
+    }
+  ],
+  "outputs": [
+    {
+      "path": "frames.json",
+      "sha256": "956b1fbce5b71778b4f9856452f5ae1158b6c29f967e031e2ede68f723d7206a"
+    },
+    {
+      "path": "idle@1fps/contact.png",
+      "sha256": "681623dc07807bb1fb6a846e7f7357e3c946911cc1d6587c68adb979dc549854"
+    },
+    {
+      "path": "idle@1fps/f0000.png",
+      "sha256": "62c672a82c4802891267c8db63ab2420dafd45a155ba72169be7c754b9efe811"
+    },
+    {
+      "path": "idle@1fps/f0001.png",
+      "sha256": "d43869ec14fcb8b70bfe9428ce5a4c82ac74f6d74c9fcbd55d5cea0f73a10168"
+    },
+    {
+      "path": "idle@1fps/f0002.png",
+      "sha256": "62c672a82c4802891267c8db63ab2420dafd45a155ba72169be7c754b9efe811"
+    },
+    {
+      "path": "idle@1fps/f0003.png",
+      "sha256": "1cb2e50c5913d4c64ff45727feaf599e4efcb601f635f0e0551cc4a3ed1aa06a"
+    },
+    {
+      "path": "idle@1fps/f0004.png",
+      "sha256": "62c672a82c4802891267c8db63ab2420dafd45a155ba72169be7c754b9efe811"
+    }
+  ]
+}

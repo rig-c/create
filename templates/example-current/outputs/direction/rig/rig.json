@@ -1,0 +1,120 @@
+{
+ "spec": "rigc-rig/1",
+ "name": "actor",
+ "images": "images",
+ "skeleton": {
+  "x": -64,
+  "y": 0,
+  "width": 128,
+  "height": 128
+ },
+ "bones": [
+  {
+   "name": "root",
+   "x": 0,
+   "y": 0
+  },
+  {
+   "name": "backdrop",
+   "parent": "root",
+   "x": 0,
+   "y": 0
+  },
+  {
+   "name": "actor:body",
+   "parent": "root",
+   "x": 0,
+   "y": 64
+  }
+ ],
+ "slots": [
+  {
+   "name": "backdrop",
+   "bone": "backdrop",
+   "attachment": "backdrop"
+  },
+  {
+   "name": "actor:background",
+   "bone": "actor:body",
+   "attachment": "actor:background"
+  },
+  {
+   "name": "actor:torso",
+   "bone": "actor:body",
+   "attachment": "actor:torso"
+  },
+  {
+   "name": "actor:lantern",
+   "bone": "actor:body",
+   "attachment": "actor:lantern"
+  },
+  {
+   "name": "actor:face",
+   "bone": "actor:body",
+   "attachment": "actor:face"
+  },
+  {
+   "name": "actor:eye_r",
+   "bone": "actor:body",
+   "attachment": "actor:eye_r"
+  },
+  {
+   "name": "actor:eye_l",
+   "bone": "actor:body",
+   "attachment": "actor:eye_l"
+  }
+ ],
+ "skins": {
+  "default": {
+   "backdrop": {
+    "backdrop": {
+     "image": "scene-plate.0.png",
+     "x": 0,
+     "y": 64
+    }
+   },
+   "actor:background": {
+    "actor:background": {
+     "image": "actor.background.png",
+     "x": 0,
+     "y": 0
+    }
+   },
+   "actor:torso": {
+    "actor:torso": {
+     "image": "actor.torso.png",
+     "x": 0,
+     "y": -24
+    }
+   },
+   "actor:lantern": {
+    "actor:lantern": {
+     "image": "actor.lantern.png",
+     "x": 40,
+     "y": -20
+    }
+   },
+   "actor:face": {
+    "actor:face": {
+     "image": "actor.face.png",
+     "x": 0,
+     "y": 32
+    }
+   },
+   "actor:eye_r": {
+    "actor:eye_r": {
+     "image": "actor.eye_r.png",
+     "x": -10,
+     "y": 32
+    }
+   },
+   "actor:eye_l": {
+    "actor:eye_l": {
+     "image": "actor.eye_l.png",
+     "x": 10,
+     "y": 32
+    }
+   }
+  }
+ }
+}

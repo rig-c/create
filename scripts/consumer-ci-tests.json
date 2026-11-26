@@ -1,5 +1,11 @@
 [
   {
+    "file": "tests/example-current.test.ts",
+    "name": "the current-path example reproduces from the release-pinned producers",
+    "displayName": "the current-path example reproduces from the release-pinned producers",
+    "reason": "consumer-install-only: producer checks record the Core runtime entry selected by the installed package (core#1061)"
+  },
+  {
     "file": "tests/example-remesh.test.ts",
     "name": "two fresh generator runs match each other and templates/example-remesh byte for byte",
     "displayName": "five-version amended example with a producer mesh > two fresh generator runs match each other and templates/example-remesh byte for byte",

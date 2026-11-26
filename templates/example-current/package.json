@@ -1,0 +1,9 @@
+{
+  "name": "example-current",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@rig-c/core": "3.9.2",
+    "@rig-c/parts": "2.60.0"
+  }
+}

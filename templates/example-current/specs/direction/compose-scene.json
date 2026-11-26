@@ -1,0 +1,39 @@
+{
+  "spec": "spine-parts-scene/1",
+  "canvas": {
+    "width": 128,
+    "height": 128
+  },
+  "plates": [
+    {
+      "name": "backdrop",
+      "image": "../../inputs/background.png",
+      "at": [
+        0,
+        0
+      ],
+      "opaque_backdrop": true,
+      "provenance": "generated"
+    }
+  ],
+  "characters": [
+    {
+      "id": "actor",
+      "build": "../../derived/compose-character",
+      "offset": [
+        0,
+        0
+      ]
+    }
+  ],
+  "order": [
+    "backdrop",
+    "actor"
+  ],
+  "animations": {
+    "idle": {
+      "duration": 4,
+      "tracks": []
+    }
+  }
+}

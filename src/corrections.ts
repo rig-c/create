@@ -1,7 +1,10 @@
 import { declaredPartImages, type PartImageIdentity } from './edited-part-inputs.ts';
 import { retainedReviewRead, reviewReadLegacy, reviewSessionSource, selectedReviewFeedback, ReviewReadError } from './review-read.ts';
 import { configInputBindings, configInputsLegacy } from './config-inputs.ts';
-import { DIRECTION_CORRECTION_SPEC, DirectionError, directionPatchLegacyFinding, validateDirectionIdentity } from './direction.ts';
+import { CURRENT_DIRECTION_PATH } from './current-direction.ts';
+import { currentShapeFindings, sha256 } from './current.ts';
+import { DIRECTION_CORRECTION_SPEC, DirectionError, directionPatchLegacyFinding, directionPath, validateDirectionIdentity } from './direction.ts';
+import { sorted } from './step-hash.ts';
 /** Correction inventory reads retained producer evidence; it never applies a patch or builds a rig. */
 import { createHash } from 'node:crypto';
 import { createRequire } from 'node:module';
@@ -143,9 +146,48 @@ function partsIdentity(dir: string, value: JsonObject): void {
  * standalone `parts rig` output bind no compiled model). A non-null model is still read
  * and must match the draft. Every other draft identity requires its retained model.
  */
-export function validateCorrectionIdentity(dir: string, project: JsonObject, value: Json | undefined, stage: string, direction = false, partImage = false, draftMesh = false): JsonObject {
+export function currentDirectionIdentity(project: JsonObject, code = 'CORRECTION_SOURCE'): JsonObject {
+  if (!isObject(project.current) || project.current.direction === undefined) {
+    fail(code, 'current.direction: record current direction before binding a direction correction, or pass --version <n> for a numbered post');
+  }
+  const node = project.current.direction;
+  if (!isObject(node) || currentShapeFindings('direction', node, project).length > 0) {
+    fail(code, 'current.direction: current direction record is malformed');
+  }
+  const expectedPath = isObject(node.adopted) && typeof node.adopted.version === 'number'
+    ? directionPath(node.adopted.version)
+    : CURRENT_DIRECTION_PATH;
+  const matches = bindings(node.built_from).filter(entry => entry.path === expectedPath && hex(entry.sha256));
+  if (matches.length !== 1) fail(code, `current.direction.built_from: expected one ${expectedPath} binding`);
+  return {
+    kind: 'current.direction',
+    at: String(node.at),
+    record_sha256: sha256(JSON.stringify(sorted(node))),
+    direction: { path: expectedPath, sha256: String(matches[0]!.sha256) },
+  };
+}
+export function validateCurrentDirectionIdentity(project: JsonObject, value: JsonObject, anchorAt?: number): JsonObject {
+  if (!closed(value, ['kind', 'at', 'record_sha256', 'direction'])
+    || value.kind !== 'current.direction'
+    || typeof value.at !== 'string' || !Number.isFinite(Date.parse(value.at)) || new Date(value.at).toISOString() !== value.at
+    || !hex(value.record_sha256)
+    || !isObject(value.direction) || !closed(value.direction, ['path', 'sha256']) || !hex(value.direction.sha256)
+    || (value.direction.path !== CURRENT_DIRECTION_PATH && !/^evidence\/direction\/v[1-9][0-9]*\.json$/.test(String(value.direction.path)))) {
+    fail('DIRECTION_CORRECTION_OUTCOME', 'expected exact bound current.direction identity');
+  }
+  const live = currentDirectionIdentity(project, 'CORRECTION_SOURCE');
+  if (Date.parse(value.at) > Date.parse(String(live.at))) fail('DIRECTION_CORRECTION_OUTCOME', 'expected exact bound current.direction identity');
+  const sameEpoch = anchorAt !== undefined && Number.isFinite(anchorAt)
+    && (Date.parse(String(live.at)) < anchorAt || (value.at === live.at && equal(value.direction, live.direction)));
+  if ((live.record_sha256 === value.record_sha256 || sameEpoch) && !equal(value, live)) {
+    fail('DIRECTION_CORRECTION_OUTCOME', 'expected exact bound current.direction identity');
+  }
+  return value;
+}
+export function validateCorrectionIdentity(dir: string, project: JsonObject, value: Json | undefined, stage: string, direction = false, partImage = false, draftMesh = false, anchorAt?: number): JsonObject {
   if (direction) {
-    if (stage !== "direction-review" || !isObject(value)) fail("DIRECTION_CORRECTION_OUTCOME", "direction identity requires post at direction-review");
+    if (stage !== "direction-review" || !isObject(value)) fail("DIRECTION_CORRECTION_OUTCOME", "direction identity requires post or current.direction at direction-review");
+    if (value.kind === 'current.direction') return validateCurrentDirectionIdentity(project, value, anchorAt);
     try { validateDirectionIdentity(dir, project, value); } catch (e) { if (e instanceof DirectionError) fail(e.code,e.message); throw e; }
     return value;
   }
@@ -183,6 +225,7 @@ export function validateCorrectionIdentity(dir: string, project: JsonObject, val
   return value;
 }
 function identityTime(project: JsonObject, v: JsonObject): number {
+  if (v.kind === 'current.direction') return date(v.at);
   return v.kind === 'rig' || v.kind === 'post' ? date(versionRecord(project, v.n).at) : v.kind === 'draft' ? date(draftRecord(project, v.id).at) : -Infinity;
 }
 function changed(a: JsonObject, b: JsonObject): boolean {
@@ -728,6 +771,10 @@ export function correctionApprovalFindings(project: JsonObject, stage: string, s
         if (!draft || !isObject(draft.parts) || !equal(bindings(draft.parts.files).map(f => f.sha256).sort(), bindings(outcome.files).map(f => f.sha256).sort())) out.push(correctionFinding('CORRECTION_OUTCOME', path, 'approved draft does not use corrected parts'));
       }
     }
+    if (stage === 'direction-review' && signoff && isObject(signoff.target) && signoff.target.subject === 'current.direction'
+      && isObject(r.on) && r.on.kind === 'current.direction' && signoff.target.record_sha256 === r.on.record_sha256) {
+      out.push(correctionFinding('CORRECTION_OUTCOME', path, 'approved current.direction is the uncorrected source'));
+    }
   }
   return out;
 }
@@ -760,8 +807,10 @@ export function checkCorrections(ctx: { dir: string; project: JsonObject; refusa
       }
       seen.set(String(record.id), record);
       const direction = record.schema === DIRECTION_CORRECTION_SPEC;
-      const describedDirection = record.path === 'described' && record.stage === 'direction-review' && isObject(record.on) && record.on.kind === 'post';
+      const currentDirection = isObject(record.on) && record.on.kind === 'current.direction';
+      const describedDirection = record.path === 'described' && record.stage === 'direction-review' && isObject(record.on) && (record.on.kind === 'post' || currentDirection);
       if (direction && (!describedDirection || partImage)) fail('CORRECTION_MALFORMED', 'correction@2 requires a direction description');
+      if (!direction && currentDirection) fail('CORRECTION_MALFORMED', 'current.direction binding requires correction@2');
       if (!direction && describedDirection) {
         const version = versionRecord(project, (record.on as JsonObject).n);
         if (isObject(version.provenance) && isObject(version.provenance.direction)) {
@@ -770,7 +819,7 @@ export function checkCorrections(ctx: { dir: string; project: JsonObject; refusa
         }
       }
       const on = validateCorrectionIdentity(dir, project, record.on, String(record.stage), direction, partImage,
-        meshDelta && isObject(record.on) && record.on.kind === 'draft');
+        meshDelta && isObject(record.on) && record.on.kind === 'draft', date(record.at));
       if (identityTime(project, on) > date(record.at)) fail('CORRECTION_SOURCE', 'correction predates its source');
       if (record.resolves !== null && (on.kind === 'rig' || on.kind === 'post') && bindings(project.versions).some(v => v.kind === on.kind && Number(v.n) > Number(on.n) && date(v.at) <= date(record.at))) fail('CORRECTION_SOURCE', 'correction must name the latest reviewed version at capture');
       const artifact = record.artifact;
@@ -834,10 +883,17 @@ export function checkCorrections(ctx: { dir: string; project: JsonObject; refusa
         }
       }
       if (record.outcome !== null) {
-        let outcome: JsonObject;
-        try { outcome = validateCorrectionIdentity(dir, project, record.outcome, String(record.stage), direction, partImage); } catch (e) { if (e instanceof CorrectionError && e.code === 'CORRECTION_SOURCE') fail('CORRECTION_OUTCOME', e.message); throw e; }
         const closure = record.closure;
-        if (!isObject(closure) || !closed(closure, ['by', 'at', 'reasoning']) || closure.by !== 'agent' || !text(closure.reasoning) || !Number.isFinite(date(closure.at)) || date(closure.at) < date(record.at) || date(closure.at) > now || outcome.kind !== 'parts' && identityTime(project, outcome) < date(record.at) || identityTime(project, outcome) > date(closure.at) || !(direction && on.kind === 'post' && outcome.kind === 'post' ? (record.path === 'described' || sameHash(on.model,outcome.model)) && !sameHash(on.direction,outcome.direction) : changed(on, outcome)) || equal(on, outcome) || (on.kind === 'rig' || on.kind === 'post') && (outcome.kind !== on.kind || Number(outcome.n) <= Number(on.n)) || on.kind === 'draft' && outcome.kind === 'draft' && on.id === outcome.id) fail('CORRECTION_OUTCOME', 'outcome must be distinct/later/changed with one labelled agent closure');
+        let outcome: JsonObject;
+        try { outcome = validateCorrectionIdentity(dir, project, record.outcome, String(record.stage), direction, partImage, false, isObject(closure) ? date(closure.at) : undefined); } catch (e) { if (e instanceof CorrectionError && e.code === 'CORRECTION_SOURCE') fail('CORRECTION_OUTCOME', e.message); throw e; }
+        const directionChanged = on.kind === 'post' && outcome.kind === 'post'
+          ? (record.path === 'described' || sameHash(on.model, outcome.model)) && !sameHash(on.direction, outcome.direction) && Number(outcome.n) > Number(on.n)
+          : on.kind === 'current.direction' && outcome.kind === 'current.direction'
+            ? on.record_sha256 !== outcome.record_sha256 && !sameHash(on.direction, outcome.direction)
+            : on.kind === 'post' && outcome.kind === 'current.direction'
+              ? !sameHash(on.direction, outcome.direction)
+              : false;
+        if (!isObject(closure) || !closed(closure, ['by', 'at', 'reasoning']) || closure.by !== 'agent' || !text(closure.reasoning) || !Number.isFinite(date(closure.at)) || date(closure.at) < date(record.at) || date(closure.at) > now || outcome.kind !== 'parts' && identityTime(project, outcome) < date(record.at) || identityTime(project, outcome) > date(closure.at) || !(direction ? directionChanged : changed(on, outcome)) || equal(on, outcome) || !direction && (on.kind === 'rig' || on.kind === 'post') && (outcome.kind !== on.kind || Number(outcome.n) <= Number(on.n)) || on.kind === 'draft' && outcome.kind === 'draft' && on.id === outcome.id) fail('CORRECTION_OUTCOME', 'outcome must be distinct/later/changed with one labelled agent closure');
         if (partImage && (outcome.kind !== 'draft' || !partImageResolvingDraft(project, record))) {
           fail('CORRECTION_OUTCOME', 'part-image outcome must be a later draft whose bound part file equals after');
         }

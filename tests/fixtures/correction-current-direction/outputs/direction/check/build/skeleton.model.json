@@ -1,0 +1,17 @@
+{
+  "spec": "rigc-compiled/3",
+  "stage": {
+    "x": -32,
+    "y": 0,
+    "width": 64,
+    "height": 48
+  },
+  "animations": [
+    {
+      "name": "idle",
+      "duration": 4
+    }
+  ],
+  "pages": [],
+  "synthetic_revision": 2
+}

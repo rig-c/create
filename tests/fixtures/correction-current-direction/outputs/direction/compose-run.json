@@ -1,0 +1,43 @@
+{
+  "spec": "rig-compose-run/1",
+  "scene": {
+    "path": "specs/direction/compose-scene.json",
+    "sha256": "9571a32eae5f40d9d04f5693f3fdc19dc2801f5b9f15f4e0e5710436c13422fc"
+  },
+  "characters": [
+    {
+      "id": "actor",
+      "build": "../../derived/compose-input",
+      "files": [
+        {
+          "path": "check/check.json",
+          "sha256": "7c66edeba9df6a1289dac20681a1ef8af3ae696924e64b2e40cbc49c9ed8ac56"
+        },
+        {
+          "path": "parts.json",
+          "sha256": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356"
+        },
+        {
+          "path": "rig/images/body.png",
+          "sha256": "4e53525df46aafed8e01b5d70fd68c30862a32aae093f0a73d94a1ada74dea7a"
+        },
+        {
+          "path": "rig/motion.json",
+          "sha256": "2db67ca3fca2f3180b361909b010d1ef732506b4f795840699ea6ead6b2b6700"
+        },
+        {
+          "path": "rig/rig.json",
+          "sha256": "6ef2f4b595108f9590367b8c7c2937670d4eade355895c99e17cea5fb0cf44c2"
+        }
+      ]
+    }
+  ],
+  "plate": null,
+  "plates": [
+    {
+      "name": "backdrop",
+      "path": "../../inputs/backdrop.png",
+      "sha256": "4e53525df46aafed8e01b5d70fd68c30862a32aae093f0a73d94a1ada74dea7a"
+    }
+  ]
+}

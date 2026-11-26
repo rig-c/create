@@ -1,0 +1,127 @@
+{
+  "schema": "rig-create/interview-options@1",
+  "id": "synthetic-post-composition",
+  "question": "post_composition",
+  "stage": "post-interview",
+  "drafted_by": "agent",
+  "drafted_at": "2026-11-26T08:10:00.000Z",
+  "context": {
+    "kind": "current-rig",
+    "signoff_at": "2026-11-26T08:05:00.000Z",
+    "target": {
+      "subject": "current.rig",
+      "record_sha256": "2e8f8af027402e674fc0e954852f81a75de43e35ff1d0d99d03dd24a5c7a595c",
+      "files_sha256": "9c74bd6233d601031ba9d6aa4782204044e61a58d46365ce7d611133807f98c9"
+    },
+    "config": {
+      "path": "specs/rig/config.json",
+      "sha256": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356"
+    },
+    "run": {
+      "path": "outputs/rig/run.json",
+      "sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a"
+    }
+  },
+  "assembly": {
+    "rule": "single"
+  },
+  "asks": [
+    {
+      "id": "post_composition",
+      "prompt": "Choose composition",
+      "options": [
+        {
+          "id": "keep",
+          "kind": "value",
+          "label": "Place the backdrop behind the actor.",
+          "effect": "Use the recorded backdrop placement.",
+          "fragment": {
+            "compose": {
+              "canvas": {
+                "width": 64,
+                "height": 48
+              },
+              "plates": [
+                {
+                  "name": "backdrop",
+                  "image": "inputs/backdrop.png",
+                  "at": [
+                    0,
+                    0
+                  ],
+                  "opaque_backdrop": true
+                }
+              ],
+              "order": [
+                "backdrop",
+                "actor"
+              ],
+              "character": {
+                "offset": [
+                  0,
+                  0
+                ],
+                "scale": 1
+              },
+              "idle_tracks": []
+            }
+          },
+          "recommended": true,
+          "reason": "Synthetic layout"
+        },
+        {
+          "id": "alternative",
+          "kind": "value",
+          "label": "Place the backdrop behind the actor.",
+          "effect": "Use the recorded backdrop placement.",
+          "fragment": {
+            "compose": {
+              "canvas": {
+                "width": 64,
+                "height": 48
+              },
+              "plates": [
+                {
+                  "name": "backdrop",
+                  "image": "inputs/backdrop.png",
+                  "at": [
+                    0,
+                    0
+                  ],
+                  "opaque_backdrop": true
+                }
+              ],
+              "order": [
+                "backdrop",
+                "actor"
+              ],
+              "character": {
+                "offset": [
+                  0,
+                  0
+                ],
+                "scale": 1
+              },
+              "idle_tracks": []
+            }
+          },
+          "recommended": false
+        },
+        {
+          "id": "other",
+          "kind": "other",
+          "label": "Place the backdrop behind the actor.",
+          "effect": "Use the recorded backdrop placement.",
+          "recommended": false
+        },
+        {
+          "id": "auto",
+          "kind": "auto",
+          "label": "Place the backdrop behind the actor.",
+          "effect": "Use the recorded backdrop placement.",
+          "recommended": false
+        }
+      ]
+    }
+  ]
+}

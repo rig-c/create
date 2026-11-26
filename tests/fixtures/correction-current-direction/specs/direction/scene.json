@@ -1,0 +1,33 @@
+{
+  "schema": "rig-create/scene@2",
+  "rig": {
+    "model": {
+      "path": "outputs/rig/check/build/skeleton.model.json",
+      "sha256": "a96c20acdfefd7730457a54684ae662e3b85a34fe5da2bdfb59a106d1fe53d94"
+    },
+    "animation": {
+      "name": "idle",
+      "frames": {
+        "path": "outputs/motion/frames.json",
+        "sha256": "026a8c502b8b3119e804239d875b105db6263c2e5798caea76ac750841ad9ccd"
+      },
+      "motion": {
+        "path": "outputs/motion",
+        "sha256": "b9c197bef8925b837caec41b39bdf84190190b7418b1e09f9ec70db412a990a4"
+      }
+    }
+  },
+  "frame": {
+    "space": "rig-world-y-up",
+    "stage": {
+      "x": -32,
+      "y": 0,
+      "width": 64,
+      "height": 48
+    }
+  },
+  "compose": {
+    "path": "specs/direction/compose-scene.json",
+    "sha256": "9571a32eae5f40d9d04f5693f3fdc19dc2801f5b9f15f4e0e5710436c13422fc"
+  }
+}

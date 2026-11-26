@@ -1,0 +1,29 @@
+{
+  "take": {
+    "duration": 4,
+    "loop": true
+  },
+  "citations": {
+    "timing": {
+      "guide": "post_timing",
+      "asks": [
+        "post_timing"
+      ],
+      "quote": "Four-second seamless loop."
+    },
+    "composition": {
+      "guide": "post_composition",
+      "asks": [
+        "post_composition"
+      ],
+      "quote": "Place the backdrop behind the actor."
+    },
+    "camera": {
+      "guide": "camera_depth",
+      "asks": [
+        "camera_depth"
+      ],
+      "quote": "Keep the upper margin clear."
+    }
+  }
+}

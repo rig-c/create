@@ -1166,10 +1166,10 @@ patch, computes a producer check/diff, or launches an Apply.
 | `CORRECTION_MALFORMED` | invalid closed record/union/human time fields, duplicate id or invalid replacement reference |
 | `CORRECTION_FILE` | unavailable/nonregular/symlink/escaping required retained file, or invalid retained JSON |
 | `CORRECTION_HASH` | raw retained bytes differ from their recorded SHA-256 |
-| `CORRECTION_SOURCE` | unknown/ambiguous/stale source, stage/kind/config/handoff mismatch, or mutation under a live approval |
+| `CORRECTION_SOURCE` | unknown/ambiguous/stale source (including a missing, malformed or spec-unbound `current.direction` when `--version` is omitted), stage/kind/config/handoff mismatch, or mutation under a live approval |
 | `CORRECTION_PATCH_INVALID` | config-patch/1 grammar, keys, flags or pointer syntax invalid; no operation is replayed |
 | `CORRECTION_APPLIED_INVALID` | a config-named input is missing from the handoff (WARN before CONFIG_INPUTS_SINCE) or has an altered hash, a draft handoff path (read relative to the feedback package) or the package itself resolves outside the project or is retained absolute, a draft `--feedback-file` is a directory named `.json` or a manifest file without that suffix, session/item/applied identity or embedded patch differs, optional `stageInputHash` is not a 64-lowercase-hex SHA-256, or a claimed checked result lacks its passing retained summary, has a FAIL/unknown named bar or no PASS bar, or marks a line-named skipped bar PASS |
-| `CORRECTION_OUTCOME` | outcome is invalid/nonlater/unchanged, closure bytes are missing, model differs from Apply, origin differs, or closure is repeated |
+| `CORRECTION_OUTCOME` | outcome is invalid/nonlater/unchanged (including an unchanged or missing `current.direction` on resolve, or signing the uncorrected `current.direction`), closure bytes are missing, model differs from Apply, origin differs, or closure is repeated |
 | `CORRECTION_PART_IMAGE_BEFORE` | `part-image` artifact does not name a `parts-review` parent draft's bound `<parts.path>/parts/<part>.png`, `artifact.draft` disagrees with `on.id`, or `after` has no pixel changes from `before` |
 | `CORRECTION_PART_IMAGE_MASK_SIZE` | `part-image` `before`, `after` or `mask` is not a readable PNG or `mask`/`after` dimensions differ from `before` |
 | `CORRECTION_PART_IMAGE_OUTSIDE_MASK` | `part-image` `after` differs from `before` outside `mask` |
@@ -1224,7 +1224,7 @@ direction*, defines the closed schema, immutable paths and read contract.
 | `DIRECTION_VERSION` | post identity/number/path/config/output binding conflicts or is not uniquely later for authoring/current for acceptance | create a later uniquely numbered post and bind its document |
 | `DIRECTION_SOURCE_CHANGED` | lock held, immutable destination exists, or any captured source differs before project commit | preserve published bytes and retry against frozen inputs |
 | `DIRECTION_PATCH` | Retired. Earlier Create releases refused invalid direction patch input with this code. | Record direction feedback as a review verdict and publish a revised post with `direction write --answers`. |
-| `DIRECTION_CORRECTION_OUTCOME` | a correction@2 source/outcome differs from the exact direction post identity, or a made direction closure lacks matching patch/base/result and the same rig | retain the exact compiled model and direction bindings, and resolve a made patch only to its create-ingested result |
+| `DIRECTION_CORRECTION_OUTCOME` | a correction@2 source/outcome differs from the exact direction post or `current.direction` identity, or a made direction closure lacks matching patch/base/result and the same rig | retain the exact `current.direction` or post bindings, and resolve a made patch only to its create-ingested result |
 | `CORRECTION_DIRECTION_PATCH_FILE_REMOVED` | `correction` receives `--direction-patch-file` or resolves a `direction-patch` record (exit 2) | record direction feedback as a review verdict and publish the revised post with `direction write <N> --file <direction.json> --rig <R> --answers <version>:<verdict>` |
 | `DIRECTION_PATCH_FILE_REMOVED` | `direction` receives `patch` or `--patch-file` (exit 2) | record direction feedback as a review verdict and publish the revised post with `direction write <N> --file <direction.json> --rig <R> --answers <version>:<verdict>` |
 | `DIRECTION_PATCH_LEGACY` | WARN for an existing record before `DIRECTION_PATCH_SINCE = 2026-11-19T00:00:00Z` that binds `versions[].direction_origin.patch` or a correction direction patch | preserve the historical record without reopening the old patch file; publish future direction changes with `direction write --answers` after a review verdict |
@@ -1234,10 +1234,14 @@ negative controls; failed writer/transaction tests also assert unchanged record
 bytes. Existing handoff, correction and provenance codes keep their meaning.
 
 `rig-create/correction@2` covers authored-direction descriptions and the
-`direction-patch` artifact. Its post identities add `direction:{path,sha256}`
-to `{kind:"post",n,config,model}`, binding the source rig's compiled model.
+`direction-patch` artifact. When `--version` is omitted on `correction record`
+or `correction resolve`, the binding is `{kind:"current.direction",at,record_sha256,direction:{path,sha256}}`,
+carrying the sorted-JSON SHA-256 of `current.direction` and the SHA-256 of its
+bound direction spec, and resolves once `current.direction` and its bound
+direction spec change at or after capture. With `--version`, post identities add
+`direction:{path,sha256}` to `{kind:"post",n,config,model}`, binding the source rig's compiled model.
 A described artifact remains `{kind:"description"}` with unchanged human words.
-Its outcome is a later post with a different bound direction document hash,
+Its outcome is a changed `current.direction` or a later post with a different bound direction document hash,
 checked with the same exact direction identity validator as its source.
 This includes a later accepted rig because direction@1 embeds `rig.model`.
 The agent's closure reasoning carries the semantic claim that the request

@@ -352,7 +352,7 @@ test('#1054 a fresh project records current parts and advances with a retained c
   const evidence = obj(obj(arr(project.advances).at(-1)).parts_check);
   expect(evidence.parts).toBe('outputs/parts/rig');
   expect(String(evidence.path)).toMatch(/^evidence\/parts-review\.[^/]+\/parts-check\.json$/);
-  expect(createHash('sha256').update(readFileSync(join(dir, String(evidence.path)))).digest('hex')).toBe(evidence.sha256);
+  expect(evidence.sha256).toBe(createHash('sha256').update(readFileSync(join(dir, String(evidence.path)))).digest('hex'));
   expect(checkProject(dir, undefined, { now: testClock.now() }).refusals).toEqual([]);
 });
 

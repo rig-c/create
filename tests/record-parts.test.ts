@@ -476,7 +476,7 @@ test('#1029 parts then rig commit exact scoped paths and preserve unrelated stag
   const version = JSON.parse(readFileSync(join(import.meta.dir, '../package.json'), 'utf8')) as { name: string; version: string };
   const trailer = ['stale: none', `create: ${version.name} ${version.version}`];
   const partMessage = [
-    'parts: record current output', '', `writer: rig-create record parts --from ${NEXT} --config ${CONFIG}`,
+    'parts: add background, eye_l, eye_r, face, lantern, torso', '', `writer: rig-create record parts --from ${NEXT} --config ${CONFIG}`,
     ...changes(partPaths), ...trailer,
   ].join('\n');
   expect(git('log', '-2', '--format=%B')).toBe(`${partMessage}\n\nSeed synthetic project\n\n`);
@@ -486,8 +486,10 @@ test('#1029 parts then rig commit exact scoped paths and preserve unrelated stag
   expect(git('ls-files', '--stage', '--', 'unrelated.txt')).toBe(index);
 
   recordDownstreamRig(dir, CONFIG);
+  const partsManifestSha = sha(readFileSync(join(dir, 'outputs/parts/rig/parts.json'))).slice(0, 8);
+  const configSha = sha(readFileSync(join(dir, CONFIG))).slice(0, 8);
   const rigMessage = [
-    'rig: record current output', '', `writer: rig-create record rig --from ${RIG_NEXT} --config ${CONFIG}`,
+    `rig: build from parts ${partsManifestSha}, config.json ${configSha}`, '', `writer: rig-create record rig --from ${RIG_NEXT} --config ${CONFIG}`,
     ...changes(['project.json']), ...trailer,
   ].join('\n');
   expect(git('log', '-2', '--format=%B')).toBe(`${rigMessage}\n\n${partMessage}\n\n`);

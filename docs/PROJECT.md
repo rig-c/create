@@ -42,13 +42,14 @@ first commit.
 `rig-create history [<dir>] [--json]` reads the project's Create step-data
 commits reachable from Git HEAD, newest first. It includes `record` commits
 and spec commits from `scene write` and `direction write`. Each entry shows
-the abbreviated SHA, UTC commit time and subject followed by a copyable
-`back:` command that restores `specs` and `outputs/parts` and runs `next`.
+the abbreviated SHA, UTC commit time and subject; when the commit holds both
+`specs` and `outputs/parts`, it is followed by a copyable `back:` command
+that restores them and runs `next` (otherwise the `back:` line is omitted
+and `back` is `null` in `--json`).
 JSON returns an array with `sha`, `short_sha`, `at`, `subject` and `back`.
 History leaves the project and its Git state untouched. With no project
 work tree or matching commit, it warns on stderr and leaves stdout empty.
-The back command requires both paths in the selected commit. Run the
-parts rebind from the project directory with
+Run the parts rebind from the project directory with
 `rig-create record parts --from outputs/parts --config specs/rig/config.json`
 using the config from the restored build.
 

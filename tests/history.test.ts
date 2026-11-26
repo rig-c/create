@@ -2,6 +2,8 @@ import { beforeEach, expect, test } from 'bun:test';
 import { createHash } from 'node:crypto';
 import { mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { delimiter, dirname, join } from 'node:path';
+import { historyCommand } from '../src/history.ts';
+import { commitProjectStep, stepCommitSubject } from '../src/project-step-commit.ts';
 import { CLI, gitEnv, tempDir, treeDigest } from './helpers.ts';
 
 const SCENE = 'specs/direction/scene.json';
@@ -152,20 +154,243 @@ test('history accepts #1018 spec and record commits and checks the owning collec
   commit(root, wrongScope, [`${member}/${SCENE}`]);
 
   const before = treeDigest(root);
+  const textResult = history(root, member);
   const result = history(root, member, '--json');
+  expect(textResult.exit).toBe(0);
+  expect(textResult.stderr).toBe('');
+  expect(textResult.stdout).not.toContain('\n  back: ');
   expect(result.exit).toBe(0);
   expect(result.stderr).toBe('');
-  expect((JSON.parse(result.stdout) as { subject: string }[]).map(entry => entry.subject)).toEqual([
+  const entries = JSON.parse(result.stdout) as { subject: string; back: string | null }[];
+  expect(entries.map(entry => entry.subject)).toEqual([
     'rig: update output', 'direction: record current output', 'motion: record current output', `direction: write ${DIRECTION}`, `scene: write ${SCENE}`,
   ]);
+  // Every commit above lacks outputs/parts in this member's tree, so none gets a broken back command.
+  expect(entries.map(entry => entry.back)).toEqual([null, null, null, null, null]);
   expect(treeDigest(root)).toEqual(before);
 
-  // This early spec commit lacks outputs/parts, so the §4.4 checkout fails before next.
-  const entries = JSON.parse(result.stdout) as { back: string }[];
-  const early = runBack(root, entries.at(-1)!.back);
-  expect(early.exitCode).toBe(1);
-  expect(early.stdout.toString()).toBe('');
-  expect(early.stderr.toString()).toContain('outputs/parts');
+  // Once the member records outputs/parts alongside its existing specs/, later commits carry a runnable back line.
+  put(dir, PART, 'member part');
+  const withParts = commit(dir, stepMessage(dir, 'parts: add example', 'record parts --from outputs/parts.next --config specs/rig/config.json', [PART]),
+    [PART], '2026-11-25T10:00:00Z');
+  const realDir = realpathSync(dir);
+  const quotedMember = "'" + realDir.replaceAll("'", "'\\''") + "'";
+  const updated = JSON.parse(history(root, member, '--json').stdout) as { short_sha: string; back: string | null }[];
+  expect(updated[0]).toMatchObject({
+    short_sha: withParts.slice(0, 8),
+    back: `git -C ${quotedMember} checkout ${withParts.slice(0, 8)} -- specs outputs/parts && rig-create next ${quotedMember}`,
+  });
+  expect(updated.slice(1).map(entry => entry.back)).toEqual([null, null, null, null, null]);
+  put(dir, PART, 'local overwrite');
+  const memberRestore = runBack(root, updated[0]!.back!);
+  expect([memberRestore.exitCode, memberRestore.stdout.toString(), memberRestore.stderr.toString()]).toEqual([0, `next\n${realDir}\n`, '']);
+  expect(readFileSync(join(dir, PART), 'utf8')).toBe('member part');
+}, 20_000);
+
+test('#1038 older-project history omits back before both specs and outputs/parts exist and commits descriptive subjects', () => {
+  const dir = realpathSync(tempDir());
+  initRepo(dir);
+  git(dir, ['config', 'user.name', 'History Fixture']);
+  git(dir, ['config', 'user.email', 'fixture@example.test']);
+  put(dir, '.gitignore', '/outputs/*\n!/outputs/parts/\n');
+  put(dir, 'project.json', '{"stage":"post"}\n');
+  commit(dir, 'Seed older project before current parts', ['.gitignore', 'project.json'], '2026-11-25T08:00:00Z');
+
+  const withCommitClock = <T>(iso: string, fn: () => T): T => {
+    const prevAuthor = process.env.GIT_AUTHOR_DATE;
+    const prevCommitter = process.env.GIT_COMMITTER_DATE;
+    process.env.GIT_AUTHOR_DATE = iso;
+    process.env.GIT_COMMITTER_DATE = iso;
+    try { return fn(); }
+    finally {
+      if (prevAuthor === undefined) delete process.env.GIT_AUTHOR_DATE; else process.env.GIT_AUTHOR_DATE = prevAuthor;
+      if (prevCommitter === undefined) delete process.env.GIT_COMMITTER_DATE; else process.env.GIT_COMMITTER_DATE = prevCommitter;
+    }
+  };
+
+  // 1. Pre-parts motion commit: tree lacks both specs and outputs/parts.
+  const rigModelSha = '15146157bfafc565b4eb0da7b66195283504692dc06d512dc404fd8f5849aa7e';
+  put(dir, 'project.json', '{"stage":"post","step":1}\n');
+  expect(withCommitClock('2026-11-25T08:10:00Z', () =>
+    commitProjectStep(dir, 'motion', 'record motion --from outputs/motion.next', 'project.json', 'outputs/motion', [], {
+      filesSha256: '06dbcd27bf34a3d9231367d0a3a070a8a30e061fe11316ce6abe82bd7e09e67b',
+      builtFrom: [{ path: 'outputs/rig/check/build/skeleton.model.json', sha256: rigModelSha }],
+    }))).toBeUndefined();
+
+  // 2. Pre-parts scene commit: tree now has specs/, still lacks outputs/parts.
+  put(dir, SCENE, '{"schema":"rig-create/scene@2"}\n');
+  expect(withCommitClock('2026-11-25T08:20:00Z', () =>
+    commitProjectStep(dir, 'scene', `scene write --compose-scene specs/direction/compose-scene.json`, SCENE))).toBeUndefined();
+
+  // 3. Converse check: a commit whose tree has outputs/parts without specs also gets no back line.
+  const noSpecsDir = realpathSync(tempDir());
+  initRepo(noSpecsDir);
+  git(noSpecsDir, ['config', 'user.name', 'History Fixture']);
+  git(noSpecsDir, ['config', 'user.email', 'fixture@example.test']);
+  put(noSpecsDir, '.gitignore', '/outputs/*\n!/outputs/parts/\n');
+  put(noSpecsDir, 'project.json', '{"stage":"parts"}\n');
+  commit(noSpecsDir, 'Seed without specs', ['.gitignore', 'project.json'], '2026-11-25T08:00:00Z');
+  put(noSpecsDir, 'project.json', '{"stage":"parts","step":1}\n');
+  put(noSpecsDir, 'outputs/parts/rig/parts/torso.png', 'torso');
+  expect(withCommitClock('2026-11-25T08:05:00Z', () =>
+    commitProjectStep(noSpecsDir, 'parts', 'record parts --from outputs/parts.next --config config.json', 'project.json', 'outputs/parts', [], {
+      partsFiles: ['outputs/parts/rig/parts/torso.png'],
+      filesSha256: 'aaaa0000'.repeat(8),
+      builtFrom: [{ path: 'config.json', sha256: 'bbbb1111'.repeat(8) }],
+    }))).toBeUndefined();
+  expect(JSON.parse(historyCommand([noSpecsDir, '--json']).stdout)).toEqual([
+    expect.objectContaining({ subject: 'parts: add torso', back: null }),
+  ]);
+
+  // 4. First record parts commit on the older project (now both specs/ and outputs/parts/ exist).
+  put(dir, 'specs/rig/config.json', '{"bones":[]}\n');
+  git(dir, ['add', '--', 'specs/rig/config.json']);
+  git(dir, ['commit', '--only', '-qm', 'Add rig config', '--', 'specs/rig/config.json'], '2026-11-25T08:25:00Z');
+  const configSha = createHash('sha256').update('{"bones":[]}\n').digest('hex');
+  const basePartsSha = 'd93e07d90bb34132c296265585160cb37009cfac3c4eda0c19114636ddb41dca';
+  put(dir, 'project.json', '{"stage":"parts","step":2}\n');
+  put(dir, 'outputs/parts/rig/parts/face.png', 'face-v1');
+  put(dir, 'outputs/parts/rig/parts/torso.png', 'torso-v1');
+  expect(withCommitClock('2026-11-25T08:30:00Z', () =>
+    commitProjectStep(dir, 'parts', 'record parts --from outputs/parts.next --config specs/rig/config.json', 'project.json', 'outputs/parts', ['rig'], {
+      partsFiles: ['outputs/parts/rig/parts/face.png', 'outputs/parts/rig/parts/torso.png'],
+      filesSha256: basePartsSha,
+      builtFrom: [{ path: 'specs/rig/config.json', sha256: configSha }],
+    }))).toBeUndefined();
+
+  // 5. Initial current.rig build from base parts + config.
+  put(dir, 'project.json', '{"stage":"rigging","step":3}\n');
+  expect(withCommitClock('2026-11-25T08:35:00Z', () =>
+    commitProjectStep(dir, 'rig', 'record rig --from outputs/rig.next --config specs/rig/config.json', 'project.json', 'outputs/rig', ['motion'], {
+      filesSha256: 'a1493faa8c4de2e13339b7f8cd5919693bb76805cd277b212ac9107efda9673a',
+      builtFrom: [
+        { path: 'outputs/parts/rig/parts.json', sha256: basePartsSha },
+        { path: 'specs/rig/config.json', sha256: configSha },
+      ],
+    }))).toBeUndefined();
+
+  // 6. Add eyelids in parts, then rebuild rig from the new parts hash.
+  const blinkPartsSha = '3f2a91c09bb34132c296265585160cb37009cfac3c4eda0c19114636ddb41dca';
+  put(dir, 'project.json', '{"stage":"parts","step":4}\n');
+  put(dir, 'outputs/parts/rig/parts/eyelid_l.png', 'eyelid-l');
+  put(dir, 'outputs/parts/rig/parts/eyelid_r.png', 'eyelid-r');
+  expect(withCommitClock('2026-11-25T08:40:00Z', () =>
+    commitProjectStep(dir, 'parts', 'record parts --from outputs/parts.next --config specs/rig/config.json', 'project.json', 'outputs/parts', ['rig', 'motion'], {
+      partsFiles: [
+        'outputs/parts/rig/parts/eyelid_l.png',
+        'outputs/parts/rig/parts/eyelid_r.png',
+        'outputs/parts/rig/parts/face.png',
+        'outputs/parts/rig/parts/torso.png',
+      ],
+      filesSha256: blinkPartsSha,
+      builtFrom: [{ path: 'specs/rig/config.json', sha256: configSha }],
+      previousBuiltFrom: [{ path: 'specs/rig/config.json', sha256: configSha }],
+    }))).toBeUndefined();
+
+  put(dir, 'project.json', '{"stage":"rigging","step":5}\n');
+  expect(withCommitClock('2026-11-25T08:45:00Z', () =>
+    commitProjectStep(dir, 'rig', 'record rig --from outputs/rig.next --config specs/rig/config.json', 'project.json', 'outputs/rig', ['motion'], {
+      filesSha256: 'c2584fbb8c4de2e13339b7f8cd5919693bb76805cd277b212ac9107efda9673a',
+      builtFrom: [
+        { path: 'outputs/parts/rig/parts.json', sha256: blinkPartsSha },
+        { path: 'specs/rig/config.json', sha256: configSha },
+      ],
+      previousBuiltFrom: [
+        { path: 'outputs/parts/rig/parts.json', sha256: basePartsSha },
+        { path: 'specs/rig/config.json', sha256: configSha },
+      ],
+    }))).toBeUndefined();
+
+  const text = historyCommand([dir]);
+  const parsed = JSON.parse(historyCommand([dir, '--json']).stdout) as { short_sha: string; at: string; subject: string; back: string | null }[];
+  expect(text.exit).toBe(0);
+  expect(text.stderr).toBeUndefined();
+  expect(parsed.map(entry => ({ subject: entry.subject, hasBack: entry.back !== null }))).toEqual([
+    { subject: 'rig: rebuild from parts 3f2a91c0', hasBack: true },
+    { subject: 'parts: add eyelid_l, eyelid_r', hasBack: true },
+    { subject: `rig: build from parts d93e07d9, config.json ${configSha.slice(0, 8)}`, hasBack: true },
+    { subject: 'parts: add face, torso', hasBack: true },
+    { subject: `scene: write ${SCENE}`, hasBack: false },
+    { subject: 'motion: build from rig 15146157', hasBack: false },
+  ]);
+  const quoted = "'" + dir.replaceAll("'", "'\\''") + "'";
+  expect(text.stdout).toBe([
+    `${parsed[0]!.short_sha}  2026-11-25T08:45:00Z  rig: rebuild from parts 3f2a91c0`,
+    `  back: git -C ${quoted} checkout ${parsed[0]!.short_sha} -- specs outputs/parts && rig-create next ${quoted}`,
+    `${parsed[1]!.short_sha}  2026-11-25T08:40:00Z  parts: add eyelid_l, eyelid_r`,
+    `  back: git -C ${quoted} checkout ${parsed[1]!.short_sha} -- specs outputs/parts && rig-create next ${quoted}`,
+    `${parsed[2]!.short_sha}  2026-11-25T08:35:00Z  rig: build from parts d93e07d9, config.json ${configSha.slice(0, 8)}`,
+    `  back: git -C ${quoted} checkout ${parsed[2]!.short_sha} -- specs outputs/parts && rig-create next ${quoted}`,
+    `${parsed[3]!.short_sha}  2026-11-25T08:30:00Z  parts: add face, torso`,
+    `  back: git -C ${quoted} checkout ${parsed[3]!.short_sha} -- specs outputs/parts && rig-create next ${quoted}`,
+    `${parsed[4]!.short_sha}  2026-11-25T08:20:00Z  scene: write ${SCENE}`,
+    `${parsed[5]!.short_sha}  2026-11-25T08:10:00Z  motion: build from rig 15146157`,
+  ].join('\n'));
+  for (const entry of [parsed[0]!, parsed[3]!]) {
+    const res = runBack(dir, entry.back!);
+    expect(res.exitCode).toBe(0);
+  }
+}, 20_000);
+
+test('#1038 stepCommitSubject enforces the 72-char single-line limit across path and upstream combinations', () => {
+  expect(stepCommitSubject('parts', 'project.json', 'outputs/parts', [
+    { status: 'A', path: 'outputs/parts/rig/parts/eyelid_l.png' },
+    { status: 'A', path: 'outputs/parts/rig/parts/eyelid_r.png' },
+    { status: 'M', path: 'outputs/parts/rig/parts.json' },
+    { status: 'M', path: 'project.json' },
+  ])).toBe('parts: add eyelid_l, eyelid_r');
+
+  expect(stepCommitSubject('parts', 'project.json', 'outputs/parts', [
+    { status: 'A', path: 'outputs/parts/rig/parts/eyelid_l.png' },
+    { status: 'M', path: 'outputs/parts/rig/parts/face.png' },
+    { status: 'D', path: 'outputs/parts/rig/parts/lantern.png' },
+  ])).toBe('parts: add eyelid_l; update face; remove lantern');
+
+  expect(stepCommitSubject('parts', 'project.json', 'outputs/parts', [
+    { status: 'M', path: 'outputs/parts/rig/part_support_domains.json' },
+    { status: 'M', path: 'outputs/parts/run.json' },
+    { status: 'M', path: 'outputs/parts/check/parts-check.json' },
+  ])).toBe('parts: update part_support_domains.json');
+
+  expect(stepCommitSubject('rig', 'project.json', 'outputs/rig', [{ status: 'M', path: 'project.json' }], {
+    builtFrom: [
+      { path: 'outputs/parts/rig/parts.json', sha256: '3f2a91c0'.repeat(8) },
+      { path: 'specs/rig/config.json', sha256: '03bcce31'.repeat(8) },
+    ],
+    previousBuiltFrom: [
+      { path: 'outputs/parts/rig/parts.json', sha256: '11111111'.repeat(8) },
+      { path: 'specs/rig/config.json', sha256: '03bcce31'.repeat(8) },
+    ],
+  })).toBe('rig: rebuild from parts 3f2a91c0');
+
+  expect(stepCommitSubject('direction', 'project.json', 'outputs/direction', [{ status: 'M', path: 'project.json' }], {
+    builtFrom: [
+      { path: 'outputs/motion', sha256: '06dbcd27'.repeat(8) },
+      { path: 'specs/direction/direction.json', sha256: '8a4f12c0'.repeat(8) },
+      { path: 'specs/direction/scene.json', sha256: '2e9813b3'.repeat(8) },
+    ],
+    previousBuiltFrom: [
+      { path: 'outputs/motion', sha256: '06dbcd27'.repeat(8) },
+      { path: 'specs/direction/direction.json', sha256: '590bcbcb'.repeat(8) },
+      { path: 'specs/direction/scene.json', sha256: '2e9813b3'.repeat(8) },
+    ],
+  })).toBe('direction: rebuild from direction.json 8a4f12c0');
+
+  const many = Array.from({ length: 20 }, (_, i) => ({
+    status: 'A',
+    path: `outputs/parts/rig/parts/segment_${String(i).padStart(2, '0')}.png`,
+  }));
+  const manySubject = stepCommitSubject('parts', 'project.json', 'outputs/parts', many);
+  expect(manySubject.length).toBeLessThanOrEqual(72);
+  expect(manySubject).toMatch(/^parts: add segment_00, .* \(\+\d+\)$/);
+
+  const huge = stepCommitSubject('parts', 'project.json', 'outputs/parts', [
+    { status: 'A', path: `outputs/parts/rig/parts/${'very_long_part_identifier_'.repeat(5)}\nnext.png` },
+    { status: 'A', path: 'outputs/parts/rig/parts/zz_other.png' },
+  ]);
+  expect(huge.length).toBeLessThanOrEqual(72);
+  expect(huge).not.toContain('\n');
+  expect(huge).toEndWith('... (+1)');
 });
 
 test('history warns with zero stdout in text and JSON modes without a work tree or matching commits', () => {

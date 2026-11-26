@@ -1447,9 +1447,11 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
     return step ? [{ finding, step }] : [];
   });
   const next = deriveNextProject(dir, project, report, now, steps, staleSteps);
-  const outputMoves = next.stage !== PAUSED_STAGE && isObject(project.current)
+  const permitsOutputMoves = next.stage !== PAUSED_STAGE
+    && !next.refusals.some(finding => finding.code === 'RIGGING_DRAFT_PARTS_CHANGED');
+  const outputMoves = permitsOutputMoves && isObject(project.current)
     ? currentOutputMoves(dir, project.current, report.warnings) : [];
-  const adoptMoves = next.stage !== PAUSED_STAGE && project.current === undefined ? adoptionMoves(dir, project) : [];
+  const adoptMoves = permitsOutputMoves && project.current === undefined ? adoptionMoves(dir, project) : [];
   // Every stage shows the repairs. Approval gating uses only the steps that approval covers.
   const revisionMoves = staleSteps.map(({ finding, step }): NextMove => {
     if (planStepCompleted(project, step)) {

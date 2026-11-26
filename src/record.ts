@@ -14,6 +14,7 @@ import { readDirectionOutput } from './current-direction.ts';
 import { builtFromNameAllowed, CURRENT_KINDS, CURRENT_RIG_MODEL, currentFileBinding, currentHash, currentShapeFindings, isRunRecordFile, outputRoot, outputSetHash, RUN_RECORD_NAME, sha256, treeFiles, type CurrentKind, type RebuildRunSpec } from './current.ts';
 import { DirectionError } from './direction.ts';
 import { readProject } from './feedback.ts';
+import { recordCurrentPartsLedger } from './fix-ledger.ts';
 import { acquireBoundJobWrite } from './job-writer.ts';
 import type { CommandResult } from './interview.ts';
 import { PARTS_CHECK_FILE, PARTS_CHECK_SPEC, partsCheckFindings, partsCheckRecord } from './parts-check.ts';
@@ -27,11 +28,13 @@ import { RunRecordError, validateRunRecord, type RunSpec } from './run-record.ts
 import type { JsonObject } from './templates.ts';
 
 export const RECORD_HELP = `record:
-  rig-create record parts [<dir>] --from <producer out> --config <rig config> [--by <who>] [--json]
+  rig-create record parts [<dir>] --from <producer out> --config <rig config> [--ledger-report <file>] [--by <who>] [--json]
                  record the producer's parts output as current.parts and rename it into outputs/parts/ (the old tree is
                  deleted after). <producer out> must be a folder beside outputs/parts/ (normally outputs/parts.next) or
                  outputs/parts itself, holding the parts assemble output with run.json (rig-run/1) and check/parts-check.json
-                 (rig-parts-parts-check/1). --config must be the config the run names by sha256. --by defaults to agent.
+                 (rig-parts-parts-check/1). --config must be the config the run names by sha256. Supply a retained,
+                 project-relative --ledger-report when the fix ledger has a live row or the current parts bind a report.
+                 --by defaults to agent.
   rig-create record rig [<dir>] --from <producer out> --config <rig config> [--by <who>] [--json]
                  record the producer's rig output as current.rig and rename it into outputs/rig/ (the old tree is deleted
                  after). <producer out> must be a folder beside outputs/rig/ (normally outputs/rig.next) or outputs/rig itself,
@@ -61,7 +64,7 @@ const isAtOrUnder = (path: string, root: string): boolean => path === root || pa
 
 const usage = (why: string, kind: RecordableKind = 'rig'): never => refuse(
   'RECORD_USAGE',
-  `record: ${why}; rig-create record ${kind} [<dir>] --from <producer out>${kind === 'motion' ? '' : kind === 'direction' ? ' --direction specs/direction/direction.json' : ' --config <rig config>'} [--by <who>] [--json], or rig-create record ${kind} [<dir>] --adopt [--json]`,
+  `record: ${why}; rig-create record ${kind} [<dir>] --from <producer out>${kind === 'motion' ? '' : kind === 'direction' ? ' --direction specs/direction/direction.json' : ' --config <rig config>'}${kind === 'parts' ? ' [--ledger-report <file>]' : ''} [--by <who>] [--json], or rig-create record ${kind} [<dir>] --adopt [--json]`,
   USAGE_EXIT,
 );
 
@@ -504,6 +507,7 @@ export function recordCommand(args: string[], now: number): CommandResult {
   if (!(CURRENT_KINDS as readonly string[]).includes(rawKind ?? '')) return usage(`${JSON.stringify(rawKind ?? null)} is not a kind this release records; choose ${CURRENT_KINDS.join(', ')}`);
   const kind = rawKind as RecordableKind;
   const sourceFlag = kind === 'direction' ? '--direction' : kind === 'motion' ? undefined : '--config';
+  const valueFlags = ['--from', '--by', sourceFlag, ...(kind === 'parts' ? ['--ledger-report'] : [])];
   const positional: string[] = [];
   const options: Record<string, string> = {};
   let adopt = false;
@@ -512,7 +516,7 @@ export function recordCommand(args: string[], now: number): CommandResult {
     const arg = rest[i]!;
     if (arg === '--json' && !json) json = true;
     else if (arg === '--adopt' && !adopt) adopt = true;
-    else if (['--from', '--by', sourceFlag].includes(arg) && options[arg] === undefined) {
+    else if (valueFlags.includes(arg) && options[arg] === undefined) {
       const value = rest[++i];
       if (value === undefined || value.startsWith('--') || !value.trim()) usage(`${arg} needs one value`, kind);
       options[arg] = value!;
@@ -576,6 +580,8 @@ export function recordCommand(args: string[], now: number): CommandResult {
       ...(details.report ? { report: details.report } : {}),
       ...(details.rebuild ? { rebuild: details.rebuild } : {}),
     };
+    const ledgerReport = options['--ledger-report'];
+    const verifyLedger = kind === 'parts' ? recordCurrentPartsLedger(dir, project, node, ledgerReport, now) : undefined;
     const current = isObject(project.current) ? project.current : {};
     const candidate: JsonObject = { ...project, current: { ...current, [kind]: node } };
     const shape = currentShapeFindings(kind, node, candidate)[0];
@@ -583,7 +589,7 @@ export function recordCommand(args: string[], now: number): CommandResult {
     const before = checkProject(dir, undefined, { now });
     const baseline = baselineOf(before);
     // Replacing a signed current output stales only its active signature; check keeps reporting it.
-    const targetPath = kind === 'rig' || kind === 'direction' ? activeCurrentSignoffTargetPath(project, kind) : undefined;
+    const targetPath = kind === 'motion' ? undefined : activeCurrentSignoffTargetPath(project, kind);
     const checkCandidate = (): ReturnType<typeof checkProject> => {
       const report = checkProject(dir, candidate, { now });
       const blocking = newFindings(baseline, report.refusals);
@@ -628,6 +634,7 @@ export function recordCommand(args: string[], now: number): CommandResult {
       migration = migrateProjectGitignore(dir);
       // Check the installed bytes while the output trees and ignore file can still be restored.
       if (movedNew || migration.changed) after = checkCandidate();
+      verifyLedger?.();
       writeRecord(file, original, candidate, `record-${kind}`, 'RECORD_SOURCE_CHANGED');
       recorded = true;
     } finally {
@@ -645,6 +652,7 @@ export function recordCommand(args: string[], now: number): CommandResult {
       .map(f => f.path.slice('current.'.length));
     const writer = ['record', kind, '--from', from,
       ...(sourceFlag ? [sourceFlag, config ?? options[sourceFlag]!] : []),
+      ...(ledgerReport ? ['--ledger-report', ledgerReport] : []),
       ...(options['--by'] ? ['--by', options['--by']] : []),
     ].map(value => /^[\w./@+-]+$/.test(value) ? value : JSON.stringify(value)).join(' ');
     const migrationWarning = migration.changed ? undefined : migration.warning;

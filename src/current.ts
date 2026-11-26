@@ -196,6 +196,12 @@ export function currentShapeFindings(kind: CurrentKind, node: Json | undefined, 
 const PARTS_MANIFEST = 'outputs/parts/rig/parts.json';
 type AssemblyManifest = Parameters<typeof assemblyConfigChanges>[1];
 
+/** The canonical parts manifest's hash in an output inventory, including before a staged tree is installed. */
+export function currentPartsManifestHash(node: JsonObject): string | undefined {
+  const file = asArray(node.files).filter(isObject).find(entry => entry.path === PARTS_MANIFEST);
+  return hex64(file?.sha256) ? file.sha256 : undefined;
+}
+
 /** The hash a valid current node records for a named product file. */
 export function currentFileBinding(project: JsonObject, kind: CurrentKind, path: string): { path: string; sha256: string } | undefined {
   const node = isObject(project.current) ? project.current[kind] : undefined;
@@ -269,9 +275,8 @@ function partsAssemblyManifest(dir: string, node: JsonObject): AssemblyManifest 
   try {
     const file = regularProjectFile(dir, PARTS_MANIFEST);
     if (!file) return undefined;
-    const recorded = asArray(node.files).find((f): f is JsonObject => isObject(f) && f.path === PARTS_MANIFEST);
     const bytes = readFileSync(file);
-    if (recorded === undefined || createHash('sha256').update(bytes).digest('hex') !== recorded.sha256) return undefined;
+    if (sha256(bytes) !== currentPartsManifestHash(node)) return undefined;
     const parsed = JSON.parse(bytes.toString('utf8')) as Json;
     if (!isObject(parsed) || parsed.assembly_config === undefined) return undefined;
     return parsed as unknown as AssemblyManifest;

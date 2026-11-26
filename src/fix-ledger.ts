@@ -5,10 +5,11 @@
  * the ledger: coverage, build identity, the rows the predecessor draft passed, and what a draft fixes.
  */
 import { createHash } from 'node:crypto';
-import { readFileSync, realpathSync, statSync } from './check-reads.ts';
-import { isAbsolute, join, relative, resolve } from 'node:path';
+import { JOB_PRIVATE_DIRECTORY, readFileSync, realpathSync, statSync } from './check-reads.ts';
+import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import { asArray, isObject, type Finding } from './check.ts';
+import { currentPartsManifestHash } from './current.ts';
 import { assertDraftHasRig, draftRigRequired, isAssembleOnlyDraft } from './draft-layout.ts';
 import { readProject } from './feedback.ts';
 import { IGNORED_DIRS } from './init.ts';
@@ -20,6 +21,8 @@ import type { Json, JsonObject } from './templates.ts';
 
 /** Drafts recorded from this date bind a ledger report whenever the ledger has a live row; earlier drafts WARN. */
 export const FIX_LEDGER_SINCE = '2026-11-09T00:00:00Z';
+/** Dates the current parts ledger report requirement by current.parts.at. */
+export const CURRENT_PARTS_LEDGER_SINCE = '2026-11-26T00:00:00Z';
 export const FIX_LEDGER_REPORT_SPEC = 'rig-create/fix-ledger-report@1';
 
 const RESULTS = ['pass', 'fail', 'unmeasurable'] as const;
@@ -96,26 +99,34 @@ export function ledgerRows(project: JsonObject, refusals: Finding[], now: number
   return rows;
 }
 
-/** The report bytes at a project-relative path outside ignored roots, read the way the writer and check both do. */
-function reportBytes(dir: string, path: Json | undefined, at: string): Buffer | Finding {
-  const invalid = (why: string): Finding => finding('DRAFT_LEDGER_REPORT_INVALID', at, `${why}; retain the report the project's check script wrote under the project (for example evidence/) and record the draft with --ledger-report`);
+const ignoredReportRoot = (path: string): boolean => [...IGNORED_DIRS, 'node_modules', '.git'].includes(path.split('/')[0]!);
+type InvalidReport = (why: string) => Finding;
+
+/** The report bytes at a project-relative path outside ignored roots. */
+function readReportBytes(dir: string, path: Json | undefined, invalid: InvalidReport, currentParts = false): Buffer | Finding {
   if (!literal(path)) return invalid('the report needs a literal project-relative path');
-  if ([...IGNORED_DIRS, 'node_modules', '.git'].includes(path.split('/')[0]!)) return invalid(`${path} is under an ignored root and would not survive a clone`);
+  const ignored = (rel: string): boolean => ignoredReportRoot(rel) || (currentParts && rel.split('/')[0] === JOB_PRIVATE_DIRECTORY);
+  if (ignored(path)) return invalid(`${path} is under an ignored root and would not survive a clone`);
   try {
     const root = realpathSync(dir);
     const file = realpathSync(resolve(dir, path));
     const rel = relative(root, file);
-    if (rel === '' || rel.startsWith('..') || isAbsolute(rel)) return invalid(`${path} leaves the project through a link`);
+    const escapes = currentParts ? rel === '..' || rel.startsWith(`..${sep}`) : rel.startsWith('..');
+    if (rel === '' || escapes || isAbsolute(rel)) return invalid(`${path} leaves the project through a link`);
+    if (currentParts && ignored(rel.split(sep).join('/'))) return invalid(`${path} resolves under an ignored root and would not survive a clone`);
     if (!statSync(file).isFile()) return invalid(`${path} is not a regular file`);
     return readFileSync(file);
   } catch { return invalid(`${path} is not there or cannot be read`); }
 }
 
+function reportBytes(dir: string, path: Json | undefined, at: string): Buffer | Finding {
+  return readReportBytes(dir, path, why => finding('DRAFT_LEDGER_REPORT_INVALID', at, `${why}; retain the report the project's check script wrote under the project (for example evidence/) and record the draft with --ledger-report`));
+}
+
 interface LedgerReport { readonly manifest: string; readonly rows: Map<string, ReportRow> }
 
 /** The report's own fields, read and never recomputed. */
-function decodeReport(bytes: Buffer, at: string): LedgerReport | Finding {
-  const invalid = (why: string): Finding => finding('DRAFT_LEDGER_REPORT_INVALID', at, `${why}; record the draft with the ${FIX_LEDGER_REPORT_SPEC} JSON the project's check script wrote`);
+function decodeLedgerReport(bytes: Buffer, invalid: InvalidReport): LedgerReport | Finding {
   let report: Json;
   try { report = JSON.parse(bytes.toString('utf8')) as Json; } catch { return invalid('the report is not JSON'); }
   if (!isObject(report) || report.schema !== FIX_LEDGER_REPORT_SPEC) return invalid(`schema is not ${FIX_LEDGER_REPORT_SPEC}`);
@@ -130,6 +141,10 @@ function decodeReport(bytes: Buffer, at: string): LedgerReport | Finding {
     rows.set(row.id, { result: row.result as LedgerResult, measured: row.measured });
   }
   return { manifest: report.build.manifest_sha256, rows };
+}
+
+function decodeReport(bytes: Buffer, at: string): LedgerReport | Finding {
+  return decodeLedgerReport(bytes, why => finding('DRAFT_LEDGER_REPORT_INVALID', at, `${why}; record the draft with the ${FIX_LEDGER_REPORT_SPEC} JSON the project's check script wrote`));
 }
 
 /** The report a draft binds, checked against its binding; null when the draft binds none. */
@@ -151,6 +166,101 @@ const manifestOf = (draft: JsonObject): string | undefined => {
   const entry = asArray(parts.files).filter(isObject).find(f => f.path === `${String(parts.path)}/parts.json`);
   return typeof entry?.sha256 === 'string' ? entry.sha256 : undefined;
 };
+
+const CURRENT_LEDGER_PATH = 'current.parts.ledger';
+const CURRENT_REPORT_PATH = `${CURRENT_LEDGER_PATH}.report`;
+const RECORD_CURRENT_REPORT = 'retain a report for this build under the project and record it with record parts --ledger-report <file>';
+const currentLedgerInvalid = (why: string, path = CURRENT_REPORT_PATH): Finding =>
+  finding('CURRENT_PARTS_LEDGER_REPORT_INVALID', path, `${why}; ${RECORD_CURRENT_REPORT}`);
+
+interface CurrentLedgerBinding { path: string; sha256: string; spec: typeof FIX_LEDGER_REPORT_SPEC }
+
+function currentReportBytes(dir: string, path: Json | undefined): Buffer | Finding {
+  return readReportBytes(dir, path, currentLedgerInvalid, true);
+}
+
+/** A prior or candidate current report, verified against its own recorded output inventory. */
+function boundCurrentPartsLedger(dir: string, node: JsonObject): Finding | {
+  binding: CurrentLedgerBinding; report: LedgerReport; replacedPassedRows: string[];
+} {
+  const ledger = node.ledger;
+  if (!isObject(ledger) || Object.keys(ledger).length !== 2 || !Array.isArray(ledger.replaced_passed_rows)) {
+    return currentLedgerInvalid('expected { report, replaced_passed_rows }', CURRENT_LEDGER_PATH);
+  }
+  const ids = ledger.replaced_passed_rows;
+  if (!ids.every((id, index): id is string => typeof id === 'string' && idPattern.test(id)
+    && (index === 0 || String(ids[index - 1]) < id))) {
+    return currentLedgerInvalid('expected sorted, unique row ids', `${CURRENT_LEDGER_PATH}.replaced_passed_rows`);
+  }
+  const binding = ledger.report;
+  if (!isObject(binding) || Object.keys(binding).length !== 3 || binding.spec !== FIX_LEDGER_REPORT_SPEC
+    || !hex(binding.sha256) || !literal(binding.path)) {
+    return currentLedgerInvalid(`expected { path, sha256, spec: ${FIX_LEDGER_REPORT_SPEC} }`);
+  }
+  const bytes = currentReportBytes(dir, binding.path);
+  if (!Buffer.isBuffer(bytes)) return bytes;
+  if (sha(bytes) !== binding.sha256) return currentLedgerInvalid(`${binding.path} differs from its recorded sha256; restore the bound bytes`);
+  const report = decodeLedgerReport(bytes, currentLedgerInvalid);
+  if ('code' in report) return report;
+  const manifest = currentPartsManifestHash(node);
+  if (report.manifest !== manifest) {
+    return currentLedgerInvalid(`build.manifest_sha256 ${report.manifest} must match outputs/parts/rig/parts.json in files[] (${manifest ?? 'unbound'})`);
+  }
+  return { binding: { path: binding.path, sha256: binding.sha256, spec: binding.spec }, report, replacedPassedRows: ids };
+}
+
+function currentPartsLedgerFindings(dir: string, node: JsonObject, live: LedgerRow[], replacesLedger = false): Finding[] {
+  if (node.ledger === undefined) {
+    const why = live.length ? `the ledger has live rows (${live.map(row => row.id).join(', ')}) at current.parts.at`
+      : replacesLedger ? 'the current parts being replaced bind a ledger report' : undefined;
+    return why === undefined ? [] : [finding('CURRENT_PARTS_LEDGER_REPORT_MISSING', CURRENT_REPORT_PATH,
+      `${why}; retain the project's producer fix-ledger check report (${FIX_LEDGER_REPORT_SPEC}) for this exact Parts build under the project and bind it with record parts --ledger-report <file>`)];
+  }
+  const checked = boundCurrentPartsLedger(dir, node);
+  if ('code' in checked) return [checked];
+  const { report, replacedPassedRows } = checked;
+  const missing = live.filter(row => !report.rows.has(row.id)).map(row => row.id);
+  const passed = new Set(replacedPassedRows);
+  const regressed = live.filter(row => passed.has(row.id) && report.rows.get(row.id)?.result !== 'pass').map(row => row.id);
+  const findings: Finding[] = [];
+  if (missing.length) findings.push(finding('CURRENT_PARTS_LEDGER_INCOMPLETE', CURRENT_REPORT_PATH,
+    `the report has no row for ${missing.join(', ')}; run the check script over every live fix_ledger row and record parts with that report`));
+  if (regressed.length) findings.push(finding('CURRENT_PARTS_LEDGER_REGRESSION', CURRENT_REPORT_PATH,
+    `${regressed.map(id => `${id} (${report.rows.get(id)?.result ?? 'absent'})`).join(', ')} passed in the replaced parts; fix these rows and record parts with a new report`));
+  return findings;
+}
+
+/** Validate under the record lock even when a matching check refusal already exists. */
+export function recordCurrentPartsLedger(dir: string, project: JsonObject, node: JsonObject, reportPath: string | undefined, now: number): (() => void) | undefined {
+  const problems: Finding[] = [];
+  const live = liveRows(ledgerRows(project, problems, now) ?? [], time(node.at));
+  const [invalidRows] = problems;
+  if (invalidRows) refuse(invalidRows.code, invalidRows.message);
+  const current = isObject(project.current) ? project.current.parts : undefined;
+  const previous = isObject(current) && current.adopted === undefined && current.ledger !== undefined ? current : undefined;
+  if (reportPath === undefined) {
+    const [missing] = currentPartsLedgerFindings(dir, node, live, previous !== undefined);
+    if (missing) refuse(missing.code, missing.message);
+    return;
+  }
+  const prior = previous === undefined ? undefined : boundCurrentPartsLedger(dir, previous);
+  if (prior && 'code' in prior) refuse(prior.code, `previous report: ${prior.message}`);
+  const replacedPassedRows = prior ? [...prior.report.rows].filter(([, row]) => row.result === 'pass').map(([id]) => id).sort() : [];
+  const bytes = currentReportBytes(dir, reportPath);
+  if (!Buffer.isBuffer(bytes)) refuse(bytes.code, bytes.message);
+  const binding: CurrentLedgerBinding = { path: reportPath, sha256: sha(bytes), spec: FIX_LEDGER_REPORT_SPEC };
+  node.ledger = { report: { ...binding }, replaced_passed_rows: replacedPassedRows };
+  const [first] = currentPartsLedgerFindings(dir, node, live);
+  if (first) refuse(first.code, first.message);
+  return () => {
+    for (const snapshot of prior ? [prior.binding, binding] : [binding]) {
+      const latest = currentReportBytes(dir, snapshot.path);
+      if (!Buffer.isBuffer(latest) || sha(latest) !== snapshot.sha256) {
+        refuse('RECORD_SOURCE_CHANGED', `${CURRENT_REPORT_PATH}: ${snapshot.path} changed while record parts was validating; restore the retained reports and record again`);
+      }
+    }
+  };
+}
 
 interface AcceptedFailure {
   readonly id: string;
@@ -253,6 +363,13 @@ export interface LedgerSummary {
 export function checkFixLedger(dir: string, project: JsonObject, refusals: Finding[], warnings: Finding[], now: number): LedgerSummary[] {
   checkRestarts(project, refusals, warnings);
   const rows = ledgerRows(project, refusals, now);
+  const parts = isObject(project.current) ? project.current.parts : undefined;
+  if (isObject(parts) && parts.adopted === undefined) {
+    const at = time(parts.at);
+    for (const entry of currentPartsLedgerFindings(dir, parts, liveRows(rows ?? [], at))) {
+      (entry.code === 'CURRENT_PARTS_LEDGER_REPORT_MISSING' && at < Date.parse(CURRENT_PARTS_LEDGER_SINCE) ? warnings : refusals).push(entry);
+    }
+  }
   const drafts = asArray(project.drafts);
   if (rows === null && drafts.some(draft => !isObject(draft) || !isAssembleOnlyDraft(draft))) {
     warnings.push(finding('FIX_LEDGER_MISSING', 'fix_ledger', 'the project has drafts but no fix ledger, so no draft is checked against earlier accepted fixes; record each accepted owner fix with ledger add'));

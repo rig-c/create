@@ -1,7 +1,7 @@
 /** Relayed words retain their own clock; at remains the writer's clock. */
 import { asArray, isObject, type Finding } from './check.ts';
 import { latestPartsReceipt, latestPartsVerdictFinding, recordedPartsVerdict } from './parts-verdict-record.ts';
-import { decodeReviewAct, SIGNOFF_TARGET_KINDS } from './review-act.ts';
+import { decodeReviewAct } from './review-act.ts';
 import { readVerbatim } from './record-input.ts';
 import { acceptedReviewVerdict, readVersions } from './review.ts';
 import { collectReopens, liveSignoff } from './reopen.ts';
@@ -34,7 +34,11 @@ export function ownerChatAuthorityFinding(record: JsonObject, path: string, word
   });
 }
 
-export function readOwnerChat(opts: Record<string,string>, by: string, now: number, path: string): JsonObject | undefined {
+export function readOwnerChat(opts: Record<string,string>, by: string, now: number, path: string, required = false): JsonObject | undefined {
+  if (required) {
+    const missing = OWNER_CHAT_FLAGS.filter(flag => !nonblank(opts[flag]));
+    if (missing.length) refuse('OWNER_CHAT_REQUIRED', `${path}: missing ${missing.join(', ')}; relay the owner's approval with ${OWNER_CHAT_USAGE}`, USAGE_EXIT);
+  }
   if (!OWNER_CHAT_FLAGS.some(flag => opts[flag] !== undefined)) return;
   if (OWNER_CHAT_FLAGS.some(flag => !nonblank(opts[flag]))) refuse('OWNER_CHAT_INVALID', `${path}: --owner-chat, --said-at and --relayed-by are required together; supply the words file and explicit owner clock and relay`, USAGE_EXIT);
   if (opts['--from-review'] !== undefined || opts['--verbatim-file'] !== undefined || opts['--source'] !== undefined) refuse('OWNER_CHAT_INVALID', `${path}: owner chat excludes --from-review, --verbatim-file and --source; retain the relayed source`, USAGE_EXIT);
@@ -71,8 +75,6 @@ export function ownerChatSignoffAllowed(dir: string, project: JsonObject, stage:
 }
 
 export function assertOwnerChatSignoff(dir: string, project: JsonObject, stage: string, draft?: string, version?: string): void {
-  // The writer and check validate the current target's binding. The verdict gate is for numbered targets.
-  if (project.current !== undefined && stage in SIGNOFF_TARGET_KINDS) return;
   if (ownerChatSignoffAllowed(dir,project,stage,draft,version)) return;
   const route = stage === 'parts-review' ? '--draft <current-draft>' : '--rig <current-version>';
   refuse('OWNER_CHAT_GATE_VISUAL', `project.json.signoffs.${stage}: an accepted live verdict for the current subject is required; get the verdict in the review tool first with rig-create job open ${route}, ingest it, then relay the owner's signoff`);

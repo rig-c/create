@@ -366,7 +366,27 @@ leaves `project.json` byte-identical. After an accepted post is bounced,
 
 ### The parts are reviewed before rigging
 
-The owner is asked for a parts verdict only at `parts-review`. As soon as the
+On a project with `current`, prepare the structure snapshot and relay the
+owner's approval at `parts-review`.
+
+```sh
+rig-create structure-snapshot <dir>
+rig-create signoff parts-review <dir> --by <owner> --owner-chat <words file> \
+  --said-at <ISO> --relayed-by <operator>
+```
+
+The relay binds `target: { subject: "current.parts", record_sha256,
+files_sha256 }` and `structure: { path, sha256 }`. The record hash covers the
+full current parts entry with recursively sorted keys. The output-set hash
+checks the recorded inventory against disk. `--structure-file` can select a
+retained custom snapshot. The default is
+`evidence/structure/current-parts/<record_sha256>.json` from `structure-snapshot`.
+The owner's relayed words supply the authority for this target. Replacing the
+parts makes the old approval stale. Prepare a snapshot and relay approval for
+the new output before using it as approved rigging context.
+
+On a numbered project the owner is asked for a parts verdict at `parts-review`.
+As soon as the
 first draft has the agent's `check-parts` report, structure snapshot,
 `diff-components` report and `diff-classes` classifications, advance to
 `parts-review`. Snapshot creation needs no verdict. Draft registration
@@ -2693,6 +2713,23 @@ It copies the producer's `measured` JSON value, including `null`, or omits
 when the predecessor has no report. `check` shows the FAIL and its reason.
 Live regressions still require `--known-regression`. The owner records their
 verdict through Review.
+
+For a producer-backed `current.parts`, use `record parts --ledger-report
+<file>` with the same report schema. The file path is relative to the project.
+Keep a separate report for each build under a retained path such as
+`evidence/fix-ledger/parts-rebuild.json` so the writer can still verify the
+previous report. `current.parts.ledger.report` stores `{ path, sha256, spec }`.
+The report's `build.manifest_sha256` must match the
+`outputs/parts/rig/parts.json` entry in `current.parts.files[]`.
+
+`current.parts.ledger.replaced_passed_rows` stores the sorted IDs that passed
+in the previous verified current report. The first binding stores `[]`.
+At `current.parts.at`, every live ledger row needs a result and every live row
+in `replaced_passed_rows` must still pass. `record parts` requires the report
+when a row is live or the current parts being replaced have a ledger binding.
+`check` warns about a missing report on older current parts with live rows and
+refuses it from `CURRENT_PARTS_LEDGER_SINCE`. Adopted parts keep the numbered
+ledger contract.
 
 The filled example records the v1 bounce's lantern fix as row `T1` and a later
 draft, `lantern`, with a synthetic passing report

@@ -9,12 +9,14 @@ import { EXAMPLE_SOURCE_DATE_EPOCH } from '../scripts/example-time.ts';
 import { EXAMPLE_SEETHROUGH } from '../scripts/generate-example-parts.ts';
 import { checkProject as checkProjectRaw } from '../src/check.ts';
 import { outputSetHash, treeFiles } from '../src/current.ts';
+import { ledgerCommand, ledgerRows, liveRows } from '../src/fix-ledger.ts';
 import { recordCommand } from '../src/record.ts';
 import { Refusal } from '../src/refusal.ts';
 import { TEMPLATES_DIR, type JsonObject } from '../src/templates.ts';
 import { checkProject, testClock } from './clock.ts';
+import { syntheticLedgerReport } from './fix-ledger-report-fixture.ts';
 import { fixture } from './fixtures.ts';
-import { cli, gitEnv, run, treeDigest } from './helpers.ts';
+import { cli, gitEnv, run, tempDir, treeDigest } from './helpers.ts';
 
 const load = createRequire(import.meta.url);
 const { encodePng } = load('@rig-c/core/plate') as {
@@ -95,8 +97,13 @@ function producerOut(dir: string, at = NEXT): void {
   cpSync(join(builtTemplate(), NEXT), join(dir, at), { recursive: true });
 }
 
-function project(): string {
+function project({ withLedger = true } = {}): string {
   const dir = fixture(() => {}, 'example-project.json');
+  if (!withLedger) {
+    const reasonFile = join(tempDir(), 'retire-t1.txt');
+    writeFileSync(reasonFile, 'This fixture exercises recording after the fix has been retired.\n');
+    ledgerCommand(['retire', 'T1', dir, '--by', 'user', '--reason-file', reasonFile], testClock.now());
+  }
   const src = builtTemplate();
   for (const rel of [PAINTING, LAYERS_DIR, CONFIG]) cpSync(join(src, rel), join(dir, rel), { recursive: true });
   producerOut(dir);
@@ -104,7 +111,14 @@ function project(): string {
 }
 
 const args = (dir: string, extra: string[] = []): string[] => ['parts', dir, '--from', NEXT, '--config', CONFIG, ...extra];
-const record = (dir: string, extra: string[] = []) => recordCommand(args(dir, extra), testClock.now());
+function record(dir: string) {
+  const now = testClock.now();
+  const rows = liveRows(ledgerRows(read(dir), [], now) ?? [], now);
+  const manifest = join(dir, NEXT, 'rig/parts.json');
+  const ledgerArgs = rows.length && existsSync(manifest)
+    ? ['--ledger-report', syntheticLedgerReport(dir, sha(readFileSync(manifest)), Object.fromEntries(rows.map(row => [row.id, 'pass'])))] : [];
+  return recordCommand(args(dir, ledgerArgs), now);
+}
 
 function refused(fn: () => unknown, code: string): void {
   try { fn(); } catch (error) {
@@ -116,7 +130,7 @@ function refused(fn: () => unknown, code: string): void {
 }
 
 test('record parts writes current.parts with the §1.3 shape and renames the producer output into outputs/parts', () => {
-  const dir = project();
+  const dir = project({ withLedger: false });
   const before = checkProject(dir);
   const producerBytes = treeDigest(join(dir, NEXT));
   expect(record(dir).exit).toBe(0);
@@ -142,6 +156,21 @@ test('record parts writes current.parts with the §1.3 shape and renames the pro
   expect(codes(after.warnings, 'REBUILD_ARGS_UNRECORDED')).toBe(0);
 });
 
+test('the signed example with live row T1 refuses a missing ledger report without changing either parts tree or the record', () => {
+  const dir = project();
+  const file = join(dir, 'project.json');
+  cpSync(join(TEMPLATES_DIR, 'example-project.json'), file);
+  producerOut(dir, 'outputs/parts');
+  write(dir, 'outputs/parts/previous.txt', 'previous output');
+  const original = readFileSync(file);
+  const installed = treeDigest(join(dir, 'outputs/parts'));
+  const staged = treeDigest(join(dir, NEXT));
+  refused(() => recordCommand(args(dir), testClock.now()), 'CURRENT_PARTS_LEDGER_REPORT_MISSING');
+  expect(readFileSync(file)).toEqual(original);
+  expect(treeDigest(join(dir, 'outputs/parts'))).toEqual(installed);
+  expect(treeDigest(join(dir, NEXT))).toEqual(staged);
+});
+
 test('a second record replaces outputs/parts and deletes the old tree, leaving no copy beside it', () => {
   const dir = project();
   expect(record(dir).exit).toBe(0);
@@ -161,7 +190,7 @@ test('a second record replaces outputs/parts and deletes the old tree, leaving n
 });
 
 test('a new-convention assemble record (--out-relative paths and <dir>/layers.json) records and rebinds in place with built_from unchanged', () => {
-  const dir = project();
+  const dir = project({ withLedger: false });
   const headManifest = 'derived/head/layers.json';
   write(dir, headManifest, '{"width":128,"height":128,"layers":[]}\n');
   // rig-parts#1555 (src/runstamp.ts buildAssembleInputs + src/outputpaths.ts recordedInputPath):
@@ -201,7 +230,7 @@ test('a new-convention assemble record (--out-relative paths and <dir>/layers.js
 });
 
 test('an old-convention assemble record (cwd-relative paths and See-through directory path) still records and rebinds in place', () => {
-  const dir = project();
+  const dir = project({ withLedger: false });
   const headDir = 'derived/head';
   const headManifest = `${headDir}/layers.json`;
   write(dir, headManifest, '{"width":128,"height":128,"layers":[]}\n');
@@ -399,7 +428,7 @@ function recordDownstreamRig(dir: string, rigConfigPath = 'specs/rig/rig-only.js
 }
 
 test('#1029 parts then rig commit exact scoped paths and preserve unrelated staged bytes', () => {
-  const dir = project();
+  const dir = project({ withLedger: false });
   const env = gitEnv();
   const git = (...args: string[]): string => {
     const result = run(['git', ...args], dir, env);
@@ -428,6 +457,7 @@ test('#1029 parts then rig commit exact scoped paths and preserve unrelated stag
   const baseline = checkProject(dir).refusals;
 
   const result = cli(['record', ...args(dir), '--json'], dir, env);
+  if (result.code !== 0) console.error(result.stderr);
   expect(result.code).toBe(0);
   expect(result.stderr).toBe('gitignore: /outputs/ -> /outputs/* !/outputs/parts/\n');
   expect(JSON.parse(result.stdout)).toEqual(parts(dir));

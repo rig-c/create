@@ -32,7 +32,7 @@ import { reviewVerdictSignable, rigVerdictIngestible } from './signable.ts';
 import { collectReopens, liveSignoff } from './reopen.ts';
 import { humanReviewVerdicts, readVersions } from './review.ts';
 import { isAssembleOnlyDraft } from './draft-layout.ts';
-import { latestPartsApproval, previousPartsApproval, retainedJson } from './structure.ts';
+import { hasCurrentParts, latestPartsApproval, previousPartsApproval, retainedJson } from './structure.ts';
 import { partsStructureSnapshot, shellWord } from './job-acts.ts';
 import { jobHash, pendingPublications, isRecordResult, type JobIdentity } from './job-outbox.ts';
 import { isCurrentProject } from './current.ts';
@@ -449,6 +449,7 @@ export function readRecordPublished({ root, record, result, phase, parts: sealed
       });
     } else if (result.kind === 'plan') {
       if (!plan) throw Error('the requested plan is absent');
+      const currentParts = hasCurrentParts(project);
       // Seal current answer evidence for every displayed step before checking eligibility.
       const basis = new Set(steps.flatMap(step => asArray(step.rests_on).map(String)));
       for (const item of items.filter(item => basis.has(item.id))) {
@@ -457,12 +458,14 @@ export function readRecordPublished({ root, record, result, phase, parts: sealed
         if (!isObject(choice)) continue;
         seal(choice.set!);
         const context = optionFile(root, choice.set).set.context as JsonObject;
-        // The record check validates the sealed answer against its historical rig approval.
-        if (context.kind !== 'current-rig') sealContext(context);
+        // The record check validates answered current contexts against their retained approvals.
+        if (context.kind !== 'current-rig' && !(currentParts && context.kind === 'current-parts')) sealContext(context);
       }
-      const approval = latestPartsApproval(project);
-      if (isObject(approval?.evidence)) seal(approval.evidence);
-      if (isObject(approval?.structure)) seal(approval.structure);
+      if (!currentParts) {
+        const approval = latestPartsApproval(project);
+        if (isObject(approval?.evidence)) seal(approval.evidence);
+        if (isObject(approval?.structure)) seal(approval.structure);
+      }
     } else throw Error('unknown record result');
     // Seal the decision record and every file its record check reads, rather than
     // revalidating all producer artifacts from earlier versions and drafts.

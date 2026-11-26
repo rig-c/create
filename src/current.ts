@@ -17,6 +17,11 @@ import type { Json, JsonObject } from './templates.ts';
 
 export const CURRENT_KINDS = ['parts', 'rig', 'motion', 'direction'] as const;
 export type CurrentKind = (typeof CURRENT_KINDS)[number];
+
+export function isCurrentProject(project: JsonObject): boolean {
+  return project.current !== undefined;
+}
+
 export const RUN_RECORD_NAME = 'run.json';
 export const REBUILD_RUN_SPECS = ['rig-run/2', 'rig-run/3', 'rigc-run/2'] as const;
 export type RebuildRunSpec = (typeof REBUILD_RUN_SPECS)[number];

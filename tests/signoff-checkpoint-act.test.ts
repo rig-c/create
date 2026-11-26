@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { JOB_BINDING_FILE, jobHash, writePrivateJson } from '../src/job-outbox.ts';
 import { currentJobIdentity, partsEnumerator, readPublished, readRecordPublished } from '../src/job-publication.ts';
 import { JOB_COMMENTS_ACT_SCHEMA, startJobHost } from '@rig-c/review/job-host';
-import { decodeReviewAct, reviewActFindings } from '../src/review-act.ts';
+import { decodeReviewAct, fetchReviewAct, reviewActFindings, reviewActTransport } from '../src/review-act.ts';
 import { Refusal } from '../src/refusal.ts';
 import { checkpointWorkspace } from './checkpoint-evidence-fixture.ts';
 import { nextCommand } from '../src/next.ts';
@@ -15,6 +15,7 @@ import type { JsonObject } from '../src/templates.ts';
 import { checkProject, planCommand, stepStatusCommand, testClock } from './clock.ts';
 import { plantLegacyReopen, arr, fixture, obj } from './fixtures.ts';
 import { clockedCli, gitEnv, tempDir } from './helpers.ts';
+import { seedHistoricalCheckpointAct, seedHistoricalCheckpointAsk } from './historical-review-fixture.ts';
 
 afterEach(() => testClock.reset());
 const load = (dir: string): JsonObject => JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')) as JsonObject;
@@ -88,11 +89,12 @@ test('@6 sealed record checkpoint ingests and replays after normal withdrawal', 
   testClock.set(now);
   const identity = currentJobIdentity({ root: dir, stateDir, fingerprint: 'comments-checkpoint',
     reviewer: { id: 'synthetic-owner', role: 'owner' } }, dir);
+  const subject = { kind: 'checkpoint', checkpointId: 'assemble' } as const;
   const host = await startJobHost({ ...identity, readerId: identity.readerId, partsEnumerator, readPublished,
     publicationMode: 'record-and-package', recordReaderId: identity.readerId,
     readRecordPublished: (request => {
       const context = readRecordPublished(request);
-      return context.plan === null ? context : { ...context, subjects: [{ kind: 'checkpoint', checkpointId: 'assemble' }] };
+      return context.plan === null ? context : { ...context, subjects: [subject] };
     }) as typeof readRecordPublished,
     installWriterBinding: grant => writePrivateJson(join(dir, JOB_BINDING_FILE), { schema: 'rig-create/job-binding@1', identity, ...grant }, true) });
   try {
@@ -111,18 +113,17 @@ test('@6 sealed record checkpoint ingests and replays after normal withdrawal', 
     };
     const publication = await api('publish', { result: { kind: 'plan' },
       freeze: { kind: 'producer-held', holdId: 'comments-freeze', record: { path: 'project.json', sha256: jobHash(readFileSync(join(dir, 'project.json'))) } } });
-    const ask = await api('ask', { publicationId: publication.publicationId, subject: { kind: 'checkpoint', checkpointId: 'assemble' } });
-    const act: JsonObject = { schema: JOB_COMMENTS_ACT_SCHEMA, kind: 'checkpoint', jobId: host.session.jobId,
-      actId: 'comments-checkpoint', askId: ask.askId, publicationId: publication.publicationId, at: new Date(now).toISOString(),
-      authority: { actor: 'human', channel: 'review-ui', reviewer: { id: 'synthetic-owner', role: 'owner' } }, source: publication.source,
-      value: { checkpointId: 'assemble', planStepId: 'assemble', outcome: 'pass', comments: [
-        { text: 'Accept sealed checkpoint', anchor: { checkpointId: 'assemble', planStepId: 'assemble' } }, { text: 'General' },
-      ] } };
-    const raw = JSON.stringify(act);
+    const askId = seedHistoricalCheckpointAsk(host, String(publication.publicationId), subject);
+    const act = seedHistoricalCheckpointAct(host, askId, 'pass', { comments: [
+      { text: 'Accept sealed checkpoint', anchor: { checkpointId: 'assemble', planStepId: 'assemble' } }, { text: 'General' },
+    ] }, { actId: 'comments-checkpoint', at: new Date(now).toISOString() });
+    const fetchedAct = await fetchReviewAct({ ...reviewActTransport(dir, act.actId), kind: 'checkpoint' });
+    const raw = fetchedAct.bytes;
+    expect(fetchedAct.act).toMatchObject({ schema: JOB_COMMENTS_ACT_SCHEMA, actId: act.actId });
     const args = ['parts', dir, '--checkpoint', 'assemble', '--from-review', String(act.actId), '--json'];
     const hooks: SignoffHooks = { fetch: () => ({ bytes: raw }) };
     const otherStep = arr(obj(obj(publication.source).plan).steps).map(obj).find(step => step.id !== 'assemble')!;
-    const contradiction = JSON.stringify({ ...act, value: { ...obj(act.value), comments: [{ text: 'Contradictory pin',
+    const contradiction = JSON.stringify({ ...act, value: { ...act.value, comments: [{ text: 'Contradictory pin',
       anchor: { checkpointId: 'assemble', planStepId: otherStep.id } }] } });
     expect(refused(dir, () => rawSignoff(args, now, { fetch: () => ({ bytes: contradiction }) })).code).toBe('REVIEW_ACT_INVALID');
     const first = rawSignoff(args, now, hooks);
@@ -136,7 +137,7 @@ test('@6 sealed record checkpoint ingests and replays after normal withdrawal', 
     expect(rawSignoff(args, now, hooks).exit).toBe(0);
     expect(readFileSync(join(dir, 'project.json'))).toEqual(frozen);
     expect(reviewActFindings(load(dir))).toEqual([]);
-    const changed = JSON.stringify({ ...act, value: { ...obj(act.value), comments: [{ text: 'Changed original words' }] } });
+    const changed = JSON.stringify({ ...act, value: { ...act.value, comments: [{ text: 'Changed original words' }] } });
     expect(refused(dir, () => rawSignoff(args, now, { fetch: () => ({ bytes: changed }) })).code).toBe('REVIEW_ACT_REPLAY_CONFLICT');
     let fetched = false;
     expect(refused(dir, () => rawSignoff(['parts', dir, '--checkpoint', 'assemble', '--from-review', 'fresh-comments-checkpoint'], now,

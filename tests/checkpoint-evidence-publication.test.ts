@@ -1,4 +1,4 @@
-/** Synthetic HTTP owner acts only. Each scoped host is stopped in finally. */
+/** Synthetic sealed publications and historical owner acts. Each scoped host is stopped in finally. */
 import { expect, test } from 'bun:test';
 import { readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -12,6 +12,7 @@ import { TEST_NOW } from './clock.ts';
 import { checkpointWorkspace } from './checkpoint-evidence-fixture.ts';
 import { arr, obj } from './fixtures.ts';
 import { tempDir } from './helpers.ts';
+import { seedHistoricalCheckpointAct, seedHistoricalCheckpointAsk } from './historical-review-fixture.ts';
 
 test('#395 sealed checkpoint record and package publications retain every asset and finalize owner routes', async () => {
   for (const mode of ['package-v2', 'package-v3', 'record-v3']) {
@@ -123,19 +124,21 @@ test('#395 sealed checkpoint record and package publications retain every asset 
       writePrivateJson(join(f.root, JOB_BINDING_FILE), { schema: 'rig-create/job-binding@1', identity: legacyIdentity,
         jobId: legacyOwner.session.jobId, origin: legacyOwner.origin, fetchCapability: legacyFetchCapability }, true);
       let legacySequence = 0;
-      async function legacyApi(verb: string, fields: object = {}): Promise<JsonObject> {
+      async function legacyApi(verb: string, fields: object): Promise<JsonObject> {
         const response = await legacyOwner.ports.handleJobApi(new Request(`${legacyOwner.origin}/jobs/${legacyOwner.session.jobId}/api`, {
           method: 'POST', headers: { authorization: `Bearer ${legacyCredentials.agent}`, 'content-type': 'application/json' },
           body: JSON.stringify({ schema, verb, jobId: legacyOwner.session.jobId, requestId: `legacy-request-${++legacySequence}`,
             idempotencyKey: `legacy-operation-${legacySequence}`, expectedGeneration: legacyOwner.session.status().generation, ...fields }),
         }));
-        const body = await response.json() as JsonObject;
-        expect(body.ok).toBe(true);
-        return obj(body.value);
+        return await response.json() as JsonObject;
       }
       const legacyRecordBytes = readFileSync(recordFile);
-      const legacyPublication = await legacyApi('publish', { result, freeze: { kind: 'producer-held', holdId: 'synthetic-legacy-freeze',
+      const legacyPublished = await legacyApi('publish', { result, freeze: { kind: 'producer-held', holdId: 'synthetic-legacy-freeze',
         record: { path: 'project.json', sha256: jobHash(legacyRecordBytes) } } });
+      expect(legacyPublished.ok).toBe(true);
+      const legacyPublication = obj(legacyPublished.value);
+      const publicationId = String(legacyPublication.publicationId);
+      expect(await legacyApi('ask', { publicationId, subject: legacySubject })).toMatchObject({ ok: false, error: { code: 'JOB_ASK_INVALID' } });
       const uiRequest = (route: string, body: object) => new Request(`${legacyOwner.origin}/jobs/${legacyOwner.session.jobId}/${route}`, {
         method: 'POST', headers: { origin: legacyOwner.origin, 'X-Review-Capability': legacyCredentials.ui, 'content-type': 'application/json' }, body: JSON.stringify(body),
       });
@@ -144,18 +147,16 @@ test('#395 sealed checkpoint record and package publications retain every asset 
       }));
       expect(displayed.ok).toBe(true);
       if (!displayed.ok) throw Error('synthetic display refused');
-      const acts: CheckpointAct[] = [];
+      const acts: { act: CheckpointAct; bytes: string }[] = [];
       for (const [index, words] of ['(i) accept openings', '  (ii) repair\nverbatim 한글  ', '(iii) change source\nraw FAIL'].entries()) {
-        const ask = await legacyApi('ask', { publicationId: legacyPublication.publicationId, subject: legacySubject });
+        const askId = seedHistoricalCheckpointAsk(legacyOwner, publicationId, legacySubject);
         const value = { checkpointId: 'assemble', outcome: index === 0 ? 'pass' as const : 'fail' as const, words };
-        const committed = await legacyOwner.ports.commitUIAct(legacyOwner.session.jobId, uiRequest('ui/acts', {
-          publicationId: legacyPublication.publicationId, askId: ask.askId, pageId: 'synthetic-page', displayedNonce: displayed.value.displayedNonce,
+        expect(await legacyOwner.ports.commitUIAct(legacyOwner.session.jobId, uiRequest('ui/acts', {
+          publicationId, askId, pageId: 'synthetic-page', displayedNonce: displayed.value.displayedNonce,
           expectedGeneration: legacyOwner.session.status().generation, submissionId: `synthetic-route-${index}`, kind: 'checkpoint', value,
-        }));
-        expect(committed.ok).toBe(true);
-        if (!committed.ok) throw Error('synthetic owner act refused');
-        if (committed.value.kind !== 'checkpoint') throw Error('synthetic checkpoint kind changed');
-        const act = committed.value;
+        }))).toMatchObject({ ok: false, error: { code: 'JOB_ACT_KIND_DISABLED' } });
+        const comments = [{ anchor: { checkpointId: 'assemble', planStepId: 'assemble' }, text: words }];
+        const act = seedHistoricalCheckpointAct(legacyOwner, askId, value.outcome, mode === 'record-v3' ? { words } : { comments });
         expect(act.value).toEqual(mode === 'record-v3' ? { ...value, planStepId: 'assemble' }
           : { checkpointId: value.checkpointId, outcome: value.outcome, planStepId: 'assemble',
             comments: [{ anchor: { checkpointId: 'assemble', planStepId: 'assemble' }, text: words }] });
@@ -163,17 +164,17 @@ test('#395 sealed checkpoint record and package publications retain every asset 
           fetchCapability: legacyFetchCapability, kind: 'checkpoint' });
         const decoded = decodeReviewAct(fetched.bytes, 'checkpoint');
         expect<unknown>(decoded).toEqual(act);
-        acts.push(decoded);
+        acts.push({ act: decoded, bytes: fetched.bytes });
       }
-      for (const act of acts.slice(1)) {
+      for (const { act, bytes } of acts.slice(1)) {
         const before = readFileSync(recordFile);
         expect(() => signoffCommand(['parts', f.root, '--checkpoint', 'assemble', '--from-review', String(act.actId)], now,
-          { fetch: () => ({ bytes: JSON.stringify(act) }) })).toThrow(expect.objectContaining({ code: 'REVIEW_ACT_CHECKPOINT_FAILED' }));
+          { fetch: () => ({ bytes }) })).toThrow(expect.objectContaining({ code: 'REVIEW_ACT_CHECKPOINT_FAILED' }));
         expect(readFileSync(recordFile)).toEqual(before);
       }
-      const accepted = acts[0]!;
+      const { act: accepted, bytes: acceptedBytes } = acts[0]!;
       const sign = () => signoffCommand(['parts', f.root, '--checkpoint', 'assemble', '--from-review', String(accepted.actId)], now,
-        { fetch: () => ({ bytes: JSON.stringify(accepted) }) });
+        { fetch: () => ({ bytes: acceptedBytes }) });
       // A metadata-only edit is a fresh source identity and cannot consume the old approval.
       f.packet.recommendationText = 'Changed recommendation, same raw assets';
       attach();

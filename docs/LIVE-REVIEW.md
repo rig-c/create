@@ -376,42 +376,38 @@ stage. After an accepted post is bounced, `next` offers
 
 ## Live sign-off routes
 
-Every draft or rig package publication also declares the `signoff` and `checkpoint` subjects
-that its record can sign, in the stage the check reads that record in (its
-effective stage). The rules are in `src/signable.ts`:
+Review 4.22.0 refuses fresh `signoff`, `checkpoint` and `interview-picks`
+asks with `JOB_ASK_INVALID`. New submissions for those kinds refuse with
+`JOB_ACT_KIND_DISABLED`. Eligible `review-verdict` and `parts-verdict` asks
+remain available. Relay new owner approvals and interview answers through
+Create's writers with the owner's `--by` and
+`--owner-chat <words file> --said-at <ISO date> --relayed-by <operator>`.
+[Review 4.22.0 changelog](https://github.com/rig-c/review/blob/v4.22.0/CHANGELOG.md#4220)
 
-- A `checkpoint` subject is declared for each plan step whose checkpoint
-  `signoff <stage> --checkpoint <id>` accepts in that stage. The step runs in
-  the stage and its checkpoint is enabled. `signoff` uses the same function.
-- A `signoff` subject is declared for the stage itself while it closes on a
-  sign-off and has no live stage-level signature. `rig-review` is declared only
-  on a `rig` publication, because the act's selector is the signature's target.
-  Post publications carry only the direction verdict; direction sign-off uses
-  the separate source-linked record page described above. A plan-bound stage
-  (`plan-approved`, `rigging-interview`, `post-interview`) also needs displayed
-  plan steps. Fresh parts-review uses its deferred `parts-verdict` subject;
-  its separate signoff subject is only the midflight compatibility route for
-  an approved verdict already ingested unsigned.
+### Historical subjects and stored-act ingest
 
-Review 2.8.0 asks only for a declared subject and refuses any other with
-`JOB_ASK_INVALID` (`bindJobAsk`, `src/job-act.ts`). Both the ask and the act
-also require `project.json` to still hold the published bytes
-(`assertJobSourceCurrent`, `src/job-source.ts`). So either the owner submits
-both the verdict and `signoff` acts for rig review in the Review UI before any
-writer mutates `project.json`, or after `review <n> --from-review` updates the
-record, the agent runs `job open --rig <n>` to republish and re-ask the stage's
-signoff. Parts-review instead asks one parts verdict after all evidence and the
-advance are recorded; its approved UI ingestion also signs the stage. Only a
-midflight approved parts verdict already ingested unsigned keeps the separate
-signoff route: finish the snapshot first, republish the draft over current
-record bytes, then ask and ingest that signoff.
+Older draft and rig package publications declared `signoff` and `checkpoint`
+subjects for the effective stage under the rules in `src/signable.ts`:
+
+- A `checkpoint` subject identified an enabled step in its execution stage.
+  The checkpoint writer uses the same eligibility rule.
+- A `signoff` subject identified an unsigned stage that closed by sign-off.
+  Rig-review used the rig publication's selector to target the signature.
+  Direction sign-off used a separate source-linked record page. Plan-bound
+  signatures also bound the displayed plan steps.
+
+Review 2.8.0 required a declared subject (`bindJobAsk`, `src/job-act.ts`)
+and checked that `project.json` matched the published bytes
+(`assertJobSourceCurrent`, `src/job-source.ts`). The earlier rig and parts
+flows could ask for separate sign-off on a publication with the appropriate
+record bytes. Stored acts from those flows remain ingestible through the
+existing `--from-review` writers, and already accepted submissions replay.
 
 `job reconcile` keeps the declared subjects in the acknowledged receipt.
 `signoff … --from-review` compares the act's subject with that list and
 refuses one the publication did not declare (`REVIEW_ACT_SUBJECT_UNDECLARED`).
-create asks only declared subjects, but an act can also answer an ask sent by
-another holder of the agent authority, so the check stays. A receipt without
-the list, or no receipt at all (a clone), leaves only Review's ask binding.
+A receipt without the list, or no receipt at all (a clone), leaves only
+Review's ask binding.
 
 ### Asks
 
@@ -422,11 +418,11 @@ supplies the control labels and other interface copy in its own language.
 Review uses the option set's question ID as the heading and the authored
 `asks[].prompt` as the question wording.
 
-Every publication create acknowledges is followed, in the same process, by an
-ask for each subject it declares. Fresh option-set and plan record publications
+Create asks for each eligible verdict subject in the process that acknowledges
+the publication. Fresh option-set and plan record publications
 declare `subjects: []` (showing the set, images or plan for viewing and
 comments without opening an ask). Review's `next` response advertises
-`capabilities.askBatch: true` for the host; Create batches any declared record
+`capabilities.askBatch: true` for the host; Create batches eligible record
 subjects, with up to 64 subjects per call.
 A `draft`, `rig` or `post` selector publication uses one ask per subject,
 including when the host advertises the capability. That covers `draft-rig`, `rig-version`,
@@ -441,18 +437,19 @@ supersedes the previous one's pending asks, as Review defines.
 
 An ask Review refuses never makes the acknowledged publication pending again.
 The publishing command reports `JOB_ASK_REFUSED` with each refused subject and
-Review's code. Run `job open` to retry the ask.
+Review's code. Address the refusal before using `job open` to retry an
+eligible verdict ask.
 
-| Sign-off | Carried by | When |
+| Sign-off | Route | When |
 | --- | --- | --- |
-| `parts` checkpoints | draft | `draft-rig` commits or `job open --draft <id>` runs while the record is in `parts` and the checkpoint is enabled |
-| `rigging` checkpoints | rig version | `rig-version` commits in `rigging` |
-| `post` checkpoints | record plan | `job open --plan` in `post` when the checkpoint is enabled and at-checkpoint |
-| `parts-review` | draft | advance when the first draft has agent evidence; stay here across retouches, preparing fresh evidence and opening each new draft for one `parts-verdict`; approved UI ingestion also signs. Separate signoff is only for a midflight approved verdict already ingested unsigned |
-| `rig-review` | rig version | a fresh publication asks only `review-verdict`; approved ingestion records its rig-review signature atomically. Already-ingested unsigned verdicts and retained old two-subject publications keep separate-signoff recovery through `job open` |
-| `direction-review` | record plan, using release-pinned Review 4.21.0 | `job open --plan` after the current post's accepted live verdict is ingested; ingest the real signature, then `advance accepted` |
-| `plan-approved`, `rigging-interview`, `post-interview` | record plan | `job open --plan` in the approval stage |
-| `interview` | record plan, using release-pinned Review 4.21.0 with the interview carrier ([Review #803](https://github.com/rig-c/review/pull/803), issue #800) | `job open --plan` after `interview --check` passes and the displayed plan has steps; ingest `signoff interview --from-review <actId>`, then `advance plan-approved` |
+| `parts` checkpoints | owner chat | At an enabled checkpoint in `parts`, relay `signoff parts --checkpoint <id> --owner-chat ...` |
+| `rigging` checkpoints | owner chat | At an enabled checkpoint in `rigging`, relay `signoff rigging --checkpoint <id> --owner-chat ...` |
+| `post` checkpoints | owner chat | At an enabled checkpoint in `post`, relay `signoff post --checkpoint <id> --owner-chat ...` |
+| `parts-review` | Review verdict or owner chat | In numbered projects, open the evidenced draft for `parts-verdict`. Approved ingestion signs the stage. If the verdict was already ingested unsigned, finish the structure snapshot and relay the sign-off against the current accepted parts verdict. On `current.parts`, relay the sign-off against the live recorded output |
+| `rig-review` | Review verdict or owner chat | In numbered projects, approved `review-verdict` ingestion signs the stage atomically. If the verdict was already ingested unsigned, relay the sign-off against the current accepted rig verdict. On `current.rig`, relay the sign-off against the live recorded output |
+| `direction-review` | owner chat | In numbered projects, ingest the current accepted direction verdict before relaying sign-off. On `current.direction`, relay sign-off against the live recorded output. Then run `advance accepted` |
+| `plan-approved`, `rigging-interview`, `post-interview` | owner chat | Relay `signoff <stage> --owner-chat ...` at the approval stage |
+| `interview` | owner chat | After `interview --check` passes, relay `signoff interview --owner-chat ...`, then `advance plan-approved` |
 
 Use `job open --questions` to publish the effective interview stage's
 registered pending sets on one Review page, or `job open --question <id>` for a
@@ -517,18 +514,19 @@ an earlier `said_at`. For previously completed work, `next` asks for an owner
 amendment when needed, then prints the `plan replace` command that retains
 the completed definition and execution history.
 
-After recording every pick, run `interview --check`, then `job open --plan`
-for the interview signature. The grouped, single-set and interview-signature routes are supported by
-release-pinned [Review 4.21.0](https://github.com/rig-c/review/tree/v4.21.0),
-including the
-[Review #803](https://github.com/rig-c/review/pull/803) carrier (issue #800) and the multi-set option-set publications of
-[Review #1004](https://github.com/rig-c/review/issues/1004).
-The record subject is `plan`, with non-empty
-displayed steps, even though the signature approves the interview answers
-and does not approve or fill the plan's checkpoints. After advancing,
-`next` offers the separate `plan-approved` signature.
+After recording every pick, run `interview --check` and relay the owner's
+signature with `signoff interview --owner-chat`. Grouped and single-set
+option publications remain available for viewing and comments in
+[Review 4.22.0](https://github.com/rig-c/review/tree/v4.22.0), including the
+multi-set route from [Review #1004](https://github.com/rig-c/review/issues/1004).
+After advancing, `next` offers the separate `plan-approved` signature.
 
-Publication and first ingest use the same full `checkProject` function as
+Stored interview sign-off acts using the plan carrier from
+[Review #803](https://github.com/rig-c/review/pull/803) remain ingestible.
+That carrier identifies non-empty displayed plan steps. The signature
+approves the interview answers.
+
+The historical publication and first ingest use the same full `checkProject` function as
 `interview --check`. An unclean record refuses `INTERVIEW_SIGNOFF_NOT_CLEAN`;
 an empty displayed plan refuses `INTERVIEW_SIGNOFF_PLAN_REQUIRED`.
 First ingest also checks the act's record hash, displayed plan identities
@@ -545,7 +543,7 @@ SHA-256 are the record's own, and the file joins `files` like any sealed read. A
 record without such a row, or whose named file is absent, publishes no field, as
 before. Earlier stages and option sets never carry it. The field needs a served
 Review with the #983 contract, which the release-pinned
-[Review 4.21.0](https://github.com/rig-c/review/tree/v4.21.0) supports.
+[Review 4.22.0](https://github.com/rig-c/review/tree/v4.22.0) supports.
 A Review host without that contract refuses it with `JOB_SOURCE_MISMATCH`.
 
 ## Rig approval in one sitting

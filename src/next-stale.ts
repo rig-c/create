@@ -4,7 +4,7 @@ import { readFileSync, realpathSync } from './check-reads.ts';
 import { asArray, isObject, type Finding } from './check.ts';
 import { literalFile } from './choices.ts';
 import { CURRENT_DIRECTION_PATH } from './current-direction.ts';
-import { CURRENT_KINDS, isRunRecordFile, outputRoot, sha256, type CurrentKind } from './current.ts';
+import { CURRENT_KINDS, currentShapeFindings, isRunRecordFile, outputRoot, sha256, treeFiles, type CurrentKind } from './current.ts';
 import type { NextMove, NextReport } from './next.ts';
 import { RunRecordError, validateRunRecord } from './run-record.ts';
 import type { Json, JsonObject } from './templates.ts';
@@ -33,6 +33,35 @@ export function currentOutputMove(dir: string, kind: CurrentKind, quote: ShellWo
 const CANONICAL_INPUTS: Readonly<Record<CurrentKind, readonly CurrentKind[]>> = {
   parts: [], rig: [], motion: ['rig'], direction: ['rig', 'motion'],
 };
+
+function adoptedOutputPath(kind: CurrentKind, node: JsonObject): string | undefined {
+  const version = isObject(node.adopted) ? node.adopted.version : undefined;
+  if (typeof version !== 'number' || !Number.isSafeInteger(version) || version < 1) return undefined;
+  const subdir = { parts: 'out', rig: 'out', motion: 'idle', direction: 'compose' }[kind];
+  return `outputs/v${version}/${subdir}`;
+}
+
+/** Verify the adopted rig's entire recorded product inventory, including its images and compiled build. */
+export function adoptedRigInventoryMatches(dir: string, project: JsonObject, rig: JsonObject): boolean {
+  const root = adoptedOutputPath('rig', rig);
+  if (!root || currentShapeFindings('rig', rig, project).length > 0) return false;
+  const files = asArray(rig.files).filter(isObject);
+  try {
+    const projectRoot = realpathSync(dir);
+    for (const subdir of ['rig', 'check']) {
+      const path = `${root}/${subdir}`;
+      const expected = files.filter(file => String(file.path).startsWith(`${path}/`));
+      if (expected.length === 0) continue;
+      if (realpathSync(join(projectRoot, path)) !== join(projectRoot, path)) return false;
+      const actual = treeFiles(dir, path);
+      if (actual.length !== expected.length || !actual.every((file, i) => {
+        const recorded = expected[i];
+        return recorded?.path === file.path && recorded.sha256 === file.sha256 && recorded.bytes === file.bytes;
+      })) return false;
+    }
+    return true;
+  } catch { return false; }
+}
 
 function inDirectory(dir: string, step: string, quote: ShellWord): string {
   const cwd = quote(dir);
@@ -151,6 +180,12 @@ function rebuildMove(dir: string, kind: CurrentKind, node: JsonObject, finding: 
   const field = finding.path;
   const why = finding.message.replace(`; rebuild it upstream-first and record it with rig-create record ${kind}`, '');
   const target = `${outputRoot(kind)}.next`;
+  const retained = adoptedOutputPath(kind, node);
+  if (retained && (kind === 'rig' || kind === 'motion')) {
+    const recipe = kind === 'rig' ? 'rig build' : 'render';
+    return { role: 'agent', field, awaits: field, command: null,
+      act: `${why}. Retain the previous ${kind} at ${retained}. If its hashes still match, the retained output can be reused for its recorded inputs. REBUILD_ARGS_UNRECORDED: ${field}.rebuild has no verified recipe for ${target}. Obtain the ${recipe} arguments from the operator before rebuilding.` };
+  }
   const stage = join(realpathSync(dir), target);
   const { runs, missing } = replayRuns(dir, kind, node, stage, quote);
   const canBindWriterConfig = kind === 'parts' || kind === 'rig';
@@ -223,7 +258,7 @@ function forwardOutput(move: NextMove, next: NextReport): CurrentKind | undefine
 }
 
 export function withStaleOutputs(dir: string, current: JsonObject, warnings: Finding[], next: NextReport, quote: ShellWord,
-  missing: ReadonlyMap<CurrentKind, { adoption?: NextMove; producer: NextMove }>): NextReport {
+  missing: ReadonlyMap<CurrentKind, { adoption?: NextMove; producer: NextMove; usesAdoptedInputs?: boolean }>): NextReport {
   const stale = new Map(CURRENT_KINDS.flatMap(kind => {
     const finding = warnings.find(w => w.code === 'OUTPUT_STALE' && w.path === `current.${kind}`);
     const node = current[kind];
@@ -240,13 +275,15 @@ export function withStaleOutputs(dir: string, current: JsonObject, warnings: Fin
   };
   // An adopted output lives under outputs/vN. Keep its replacement in the upstream
   // sequence when a canonical writer needs it, without inventing an OUTPUT_STALE warning.
-  const replacements = new Set([...stale.keys(), ...offered.keys()]
-    .flatMap(kind => CANONICAL_INPUTS[kind].filter(adopted)));
+  const usesAdoptedInputs = missing.get('direction')?.usesAdoptedInputs === true;
+  const needsCanonical = (kind: CurrentKind) => usesAdoptedInputs && (kind === 'motion' || kind === 'direction')
+    ? [] : CANONICAL_INPUTS[kind].filter(adopted);
+  const replacements = new Set([...stale.keys(), ...offered.keys()].flatMap(needsCanonical));
   const migrated = CURRENT_KINDS.some(adopted);
   const outputs = CURRENT_KINDS.flatMap(kind => {
     const rebuild = stale.get(kind);
     if (rebuild) return [rebuild];
-    const waitsFor = CANONICAL_INPUTS[kind].filter(adopted);
+    const waitsFor = needsCanonical(kind);
     if (replacements.has(kind)) {
       const node = current[kind];
       const move = kind === 'rig' && isObject(node) ? migratedConfigMove(dir, kind, quote, node) : currentOutputMove(dir, kind, quote);

@@ -1,20 +1,27 @@
 import { expect, test } from 'bun:test';
-import { cpSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { optionContext } from '../src/choices.ts';
-import { sha256 } from '../src/current.ts';
+import { sha256, treeFiles } from '../src/current.ts';
+import type { OpenDirectionComment } from '../src/feedback.ts';
 import { closeCreateJob, openCreateJob } from '../src/job-host.ts';
 import { readWriterBinding } from '../src/job-outbox.ts';
 import { nextCommand, type NextReport } from '../src/next.ts';
 import { recordCommand } from '../src/record.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { amendCommand, checkProject, correctionCommand, directionCommand, interviewAnswerCommand, interviewOptionsCommand,
-  planCommand, reviewCommand, rigVersionCommand, signoffCommand, stepStatusCommand, TEST_NOW, testClock } from './clock.ts';
+  planCommand, reviewCommand, rigVersionCommand, sceneCommand, signoffCommand, stepStatusCommand, TEST_NOW, testClock } from './clock.ts';
 import { composeRunFixture } from './direction-compose-fixture.ts';
 import { arr, obj } from './fixtures.ts';
 import { ownerChatArgs, tempDir } from './helpers.ts';
 
 const feedbackPath = 'versions[v3].verdicts[0]';
+
+function expectDirectionOnly(report: NextReport): void {
+  expect(report).toMatchObject({ stage: 'accepted', effective_stage: 'direction-review', accepted: false, refusals: [] });
+  expect(report.moves.some(move => move.field === 'current.rig' || move.field === 'current.motion'
+    || /rig-create (?:record (?:rig|motion)|advance accepted)\b/.test(move.command ?? ''))).toBe(false);
+}
 
 function expectDeferredDirectionFeedback(dir: string, version: number, ...verdicts: number[]): NextReport {
   const current = JSON.parse(nextCommand([dir, '--json'], testClock.now()).stdout) as NextReport;
@@ -85,7 +92,10 @@ test('#1106 next routes a live numbered direction bounce through current outputs
     expect(adopted).toMatchObject({ versions: beforeAdoption.versions, current: { rig: { adopted: { version: 1 } } } });
 
     const current = expectDeferredDirectionFeedback(dir, 3, 0);
-    expect(current.moves).toContainEqual(expect.objectContaining({ field: 'current.rig' }));
+    expect(current.moves.some(move => move.field === 'current.rig')).toBe(false);
+    expect(current.moves).toContainEqual(expect.objectContaining({ field: 'current.motion',
+      command: expect.stringContaining('rigc render --candidate outputs/v1/out/check/build') }));
+    expect(current.moves.find(move => move.field === 'current.direction')?.act).toContain('SCENE_CURRENT_MOTION_REQUIRED');
     expect(readFileSync(recordPath)).toEqual(adoptedBytes);
 
     const secondBounce = join(dir, 'evidence/direction-bounce-follow-up.txt');
@@ -101,7 +111,67 @@ test('#1106 next routes a live numbered direction bounce through current outputs
   }
 });
 
-test('#1106 next offers a direction rebuild with all four output trees adopted', async () => {
+test('#1114 next offers adoption and a render from the adopted rig when current-path post needs motion', () => {
+  const dir = join(tempDir('next-adopted-rig-motion-'), 'project');
+  cpSync(join(import.meta.dir, '../templates/example-current'), dir, { recursive: true });
+  const recordPath = join(dir, 'project.json');
+  const project = JSON.parse(readFileSync(recordPath, 'utf8')) as JsonObject;
+  const current = obj(project.current);
+  project.stage = 'post';
+  project.advances = arr(project.advances).slice(0, -2);
+  const retainSignoff = (row: JsonObject) => !['rig-review', 'post-interview', 'direction-review'].includes(String(row.stage));
+  project.signoffs = arr(project.signoffs).map(obj).filter(retainSignoff);
+  for (const advance of arr(project.advances).map(obj)) {
+    advance.signoffs_before = arr(advance.signoffs_before).map(obj).filter(retainSignoff);
+    if (advance.signoff !== null && !retainSignoff(obj(advance.signoff))) advance.signoff = null;
+  }
+  // Keep the post picks and their shown rig snapshot without the optional rig signature.
+  for (const item of arr(obj(obj(project.interview).post).items).map(obj)) {
+    const binding = obj(obj(obj(item.guide).choice).set);
+    const path = join(dir, String(binding.path));
+    const set = JSON.parse(readFileSync(path, 'utf8')) as JsonObject;
+    delete obj(set.context).signoff_at;
+    const bytes = `${JSON.stringify(set, null, 2)}\n`;
+    writeFileSync(path, bytes);
+    binding.sha256 = sha256(bytes);
+  }
+  for (const step of arr(obj(project.plan).steps).map(obj)) {
+    if (step.phase !== 'post') continue;
+    step.status = 'in-progress';
+    step.status_history = arr(step.status_history).slice(0, 1);
+  }
+  delete current.motion;
+  delete current.direction;
+  rmSync(join(dir, 'specs/motion/loop-seam.json'), { force: true });
+  const save = () => writeFileSync(recordPath, `${JSON.stringify(project, null, 2)}\n`);
+  const motionMoves = () => {
+    const report = JSON.parse(nextCommand([dir, '--json'], TEST_NOW).stdout) as NextReport;
+    expect(report).toMatchObject({ stage: 'post', effective_stage: 'post', refusals: [] });
+    expect(report.open_direction_comments).toBeUndefined();
+    expect(report.moves.some(move => move.field === 'current.rig')).toBe(false);
+    return report.moves.filter(move => move.field === 'current.motion');
+  };
+  const render = (build: string) => `(cd ${dir} && rigc render --candidate ${build} --out outputs/motion.next --animation idle --fps '<frames-per-second>')`;
+  save();
+  expect(motionMoves().map(move => move.command)).toEqual([render('outputs/rig/check/build')]);
+
+  const build = 'outputs/v1/out/check/build';
+  const idle = 'outputs/v1/idle';
+  mkdirSync(join(dir, dirname(build)), { recursive: true });
+  cpSync(join(dir, 'outputs/rig/check/build'), join(dir, build), { recursive: true });
+  cpSync(join(dir, 'outputs/motion'), join(dir, idle), { recursive: true });
+  project.versions = [{ n: 1, kind: 'rig', pre_interview: true, original_n: 1, original_verdicts: [], verdicts: [],
+    at: '2026-11-01T00:00:00.000Z', built_by: 'agent', built_with: {}, outputs: [...treeFiles(dir, build), ...treeFiles(dir, idle)] }];
+  delete current.rig;
+  save();
+  expect(recordCommand(['rig', dir, '--adopt'], TEST_NOW).exit).toBe(0);
+  expect(motionMoves().map(move => [move.role, move.command])).toEqual([
+    ['agent', `rig-create record motion --adopt ${dir}`],
+    ['producer', render(build)],
+  ]);
+});
+
+test('#1111 next routes an adopted direction redo and its offered writer closes the numbered comment', async () => {
   const dir = join(tempDir('next-all-adopted-direction-'), 'project');
   const chain = join(import.meta.dir, '../templates/example-chain');
   const donor = join(import.meta.dir, '../templates/example-remesh');
@@ -187,6 +257,31 @@ test('#1106 next offers a direction rebuild with all four output trees adopted',
     tick();
     expect(signoffCommand(['post-interview', dir, ...say('Use the three revised direction choices.')]).exit).toBe(0);
 
+    // Partial numbered adoption at post must preserve offers for whichever input is still missing.
+    const recordPath = join(dir, 'project.json');
+    const next = (): NextReport => JSON.parse(nextCommand([dir, '--json'], testClock.now()).stdout) as NextReport;
+    const beforePostAdoption = readFileSync(recordPath);
+    expect(recordCommand(['rig', dir, '--adopt'], testClock.now()).exit).toBe(0);
+    const missingMotion = next();
+    expect(missingMotion).toMatchObject({ effective_stage: 'post', refusals: [] });
+    expect(missingMotion.open_direction_comments).toBeUndefined();
+    expect(missingMotion.moves.filter(move => move.field === 'current.motion').map(move => move.command)).toEqual([
+      `rig-create record motion --adopt ${dir}`,
+      `rig-create record motion ${dir} --from outputs/motion.next`,
+    ]);
+    expect(missingMotion.moves.some(move => move.field === 'current.rig')).toBe(false);
+    expect(recordCommand(['motion', dir, '--adopt'], testClock.now()).exit).toBe(0);
+    const bothRecorded = next();
+    expect(bothRecorded).toMatchObject({ effective_stage: 'post', refusals: [] });
+    expect(bothRecorded.moves.some(move => move.field === 'current.rig' || move.field === 'current.motion')).toBe(false);
+    writeFileSync(recordPath, beforePostAdoption);
+    expect(recordCommand(['motion', dir, '--adopt'], testClock.now()).exit).toBe(0);
+    const missingRig = next();
+    expect(missingRig).toMatchObject({ effective_stage: 'post', refusals: [] });
+    expect(missingRig.moves).toContainEqual(expect.objectContaining({ field: 'current.rig', command: `rig-create record rig --adopt ${dir}` }));
+    expect(missingRig.moves.some(move => move.field === 'current.motion')).toBe(false);
+    writeFileSync(recordPath, beforePostAdoption);
+
     // Supply the same synthetic compose receipt shape as the compose writer tests.
     const scenePath = 'compose-revision.scene.json';
     const plate = obj(arr(composition.plates)[0]);
@@ -216,7 +311,9 @@ test('#1106 next offers a direction rebuild with all four output trees adopted',
       expect(stepStatusCommand([section, status, dir, '--by', 'agent']).exit).toBe(0);
     }
     tick();
-    writeFileSync(words, 'Give the camera move more time.\n');
+    const bounceWords = 'Give the camera move more time.\n';
+    const bouncedAt = testClock.iso();
+    writeFileSync(words, bounceWords);
     expect(reviewCommand(['4', dir, '--verdict', 'bounced', '--review', 'direction-review', '--by', 'user',
       '--verbatim-file', words, '--source', 'synthetic review']).exit).toBe(0);
 
@@ -239,14 +336,110 @@ test('#1106 next offers a direction rebuild with all four output trees adopted',
     expect(read()).toMatchObject({ versions, current: { parts: { adopted: { version: 3 } }, rig: { adopted: { version: 3 } },
       motion: { adopted: { version: 3 } }, direction: { adopted: { version: 4 } } } });
     const path = 'versions[v4].verdicts[0]';
+    const openComment: OpenDirectionComment = { field: 'current.direction', verdict: path, by: 'user', at: bouncedAt,
+      source: 'synthetic review', verbatim: bounceWords, on_items: [] };
     const checked = checkProject(dir);
     expect(checked).toMatchObject({ stage: 'accepted', effective_stage: 'direction-review', refusals: [] });
     expect(checked.warnings).toContainEqual(expect.objectContaining({ code: 'FEEDBACK_OPEN', path }));
-    expectDeferredDirectionFeedback(dir, 4, 0);
+    expect(checked.feedback.flatMap(feedback => feedback.open_direction_comment ?? [])).toEqual([openComment]);
+    // Proof remains optional in old rows. Derive it again from the accepted registration and its retained bytes.
+    const adopted = read();
+    delete obj(obj(adopted.current).motion).provenance;
+    put('project.json', adopted);
+    const original = readFileSync(recordPath);
+    const retained = treeFiles(dir, 'outputs');
+    const staging = next();
+    expectDirectionOnly(staging);
+    expect(staging.open_direction_comments).toEqual([openComment]);
+    expect(staging.warnings?.some(warning => warning.code === 'OUTPUT_STALE' && ['current.rig', 'current.motion'].includes(warning.path))).toBe(false);
+    expect(staging.moves).toContainEqual(expect.objectContaining({ field: 'current.direction', command: `rig-create scene stage-adopted ${dir}`,
+      act: expect.stringContaining('project.json.versions[v4].verdicts[0]') }));
+
+    for (const path of ['outputs/v3/out/rig/images/unbound.png', 'outputs/v3/idle/idle@1fps/f9999.png']) {
+      const extra = join(dir, path);
+      writeFileSync(extra, 'Unregistered fixture bytes.\n');
+      const unverified = next();
+      expect(unverified).toMatchObject({ accepted: false, refusals: expect.arrayContaining([
+        expect.objectContaining({ code: 'RIG_REGISTRATION_FILE_INVALID' }),
+      ]) });
+      expect(unverified.moves.some(move => move.field.startsWith('current.') || move.command?.startsWith('rig-create scene '))).toBe(false);
+      rmSync(extra);
+    }
+
+    const build = 'derived/direction-adopted-build';
+    const staged = sceneCommand(['stage-adopted', dir]);
+    expect(staged.exit).toBe(0);
+    expect(staged.stdout).toContain('staged adopted v3');
+    expect(sceneCommand(['stage-adopted', dir])).toEqual(staged);
+    expect(readFileSync(join(dir, build, 'check/check.json'))).toEqual(readFileSync(join(dir, 'evidence/v3/registration/check.json')));
+    const composeScene = 'specs/direction/compose-scene.json';
+    const author = next();
+    expectDirectionOnly(author);
+    expect(author.moves).toContainEqual(expect.objectContaining({ command: `rig-create scene write ${dir} --compose-scene ${composeScene}`,
+      act: expect.stringContaining('characters[0].build to ../../derived/direction-adopted-build') }));
+    const composePlate = { ...plate, image: '../../inputs/background.png', provenance: 'generated' };
+    const composeCharacter = { ...placement, build: `../../${build}` };
+    const composeSceneHash = put(composeScene, { ...scene, plates: [composePlate], characters: [composeCharacter] });
+    expect(sceneCommand(['write', dir, '--compose-scene', composeScene]).exit).toBe(0);
+    const sceneRecord = read('specs/direction/scene.json');
+    expect(sceneRecord).toMatchObject({ rig: {
+      model: { path: 'outputs/v3/out/check/build/skeleton.model.json' },
+      animation: { frames: { path: 'outputs/v3/idle/frames.json' }, motion: { path: 'outputs/v3/idle' } },
+    } });
+    const directionIntent = 'specs/direction/intent.json';
+    expect(next().moves).toContainEqual(expect.objectContaining({ command: `rig-create direction write ${dir} --file ${directionIntent}` }));
+    put(directionIntent, { take: { duration: 4, loop: true }, citations });
+    expect(directionCommand(['write', dir, '--file', directionIntent]).exit).toBe(0);
+    const compose = next();
+    expectDirectionOnly(compose);
+    expect(compose.moves).toContainEqual(expect.objectContaining({ field: 'current.direction',
+      command: expect.stringContaining(`rig-parts compose --scene ${composeScene} --out outputs/direction.next`),
+      act: expect.stringContaining('project.json.versions[v4].verdicts[0]') }));
+    const stagedCheck = join(dir, build, 'check/check.json');
+    const stagedCheckBytes = readFileSync(stagedCheck);
+    writeFileSync(stagedCheck, '{}');
+    expect(next().moves).toContainEqual(expect.objectContaining({ command: `rig-create scene stage-adopted ${dir}` }));
+    expect(() => sceneCommand(['stage-adopted', dir])).toThrow(expect.objectContaining({ code: 'ADOPTED_COMPOSE_STAGE_INVALID' }));
+    expect(readFileSync(stagedCheck, 'utf8')).toBe('{}');
+    expect(readFileSync(recordPath)).toEqual(original);
+    expect(treeFiles(dir, 'outputs')).toEqual(retained);
+    writeFileSync(stagedCheck, stagedCheckBytes);
+
+    // Stage a synthetic Parts receipt for the newly sealed scene, with its real input hashes.
+    const from = 'outputs/direction.next';
+    const modelPath = 'check/build/skeleton.model.json';
+    const modelHash = put(`${from}/${modelPath}`, read(`${frozen}/${modelPath}`));
+    const plateHash = sha256(readFileSync(join(dir, String(plate.image))));
+    const consumedFiles = treeFiles(dir, build)
+      .map(({ path, sha256 }) => ({ path: path.slice(build.length + 1), sha256 }))
+      .filter(({ path }) => ['check/check.json', 'parts.json', 'rig/rig.json', 'rig/motion.json'].includes(path) || path.startsWith('rig/images/'));
+    put(`${from}/scene.json`, { spec: 'spine-parts-scene-report/1', scene: composeScene, canvas: composition.canvas!,
+      characters: [{ ...composeCharacter, rig_size: [128, 128], shift: [0, 0] }], plates: [{ ...composePlate, sha256: plateHash }] });
+    put(`${from}/compose-run.json`, { spec: 'rig-compose-run/1', scene: { path: composeScene, sha256: composeSceneHash },
+      characters: [{ id: 'actor', build: composeCharacter.build, files: consumedFiles }], plate: null,
+      plates: [{ name: plate.name!, path: composePlate.image, sha256: plateHash }] });
+    put(`${from}/check/check.json`, { spec: 'rig-parts-check/1', PASS: true, gate_spine_html_green: true,
+      build: { model_sha256: modelHash } });
+
+    const recording = next();
+    expectDirectionOnly(recording);
+    expect(recording.open_direction_comments).toEqual([openComment]);
+    const command = recording.moves.find(move => move.field === 'current.direction')?.command;
+    expect(command).toBe(`rig-create record direction ${dir} --from ${from} --direction specs/direction/direction.json --answers-feedback 4:0`);
+    tick();
+    expect(recordCommand(command!.split(' ').slice(2), testClock.now()).exit).toBe(0);
+
+    const saved = read();
+    expect(obj(obj(saved.current).direction).answers_feedback).toEqual([{ version: 4, verdict: 0 }]);
+    expect(saved.versions).toEqual(versions);
+    expect(treeFiles(dir, 'outputs').filter(file => !file.path.startsWith('outputs/direction/'))).toEqual(retained);
+    const closed = checkProject(dir);
+    expect(closed.refusals).toEqual([]);
+    expect(closed.warnings.some(finding => finding.code === 'FEEDBACK_OPEN' && finding.path === path)).toBe(false);
+    expect(closed.feedback.find(feedback => feedback.verdict === path)).toMatchObject({ answered_by_current_direction: true, withdrawn: false });
+    expect(closed.feedback.flatMap(feedback => feedback.open_direction_comment ?? [])).toEqual([]);
+    expect(next().open_direction_comments).toBeUndefined();
   } finally {
     testClock.reset();
   }
 });
-
-// The writer will consume the offered command and bind the exact verdicts in current.direction.
-test.todo('#1106 recording the offered direction command settles numbered feedback once #1107 lands');

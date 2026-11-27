@@ -6,6 +6,7 @@ import { outputSetHash, sha256, treeFiles, type CurrentKind } from '../src/curre
 import { ledgerCommand } from '../src/fix-ledger.ts';
 import { JOB_BINDING_FILE, writePrivateJson } from '../src/job-outbox.ts';
 import { nextCommand, nextProject } from '../src/next.ts';
+import { recordCommand } from '../src/record.ts';
 import { stageIndex } from '../src/stages.ts';
 import { readTemplate, type Json, type JsonObject } from '../src/templates.ts';
 import { advanceCommand, signoffCommand, testClock } from './clock.ts';
@@ -129,6 +130,37 @@ test('parts appears first when its config changes, with operator work for the le
   expect(moves[0]?.command).toBeNull();
   expect(moves[0]?.act).toContain('Obtain the assemble and parts-check arguments from the operator');
   expect(moves[0]?.act).toContain(`rig-create record parts ${dir} --from outputs/parts.next --config ${CONFIG}`);
+});
+
+test('#1111 a changed input preserves the adopted rig and names the missing rebuild recipe', () => {
+  const dir = join(tempDir('next-stale-adopted-'), 'project');
+  cpSync(join(import.meta.dir, '../templates/example-chain'), dir, { recursive: true });
+  expect(recordCommand(['rig', dir, '--adopt'], testClock.now()).exit).toBe(0);
+  const project = readProject(dir);
+  const rig = (project.current as { rig: JsonObject }).rig;
+  const config = 'specs/rig/rebuild-input.json';
+  put(dir, config, { synthetic: 'original input' });
+  rig.built_from = [...asArray(rig.built_from), binding(dir, config)];
+  put(dir, 'project.json', project);
+
+  const retained = 'outputs/v1/out/check/build/skeleton.model.json';
+  const projectBytes = readFileSync(join(dir, 'project.json'));
+  const modelBytes = readFileSync(join(dir, retained));
+  const fresh = next(dir);
+  expect(fresh.moves.some(move => move.field === 'current.rig')).toBe(false);
+
+  put(dir, config, { synthetic: 'changed input' });
+  const changed = next(dir);
+  expect(changed.refusals).toEqual([]);
+  expect(changed.warnings).toContainEqual(expect.objectContaining({ code: 'OUTPUT_STALE', path: 'current.rig',
+    message: expect.stringContaining(config) }));
+  const repair = changed.moves.find(move => move.field === 'current.rig');
+  expect(repair).toMatchObject({ role: 'agent', command: null, awaits: 'current.rig' });
+  expect(repair?.act).toContain('Retain the previous rig at outputs/v1/out');
+  expect(repair?.act).toContain('REBUILD_ARGS_UNRECORDED: current.rig.rebuild');
+  expect(repair?.act).toContain('the retained output can be reused for its recorded inputs');
+  expect(readFileSync(join(dir, 'project.json'))).toEqual(projectBytes);
+  expect(readFileSync(join(dir, retained))).toEqual(modelBytes);
 });
 
 test('rig replay uses fresh sibling and nested directories, unchanged argv and producer-before-writer order', () => {

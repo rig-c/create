@@ -6,7 +6,8 @@ import { checkpointEnabled, checkpointRequired, completedPlanStepNeedsAmendment,
 import { createHash } from 'node:crypto';
 import { existsSync, lstatSync, readdirSync, readFileSync, realpathSync } from './check-reads.ts';
 import { isDeepStrictEqual } from 'node:util';
-import { CURRENT_KINDS, CURRENT_RIG_MODEL, currentFileBinding, isCurrentProject, outputRoot, RUN_RECORD_NAME, sha256, type CurrentKind } from './current.ts';
+import { CURRENT_KINDS, currentRigFileBinding, isCurrentProject, outputRoot, RUN_RECORD_NAME, sha256, verifiedLegacyMotionProvenance, type CurrentKind } from './current.ts';
+import { ADOPTED_COMPOSE_BUILD, adoptedComposeBuildMatches } from './adopted-compose.ts';
 import { motionLoopSeamFindings, readMotionLoopSeamPolicy } from './motion-loop-seam.ts';
 import { COMPOSE_CHECK_PATH, COMPOSE_RUN_PATH, CURRENT_DIRECTION_PATH, currentDirectionSource } from './current-direction.ts';
 import { directionLoopSeamFindings } from './direction-loop-seam.ts';
@@ -91,7 +92,7 @@ import {
   type PlanStep,
 } from './stages.ts';
 import type { Json, JsonObject } from './templates.ts';
-import { CURRENT_SCENE_PATH, currentScene, plateRegistration, sceneBinding, sceneBytes, sceneRig, SceneError, validateCurrentScene } from './scene.ts';
+import { CURRENT_SCENE_PATH, currentScene, currentSceneRig, plateRegistration, sceneBinding, sceneBytes, sceneRig, SceneError, validateCurrentScene } from './scene.ts';
 import { depthPlanMoves, nextRigRegistrationNumber, NO_DRAFT_VERDICT, rigRegistrationCommand, RIG_VERSION_INPUTS, turnExtraGroupMoves } from './rig-version.ts';
 import { checkVersionDeclarations, type VersionDeclaration } from './version-declarations.ts';
 import { checkRigReport, parseRigCheckReport, RIG_CHECK_REPORT_FILE } from './rig-check-report.ts';
@@ -101,7 +102,7 @@ import { postCompositionSetOffersScene, resolveAgentCitationSpec } from './scene
 import { DIRECTION_COMPOSE_SPEC } from './direction-compose.ts';
 import { DirectionError, directionJson, directionPath, missingDirectionStepApprovals } from './direction.ts';
 import { type NextComment, withCurrentComments } from './comment-closures.ts';
-import { currentOutputMove, withStaleOutputs } from './next-stale.ts';
+import { adoptedRigInventoryMatches, currentOutputMove, withStaleOutputs } from './next-stale.ts';
 
 export const NEXT_SCHEMA = 'rig-create/next@1';
 
@@ -1523,7 +1524,33 @@ function stagedSeamInventory(dir: string, root: string, from: string, kind: 'mot
   return inventory;
 }
 
-function currentPostOutputMove(dir: string, project: JsonObject, kind: 'motion' | 'direction', directionRecord?: NextMove): NextMove | undefined {
+const PARTS_SCENE_PATH = 'specs/direction/compose-scene.json';
+
+function adoptedDirectionInputProblem(dir: string, project: JsonObject, rig: JsonObject | undefined, motion: JsonObject | undefined): string | undefined {
+  if (!motion) {
+    return 'SCENE_CURRENT_MOTION_REQUIRED: current.motion: restore the motion record or adopt the accepted numbered rig’s bound idle sidecar and frame tree before composing direction.';
+  }
+  const model = currentRigFileBinding(project, 'check/build/skeleton.model.json');
+  const adoptedRig = isObject(rig?.adopted) ? rig.adopted : undefined;
+  if (!model || (rig && adoptedRig && !adoptedRigInventoryMatches(dir, project, rig))) {
+    const source = adoptedRig ? ` under outputs/v${String(adoptedRig.version)}/out` : '';
+    return `SCENE_CURRENT_RIG_REQUIRED: current.rig.files: restore the exact recorded rig inventory${source} before reusing the model for direction.`;
+  }
+  if (isObject(motion?.adopted)) {
+    const provenance = verifiedLegacyMotionProvenance(dir, project);
+    if (!provenance || provenance.model_sha256 !== model.sha256) {
+      return 'SCENE_CURRENT_MOTION_REQUIRED: current.motion: verify the accepted numbered rig registration and restore its bound idle sidecar and frame tree before reusing motion for direction.';
+    }
+  }
+  try { currentSceneRig(dir, project); }
+  catch (error) {
+    if (!(error instanceof SceneError)) throw error;
+    return `${error.code}: ${error.message}.`;
+  }
+}
+
+function currentPostOutputMove(dir: string, project: JsonObject, kind: 'motion' | 'direction', directionRecord?: NextMove,
+  adoptedBuild = false): NextMove | undefined {
   const inProject = (command: string) => `(cd ${shellWord(dir)} && ${command})`;
   const root = outputRoot(kind);
   const from = `${root}.next`;
@@ -1535,7 +1562,8 @@ function currentPostOutputMove(dir: string, project: JsonObject, kind: 'motion' 
     act: `${reason} Preserve ${from} by moving the whole tree to an unused path, then run next again for the fresh producer command.`,
   });
   if (kind === 'motion') {
-    if (!currentFileBinding(project, 'rig', CURRENT_RIG_MODEL)) return;
+    const model = currentRigFileBinding(project, 'check/build/skeleton.model.json');
+    if (!model) return;
     if (existsSync(join(dir, from, 'frames.json'))) {
       if (seam) {
         const inventory = stagedSeamInventory(dir, root, from, kind);
@@ -1546,7 +1574,7 @@ function currentPostOutputMove(dir: string, project: JsonObject, kind: 'motion' 
     }
     if (seam && retouchPathExists(dir, from)) return preserveStaging(`Inspect the incomplete render in ${from}.`);
     return { role: 'producer', field: 'current.motion', awaits: 'current.motion',
-      command: inProject(`rigc render --candidate outputs/rig/check/build --out ${from} --animation idle --fps '<frames-per-second>'${flags}`),
+      command: inProject(`rigc render --candidate ${shellWord(posix.dirname(model.path))} --out ${from} --animation idle --fps '<frames-per-second>'${flags}`),
       act: 'Render the recorded rig at the requested sample rate, then record the staged motion.' };
   }
   if (!isObject(project.current) || !isObject(project.current.motion)) return;
@@ -1554,11 +1582,27 @@ function currentPostOutputMove(dir: string, project: JsonObject, kind: 'motion' 
     const scene = directionJson(sceneBytes(dir, CURRENT_SCENE_PATH, 'SCENE_FILE_CHANGED'), CURRENT_SCENE_PATH);
     validateCurrentScene(dir, project, scene);
     if (!sceneBinding(scene.compose)) throw new SceneError('SCENE_MALFORMED', CURRENT_SCENE_PATH, 'expected a Parts compose scene');
+    if (adoptedBuild) {
+      const path = String(scene.compose.path);
+      const source = directionJson(sceneBytes(dir, path, 'SCENE_FILE_CHANGED'), path);
+      const character = asArray(source.characters)[0];
+      const build = isObject(character) && typeof character.build === 'string' && !posix.isAbsolute(character.build)
+        ? posix.join(posix.dirname(path), character.build) : '';
+      if (!adoptedComposeBuildMatches(dir, project, build)) {
+        throw new SceneError('SCENE_MALFORMED', path, 'the Parts scene needs a verified adopted character build');
+      }
+    }
   } catch (error) {
     if (!(error instanceof SceneError || error instanceof DirectionError)) throw error;
+    if (adoptedBuild && !adoptedComposeBuildMatches(dir, project)) {
+      return { role: 'agent', field, awaits: field, command: `rig-create scene stage-adopted ${shellWord(dir)}`,
+        act: `Reuse the verified adopted rig and motion. Stage the retained Parts build at ${ADOPTED_COMPOSE_BUILD}, then run next for scene write.` };
+    }
+    const buildHint = adoptedBuild ? ` Set characters[0].build to ${posix.relative(posix.dirname(PARTS_SCENE_PATH), ADOPTED_COMPOSE_BUILD)} to use the staged adopted build.` : '';
     return { role: 'agent', field: CURRENT_SCENE_PATH, awaits: CURRENT_SCENE_PATH,
-      command: `rig-create scene write ${shellWord(dir)} --compose-scene specs/direction/compose-scene.json`,
-      act: "Author the Parts scene from the owner's composition choice and registered plate, then seal it against the recorded rig and motion." };
+      command: `rig-create scene write ${shellWord(dir)} --compose-scene ${PARTS_SCENE_PATH}`,
+      act: adoptedBuild ? `Author the Parts scene from the owner's composition choice and registered plate.${buildHint} Then seal it against the recorded rig and motion.`
+        : "Author the Parts scene from the owner's composition choice and registered plate, then seal it against the recorded rig and motion." };
   }
 
   let input: ReturnType<typeof currentDirectionSource>;
@@ -1907,15 +1951,27 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
       const pendingDirection: NextMove = { role: 'agent', field: directionField, awaits: directionField, command: null,
         act: `Prepare the current rig and motion first. Run next again for the scene and direction writers, then compose the revised take. After compose succeeds, run\n    ${recordCommand}` };
       const reopens = collectReopens(project, []);
-      const missing = new Map(CURRENT_KINDS.flatMap<readonly [CurrentKind, { adoption?: NextMove; producer: NextMove }]>(kind => {
+      const direction = current.direction;
+      const preCutoffDirection = currentPath && isObject(direction) && !liveSignoff(reopens, 'post', Date.parse(String(direction.at)));
+      const rig = isObject(current.rig) ? current.rig : undefined;
+      const motion = isObject(current.motion) ? current.motion : undefined;
+      const adoptedRig = isObject(rig?.adopted);
+      const adoptedInputs = adoptedRig || isObject(motion?.adopted);
+      const stale = (kind: CurrentKind) => report.warnings.some(warning => warning.code === 'OUTPUT_STALE' && warning.path === `current.${kind}`);
+      const prepareDirection = reviseDirection || (canReviseDirection && adoptedInputs
+        && (direction === undefined || preCutoffDirection || stale('direction')));
+      const missing = new Map(CURRENT_KINDS.flatMap<readonly [CurrentKind, { adoption?: NextMove; producer: NextMove; usesAdoptedInputs?: boolean }]>(kind => {
         const node = current[kind];
-        if (reviseDirection && kind === 'direction') {
-          const producer = currentPostOutputMove(dir, project, kind, { ...directionRecord, command: recordCommand }) ?? pendingDirection;
-          return [[kind, { producer }]] as const;
+        if (prepareDirection && kind === 'direction') {
+          const blocked = stale('parts') || stale('rig') || stale('motion');
+          const problem = adoptedInputs && !blocked ? adoptedDirectionInputProblem(dir, project, rig, motion) : undefined;
+          const producer = blocked ? pendingDirection
+            : problem ? { ...pendingDirection, act: `${problem} After compose succeeds, run\n    ${recordCommand}` }
+              : currentPostOutputMove(dir, project, kind, { ...directionRecord, command: recordCommand }, adoptedRig) ?? pendingDirection;
+          const adoption = reviseDirection ? undefined : adoptionMove(dir, project, kind);
+          return [[kind, { adoption, producer, usesAdoptedInputs: adoptedInputs }]] as const;
         }
-        const preCutoffDirection = kind === 'direction' && currentPath && isObject(node)
-          && !liveSignoff(reopens, 'post', Date.parse(String(node.at)));
-        if (node !== undefined && !preCutoffDirection) return [];
+        if (node !== undefined && !(kind === 'direction' && preCutoffDirection)) return [];
         let producer: NextMove | undefined;
         if (reviseDirection && kind === 'motion') {
           producer = currentPostOutputMove(dir, project, kind);
@@ -1930,7 +1986,7 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
         }
         return producer ? [[kind, { adoption: adoptionMove(dir, project, kind), producer }]] as const : [];
       }));
-      const outputWarnings = reviseDirection
+      const outputWarnings = prepareDirection
         ? report.warnings.filter(warning => warning.code !== 'OUTPUT_STALE' || warning.path !== directionField)
         : report.warnings;
       next = withStaleOutputs(dir, current, outputWarnings, derived, shellWord, missing);
@@ -1938,10 +1994,13 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
         const feedbackAct = `Use the owner's recorded feedback in ${feedbackFields.map(field => `project.json.${field}`).join(', ')} for the replacement take.`;
         const isDirectionMove = (move: NextMove) => [directionField, CURRENT_SCENE_PATH, CURRENT_DIRECTION_PATH].includes(move.field);
         const needsPending = !next.moves.some(isDirectionMove);
-        const moves = needsPending ? [...next.moves, pendingDirection] : next.moves;
+        const waiting: NextMove = adoptedInputs ? { ...pendingDirection, act: `Resolve the upstream output findings, then run next for direction. After compose succeeds, run\n    ${recordCommand}` } : pendingDirection;
+        const forward = next.moves.filter(move => move.field !== 'stage' || !move.command?.startsWith('rig-create advance accepted '));
+        const moves = needsPending ? [...forward, waiting] : forward;
         next = {
           ...next, accepted: false,
-          awaits: needsPending && !next.awaits.includes(directionField) ? [...next.awaits, directionField] : next.awaits,
+          awaits: [...new Set([...next.awaits.filter(target => target !== 'project.stage' || forward.some(move => move.awaits === target)),
+            ...(needsPending ? [directionField] : [])])],
           moves: moves.map(move => isDirectionMove(move) ? { ...move, act: `${feedbackAct} ${move.act}` } : move),
         };
       }

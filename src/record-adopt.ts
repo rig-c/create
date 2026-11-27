@@ -23,6 +23,11 @@ function binding(value: Json | undefined): Binding | undefined {
 const role = (kind: CurrentKind): 'post' | 'rig' => kind === 'direction' ? 'post' : 'rig';
 const byPath = (a: Binding, b: Binding): number => a.path < b.path ? -1 : a.path > b.path ? 1 : 0;
 
+export function adoptedRigConfigBinding(source: JsonObject): Binding | undefined {
+  const { registration, provenance } = source;
+  return binding(isObject(registration) ? registration.config_source : isObject(provenance) ? provenance.config : undefined);
+}
+
 /** The numbered writers retain distinct trees, except for the parts manifest and its sidecars under out/. */
 function ownsOutput(root: string, kind: CurrentKind, path: string): boolean {
   if (kind === 'parts') {
@@ -58,6 +63,27 @@ export function adoptedOutputBindings(project: JsonObject, kind: CurrentKind, ve
   return { ok: true, source, files: [...files.values()].sort(byPath) };
 }
 
+/** Acceptance is a historical fact of the numbered version and survives a reopen. */
+export function wasNumberedRigAccepted(project: JsonObject, version: number): boolean {
+  const rigs = readVersions(project).rigs.filter(rig => rig.n === version);
+  return rigs.length === 1 && !rigs[0]!.preInterview && rigs[0]!.accepted !== null;
+}
+
+/** Resolve the particular co-registration edges that attest a numbered idle render. */
+export function legacyMotionRegistration(project: JsonObject, version: number): { model: Binding; frames: Binding } | undefined {
+  const rig = adoptedOutputBindings(project, 'rig', version);
+  const motion = adoptedOutputBindings(project, 'motion', version);
+  if (!rig.ok || !motion.ok || !wasNumberedRigAccepted(project, version)) return undefined;
+  const registration = rig.source.registration;
+  if (!isObject(registration) || registration.kind !== 'frozen-rig/1') return undefined;
+  const root = `outputs/v${version}`;
+  const model = binding(rig.files.find(file => file.path === `${root}/out/check/build/skeleton.model.json`));
+  const frames = binding(registration.idle);
+  if (!model || frames?.path !== `${root}/idle/frames.json`
+    || !motion.files.some(file => file.path === frames.path && file.sha256 === frames.sha256)) return undefined;
+  return { model, frames };
+}
+
 /**
  * Read-only offer for next and record. No output bytes are read here.
  * Use the latest live version of the relevant role, including unaccepted rigs.
@@ -90,7 +116,7 @@ export function resolveAdoptSource(project: JsonObject, kind: CurrentKind): Sour
   const { source, files } = inventory;
   const path = `versions[v${version}]`;
   const at = typeof source.at === 'string' ? Date.parse(source.at) : NaN;
-  const { built_by: builtBy, built_with: builtWith, provenance, registration } = source;
+  const { built_by: builtBy, built_with: builtWith, provenance } = source;
   if (!Number.isFinite(at) || typeof builtBy !== 'string' || !builtBy.trim() || !isObject(builtWith)
     || Object.values(builtWith).some(value => typeof value !== 'string' || !value)) {
     return { ok: false, code: 'RECORD_ADOPT_SOURCE_INVALID', path, why: 'the source lacks a valid build date, builder or package-version map' };
@@ -99,7 +125,7 @@ export function resolveAdoptSource(project: JsonObject, kind: CurrentKind): Sour
   const find = (rel: string): Binding | undefined => binding(files.find(file => file.path === `${root}/${rel}`));
   const builtFrom: Binding[] = [];
   if (kind === 'rig') {
-    const config = binding(isObject(registration) ? registration.config_source : isObject(provenance) ? provenance.config : undefined);
+    const config = adoptedRigConfigBinding(source);
     if (config) builtFrom.push(config);
   }
   if (kind === 'direction') {

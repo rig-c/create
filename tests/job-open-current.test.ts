@@ -39,7 +39,7 @@ import { nextProject } from '../src/next.ts';
 import { commitCurrentPublication } from '../src/project-step-commit.ts';
 import { Refusal } from '../src/refusal.ts';
 import type { JsonObject } from '../src/templates.ts';
-import { gitEnv, run, tempDir, treeDigest } from './helpers.ts';
+import { run, treeDigest } from './helpers.ts';
 import { sourceOnlyTest } from './source-only.ts';
 
 const CLI = join(import.meta.dir, '../src/cli.ts');
@@ -48,6 +48,18 @@ const NOW = Date.parse('2026-11-26T00:05:00.000Z');
 
 const roots: string[] = [];
 const opened: { proc: Bun.Subprocess; root: string }[] = [];
+
+function isolatedGitEnv(): Record<string, string> {
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), 'create-job-open-current-git-')));
+  roots.push(dir);
+  const config = join(dir, 'gitconfig');
+  writeFileSync(config, '[init]\n\tdefaultBranch = main\n');
+  const env: Record<string, string> = {};
+  for (const [key, value] of Object.entries(process.env)) {
+    if (value !== undefined && !key.startsWith('GIT_')) env[key] = value;
+  }
+  return { ...env, GIT_CONFIG_GLOBAL: config, GIT_CONFIG_NOSYSTEM: '1' };
+}
 
 afterEach(async () => {
   for (const { proc, root } of opened.splice(0)) {
@@ -78,7 +90,7 @@ function cloneExampleCurrent(options: { git?: boolean } = {}): string {
   cpSync(EXAMPLE_CURRENT, root, { recursive: true });
   roots.push(root);
   if (options.git) {
-    const env = gitEnv();
+    const env = isolatedGitEnv();
     expect(run(['git', 'init', '-q'], root, env).code).toBe(0);
     expect(run(['git', 'config', 'user.name', 'Synthetic Test'], root, env).code).toBe(0);
     expect(run(['git', 'config', 'user.email', 'synthetic@example.invalid'], root, env).code).toBe(0);
@@ -95,7 +107,7 @@ async function runCli(
 ): Promise<{ stdout: string; stderr: string; exit: number }> {
   const child = Bun.spawn([process.execPath, ...jobRuntimeExecArgv(), CLI, ...args], {
     cwd: root,
-    env: { ...process.env, ...gitEnv(), ...extraEnv },
+    env: { ...process.env, ...isolatedGitEnv(), ...extraEnv },
     stdout: 'pipe',
     stderr: 'pipe',
   });
@@ -110,7 +122,7 @@ async function runCli(
 async function openBackground(root: string, options: string[]): Promise<{ url: URL; lines: string[] }> {
   const proc = Bun.spawn(
     [process.execPath, ...jobRuntimeExecArgv(), CLI, 'job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner', ...options],
-    { cwd: root, env: { ...process.env, ...gitEnv() }, stdout: 'pipe', stderr: 'pipe' },
+    { cwd: root, env: { ...process.env, ...isolatedGitEnv() }, stdout: 'pipe', stderr: 'pipe' },
   );
   opened.push({ proc, root });
   let stderr = '';
@@ -550,7 +562,9 @@ test('next offers optional job open --current moves beside advance after record 
   expect(postReport.moves[0]?.command).toBe(`rig-create advance direction-review ${root}`);
 
   // 4. Numbered project offers zero `--current` moves.
-  const numberedRoot = join(tempDir(), 'numbered-check');
+  const numberedContainer = realpathSync(mkdtempSync(join(tmpdir(), 'create-job-open-current-numbered-')));
+  roots.push(numberedContainer);
+  const numberedRoot = join(numberedContainer, 'numbered-check');
   cpSync(join(import.meta.dir, '../templates/example-chain/checkpoints/3-rig-review'), numberedRoot, { recursive: true });
   const numberedReport = nextProject(numberedRoot, NOW);
   expect(numberedReport.moves.some(move => move.command?.includes('--current'))).toBe(false);
@@ -566,7 +580,7 @@ sourceOnlyTest(
     const partsReceipt = latestReceipt(root);
     expect(openedParts.lines).toEqual([`job: current parts published (publication ${partsReceipt.publicationId})`]);
 
-    const partsHeadSha = run(['git', 'rev-parse', 'HEAD'], root, gitEnv()).stdout.trim();
+    const partsHeadSha = run(['git', 'rev-parse', 'HEAD'], root, isolatedGitEnv()).stdout.trim();
     const partsPage = await openOwnerPage(root, openedParts.url);
     expect(partsPage.asks).toEqual([]);
     expect((partsPage.head.source as JsonObject).selector).toMatchObject({ kind: 'current', output: 'parts' });
@@ -606,7 +620,7 @@ sourceOnlyTest(
       `job: current rig published (publication ${rigReceipt.publicationId})`,
     ]);
 
-    const rigHeadSha = run(['git', 'rev-parse', 'HEAD'], root, gitEnv()).stdout.trim();
+    const rigHeadSha = run(['git', 'rev-parse', 'HEAD'], root, isolatedGitEnv()).stdout.trim();
     expect(rigHeadSha).not.toBe(partsHeadSha);
     const rigPage = await openOwnerPage(root, openedParts.url);
     expect(rigPage.asks).toEqual([]);

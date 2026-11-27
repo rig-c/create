@@ -148,9 +148,9 @@ ${INPUT_CLI}  rig-create init <dir> [--no-install]              create a project
 
 job open:
   --rig <n>      selects a registered rig OR post version; the flag name is shared
+  ${BOUND_WRITE_HELP}
   --current <parts|rig|direction>
                  publishes current.<output> in review-live.json for looking and commenting
-  ${BOUND_WRITE_HELP}
 
 job reconcile:
   ${BOUND_WRITE_HELP}

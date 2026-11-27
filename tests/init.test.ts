@@ -7,7 +7,7 @@ import { FALLBACK_IDENTITY, GITIGNORE, IGNORED_DIRS, TRACKED_EMPTY_DIRS, package
 import { CREATE_PACKAGE, PINNED_PACKAGES, initDependencies, runningCreateVersion } from '../src/pins.ts';
 import { checkProject } from '../src/check.ts';
 import { readTemplate } from '../src/templates.ts';
-import { cli, gitEnv, run, skipInitInstall, tempDir } from './helpers.ts';
+import { cli, gitEnv, run, stagedCreateRegistry, tempDir } from './helpers.ts';
 
 test('#1029 the step commit helper can be imported before init in a fresh process', () => {
   const helper = pathToFileURL(join(import.meta.dir, '../src/project-step-commit.ts')).href;
@@ -190,12 +190,12 @@ test('packageNameFor makes a name npm accepts', () => {
 // Bun's `--offline` ("never touch the network: resolve and install only from the local cache")
 // is used with `--frozen-lockfile`, against a cache dir this test owns, so the cache holds only
 // what this init downloaded. Needs the network for the first install, so it runs on request.
-test.skipIf(skipInitInstall())(
+test.skipIf(process.env.RIG_CREATE_NETWORK !== '1')(
   'init with install writes a lockfile that reinstalls offline',
   () => {
     const root = tempDir();
     const cache = join(root, 'bun-cache');
-    const env = { ...gitEnv(), BUN_INSTALL_CACHE_DIR: cache };
+    const env = { ...gitEnv(), ...stagedCreateRegistry(), BUN_INSTALL_CACHE_DIR: cache };
     const dir = join(root, 'installed');
 
     const result = cli(['init', dir], root, env);

@@ -728,13 +728,30 @@ export function seedRetainedRigVersion(args: string[], now = Date.UTC(2026, 10, 
     return { path: targetRel, sha256: digest, bytes: bytes.length };
   };
 
-  cpSync(resolve(dir, options['--parts']!), join(dir, out, 'out'), { recursive: true });
+  const partsAbs = realpathSync(resolve(dir, options['--parts']!));
+  mkdirSync(join(dir, out, 'out'), { recursive: true });
+  writeFileSync(join(dir, out, 'out/parts.json'), readFileSync(join(partsAbs, 'parts.json')));
+  if (existsSync(join(partsAbs, 'parts'))) {
+    cpSync(join(partsAbs, 'parts'), join(dir, out, 'out/parts'), { recursive: true });
+  }
+  const sourceManifest = readPartsManifest(join(partsAbs, 'parts.json'));
+  const extraPartRefs = partsFileReferences(partsAbs).map(r => r.path);
+  if (sourceManifest.painting_in_rig && !extraPartRefs.includes(PAINTING_IN_RIG_FILE)) {
+    extraPartRefs.push(PAINTING_IN_RIG_FILE);
+  }
+  for (const relRef of extraPartRefs) {
+    const srcRef = join(partsAbs, relRef);
+    const dstRef = join(dir, out, 'out', relRef);
+    if (existsSync(srcRef) && !existsSync(dstRef)) {
+      mkdirSync(dirname(dstRef), { recursive: true });
+      cpSync(srcRef, dstRef, { recursive: true });
+    }
+  }
   cpSync(resolve(dir, options['--rig']!), join(dir, out, 'out/rig'), { recursive: true });
   cpSync(resolve(dir, options['--build']!), join(dir, out, 'out/check/build'), { recursive: true });
   cpSync(resolve(dir, options['--idle']!), join(dir, out, 'idle'), { recursive: true });
 
   // Optional plate assembly sources from draft if matching.
-  const partsAbs = realpathSync(resolve(dir, options['--parts']!));
   const matchingDraft = asArray(project.drafts).filter(isObject).find(d =>
     typeof d.id === 'string' && DRAFT_ID.test(d.id) && isObject(d.parts) && typeof d.parts.path === 'string'
     && d.parts.path.endsWith('/rig') && existsSync(join(dir, d.parts.path))

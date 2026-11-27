@@ -15,7 +15,8 @@ Read this before choosing work. It ranks every issue in this repository.
    - every record is written by create's writers, with no hand edit of
      `project.json`;
    - `check` exits 0 at every stage boundary;
-   - the user accepts the result at direction-review.
+   - the project reaches `accepted`; a numbered project also needs the
+     user's acceptance at direction-review.
 2. **create owns the cycle end to end.** create says what the cycle needs
    from parts, review and core. When a project hits a gap in another
    package, file the issue in that package's repository, name the step it

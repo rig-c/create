@@ -10,7 +10,7 @@ import {
 } from '../tests/source-only.ts';
 
 interface ChildEntryObservation {
-  readonly kind: 'review-act-fetch' | 'parts-review-cli';
+  readonly kind: 'review-act-fetch' | 'review-cli';
   readonly entry: string;
   readonly argv: readonly string[];
   readonly execArgv: readonly string[];

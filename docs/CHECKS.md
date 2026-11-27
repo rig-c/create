@@ -686,6 +686,13 @@ outputs. The record codes `SCHEMA_UNKNOWN`, `STAGE_UNKNOWN`,
 `PAUSED_UNSIGNED` and `STAGE_VALUES_STALE` fire as for a project, against the
 collection's stages.
 
+For a member with `current` outputs, `collection pin` records a
+`kind: "current-rig"` pin with the registered project path, the SHA-256 of
+its exact record bytes, the collection commit holding those bytes, and
+`current.rig.files_sha256`. The pin binds the member record and rig inventory.
+Proof of which inputs were used to compose the collection output requires a
+separate receipt.
+
 | Code | Fires when | Clear it by |
 | --- | --- | --- |
 | `COLLECTION_USAGE` | `collection` omits its mode, `pin` or `--check` receives more than one folder, `pin --changed` lacks a value, or `answer` receives invalid arguments (exit 2) | use `collection pin [<dir>]` with a sentence if passing `--changed`, `collection --check [<dir>]`, or `collection answer <question> [<dir>] --by <who>` with either `--value-file <file>` or `--defer-until <stage>` and `--reason-file <file>` |
@@ -698,23 +705,25 @@ collection's stages.
 | `PIN_STALE` | the default pin differs from the member's latest build, or an explicit pin's recorded rig version is absent or differs in its file list, variants or recorded/on-disk hashes | make the collection output again from the current builds and `collection pin`; or rebuild the member to the pinned build |
 | `PIN_MISSING` | a member has no pin in that version | the same: a new collection version pins it |
 | `PIN_UNKNOWN_MEMBER` | that version pins a name not in `members[]` | register the member again, or make a new collection version without it |
-| `PIN_MALFORMED` | a pin is not `{ member, version (number or null), rigs[] }` | fix the pin |
+| `PIN_MALFORMED` | a numbered pin lacks `{ member, version (number or null), rigs[] }`, a `current-rig` pin lacks `{ member, record: { path, sha256, commit }, rig: { files_sha256 } }` with a full commit ID and SHA-256 digests, or the checked collection version has multiple pins for a member with a `current-rig` pin | restore a single valid pin for the affected member or record a new collection pin |
 | `PIN_SELECTION_INVALID` | a persisted pin carries a selection other than `"explicit"` with a positive integer rig version | restore the pin metadata or record a new collection pin |
+| `PIN_MEMBER_COMMIT_UNVERIFIED` | a `current-rig` pin cannot be resolved in the collection repository to a regular tracked blob at the literal registered member path, or the blob fails its record or rig digest binding. `collection pin` also requires the live member path to use ordinary files and folders in that repository and the blob to match the exact working record bytes | restore the collection history and exact member record, or commit the live rig record and run `collection pin` for a new output |
 
 `collection pin` refuses, writing nothing:
 
 | Code | Fires when | Clear it by |
 | --- | --- | --- |
-| `PIN_SELECTION_INVALID` | `--member` is malformed, duplicated, names an unregistered member or selects an absent/non-rig version | use each registered member once as `--member name=version`, selecting an existing rig version |
+| `PIN_SELECTION_INVALID` | `--member` is malformed, duplicated, names an unregistered or current-data member, or selects an absent/non-rig version | omit `--member` for a current-data member. Use each numbered member at most once as `--member name=version`, selecting an existing rig version |
+| `PIN_MALFORMED` | a member being pinned as `current-rig` has more than one registration in `members[]` | keep one registration for that member and rerun `collection pin` |
 | `PIN_NO_MEMBERS` | `members[]` is empty | add members |
-| `PIN_NO_BUILD` | a member has no rig version, its version lists no model or atlas, or a rig file has no sha256 and is not on disk | build and record the member version |
-| `PIN_SOURCE_DRIFT` | a rig file on disk does not hash to the member version that lists it (rebuilt in place) | record the rebuild as a new member version, then pin |
-| `PIN_MEMBER_CURRENT` | a member records `current` outputs (`project.json` `current`), which `collection pin` cannot pin by version number | keep existing explicit pins until hash-and-commit member pinning lands (`rig-c/create#990`), then run `collection pin` |
+| `PIN_NO_BUILD` | a current-data member lacks a valid `current.rig`, a numbered member has no rig version, its version lists no model or atlas, or a rig file has no sha256 and is not on disk | build and record the member's rig before pinning |
+| `PIN_SOURCE_DRIFT` | a rig file on disk does not hash to the numbered member version that lists it, the collection record or a current pin source changes during pinning, or another collection pin writer is active | record a numbered rebuild as a new member version. If a source changed or another writer is active, reread the collection once the member records and outputs are stable, then retry |
 
 | Warning | Fires when | Clear it by |
 | --- | --- | --- |
 | `MEMBER_UNREGISTERED` | a folder under `members/` is not in `members[]` | register it, or remove it |
 | `OUTPUT_CHANGED` | a collection output on disk does not hash to the version that recorded it | outputs are frozen when pinned: restore it, or make and pin a new version |
+| `PIN_MEMBER_EARLIER` (WARN) | the committed rig verifies and the member has a different live rig set digest or no live rig to compare | keep the pinned output, or prepare a new output and pin the live rig |
 
 `collection-binding` refuses, writing nothing:
 

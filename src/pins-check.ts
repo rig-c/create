@@ -1,28 +1,26 @@
 /**
  * Collection pins (docs/COLLECTIONS.md § Pins) and `collection --check`.
  *
- * `collection pin` records a collection version: every member's selected or latest rig
- * version and the sha256 of every rig file that version lists (model, atlas,
- * config, per variant), hashed on disk where the file is present, plus the
- * collection's own `outputs/v<N>/` files. It is run when a collection output
- * is made.
+ * `collection pin` records the committed current rig or the selected/latest
+ * numbered rig of each member, plus the collection's `outputs/v<N>/` files.
  *
  * `collection --check` (also what `interview --check` runs on a collection)
- * refuses, by member name, a member whose selected/default build no longer hashes to
- * the pins of the latest collection version that has outputs — the output a
- * person would be shown. It also checks the collection record itself: schema,
+ * verifies the pins of the latest collection version that has outputs. A
+ * verified current pin can describe an earlier rig. It also checks the collection record: schema,
  * stage, sign-offs, the collection's own answers, and that every member in
  * `members[]` has a project record. It does not run each member's interview
  * check: run `interview --check` in the member.
  */
-import { createHash } from 'node:crypto';
-import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { createHash, randomUUID } from 'node:crypto';
+import { existsSync, lstatSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { basename, extname, join, relative, resolve } from 'node:path';
+import { isDeepStrictEqual } from 'node:util';
 
-import { classify, collectSignoffs, COLLECTION_SCHEMA, readJsonObject, type Finding } from './check.ts';
+import { classify, collectSignoffs, COLLECTION_SCHEMA, PROJECT_SCHEMA, readJsonObject, type Finding } from './check.ts';
 import { COLLECTION_STAGES, COLLECTION_STAGE_VALUES } from './collection.ts';
-import { isCurrentProject } from './current.ts';
+import { currentShapeFindings, isCurrentProject, sha256 } from './current.ts';
 import type { CommandResult } from './interview.ts';
+import { tryJobDirectoryLock } from './job-outbox.ts';
 import { refuse, USAGE_EXIT } from './refusal.ts';
 import { checkScratchBindings } from './scratch-bindings.ts';
 import { collectionAnswerCommand } from './collection-answer.ts';
@@ -37,13 +35,22 @@ export interface PinRig {
   variant: string;
   files: PinFile[];
 }
-export interface Pin {
+interface NumberedPin {
   member: string;
   version: number | null;
   rigs: PinRig[];
   note?: string;
   selection?: 'explicit';
 }
+
+interface CurrentRigPin {
+  member: string;
+  kind: 'current-rig';
+  record: { path: string; sha256: string; commit: string };
+  rig: { files_sha256: string };
+}
+
+export type Pin = NumberedPin | CurrentRigPin;
 
 /** A rig file of a member build, as the member records it and as it is on disk now. */
 interface BuildFile {
@@ -70,6 +77,8 @@ export interface CollectionReport {
 const DEFAULT_VARIANT = 'default';
 const MODEL_EXT = new Set(['.json', '.skel']);
 const ATLAS_EXT = new Set(['.atlas', '.png', '.webp', '.jpg', '.jpeg', '.ktx2']);
+const SHA256 = /^[a-f0-9]{64}$/;
+const GIT_OID = /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/;
 
 function isObject(v: Json | undefined): v is JsonObject {
   return v !== null && v !== undefined && typeof v === 'object' && !Array.isArray(v);
@@ -149,9 +158,10 @@ interface Member {
   project: JsonObject | null;
   path: string;
   why: string | null;
+  registeredPath: string | null;
 }
 
-function readMembers(dir: string, collection: JsonObject, refusals: Finding[]): Member[] {
+function readMembers(dir: string, collection: JsonObject, refusals: Finding[], currentMembers?: ReadonlySet<string>): Member[] {
   const out: Member[] = [];
   asArray(collection.members).forEach((m, index) => {
     const name = isObject(m) ? asString(m.name) : null;
@@ -159,18 +169,134 @@ function readMembers(dir: string, collection: JsonObject, refusals: Finding[]): 
       refusals.push({ code: 'MEMBER_MALFORMED', path: `members[${index}]`, message: `members[${index}]: a member is an object with a string name` });
       return;
     }
-    const projectRel = asString(m.project) ?? `members/${name}/project.json`;
+    const registeredPath = asString(m.project);
+    const projectRel = registeredPath ?? `members/${name}/project.json`;
     const file = resolve(dir, projectRel);
     const memberDir = resolve(file, '..');
     const path = `members[${name}]`;
+    const member = { name, dir: memberDir, path, registeredPath };
+    if (currentMembers?.has(name) && liveCurrentMemberProblem(dir, member)) {
+      // A live path that leaves the collection cannot supply a live digest.
+      // A current pin is still resolved independently from its committed tree.
+      out.push({ ...member, project: null, why: null });
+      return;
+    }
     if (!existsSync(file)) {
-      out.push({ name, dir: memberDir, project: null, path, why: `${projectRel} does not exist` });
+      out.push({ ...member, project: null, why: `${projectRel} does not exist` });
       return;
     }
     const read = readJsonObject(file);
-    out.push(read.ok ? { name, dir: memberDir, project: read.value, path, why: null } : { name, dir: memberDir, project: null, path, why: `${projectRel}: ${read.error}` });
+    out.push(read.ok ? { ...member, project: read.value, why: null } : { ...member, project: null, why: `${projectRel}: ${read.error}` });
   });
   return out;
+}
+
+type MemberLocation = Pick<Member, 'name' | 'registeredPath'>;
+
+function registeredCurrentPath(member: MemberLocation): string | undefined {
+  const name = member.name;
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(name)) return undefined;
+  const expected = `members/${name}/project.json`;
+  return member.registeredPath === expected ? expected : undefined;
+}
+
+/** Follow only ordinary directories in the collection work tree when reading a live current rig. */
+function liveCurrentMemberProblem(dir: string, member: MemberLocation): string | undefined {
+  const path = registeredCurrentPath(member);
+  if (path === undefined) return 'the registration must name the literal members/<name>/project.json path';
+  try {
+    let parent = dir;
+    const components = path.split('/');
+    for (const [index, component] of components.entries()) {
+      const file = join(parent, component);
+      const stat = lstatSync(file, { throwIfNoEntry: false });
+      if (stat === undefined) return undefined; // The normal missing-record check handles this.
+      if (index === components.length - 1 ? !stat.isFile() : !stat.isDirectory()) return `${path} uses a link or non-regular entry`;
+      if (index < components.length - 1 && lstatSync(join(file, '.git'), { throwIfNoEntry: false })) return `${path} is inside a nested repository`;
+      parent = file;
+    }
+  } catch {
+    return `${path} cannot be inspected inside the collection work tree`;
+  }
+}
+
+type CollectionGit = (args: string[]) => Buffer | undefined;
+
+function openCollectionGit(dir: string): CollectionGit | undefined {
+  const env: NodeJS.ProcessEnv = { ...process.env, GIT_NO_LAZY_FETCH: '1', GIT_ALLOW_PROTOCOL: '', GIT_OPTIONAL_LOCKS: '0' };
+  // Resolve the repository at the collection root even when invoked from another Git command.
+  for (const key of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_COMMON_DIR', 'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES']) delete env[key];
+  const git: CollectionGit = (args) => {
+    try {
+      const result = Bun.spawnSync(['git', '--no-replace-objects', '--literal-pathspecs', ...args], { cwd: dir, env, stdout: 'pipe', stderr: 'ignore' });
+      return result.exitCode === 0 ? Buffer.from(result.stdout) : undefined;
+    } catch { return undefined; }
+  };
+  return git(['rev-parse', '--show-prefix'])?.toString('utf8').replace(/\r?\n$/, '') === '' ? git : undefined;
+}
+
+function parseRecord(bytes: Buffer): JsonObject | undefined {
+  const parsed: Json = JSON.parse(bytes.toString('utf8'));
+  return isObject(parsed) ? parsed : undefined;
+}
+
+function currentRig(project: JsonObject | null): JsonObject | undefined {
+  const node = project && isObject(project.current) ? project.current.rig : undefined;
+  return isObject(node) ? node : undefined;
+}
+
+/** Resolve a pin against the committed tree. The working record is only a constraint when writing a new pin. */
+function currentPinProblem(member: MemberLocation, pin: CurrentRigPin, git: CollectionGit | undefined, working?: Buffer): string | undefined {
+  const { path, commit } = pin.record;
+  if (registeredCurrentPath(member) !== path) return `record.path ${JSON.stringify(path)} does not match the literal registered member path`;
+  if (git === undefined) return 'the collection root is not a readable Git work tree';
+  if (git(['rev-parse', '--verify', '--quiet', `${commit}^{commit}`])?.toString('utf8').trim() !== commit) return `commit ${commit} cannot be resolved as the named commit object`;
+  const tree = git(['ls-tree', '--full-tree', '-z', commit, '--', path])?.toString('utf8');
+  const entry = /^(?:100644|100755) blob ([a-f0-9]+)\t([^\0]+)\0$/.exec(tree ?? '');
+  if (!entry || entry[2] !== path) return `commit ${commit} does not contain a regular tracked blob at ${path}`;
+  const blob = git(['cat-file', 'blob', entry[1]!]);
+  if (blob === undefined) return `commit ${commit} has an unreadable blob at ${path}`;
+  if (working !== undefined && !blob.equals(working)) return `commit ${commit} does not contain the exact working bytes of ${path}`;
+  if (sha256(blob) !== pin.record.sha256) return `the committed ${path} differs from record.sha256`;
+  let project: JsonObject | undefined;
+  try { project = parseRecord(blob); } catch { return `the committed ${path} is invalid JSON`; }
+  if (project?.schema !== PROJECT_SCHEMA) return `the committed ${path} must be a ${PROJECT_SCHEMA} record`;
+  const rig = currentRig(project);
+  const shape = currentShapeFindings('rig', rig, project)[0];
+  if (shape !== undefined) return `the committed ${path} has an invalid ${shape.path}`;
+  if (rig?.files_sha256 !== pin.rig.files_sha256) return `the committed ${path} current.rig.files_sha256 differs from the pin`;
+}
+
+function unverifiedCurrentPin(path: string, member: string, problem: string): Finding {
+  return { code: 'PIN_MEMBER_COMMIT_UNVERIFIED', path, message: `${path} (${member}): ${problem}. Restore the exact member record and collection Git history, or commit the live rig record and run collection pin for a new output.` };
+}
+
+function readCurrentMemberBytes(dir: string, member: MemberLocation): { bytes: Buffer } | { problem: string } {
+  const problem = liveCurrentMemberProblem(dir, member);
+  if (problem !== undefined) return { problem };
+  const path = member.registeredPath!;
+  try { return { bytes: readFileSync(join(dir, path)) }; }
+  catch { return { problem: `${path} cannot be read in the collection work tree` }; }
+}
+
+function captureCurrentPin(dir: string, member: Member, git: CollectionGit | undefined, head: string | undefined): CurrentRigPin | Finding {
+  const working = readCurrentMemberBytes(dir, member);
+  if ('problem' in working) return unverifiedCurrentPin(member.path, member.name, working.problem);
+  let project: JsonObject | undefined;
+  try { project = parseRecord(working.bytes); } catch { /* The rig is unreadable. */ }
+  const rig = currentRig(project ?? null);
+  const shape = currentShapeFindings('rig', rig, project)[0];
+  if (shape !== undefined) {
+    return { code: 'PIN_NO_BUILD', path: member.path, message: `${member.path}: no valid recorded rig (${shape.path}). Build and run rig-create record rig before pinning.` };
+  }
+  if (head === undefined || !GIT_OID.test(head)) return unverifiedCurrentPin(member.path, member.name, 'the collection HEAD is not a readable commit');
+  const pin: CurrentRigPin = {
+    member: member.name, kind: 'current-rig',
+    record: { path: member.registeredPath!, sha256: sha256(working.bytes), commit: head },
+    rig: { files_sha256: String(rig?.files_sha256) },
+  };
+  const problem = currentPinProblem(member, pin, git, working.bytes);
+  return problem === undefined ? pin : unverifiedCurrentPin(member.path, member.name, problem);
 }
 
 // ------------------------------------------------------------------- pinning
@@ -217,20 +343,28 @@ export function buildPins(dir: string, collection: JsonObject, selectors: string
     refusals.push({ code: 'PIN_NO_MEMBERS', path: 'members', message: 'collection.json members[] is empty; there is nothing to pin' });
   }
   const pins: Pin[] = [];
+  let git: CollectionGit | undefined;
+  let head: string | undefined;
   for (const m of members) {
     if (m.project === null) {
       refusals.push({ code: 'MEMBER_PROJECT_MISSING', path: m.path, message: `${m.path}: ${m.why}` });
       continue;
     }
+    const wanted = selected.get(m.name);
     if (isCurrentProject(m.project)) {
-      refusals.push({
-        code: 'PIN_MEMBER_CURRENT',
-        path: m.path,
-        message: `${m.path}: records current outputs (project.json current), which collection pin cannot pin by version number; keep existing explicit pins until hash-and-commit member pinning lands (rig-c/create#990), then pin the collection`,
-      });
+      if (wanted !== undefined) {
+        refusals.push({ code: 'PIN_SELECTION_INVALID', path: m.path, message: `${m.path}: --member cannot select a numbered version for a current member. Omit its --member selector to pin current.rig.` });
+        continue;
+      }
+      if (git === undefined) {
+        git = openCollectionGit(dir);
+        head = git?.(['rev-parse', '--verify', '--quiet', 'HEAD^{commit}'])?.toString('utf8').trim();
+      }
+      const pin = captureCurrentPin(dir, m, git, head);
+      if ('code' in pin) refusals.push(pin);
+      else pins.push(pin);
       continue;
     }
-    const wanted = selected.get(m.name);
     const version = wanted === undefined ? latestRigVersion(m.project) : asArray(m.project.versions).filter(isObject).find(v => v.n === wanted && (v.kind === undefined || v.kind === 'rig')) ?? null;
     if (wanted !== undefined && version === null) {
       refusals.push({ code: 'PIN_SELECTION_INVALID', path: m.path, message: `${m.path}: selected rig version ${wanted} is absent from versions[]; select an existing rig version` });
@@ -272,7 +406,24 @@ export function buildPins(dir: string, collection: JsonObject, selectors: string
     }
     pins.push({ member: m.name, version: n, rigs, ...(wanted === undefined ? {} : { selection: 'explicit' as const }) });
   }
+  const currentNames = new Set(pins.filter(pin => 'kind' in pin).map(pin => pin.member));
+  for (const name of currentNames) {
+    if (members.filter(member => member.name === name).length < 2) continue;
+    const path = `members[${name}]`;
+    refusals.push({ code: 'PIN_MALFORMED', path, message: `${path}: duplicate registrations for a current-rig member. Keep one registration and rerun collection pin.` });
+  }
   return { pins, refusals };
+}
+
+function collectionOutputs(dir: string, n: number): PinResult['outputs'] {
+  return listFiles(join(dir, 'outputs', `v${n}`)).map(file => {
+    const bytes = readFileSync(file);
+    return { path: relative(dir, file).split('\\').join('/'), sha256: sha256(bytes), bytes: bytes.length };
+  });
+}
+
+function pinSourceDrift(path: string, problem: string): Finding {
+  return { code: 'PIN_SOURCE_DRIFT', path, message: `${path}: ${problem}. Reread the collection and retry pinning against stable member records and outputs.` };
 }
 
 /** Writes a new `versions[]` entry with pins and the hashed `outputs/v<N>/` files. */
@@ -280,15 +431,26 @@ export function pinCollection(dirArg: string, changed: string | null, now: Date,
   const dir = resolve(dirArg);
   const file = join(dir, 'collection.json');
   if (!existsSync(file)) refuse('COLLECTION_JSON_MISSING', `${file} does not exist; run in a collection folder or name one`);
-  const read = readJsonObject(file);
-  if (!read.ok) refuse('COLLECTION_JSON_INVALID', `${file}: ${read.error}`);
-  const collection = read.value;
+  let original: Buffer;
+  let collection: JsonObject | undefined;
+  try {
+    original = readFileSync(file);
+    collection = parseRecord(original);
+  } catch (error) { return refuse('COLLECTION_JSON_INVALID', `${file}: ${error instanceof Error ? error.message : String(error)}`); }
+  if (collection === undefined) refuse('COLLECTION_JSON_INVALID', `${file}: not a JSON object`);
   if (collection.schema !== COLLECTION_SCHEMA) refuse('SCHEMA_UNKNOWN', `${file}: schema is ${JSON.stringify(collection.schema ?? null)}; this reads ${COLLECTION_SCHEMA}`);
   const { pins, refusals } = buildPins(dir, collection, selectors);
   if (refusals.length > 0) return { result: null, refusals, dir };
   const versions = asArray(collection.versions);
   const n = versions.reduce<number>((max, v) => (isObject(v) && typeof v.n === 'number' && v.n > max ? v.n : max), 0) + 1;
-  const outputs = listFiles(join(dir, 'outputs', `v${n}`)).map((f) => ({ path: relative(dir, f).split('\\').join('/'), sha256: sha256File(f), bytes: statSync(f).size }));
+  const currentPins = pins.filter(pin => 'kind' in pin);
+  const outputPath = `outputs/v${n}`;
+  let outputs: PinResult['outputs'];
+  try { outputs = collectionOutputs(dir, n); }
+  catch (error) {
+    if (currentPins.length === 0) throw error;
+    return { result: null, refusals: [pinSourceDrift(outputPath, 'the collection outputs could not be read while pinning')], dir };
+  }
   const entry: JsonObject = {
     n,
     at: now.toISOString(),
@@ -301,16 +463,73 @@ export function pinCollection(dirArg: string, changed: string | null, now: Date,
     answers_feedback: [],
   };
   collection.versions = [...versions, entry];
-  writeFileSync(file, `${JSON.stringify(collection, null, 2)}\n`);
+  const release = tryJobDirectoryLock(`${file}.pin.lock`);
+  if (!release) return { result: null, refusals: [pinSourceDrift('collection.json', 'another collection pin writer is active')], dir };
+  try {
+    for (const pin of currentPins) {
+      const live = readCurrentMemberBytes(dir, { name: pin.member, registeredPath: pin.record.path });
+      if ('problem' in live || sha256(live.bytes) !== pin.record.sha256) {
+        refusals.push(pinSourceDrift(`members[${pin.member}]`, `${pin.record.path} changed while pinning`));
+      }
+    }
+    if (currentPins.length > 0) {
+      let unchanged = false;
+      try { unchanged = isDeepStrictEqual(collectionOutputs(dir, n), outputs); } catch { /* Refuse below. */ }
+      if (!unchanged) refusals.push(pinSourceDrift(outputPath, 'the collection outputs changed while pinning'));
+    }
+    let recordUnchanged = false;
+    try {
+      recordUnchanged = (currentPins.length === 0 || lstatSync(file).isFile()) && readFileSync(file).equals(original);
+    } catch { /* Refuse below. */ }
+    if (!recordUnchanged) refusals.push(pinSourceDrift('collection.json', 'the collection record changed or is no longer a regular file'));
+    if (refusals.length > 0) return { result: null, refusals, dir };
+    const bytes = `${JSON.stringify(collection, null, 2)}\n`;
+    if (currentPins.length === 0) {
+      writeFileSync(file, bytes);
+    } else {
+      const temp = `${file}.${randomUUID()}.tmp`;
+      try {
+        writeFileSync(temp, bytes, { flag: 'wx', mode: statSync(file).mode & 0o777 });
+        renameSync(temp, file);
+      } finally { rmSync(temp, { force: true }); }
+    }
+  } finally { release(); }
   return { result: { version: n, pins, outputs }, refusals: [], dir };
 }
 
 // ------------------------------------------------------------------ checking
 
-function readPins(raw: Json | undefined, version: number, refusals: Finding[]): Pin[] {
-  const pins: Pin[] = [];
+interface StoredPin {
+  pin: Pin;
+  index: number;
+}
+
+function readPins(raw: Json | undefined, version: number, currentMembers: ReadonlySet<string>, refusals: Finding[]): StoredPin[] {
+  const pins: StoredPin[] = [];
+  const seen = new Set<string>();
   asArray(raw).forEach((p, index) => {
     const member = isObject(p) ? asString(p.member) : null;
+    if (member !== null && currentMembers.has(member)) {
+      if (seen.has(member)) {
+        const path = `versions[n=${version}].pins[${index}]`;
+        refusals.push({ code: 'PIN_MALFORMED', path, message: `${path} (${member}): duplicate pin for a member with a current-rig pin. Restore a single verified pin for this member or record a new collection pin.` });
+        return;
+      }
+      seen.add(member);
+    }
+    if (isObject(p) && p.kind === 'current-rig') {
+      const { record, rig } = p;
+      const path = `versions[n=${version}].pins[${index}]`;
+      if (member === null || !isObject(record) || typeof record.path !== 'string' || record.path === ''
+        || typeof record.sha256 !== 'string' || !SHA256.test(record.sha256)
+        || typeof record.commit !== 'string' || !GIT_OID.test(record.commit)
+        || !isObject(rig) || typeof rig.files_sha256 !== 'string' || !SHA256.test(rig.files_sha256)) {
+        refusals.push({ code: 'PIN_MALFORMED', path, message: `${path}: a current-rig pin needs member, record { path, sha256, commit } with a full commit ID, and rig { files_sha256 }. Restore the pin or run collection pin again.` });
+        return;
+      }
+      pins.push({ index, pin: { member, kind: 'current-rig', record: { path: record.path, sha256: record.sha256, commit: record.commit }, rig: { files_sha256: rig.files_sha256 } } });
+      return;
+    }
     if (!isObject(p) || member === null || (p.version !== null && typeof p.version !== 'number') || !Array.isArray(p.rigs)) {
       refusals.push({ code: 'PIN_MALFORMED', path: `versions[${version}].pins[${index}]`, message: `versions[n=${version}].pins[${index}]: a pin is { member, version (number or null), rigs[] }` });
       return;
@@ -346,13 +565,13 @@ function readPins(raw: Json | undefined, version: number, refusals: Finding[]): 
       refusals.push({ code: 'PIN_MALFORMED', path: `versions[${version}].pins[${index}]`, message: `versions[n=${version}].pins[${index}] (${member}): ${unreadable}; a pin that cannot be compared verifies nothing` });
       return;
     }
-    pins.push({ member, version: p.version as number | null, rigs, ...(p.selection === 'explicit' ? { selection: 'explicit' as const } : {}) });
+    pins.push({ index, pin: { member, version: p.version as number | null, rigs, ...(p.selection === 'explicit' ? { selection: 'explicit' as const } : {}) } });
   });
   return pins;
 }
 
 /** Every way a member's current build differs from its pin, one refusal each, all naming the member. */
-function comparePin(m: Member, project: JsonObject, pin: Pin, cv: number, refusals: Finding[]): void {
+function comparePin(m: Member, project: JsonObject, pin: NumberedPin, cv: number, refusals: Finding[]): void {
   const stale = (message: string): void => {
     refusals.push({ code: 'PIN_STALE', path: m.path, message: `${m.path}: ${message}; collection v${cv}'s output is stale until a new collection version pins it` });
   };
@@ -399,24 +618,41 @@ function comparePin(m: Member, project: JsonObject, pin: Pin, cv: number, refusa
   }
 }
 
-function checkPins(dir: string, collection: JsonObject, members: Member[], refusals: Finding[], warnings: Finding[]): number | null {
-  const versions = asArray(collection.versions).filter(isObject);
-  const shown = versions
+function shownCollectionVersion(collection: JsonObject): JsonObject | undefined {
+  return asArray(collection.versions).filter(isObject)
     .filter((v) => typeof v.n === 'number' && asArray(v.outputs).length > 0)
     .sort((a, b) => (b.n as number) - (a.n as number))[0];
-  if (shown === undefined) return null;
+}
+
+function checkPins(dir: string, shown: JsonObject, pins: StoredPin[], members: Member[], refusals: Finding[], warnings: Finding[]): void {
   const cv = shown.n as number;
-  const pins = readPins(shown.pins, cv, refusals);
+  const git = pins.some(({ pin }) => 'kind' in pin) ? openCollectionGit(dir) : undefined;
   for (const m of members) {
-    if (m.project === null) continue;
-    const pin = pins.find((p) => p.member === m.name);
-    if (pin === undefined) {
+    const stored = pins.find(({ pin }) => pin.member === m.name);
+    if (stored === undefined) {
+      if (m.project === null) continue;
       refusals.push({ code: 'PIN_MISSING', path: m.path, message: `${m.path}: is a member but collection v${cv} has no pin for it; its output was not made from a pinned build of this member` });
       continue;
     }
-    comparePin(m, m.project, pin, cv, refusals);
+    const { pin, index } = stored;
+    if ('kind' in pin) {
+      const path = `versions[n=${cv}].pins[${index}]`;
+      const problem = currentPinProblem(m, pin, git);
+      if (problem !== undefined) {
+        refusals.push(unverifiedCurrentPin(path, m.name, problem));
+        continue;
+      }
+      const live = asString(currentRig(m.project)?.files_sha256);
+      const pinned = pin.rig.files_sha256;
+      if (live !== pinned) {
+        const comparison = live !== null && SHA256.test(live) ? `live rig ${live.slice(0, 12)}` : 'no live rig to compare';
+        warnings.push({ code: 'PIN_MEMBER_EARLIER', path, message: `${path} (${m.name}): commit ${pin.record.commit} pins rig ${pinned.slice(0, 12)}, ${comparison}. Keep the pinned output, or make a new output and pin the live rig.` });
+      }
+    } else if (m.project !== null) {
+      comparePin(m, m.project, pin, cv, refusals);
+    }
   }
-  for (const p of pins) {
+  for (const { pin: p } of pins) {
     if (!members.some((m) => m.name === p.member)) {
       refusals.push({ code: 'PIN_UNKNOWN_MEMBER', path: `members[${p.member}]`, message: `collection v${cv} pins '${p.member}', which is not in members[]` });
     }
@@ -430,7 +666,6 @@ function checkPins(dir: string, collection: JsonObject, members: Member[], refus
       warnings.push({ code: 'OUTPUT_CHANGED', path: `versions[${cv}].outputs`, message: `${path} on disk does not hash to collection v${cv}'s record; an output is frozen when pinned` });
     }
   }
-  return cv;
 }
 
 /** Collection answers as `interview --check` reads a project's, against the collection's own stages. */
@@ -496,10 +731,15 @@ export function checkCollectionRecord(collection: JsonObject, stage: string, ref
 }
 
 export function checkCollection(dirArg: string): CollectionReport {
+  return inspectCollection(dirArg).report;
+}
+
+/** The same collection read used by both check and next. */
+export function inspectCollection(dirArg: string): { report: CollectionReport; hasCurrentMembers: boolean } {
   const dir = resolve(dirArg);
   const refusals: Finding[] = [];
   const warnings: Finding[] = [];
-  const fail = (): CollectionReport => ({ kind: 'collection', ok: false, collection_dir: dir, stage: null, effective_stage: null, members: [], pins_checked: null, refusals, warnings });
+  const fail = () => ({ hasCurrentMembers: false, report: { kind: 'collection' as const, ok: false, collection_dir: dir, stage: null, effective_stage: null, members: [], pins_checked: null, refusals, warnings } });
   const file = join(dir, 'collection.json');
   if (!existsSync(file)) {
     refusals.push({ code: 'COLLECTION_JSON_MISSING', path: file, message: `${file} does not exist; run in a collection folder or name one` });
@@ -525,20 +765,29 @@ export function checkCollection(dirArg: string): CollectionReport {
     warnings.push({ code: 'STAGE_VALUES_STALE', path: 'stage_values', message: `stage_values is [${recordValues.join(', ')}]; the collection order is [${COLLECTION_STAGE_VALUES.join(', ')}]; no collection writer rewrites this list, and the warning blocks nothing` });
   }
   const effective = checkCollectionRecord(collection, stage, refusals, warnings);
-  const members = readMembers(dir, collection, refusals);
+  const shown = shownCollectionVersion(collection);
+  const pinRefusals: Finding[] = [];
+  const currentMembers = new Set(asArray(shown?.pins).filter(isObject)
+    .flatMap(pin => pin.kind === 'current-rig' && typeof pin.member === 'string' ? [pin.member] : []));
+  const pins = shown === undefined ? [] : readPins(shown.pins, shown.n as number, currentMembers, pinRefusals);
+  const members = readMembers(dir, collection, refusals, currentMembers);
   for (const m of members) {
-    if (m.project === null) refusals.push({ code: 'MEMBER_PROJECT_MISSING', path: m.path, message: `${m.path}: ${m.why}` });
+    if (m.why !== null) refusals.push({ code: 'MEMBER_PROJECT_MISSING', path: m.path, message: `${m.path}: ${m.why}` });
   }
   const membersDir = join(dir, 'members');
-  if (existsSync(membersDir)) {
+  if (existsSync(membersDir) && (currentMembers.size === 0 || lstatSync(membersDir, { throwIfNoEntry: false })?.isDirectory())) {
     for (const entry of readdirSync(membersDir, { withFileTypes: true })) {
       if (entry.isDirectory() && !members.some((m) => basename(m.dir) === entry.name)) {
         warnings.push({ code: 'MEMBER_UNREGISTERED', path: `members/${entry.name}`, message: `members/${entry.name}/ is not in collection.json members[]; register it (rig-create init --member makes and registers a member)` });
       }
     }
   }
-  const pinsChecked = checkPins(dir, collection, members, refusals, warnings);
-  return { kind: 'collection', ok: refusals.length === 0, collection_dir: dir, stage, effective_stage: effective, members: members.map((m) => m.name), pins_checked: pinsChecked, refusals, warnings };
+  refusals.push(...pinRefusals);
+  if (shown !== undefined) checkPins(dir, shown, pins, members, refusals, warnings);
+  return {
+    hasCurrentMembers: members.some(m => m.project !== null && isCurrentProject(m.project)),
+    report: { kind: 'collection', ok: refusals.length === 0, collection_dir: dir, stage, effective_stage: effective, members: members.map(m => m.name), pins_checked: shown === undefined ? null : shown.n as number, refusals, warnings },
+  };
 }
 
 export function formatCollectionReport(report: CollectionReport): string {
@@ -559,11 +808,11 @@ export const COLLECTION_HELP = `collection:
                    record a collection-scope answer or defer it until a later lifecycle stage;
                    retain the prior answer in history when present, without changing other fields
   pin [<dir>] [--changed <sentence>] [--member <name>=<version>]...
-                   record a collection version: --member selects a rig version (repeatable); others use latest; hash each rig
-                   file it lists (model, atlas, config per variant), and hash the collection's outputs/v<N>/
+                   pin each committed current rig or a numbered rig (--member selects a numbered version),
+                   and hash the collection's outputs/v<N>/
   --check [<dir>] [--json]
-                   refuse by member name a member rebuilt since the pins of the latest collection version with
-                   outputs, and check the collection record (stage, sign-offs, answers, members[]) (docs/CHECKS.md)`;
+                   verify the member pins of the latest collection version with outputs and check the collection
+                   record (stage, sign-offs, answers, members[]) (docs/CHECKS.md)`;
 
 export function collectionCommand(args: string[], now: number): CommandResult {
   const [first, ...rest] = args;
@@ -593,7 +842,7 @@ export function collectionCommand(args: string[], now: number): CommandResult {
     }
     const lines = [
       `collection pin: ${dir}`,
-      `  collection v${result.version}: ${result.pins.map((p) => `${p.member} v${p.version}`).join(', ')}`,
+      `  collection v${result.version}: ${result.pins.map(p => 'kind' in p ? `${p.member} current.rig @ ${p.record.commit}` : `${p.member} v${p.version}`).join(', ')}`,
       `  outputs/v${result.version}/: ${result.outputs.length} file${result.outputs.length === 1 ? '' : 's'} hashed`,
       ...(result.outputs.length === 0 ? [`  no outputs/v${result.version}/ yet: this version is not checked until it has outputs (make the output, then pin)`] : []),
       'collection.json is written, not committed.',

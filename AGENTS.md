@@ -33,14 +33,14 @@ Read this before choosing work. It ranks every issue in this repository.
    and the owner's `--by`. Interview picks still bind the displayed set and
    option ids. A signoff recorded on `current.<kind>` binds the live
    recorded output and quotes the owner's words, when they were said and who
-   relayed them; it never gates progression. A numbered project keeps its review-tool
-   verdicts, and its verdict-bearing signoffs need the current accepted
-   live verdict, until the numbered writers are deleted. Until #1040 lands,
-   a numbered project's parts verdicts remain review-tool acts and its
-   parts-review signoff requires the accepted live parts verdict; on
-   `current.parts` an optional parts-review signoff binds the live recorded
-   output by the owner's relayed words. A stored signoff with a verdict reference
-   still validates that reference.
+   relayed them; it never gates progression. The numbered verdict and
+   stage-review signoff writers (`review`, `parts-review`, and numbered
+   `signoff parts-review|rig-review|direction-review`) and Review act signoff,
+   checkpoint, and interview-pick ingestion routes are retired; `job open --draft`
+   publishes view-only, and on `current.parts` an optional parts-review signoff
+   binds the live recorded output by the owner's relayed words. Stored numbered
+   verdicts and stored signoffs with verdict or Review act references still
+   validate those references at check time.
    Shared context images and option images shown in Review do not remove an
    interview question from this route.
    Typing a pick or signoff into a record without the owner's recorded words,
@@ -125,8 +125,9 @@ that comment exists. Codex's own review of it does not count.
      never written by hand.
    - JSON templates are edited in place; a whole-file reserialization is a
      defect.
-   - The frozen numbered fixture (`templates/example-numbered/`) has no writer:
-     it is verified by SHA-256 and never regenerated.
+   - The frozen numbered fixtures (`templates/example-numbered/`,
+     `templates/example-chain/` and `templates/example-remesh/`) have no
+     writers: they are verified by SHA-256 and never regenerated.
 6. **Writers refuse before they write.** A command that records into
    `project.json` validates with the same function the check uses, and a
    refused write leaves the file byte-identical.

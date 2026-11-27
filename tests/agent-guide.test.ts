@@ -81,13 +81,14 @@ test('#674 the guide routes a bounced accepted post through a human amendment', 
   expect(Buffer.byteLength(guide)).toBeLessThan(GUIDE_MAX_BYTES);
 });
 
-test('#467 the direction guide names verdict ingest before source-linked record-page sign-off', () => {
+test('#467 the direction guide names current motion, scene, direction and relayed sign-off', () => {
   const guide = renderAgentGuide();
-  expect(guide).toContain('`job open --rig <post>`');
-  expect(guide).toContain('asks the verdict only');
-  expect(guide).toContain('Ingest `review <post> --from-review <actId>`');
-  expect(guide).toContain('then `job open --plan`');
-  expect(guide).toContain('record-page sign-off (source-linked Review)');
+  expect(guide).toContain('`record motion --from <dir>`');
+  expect(guide).toContain('`scene write --compose-scene <file>`');
+  expect(guide).toContain('`direction write --file <json>`');
+  expect(guide).toContain('`record direction --from <dir> --direction specs/direction/direction.json`');
+  expect(guide).toContain('Relay `signoff direction-review` via `--owner-chat`, then `advance accepted`.');
+  expect(guide).not.toContain('review <post> --from-review');
 });
 
 function markdownLinks(text: string): string[] {
@@ -205,7 +206,7 @@ describe('the shipped stage reference', () => {
 
   test('keeps first-read authority and stage routing in the guide', () => {
     const guide = renderAgentGuide();
-    for (const required of ['Verdicts go through Review', '--owner-chat --said-at --relayed-by', 'rig-create next', 'Only human `signoffs[]`',
+    for (const required of ['Comments go through Review', '--owner-chat --said-at --relayed-by', 'rig-create next', 'Only human `signoffs[]`',
       '**Prior words.**', '**Bars before sign-off.**', "## The user's four steps", 'job withdraw-act <actId>']) expect(guide).toContain(required);
     expect(reference).toContain(READ_FIRST);
     for (const link of [APPEARANCE_LINK, BUST_LINK, CG_GATES_LINK, GATES_LINK, PROJECTION_LINK]) {
@@ -295,12 +296,13 @@ test.skipIf(process.env.RIG_CREATE_NETWORK !== '1')(
 );
 
 
-test('parts approval instructions consume recorded API receipts', () => {
+test('parts approval instructions use current parts recording, structure-snapshot and relayed sign-off', () => {
   const guide = renderAgentGuide();
-  expect(guide).toContain('`parts-review` records its Review API response');
-  expect(guide).toContain('structure-snapshot --draft <id>');
-  expect(guide).toContain('signoff parts-review --draft <id> --structure-file <f>');
-  expect(guide).not.toContain('structure-snapshot --draft <id> --verdict');
+  expect(guide).toContain('`record parts --from <dir> --config <c>`');
+  expect(guide).toContain('`structure-snapshot`');
+  expect(guide).toContain('`signoff parts-review` via `--owner-chat`');
+  expect(guide).not.toContain('parts-review --from-review');
+  expect(guide).not.toContain('structure-snapshot --draft <id>');
 });
 
 test('rendered guide names both explicit painting declarations and their persistence', () => {
@@ -309,7 +311,7 @@ test('rendered guide names both explicit painting declarations and their persist
   expect(guide).toContain('input add <path> --painting --origin <words>');
   expect(guide).toContain('project.json.painting');
   expect(guide).toContain('survives restart');
-  expect(guide).toContain("`job acts [--json]` lists each pending act's verdict, comments and `words`, even when ingest is refused.");
+  expect(guide).toContain("`job acts [--json]` lists each pending act's comments and `words`, even when ingest is unavailable.");
   expect(guide).toContain('["rig-review-comment/1", mode, "reference", referenceId, referenceHash, x, y, w, h]');
   expect(Buffer.byteLength(guide)).toBeLessThan(GUIDE_MAX_BYTES);
 });

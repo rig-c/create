@@ -660,7 +660,7 @@ staged compose receipts. The exclusive switch to current moves is §8.6.
 | `--rig ${n}` selectors | `src/next.ts:551-559` | `job open` |
 | `scene write --rig ${rigN}` | `src/next.ts:743` | Retained in #1018. |
 | `direction write ${nextPostN}` | `src/next.ts:2351`, `:2361` | Retained in #1018. |
-| `review ${postN} --from-review` | `src/next.ts:2456` | comment ingest (#982) |
+| `review ${postN}` (retired) | `src/next.ts` | comment ingest (#982) |
 | Stale rebuilds | — | new: upstream-first `OUTPUT_STALE` moves |
 | Subject `{kind:'rig', version}` / `{kind:'post', version, rigVersion}` | `src/job-publication.ts:706-712` | `{kind:'current', record: sha256}` (#982 contract) |
 | Manifest `id: create-v<N>`, `revision: v<N>`, title `rig v<N>` | `src/job-publication.ts:796-800` | `id: create`, `revision: <record sha256 prefix>` |

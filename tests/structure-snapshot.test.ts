@@ -1,4 +1,5 @@
-import { recordPartsReceipt } from './parts-receipt-fixture.ts';
+import { recordPartsReceipt, seedPartsCliReceipt } from './parts-receipt-fixture.ts';
+import { seedStoredPartsSignoff } from './historical-review-fixture.ts';
 import { afterEach, expect, test } from 'bun:test';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
@@ -8,8 +9,7 @@ import { STAGE_ORDER_SPEC, STAGE_VALUES } from '../src/stages.ts';
 import { STRUCTURE_SCHEMA } from '../src/structure.ts';
 import { structureSnapshotCommand } from '../src/structure-snapshot.ts';
 import { locateParts } from '../src/parts-sections.ts';
-import { partsReviewCommand } from '../src/parts-review.ts';
-import { reviewStdout } from './review-read-fixture.ts';
+import { assertPartsReadDraft, decodePartsRead } from '../src/parts-verdict-record.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { advanceCommand, checkProject, diffClassesCommand, draftRigCommand, main, signoffCommand, stepStatusCommand, testClock } from './clock.ts';
 import { EXAMPLE_DIFF_REPORT } from './diff-fixture.ts';
@@ -103,9 +103,15 @@ function setup(retouch?: string): string {
 
 const snapshot = (dir: string): { stdout: string; exit: number } =>
   structureSnapshotCommand([dir, '--draft', 'shape', '--out', OUT]);
-const partsSign = (dir: string, structure = OUT): ReturnType<typeof signoffCommand> =>
-  signoffCommand(['parts-review', dir, '--by', 'owner',
-    '--verbatim-file', join(dir, 'words.txt'), '--draft', 'shape', '--structure-file', structure]);
+const partsSign = (dir: string, structure = OUT): { exit: number } => {
+  seedStoredPartsSignoff(dir, 'shape', {
+    by: 'owner',
+    at: testClock.now(),
+    verbatim: readFileSync(join(dir, 'words.txt'), 'utf8'),
+    structureFile: structure,
+  });
+  return { exit: 0 };
+};
 
 test('#543 an exact edited set with the current accepted parts verdict signs and reaches rigging-interview', () => {
   const dir = setup('synthetic retouch A');
@@ -157,8 +163,8 @@ test('#543 an accepted verdict for one edited set cannot be recorded for a draft
   unsigned.review_acts = arr(unsigned.review_acts).filter(raw => obj(raw).draft_id !== 'shape');
   write(other, 'project.json', JSON.stringify(unsigned));
   const before = readFileSync(join(other, 'project.json'));
-  refused(() => partsReviewCommand([other, '--draft', 'shape', '--from-review-cli', '--by', 'owner', '--', 'synthetic-review'],
-    testClock.now(), { runCli: reviewStdout(response) }), 'PARTS_VERDICT_DRAFT_MISMATCH');
+  refused(() => assertPartsReadDraft(other, read(other), decodePartsRead(response), 'shape'), 'PARTS_VERDICT_DRAFT_MISMATCH');
+  expect(main(['parts-review', other, '--draft', 'shape', '--from-review-cli', '--by', 'owner', '--', 'synthetic-review'])).toBe(2);
   expect(snapshot(other).exit).toBe(0);
   refused(() => partsSign(other), 'PARTS_VERDICT_RECEIPT_REQUIRED');
   expect(readFileSync(join(other, 'project.json'))).toEqual(before);
@@ -277,7 +283,8 @@ test('a draft with no API receipt allows a snapshot but still refuses signoff wi
   draft(dir, 'other', { meshes: MESHES });
   const before = readFileSync(join(dir, 'project.json'));
   expect(structureSnapshotCommand([dir, '--draft', 'other']).exit).toBe(0);
-  refused(() => signoffCommand(['parts-review', dir, '--by', 'user', '--draft', 'other', '--structure-file', 'evidence/structure-other.json']), 'PARTS_VERDICT_RECEIPT_REQUIRED');
+  refused(() => signoffCommand(['parts-review', dir, '--by', 'user', '--draft', 'other', '--structure-file', 'evidence/structure-other.json'], testClock.now()), 'NUMBERED_WRITER_REMOVED');
+  refused(() => seedStoredPartsSignoff(dir, 'other', { by: 'user', at: testClock.now(), verbatim: 'Approve', structureFile: 'evidence/structure-other.json' }), 'PARTS_VERDICT_RECEIPT_REQUIRED');
   expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
   expect(existsSync(join(dir, 'evidence/structure-other.json'))).toBe(true);
 });

@@ -3,7 +3,6 @@ import { OWNER_CHAT_FLAGS, OWNER_CHAT_USAGE } from './owner-chat.ts';
 import { packagesCommand } from './packages-upgrade.ts';
 import { DIFF_CLASSES_HELP, diffClassesCommand } from './diff-classes.ts';
 import { CHECKPOINT_EVIDENCE_HELP, checkpointEvidenceCommand, checkpointTableCommand } from './checkpoint-evidence-writer.ts';
-import { partsReviewCommand } from './parts-review.ts';
 import { INTAKE_HELP, intakeCommand, intakeReportCommand } from './intake.ts';
 import { DIRECTION_HELP, directionCommand } from './direction-writers.ts';
 import { SCENE_HELP, sceneCommand } from './scene-writers.ts';
@@ -23,7 +22,6 @@ import { INTERVIEW_HELP, interviewCommand, type CommandResult } from './intervie
 import { COLLECTION_HELP, collectionCommand } from './pins-check.ts';
 import { Refusal, formatRefusal, refuse, USAGE_EXIT } from './refusal.ts';
 import { refuseNumberedWriter, type NumberedWriterRetirement } from './numbered-retirement.ts';
-import { REVIEW_HELP, reviewCommand } from './feedback.ts';
 import { PROGRESS_HELP, advanceCommand, stepStatusCommand } from './progress-writers.ts';
 import { PAUSE_HELP, pauseCommand, resumeCommand } from './pause.ts';
 import { AMEND_HELP, amendCommand } from './amend.ts';
@@ -90,13 +88,8 @@ ${INPUT_CLI}  rig-create init <dir> [--no-install]              create a project
   rig-create history [<project dir>] [--json]       list Create's step-data commits and their back commands
   rig-create handoff [<project dir>] [--rig <n>] [--json]
                                                     name the accepted rig version post work runs on, or refuse
-  rig-create review <version> --verdict <v> --by <who> --review <r> --verbatim <s> --source <s> [--item <id>[:<answer_was>]]... [<project dir>]
-                                                    record what a person said about a shown version, word for word
-  rig-create review <version> --from-review <actId> [<project dir>] [--item <waypoint>:not-asked]
-                                                    ingest the Review verdict and optionally route a page-level comment
   rig-create diff-classes [<dir>] --diff-report <path> [--triage-file <file> | --component '<id>=<status>:<why>'] [--by agent]
                                                     read measured component classes or record agent classification
-  rig-create signoff <stage> --from-review <actId> [<project dir>]
   rig-create comment --from-review <actId> [<dir>] [--config <path>] [--json]
                                                     record a Review comment-only act in comments[]; it pins nothing
   rig-create comment --close <index> [<dir>] --act-sha256 <sha256> --after <path>=<sha256>...
@@ -123,8 +116,6 @@ ${INPUT_CLI}  rig-create init <dir> [--no-install]              create a project
                        [--reuse <draft-id> [--reuse-record <sha256>]]
                        [--ledger-report <file> [--accepted-fail <row id>=<reason file>]...]
                                                     record labelled draft artifacts without building or promoting
-  rig-create parts-review [<dir>] --from-review <actId> [--json]
-                                                    retain the parts verdict; approval also signs parts-review
   rig-create structure-snapshot [<dir>] [--draft <id>] [--out <path>]
                                                     snapshot current.parts, or prepare the named draft's snapshot before the verdict
   rig-create review-package <n> [<dir>] --config <path> --from <build out dir>
@@ -191,8 +182,6 @@ ${HANDOFF_HELP}
 ${COLLECTION_HELP}
 
 ${COLLECTION_BINDING_HELP}
-
-${REVIEW_HELP}
 
 ${SIGNOFF_HELP}
 
@@ -306,7 +295,6 @@ const COMMANDS: Record<string, Command> = {
   record: recordCommand,
   collection: collectionCommand,
   'collection-binding': collectionBindingCommand,
-  review: reviewCommand,
   signoff: signoffCommand,
   comment: commentCommand,
   'diff-classes': diffClassesCommand,
@@ -321,7 +309,6 @@ const COMMANDS: Record<string, Command> = {
   'draft-rig': draftRigCommand,
   ledger: ledgerCommand,
   restart: restartCommand,
-  'parts-review': partsReviewCommand,
   'structure-snapshot': structureSnapshotCommand,
   correction: correctionCommand,
   scene: sceneCommand,
@@ -332,7 +319,10 @@ const COMMANDS: Record<string, Command> = {
 };
 
 /** Retired numbered subcommands and their current-path replacements, checked before UNKNOWN_COMMAND. */
-export const RETIRED_NUMBERED_COMMANDS: Record<string, string | NumberedWriterRetirement> = {};
+export const RETIRED_NUMBERED_COMMANDS: Record<string, string | NumberedWriterRetirement> = {
+  review: 'use rig-create job open --current rig|direction to inspect in Review, rig-create comment --from-review <actId> to record comments, and rig-create record <kind> --adopt or rig-create correction --adopt to migrate existing numbered outputs',
+  'parts-review': 'use rig-create record parts --from <producer out> --config <rig config> (or --adopt) and rig-create job open --current parts to inspect in Review',
+};
 
 /**
  * Run one command at `now` (ms since the epoch). The process entry below is the

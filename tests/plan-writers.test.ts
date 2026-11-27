@@ -732,14 +732,10 @@ test('a pending act made before the reorder is refused as stale with REVIEW_ACT_
   };
   testClock.set(EXAMPLE_NOW + 1_000);
   write(dir, 'revise', 'composition', ['--order', '5']);
-  unchanged(dir, 'REVIEW_ACT_SOURCE_STALE', () =>
-    rawSignoff(['post-interview', dir, '--from-review', 'sign-before-reorder'], testClock.now(), {
-      fetch: () => ({ bytes: JSON.stringify(pendingAct) }),
-    }));
-  unchanged(dir, 'REVIEW_ACT_SOURCE_STALE', () =>
-    rawSignoff(['post-interview', dir, '--from-review', 'sign-before-reorder'], testClock.now(), {
-      fetch: () => ({ bytes: JSON.stringify(legacyAct) }),
-    }));
+  expect(pendingAct.kind).toBe('signoff');
+  expect(legacyAct.kind).toBe('signoff');
+  unchanged(dir, 'SIGNOFF_FROM_REVIEW_REMOVED', () =>
+    rawSignoff(['post-interview', dir, '--from-review', 'sign-before-reorder'], testClock.now()));
 });
 
 test('signoff step_hashes still match after the array moves', () => {
@@ -822,8 +818,9 @@ test.each(['checkpoint-withdraw', 'bar-amend'] as const)('a %s journal write on 
   const afterText = readFileSync(join(dir, 'project.json'), 'utf8');
   expect(extractStepsBytes(afterText)).toBe(beforeStepsBytes);
   expect(arr(obj(read(dir).plan).steps).map(s => [obj(s).id, obj(s).order])).toEqual(beforeOrder);
-  // The pending checkpoint act on 'seethrough' (which checks act.source.plan.steps against current plan.steps) still ingests cleanly.
-  expect(rawSignoff(['parts', dir, '--checkpoint', 'seethrough', '--from-review', `cp-before-${action}`], testClock.now(), {
-    fetch: () => ({ bytes: JSON.stringify(pendingCheckpoint) }),
-  }).exit).toBe(0);
+  // Checkpoint --from-review is retired; refusing it leaves the out-of-order steps array untouched.
+  expect(pendingCheckpoint.kind).toBe('checkpoint');
+  unchanged(dir, 'SIGNOFF_FROM_REVIEW_REMOVED', () =>
+    rawSignoff(['parts', dir, '--checkpoint', 'seethrough', '--from-review', `cp-before-${action}`], testClock.now()));
+  expect(extractStepsBytes(readFileSync(join(dir, 'project.json'), 'utf8'))).toBe(beforeStepsBytes);
 });

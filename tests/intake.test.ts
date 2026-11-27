@@ -7,8 +7,7 @@ import { OPTIONS_SPEC, sha256 } from '../src/choices.ts';
 import { Refusal } from '../src/refusal.ts';
 import type { Json, JsonObject } from '../src/templates.ts';
 import { plantLegacyReopen, fixture, obj, arr } from './fixtures.ts';
-import { EXAMPLE_DIFF_REPORT } from './diff-fixture.ts';
-import { TEST_NOW, checkProject, interviewOptionsCommand, interviewAnswerCommand, interviewDecisionCommand, intakeReportCommand, signoffCommand, handoff, recordVerdict, testClock } from './clock.ts';
+import { TEST_NOW, checkProject, interviewOptionsCommand, interviewAnswerCommand, interviewDecisionCommand, intakeReportCommand, signoffCommand, handoff, testClock } from './clock.ts';
 
 const raw = readFileSync(join(import.meta.dir,'fixtures/intake/preflight.json'));
 const load=(dir:string):JsonObject=>JSON.parse(readFileSync(join(dir,'project.json'),'utf8'));
@@ -114,21 +113,13 @@ for(const state of states)test(`approval readers ignore optional intake: ${state
   const actions=[
     ()=>signoffCommand(['plan-approved',dir,'--by','user','--verbatim-file',join(dir,'words.txt')]),
     ()=>signoffCommand(['rigging-interview',dir,'--by','user','--verbatim-file',join(dir,'words.txt')]),
-    ()=>{
-      // Plant a historical reopen so later approvals, versions, scenes and direction remain in the record.
-      plantLegacyReopen(dir, 'parts-review', { by: 'user', wordsFile: join(dir,'words.txt') });
-      testClock.set(TEST_NOW + 1000);return signoffCommand(['parts-review',dir,'--by','user','--verbatim-file',join(dir,'words.txt'),'--draft','example','--structure-file','evidence/structure-example.json']);},
-    ()=>signoffCommand(['direction-review',dir,'--version','4','--by','user','--verbatim-file',join(dir,'words.txt')]),
-    ()=>recordVerdict(dir,{version:2,review:'rig-review',verdict:'accepted',by:'user',verbatim:'Approved',source:'review',items:[],quotes:{},values:{}}),
-    ()=>recordVerdict(dir,{version:4,review:'direction-review',verdict:'accepted',by:'user',verbatim:'Approved',source:'review',items:[],quotes:{},values:{}}),
     ()=>handoff(dir,null),
   ];
-  for(const [index, action] of actions.entries()){
+  for(const action of actions){
     testClock.set(TEST_NOW);
     save(dir,p);
     const without=outcome(action);
-    // Appending an acceptance to an already signed version changes its target.
-    expect(without).toBe([4, 5].includes(index) ? 'SIGNOFF_TARGET_STALE' : 'OK');
+    expect(without).toBe('OK');
     testClock.set(TEST_NOW);
     save(dir,{...p,intake:intake!});
     const withIntake=outcome(action);

@@ -10,20 +10,17 @@ import { directionCommand } from '../src/direction-writers.ts';
 import { validateDirectionRig } from '../src/direction.ts';
 import { assembleOnlyVersionFinding } from '../src/draft-layout.ts';
 import { checkDrafts, draftRigCommand } from '../src/drafts.ts';
-import { reviewCommand } from '../src/feedback.ts';
 import { checkFixLedger, FIX_LEDGER_REPORT_SPEC } from '../src/fix-ledger.ts';
 import { assertRequestedRig } from '../src/job-host.ts';
-import { partsReviewCommand } from '../src/parts-review.ts';
 import { recordedPartsVerdict } from '../src/parts-verdict-record.ts';
 import { handoffCommand } from '../src/review.ts';
 import { reviewPackageCommand } from '../src/review-package.ts';
 import { rigVersionCommand } from '../src/rig-version.ts';
 import { checkSignoffTarget } from '../src/signoff-target.ts';
-import { signoffCommand } from '../src/signoff.ts';
 import { structureSnapshotCommand } from '../src/structure-snapshot.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { arr, fixture, obj, retimeFixture } from './fixtures.ts';
-import { reviewStdout } from './review-read-fixture.ts';
+import { seedPartsCliReceipt } from './parts-receipt-fixture.ts';
 
 const now = Date.parse('2026-11-20T12:00:00Z');
 const sha = (bytes: string | Uint8Array): string => createHash('sha256').update(bytes).digest('hex');
@@ -106,9 +103,7 @@ test('records stamped assemble output and binds a parts-review CLI receipt witho
     source: { sha256: sha('synthetic source'), files: arr(parts.files).map(file => ({ path: 'opaque/frame', sha256: obj(file).sha256 })) },
     status: 'approved', parts: { sample: { outcome: 'clean', note: '' } },
   };
-  const reviewed = partsReviewCommand([dir, '--draft', 'assemble', '--from-review-cli', '--by', 'user', '--json', '--', 'opaque/input'],
-    now, { runCli: reviewStdout(Buffer.from(JSON.stringify(verdict))) });
-  expect(reviewed.exit).toBe(0);
+  seedPartsCliReceipt(dir, 'assemble', now, verdict, ['opaque/input']);
   expect(recordedPartsVerdict(dir, read(dir), 'assemble')).toBeDefined();
   const after = read(dir);
   const legacyRefusals: Finding[] = [], legacyWarnings: Finding[] = [];
@@ -224,9 +219,6 @@ test('rig consumers refuse explicit assemble sources or targets, with byte-ident
   draftRigCommand(input.args, now);
   const code = 'DRAFT_RIG_REQUIRED';
   refuses(dir, code, () => assertRequestedRig(dir, 'assemble'));
-  refuses(dir, code, () => reviewCommand(['assemble', dir, '--from-review', 'unneeded'], now));
-  refuses(dir, code, () => signoffCommand(['rig-review', dir, '--draft', 'assemble', '--by', 'user'], now));
-  refuses(dir, code, () => signoffCommand(['direction-review', dir, '--version', 'assemble', '--by', 'user'], now));
   refuses(dir, code, () => directionCommand(['write', '9', dir, '--rig', 'assemble', '--file', 'unneeded.json'], now));
   refuses(dir, code, () => directionCommand(['check', 'assemble', dir], now));
   refuses(dir, code, () => handoffCommand([dir, '--rig', 'assemble'], now));

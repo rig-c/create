@@ -1,10 +1,6 @@
 /** Relayed words retain their own clock; at remains the writer's clock. */
-import { asArray, isObject, type Finding } from './check.ts';
-import { latestPartsReceipt, latestPartsVerdictFinding, recordedPartsVerdict } from './parts-verdict-record.ts';
-import { decodeReviewAct } from './review-act.ts';
+import type { Finding } from './check.ts';
 import { readVerbatim } from './record-input.ts';
-import { acceptedReviewVerdict, readVersions } from './review.ts';
-import { collectReopens, liveSignoff } from './reopen.ts';
 import { refuse, USAGE_EXIT } from './refusal.ts';
 import type { JsonObject } from './templates.ts';
 
@@ -90,35 +86,4 @@ export function readOwnerChat(opts: Record<string,string>, by: string, now: numb
   const finding = ownerChatFinding(record,path);
   if (finding) refuse(finding.code,finding.message);
   return record;
-}
-
-/** Select the current subject as next does, then require an accepted verdict still live at this review stage. */
-export function ownerChatSignoffAllowed(dir: string, project: JsonObject, stage: string, draft?: string, version?: string): boolean {
-  const reopens = collectReopens(project,[]);
-  if (stage === 'parts-review') {
-    const current = asArray(project.drafts).filter(isObject).at(-1);
-    if (!current || typeof current.id !== 'string' || (draft !== undefined && draft !== current.id)) return false;
-    const receipt = latestPartsReceipt(project,current.id);
-    if (!receipt || latestPartsVerdictFinding(project,current.id,'signoffs.draft_id')) return false;
-    try {
-      const at = receipt.schema === 'rig-create/review-act@1' ? decodeReviewAct(String(receipt.bytes),'parts-verdict').at : receipt.at;
-      if (!Number.isFinite(Date.parse(String(at))) || !liveSignoff(reopens,'parts-review',Date.parse(String(at)))) return false;
-      recordedPartsVerdict(dir,project,current.id); return true;
-    } catch { return false; }
-  }
-  if (stage !== 'rig-review' && stage !== 'direction-review') return true;
-  const phase = stage === 'rig-review' ? 'rigging' : 'post';
-  const current = asArray(project.versions).filter(isObject).filter(v => v.kind === (stage === 'rig-review' ? 'rig' : 'post')
-    && (stage === 'rig-review' || liveSignoff(reopens,phase,Date.parse(String(v.at))))).at(-1);
-  if (!current || (version !== undefined && String(current.n) !== version)) return false;
-  if (stage === 'rig-review' && !readVersions(project).rigs.some(rig => rig.n === current.n && rig.live)) return false;
-  const index = acceptedReviewVerdict(current,stage);
-  const verdict = asArray(current.verdicts)[index];
-  return isObject(verdict) && liveSignoff(reopens,stage,Date.parse(String(verdict.at)));
-}
-
-export function assertOwnerChatSignoff(dir: string, project: JsonObject, stage: string, draft?: string, version?: string): void {
-  if (ownerChatSignoffAllowed(dir,project,stage,draft,version)) return;
-  const route = stage === 'parts-review' ? '--draft <current-draft>' : '--rig <current-version>';
-  refuse('OWNER_CHAT_GATE_VISUAL', `project.json.signoffs.${stage}: an accepted live verdict for the current subject is required; get the verdict in the review tool first with rig-create job open ${route}, ingest it, then relay the owner's signoff`);
 }

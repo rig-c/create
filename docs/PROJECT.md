@@ -387,97 +387,17 @@ The owner's relayed words supply the authority for this target. Replacing the
 parts makes the old approval stale. Prepare a snapshot and relay approval for
 the new output before using it as approved rigging context.
 
-On a numbered project the owner is asked for a parts verdict at `parts-review`.
-As soon as the
-first draft has the agent's `check-parts` report, structure snapshot,
-`diff-components` report and `diff-classes` classifications, advance to
-`parts-review`. Snapshot creation needs no verdict. Draft registration
-publishes inventory first; publish the prepared draft with `job open --draft
-<id>` and ask for one `parts-verdict`. Ingest it with
-`parts-review <project> --from-review <actId>` using the existing arguments.
-An approved UI verdict atomically appends its receipt and a human parts-review
-signature: `draft_id` comes from the verdict, `structure` from that draft's
-retained snapshot and `evidence` from that verdict.
-
-Stay at `parts-review` throughout retouch rounds. A changes-requested verdict
-leaves the stage unsigned. The agent makes an `edited_parts` correction and
-registers a new draft, then prepares fresh `check-parts` and `diff-components`
-reports, a structure snapshot and `diff-classes` classifications for that
-draft. Publish the new draft with `job open --draft <new id>` and ask for one
-new verdict; approved ingestion also signs the stage. This loop requires no
-separate signoff or move back to `parts`. Retain earlier evidence as history.
-Prepare evidence for the new draft. If registering it requires an amendment
-or a move back to
-`parts`, or old evidence prevents its approved verdict from signing, stop and
-report the structural blocker rather than adding another owner act.
-
-`projectHash` must still match the prepared record. Complete each draft's
-record changes before publishing; missing preparation requires completing it,
-republishing and asking for a new verdict, not modifying the record after the
-act and ingesting that stale act.
-
-<a id="signing-amended-parts-at-rigging"></a>
-When both the recorded and effective stages are `rigging`, a draft whose
-parts differ from the signed-off parts requires an owner-authorized draft
-amendment at `parts-review`. Use the changed draft's inventoried,
-project-relative `parts.json` and the owner's exact words. Each
-`--change` must match the registered inventory by path and SHA-256. Then
-record the new parts-review signature from the existing approved Review act.
-
-```sh
-rig-create amend parts-review <dir> --kind draft --target <id> \
-  --change <draft project-relative parts.json> --by <owner> \
-  --owner-chat <file> --said-at <ISO> --relayed-by <operator>
-rig-create signoff parts-review <dir> --draft <id> \
-  --from-review <recorded-act-id> [--structure-file <path>]
-```
-
-This exception to the fresh-act rule uses an already recorded, approved
-`parts-verdict` act. The approved producer parts and the amended draft's
-producer parts must have exactly the same file paths relative to their
-respective parts roots and the same SHA-256 hash at each path. The act may
-name a different retained source draft that meets this identity check.
-The act cannot predate the amended parts bytes.
-When those conditions hold, record the signature after the amendment without
-asking the owner to approve the same parts again. The downstream
-`rigging-interview` approval still lapses under G2 and requires re-signing.
-
-The separate signoff route also handles a midflight approved verdict already
-ingested unsigned. Existing separate signoffs remain valid. Fresh verdict
-folding introduces no SINCE date and changes no rig, direction or interview acts.
-The CLI-read route below still records evidence without folding a signature.
-See [LIVE-REVIEW.md](LIVE-REVIEW.md) for the complete UI sequence.
-
-`parts-review [<project>] --draft <id> --from-review-cli --by <name>
-[--json] -- <rig-review parts arguments>` records an independent parts verdict
-through `rig-review parts <arguments> --format json`. Put create's flags before
-`--`. The remaining arguments, including `--verdict`, are opaque strings passed
-to review in the project directory. They must be project-relative and stay
-inside the project. create reads only stdout and never opens the saved verdict
-named by those arguments. A failed CLI call refuses with its diagnostic.
-
-Exact stdout bytes are retained at `evidence/review-reads/<sha256>.json`.
-The ordered `review_acts` list holds both routes. A CLI receipt uses schema
-`rig-create/parts-verdict-cli@1`, `kind: "parts-verdict"`, `route: "cli"`,
-`draft_id`, `argv`, `evidence: {path, sha256}`, `tool: {name, version}`,
-`status`, `flagged`, `noted`, `by` and `at`. Names retain their response order
-and spelling. Notes remain verbatim in the retained response. `--by` identifies
-the human because the CLI response supplies no reviewer. Approved, pending and
-changes-requested responses can all be recorded. Recording identical bytes
-for the same draft again preserves the record byte for byte. Different bytes
-append, and the last receipt for that draft is current across both routes.
-A current changes-requested receipt refuses `signoff --draft` until a newer
-approved receipt exists. This does not itself sign or move a stage.
-
-The writer and check compare the CLI source hash multiset with the draft's
-recorded parts and output hashes. Every reviewed hash must be recorded and
-every part must be reviewed. Outputs absent from the response are optional.
-The painting declared by the draft's hash-bound `parts.json` is excluded on
-both sides, including repeated occurrences of its hash. Response paths are
-never resolved. Check reads the retained stdout, verifies its hash and copied
-receipt fields, and repeats this draft binding without querying the saved
-verdict. Signatures before `PARTS_VERDICT_LATEST_SINCE` warn for a current
-changes-requested receipt, while signatures from that date refuse.
+Numbered parts verdict writers (`parts-review`, `signoff parts-review --draft`,
+and `signoff parts-review` on a numbered project without `current`) are retired
+(`NUMBERED_WRITER_REMOVED`, exit 2), and `job open --draft <id>` opens drafts
+view-only (`subjects: []`). `check` continues to validate stored numbered
+`parts-verdict` receipts in `review_acts[]` (both `act@2` UI receipts and
+`rig-create/parts-verdict-cli@1` CLI receipts at `evidence/review-reads/<sha256>.json`)
+and stored `parts-review` sign-offs (`draft_id`, `structure`, `evidence`),
+including `<a id="signing-amended-parts-at-rigging"></a>` historical signatures
+recorded after a changed-parts draft amendment at `rigging`. To continue a
+numbered project on the current path, adopt or record `current.parts`, prepare
+`structure-snapshot`, and relay any owner chat sign-off against `current.parts`.
 
 
 A defect in the parts — a part with nothing painted under its occluder, a
@@ -565,10 +485,8 @@ assembled parts before `rigging` starts.
 
   ```sh
   rig-create diff-classes --diff-report evidence/diff-components.json --component 'p10-n3=in-painting:the painting contains this edge' --by agent
-  # Advance once the first draft has its agent evidence; stay at parts-review for retouches.
   rig-create advance parts-review --parts-check <report> --parts <assembled dir>
   rig-create job open --draft <id> --reviewer <reviewer> --role owner
-  rig-create parts-review --from-review <actId>
   ```
 
   The `diff-classes` writer hashes the report and validates the entire map
@@ -657,11 +575,11 @@ Historical rig versions may include a **still-frame record** in their
 | `frame` | `"setup"` for the renderer's setup pose, or the time in seconds into the motion the rig is posed at. `0` is the motion's start, which is not the setup pose when the idle rests off it (a breath track whose `base` equals its `amp` passes through setup mid-loop) |
 | `what` | what it shows, in words |
 
-The `review <version> --from-review <actId>` writer fetches the raw act bytes
-through the live job API, preserves them under `evidence/v<N>/`, and binds
-them in `review_acts` by SHA-256. New verdicts retain no whole-rig still.
-Review comments can bind what the reviewer saw through their `saw[]` context,
-pin and crop. There is no longer a picture of the accepted pose.
+Historical rig verdict acts retained raw act bytes under `evidence/v<N>/` and
+bound them in `review_acts` by SHA-256 (`rig-create review` is retired). Live
+Review comments bind what the reviewer saw through their `saw[]` context, pin
+and crop (`comment --from-review <actId>`). There is no picture of the accepted
+pose.
 
 **A rig changed after `rig-review`** is a new rig version, and the project is
 back at `rig-review` for it: past that stage, the latest rig version must carry
@@ -956,7 +874,7 @@ checkpoints against history. Live approvals bind current steps.
 ## Recording a sign-off
 
 ```sh
-rig-create signoff <stage> --from-review <actId> [<project dir>] [--json]
+rig-create signoff <stage> --by <owner> --owner-chat <words file> --said-at <ISO date> --relayed-by <operator> [<project dir>] [--json]
 rig-create signoff <stage> --by <who> [--steps <id,id,...>] [--verbatim-file <file>] [<project dir>] [--json]
 ```
 
@@ -966,27 +884,14 @@ from the file, or stdin when omitted or `-`, preserving BOM, spaces, CRLFs and
 final newlines. Invalid UTF-8 is refused because a JSON string cannot retain
 its original bytes.
 
-`--from-review <actId>` without `--checkpoint` is the review tool's stage
-sign-off route (with `--checkpoint <id>` it records a passed checkpoint act
-instead; see CHECKS.md). It fetches the person's
-finalized `signoff` act through the live job writer binding, the way
-`review --from-review` and `interview-answer --from-review` do, and validates
-it with the same decoder the check runs on the retained act bytes. The act
-supplies the stage (it must be the one named), the words, the person (`by` is
-`user` for the job owner, `delegate` otherwise) and `at`; `--by`,
-`--verbatim-file` and `--steps` are refused with it on both routes
-(`SIGNOFF_OPTION_INVALID`). For `plan-approved`, `rigging-interview` and
-`post-interview` the act's `source.plan` must list the current `plan.steps`
-ids and step hashes in order, or the write refuses `REVIEW_ACT_SOURCE_STALE`;
-coverage and `step_hashes` then follow the writer's usual rules. For
-`rig-review` and `direction-review` the act's `source.selector` names the
-version the person was shown (a `rig` version, or a `post` version), and that
-version is the signature's `target`; `--version` may only repeat it. A missing
-or other-kind selector, or a different `--version`, refuses
-`REVIEW_ACT_TARGET_MISMATCH`. The signature
-names its act in `source` (`review act <jobId>/<actId>`), and `review_acts[]`
-retains `{ kind: "signoff", jobId, actId, stage, bytes, sha256, version_hash }`.
-Replaying the same act returns the recorded signature unchanged.
+`signoff --from-review` (with or without `--checkpoint`) is retired and refuses
+with `SIGNOFF_FROM_REVIEW_REMOVED` (exit 2) before reading or writing
+`project.json`. `--version`, `--draft`, and `signoff parts-review|rig-review|direction-review`
+on a numbered project without `current` are retired and refuse with
+`NUMBERED_WRITER_REMOVED` (exit 2). `check` continues to validate historical
+`signoff`, `checkpoint` and `parts-verdict` receipts already recorded in
+`project.json.review_acts` and `signoffs[]` (including plan-bound `source.plan`
+step hashes and version-bound `source.selector` targets).
 
 For new-order `plan-approved`, coverage is the parts steps; `rigging-interview` covers the remaining rig steps. Legacy `plan-approved` covers every rig step. For `post-interview`, it is
 every post step. `--steps` narrows coverage within that phase and stores the
@@ -996,14 +901,9 @@ named stage and its recorded checkpoint is enabled. This records
 `checkpoint: <step id>`, without `steps` or `step_hashes`. It cannot be combined
 with `--steps`.
 
-Fresh parts-review UI approval is recorded by `parts-review --from-review
-<actId>` and also writes the stage signature. A midflight approved verdict
-already ingested unsigned uses `signoff parts-review --draft <id>
---structure-file <path> --from-review <actId>`. It selects the draft's latest
-recorded verdict and validates approval, shape and source freshness before
-writing. See the [changed-parts exception at rigging](#signing-amended-parts-at-rigging)
-for signing after an amendment from an already recorded act.
-The removed `--evidence` flag is not an input to this route.
+On `current.parts`, `signoff parts-review` requires `--owner-chat` and binds the
+retained structure snapshot (`structure-snapshot`). The removed `--evidence`
+flag refuses before writing.
 
 Only `plan-approved`, `rigging-interview` and `post-interview` accept `--steps`. Stage movement
 remains a separate act read by the check.
@@ -1554,9 +1454,9 @@ registered or published. An `assemble.edited_parts` input also identifies a
 part when the bound manifest's producer receipt names the part and resolves
 to exactly one matching file and sha256 in the draft's `config_inputs`.
 Copies at other paths and relocated references without this exact binding
-leave that input unclassified. `PART_EDIT_UNCOVERED` names the missing verdict.
-Use the Review parts tool on a draft containing the edited bytes, then record
-its verdict with `rig-create parts-review`.
+leave that input unclassified. `PART_EDIT_UNCOVERED` names the missing verdict on historical numbered records;
+on the current path, assemble and record `current.parts` and relay any owner
+chat sign-off.
 
 For a producer plate, supply `--source` for both its painting and uploaded mask,
 `--file` for its output, and `--receipt` for its `rig-parts-plate-receipt/1` JSON.
@@ -1752,14 +1652,11 @@ draft's proposed bones and weights are not the person's rigging answers.
 ```sh
 rig-create draft-rig <id> [<dir>] --config <path> --from <output dir> [--parts <dir>] [--json]
 rig-create job open [<dir>] --draft <id> --reviewer <reviewer> --role owner
-rig-create parts-review [<dir>] --from-review <actId>
 ```
 
-Before the first verdict ask, prepare the draft's check report, structure
-snapshot, difference report and classifications, then advance to parts-review.
-For each changes-requested retouch, register a new draft and prepare fresh
-evidence for it while staying at parts-review; then open that new draft for
-one verdict. See [the parts-review cycle](#the-parts-are-reviewed-before-rigging).
+`job open --draft <id>` opens the recorded draft view-only (`subjects: []`);
+`parts-review` is retired (`NUMBERED_WRITER_REMOVED`, exit 2). See
+[the parts-review cycle](#the-parts-are-reviewed-before-rigging).
 
 The recorder reads existing output; it runs no producer or review command.
 It appends `drafts[]` with `{ id, kind: "draft-rig", at, producer: {name,version},
@@ -2552,14 +2449,12 @@ browserless session PUT. Producer Apply was outside this inventory. The inventor
 
 ### Recording interview picks from a standing job
 
-Fresh interview questions are asked in chat and recorded with
-`interview-answer --owner-chat`. Use `interview-answer <question> [<project>] --from-review <actId>`
-for a stored `interview-picks` act in the standing Review job. The writer
-fetches through its private sibling capability, binds the displayed option set
-by ID and SHA-256, and retains the immutable API act bytes in `review_acts`.
-An identical act can be replayed without adding a second answer. A changed act
-with the same identity refuses. `--why-file` still supplies the exact reason
-for a member override. The removed `--picks-file` flag refuses with
+Interview questions are asked in chat and recorded with
+`interview-answer --owner-chat`. `interview-answer --from-review` and `--batch`
+are retired (`SIGNOFF_FROM_REVIEW_REMOVED`, exit 2), while `check` continues to
+validate historical `interview-picks` receipts already stored in
+`project.json.review_acts`. `--why-file` still supplies the exact reason for a
+member override. The removed `--picks-file` flag refuses with
 `INTERVIEW_PICKS_FILE_REMOVED`. Earlier answers remain valid.
 
 ## Model-free record publication
@@ -2782,17 +2677,11 @@ words (`verbatim_sha256`). Missing source, author or timestamp is recorded as
 Use `previous_record_sha256` and the row path to locate the words in the
 committed record. Earlier restart entries may omit the list.
 
-To recover words on a restarted project with a new live rig at `rig-review`,
-open that rig with `rig-create job open <dir> --rig <n> --reviewer <owner> --role owner`.
-Have the owner request changes in Review and include the exact words as the
-single page-level comment. Collect the act with `rig-create job acts <dir> --wait`
-and record it with
-`rig-create review <n> <dir> --from-review <actId> --item <id>:not-asked`.
-Open the updated plan with `rig-create job open <dir> --plan --reviewer <owner> --role owner`,
-have the owner approve it in Review, then collect the sign-off with
-`rig-create job acts <dir> --wait` and ingest it with
-`rig-create signoff rigging-interview <dir> --from-review <signoffActId>`.
-Run `rig-create interview --check <dir> --json` before citing the new addition.
+To record recovered words on a restarted project, draft and register an option
+set with `interview-options <id> <dir> --file <set.json>`, relay the owner's
+answer with `interview-answer <id> <dir> --owner-chat ...`, and relay the plan
+approval with `signoff rigging-interview <dir> --owner-chat ...`. Run
+`rig-create interview --check <dir> --json` before citing the answer.
 
 Before writing, restart also re-validates every input with the input writer's checks. A kept part set
 (inputs under `<set>/parts/*.png` or `<set>/parts.json`) must keep its
@@ -2828,12 +2717,9 @@ the project's next moves and whose they are from `project.json`:
   chat, prints the `interview-answer --owner-chat` relay command, and offers an
   optional `job open --question` (or `--questions`) command to show the option
   images in Review without opening a Review ask.
-  For a Review verdict act, run
-  `rig-create job acts --wait --json` in the background and
-  follow the matching act's preconditions, including the structure snapshot
-  guidance for legacy parts-review sign-off. Fill the reviewer and exported act
-  placeholders and ingest with the printed `--from-review '<actId>'` command.
-  Advance if the stage requires it and keep the job open for the next ask.
+  For a Review comment act, run `rig-create job acts --wait --json` in the
+  background and ingest comments with `comment --from-review '<actId>'`.
+  Advance as each stage completes and keep the job open for the next view.
   See [the live Review loop](LIVE-REVIEW.md#the-live-review-loop) for recovery,
   close and the one-time close and reopen for legacy package-only hosts. Moves marked
   `unanswered_by_record` retain their missing-field guidance.

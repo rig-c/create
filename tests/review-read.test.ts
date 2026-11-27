@@ -8,13 +8,13 @@ import { REVIEW_COMMENTS_SESSION_SCHEMA, REVIEW_COMMENTS_COMPARE_SESSION_SCHEMA 
 import { loadReview } from '../node_modules/@rig-c/review/src/manifest.ts';
 import { prepareLiveManifest } from '../src/job-publication.ts';
 import { jobHash } from '../src/job-outbox.ts';
-import { partsReviewCommand } from '../src/parts-review.ts';
 import { partsReadFindings } from '../src/parts-verdict-record.ts';
 import { correctionCommand } from '../src/correction-writers.ts';
 import { checkCorrections } from '../src/corrections.ts';
 import { checkAppliedReview } from '../src/applied-review.ts';
 import { Refusal } from '../src/refusal.ts';
 import { correctionFixture } from './correction-fixture.ts';
+import { seedPartsCliReceipt } from './parts-receipt-fixture.ts';
 import { capturedReviewSession, syntheticReviewRunner } from './review-read-fixture.ts';
 import type { JsonObject } from '../src/templates.ts';
 const roots: string[] = [];
@@ -181,20 +181,16 @@ test('parts and feedback reads share one spawn path and one stored-read validato
         source: { sha256: 'a'.repeat(64), files: ((draft.parts as JsonObject).files as JsonObject[]).map(file => ({ sha256: file.sha256 })) },
         parts: { synthetic: { outcome: 'clean', note: '' } } }));
     const calls: string[][] = [];
-    let tool = { name: '@rig-c/review', version: '2.5.0' };
+    let tool = { name: 'other-tool', version: '1.0.0' };
     const runner: ReviewReadRunner = (dir, argv) => {
         calls.push(argv);
-        return { stdout: argv[1] === 'parts' ? verdict : readFileSync(join(dir, 'evidence/feedback.json')), stderr: '', exitCode: 0, tool };
+        return { stdout: readFileSync(join(dir, 'evidence/feedback.json')), stderr: '', exitCode: 0, tool };
     };
-    const parts = () => partsReviewCommand([partsDir, '--draft', String(draft.id), '--from-review-cli', '--by', 'user', '--json', '--', 'synthetic-review'], now, { runCli: runner });
-    // A wrong tool identity is refused by the shared spawn path on both routes, before anything is stored.
-    tool = { name: 'other-tool', version: '1.0.0' };
     refused(feedbackDir, 'REVIEW_READ_INVALID', () => capture(feedbackDir, runner));
-    refused(partsDir, 'PARTS_REVIEW_CLI_FAILED', parts);
     tool = { name: '@rig-c/review', version: '2.5.0' };
     capture(feedbackDir, runner);
-    const partsReceipt = JSON.parse(parts().stdout) as JsonObject;
-    expect(calls.map(argv => argv.slice(0, 2))).toEqual([['rig-review', 'feedback'], ['rig-review', 'parts'], ['rig-review', 'feedback'], ['rig-review', 'parts']]);
+    const partsReceipt = seedPartsCliReceipt(partsDir, String(draft.id), now, JSON.parse(verdict.toString('utf8')) as JsonObject);
+    expect(calls.map(argv => argv.slice(0, 2))).toEqual([['rig-review', 'feedback'], ['rig-review', 'feedback']]);
     expect(calls.every(argv => argv.slice(-2).join(' ') === '--format json')).toBe(true);
     const feedbackRead = ((load(feedbackDir).corrections as JsonObject[])[0]!.artifact as JsonObject).review_read as JsonObject;
     const bindings: [string, JsonObject][] = [[feedbackDir, feedbackRead.stdout as JsonObject], [partsDir, partsReceipt.evidence as JsonObject]];

@@ -215,24 +215,6 @@ function lapsedAcceptance(project: JsonObject, versions: Versions): string | nul
   return `${rig.path}.verdicts[${rig.accepted.verdict}]: rig v${rig.n} was accepted at ${rig.accepted.at}, but ${by} made it history, so no live rig version is accepted; register a new rig version with rig-create rig-version <n> and accept it with rig-create review <n> --verdict accepted --review rig-review`;
 }
 
-/**
- * Rig-review cannot be signed ahead of the latest live rig's acceptance (rig-c/create#888) or on a lapsed
- * acceptance (#243). With no acceptance at all, target selection refuses (SIGNOFF_TARGET_STALE).
- */
-export function assertRigReviewSignable(project: JsonObject, path: string): void {
-  const versions = readVersions(project);
-  const accepted = latestAccepted(versions);
-  if (accepted !== null) {
-    const latest = latestRig(versions);
-    if (latest !== null && latest.n !== accepted.n) {
-      refuse('RIG_VERSION_UNACCEPTED', `${latest.path}: latest live rig v${latest.n} has no accepted rig-review verdict; accept it with rig-create review ${latest.n} --verdict accepted --review rig-review or through Review, then sign rig-review`);
-    }
-    return;
-  }
-  const lapsed = lapsedAcceptance(project, versions);
-  if (lapsed !== null) refuse('RIG_VERSION_UNACCEPTED', `${path}: rig-review would be signed on a lapsed acceptance: ${lapsed}, then sign rig-review`);
-}
-
 /** Why a post version's `rig_version` is not an accepted rig, or `null` when it is. */
 function postBasisProblem(post: PostVersion, versions: Versions): string | null {
   const rv = post.rigVersion;

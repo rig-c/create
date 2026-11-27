@@ -4,8 +4,7 @@ import { intakeItem, intakeWarnings, INTAKE_QUESTION } from './intake.ts';
 import { prepareInterviewCommentClosure } from './interview-comment-closures.ts';
 /** Public record writers; validation precedes every project write. */
 import { readFileSync, renameSync, writeFileSync } from 'node:fs';
-import { acquireBoundJobWrite, beginJobProgress } from './job-writer.ts';
-import { assertActSubjectDeclared, decodeReviewAct, fetchReviewActBytes, interviewFeedbackRoute, isRecordPicksAct, matchesActProjectSource, reviewActBy, reviewActFindings, reviewActTransport, type ReviewActTransport, type InterviewPicksAct } from './review-act.ts';
+import { acquireBoundJobWrite } from './job-writer.ts';
 import { dirname, join, resolve } from 'node:path';
 import { isDeepStrictEqual as equal } from 'node:util';
 import { answered, asArray, checkProject, collectItems, collectSignoffs, isObject, loadCollection, collectionAnswer, type Item } from './check.ts';
@@ -22,9 +21,6 @@ import type { Json, JsonObject } from './templates.ts';
 
 export const CHOICE_HELP = `interview-options <question> [<dir>] --file <retained project-relative JSON>
 interview-options --adopt [<dir>]
-interview-answer <question> [<dir>] --from-review <actId> [--why-file <file>]
-interview-answer --batch [<dir>] --from-review <actId> [--from-review <actId> ...]
-  [--why-file <question>=<file> for each member override]
 interview-answer <source-question> [<dir>] --close-comment --job <jobId> --act <actId> --order <n>
   --by agent --reason-file <file> [--resolved-by-answer <question>]
 interview-answer <question> [<dir>] --set <path> --sha256 <shown sha> --by <human>
@@ -38,22 +34,21 @@ interview-decision <question> [<dir>] --by agent --reasoning-file <file>
 Retain the shown set first. Each ask is picked explicitly; no recommended option is preselected.
 Write ask prompts, option labels and effects, and recommendation reasons in the owner's declared language.
 To ask an answered question again, retain and register a new set id/path with
-interview-options <question> --file <path>, then job open --question <question>
-and ingest interview-answer <question> --from-review <actId>; history is kept.
+interview-options <question> --file <path>, then relay the owner's answer with
+interview-answer <question> --set <id> --sha256 <hash> --pick <option> --by <owner> --owner-chat <words file> --said-at <ISO date> --relayed-by <operator>; history is kept.
 --adopt: split-order projects adopt all choices; legacy-order projects may adopt
 post choices at post-interview only. For full adoption, first adopt the split
 stage order with a fresh parts/rigging interview (docs/INTERVIEW.md).`;
 function usage(why: string): never { refuse('INTERVIEW_OPTIONS_USAGE', `interview: ${why}; ${CHOICE_HELP}`, USAGE_EXIT); }
-interface Args { positional: string[]; one: Record<string,string>; many: Record<string,Map<string,string>>; actIds: string[]; adopt: boolean; }
-function parse(args: string[], allowed: string[], repeat: string[] = [], batch = false): Args {
-  const parsed: Args = { positional: [], one: {}, many: {}, actIds: [], adopt: false };
+interface Args { positional: string[]; one: Record<string,string>; many: Record<string,Map<string,string>>; adopt: boolean; }
+function parse(args: string[], allowed: string[], repeat: string[] = []): Args {
+  const parsed: Args = { positional: [], one: {}, many: {}, adopt: false };
   for (let i=0;i<args.length;i++) {
     const arg = args[i] as string;
     if (arg === '--adopt' && allowed.includes(arg)) { if (parsed.adopt) usage('duplicate --adopt'); parsed.adopt = true; }
-    else if (repeat.includes(arg) || allowed.includes(arg) || (batch && arg === '--from-review')) {
+    else if (repeat.includes(arg) || allowed.includes(arg)) {
       const v = args[++i]; if (v === undefined || v.startsWith('--')) usage(`${arg} needs a value`);
-      if (batch && arg === '--from-review') parsed.actIds.push(v);
-      else if (repeat.includes(arg)) {
+      if (repeat.includes(arg)) {
         const eq = v.indexOf('='); if (eq < 1 || eq === v.length-1) usage(`${arg} needs ask=value`);
         const key = v.slice(0,eq); const values = parsed.many[arg] ?? new Map<string,string>();
         if (values.has(key)) usage(`${arg}: duplicate ask ${key}`);
@@ -78,7 +73,7 @@ function itemAt(project: JsonObject, dir: string, question: string | undefined):
 function readText(file: string): string { try { return readFileSync(file,'utf8'); } catch { return usage(`cannot read ${file}`); } }
 function jsonFile(file: string): Json { try { return JSON.parse(readText(file)) as Json; } catch { return usage(`invalid JSON file ${file}`); } }
 function run(action: () => string): string {
-  try { return action(); } catch (e) { if (e instanceof ChoiceError) refuse(e.code, `interview: ${e.message}; retain the shown set and explicitly record each ask`); throw e; }
+  try { return action(); } catch (e) { if (e instanceof ChoiceError) refuse(e.code, `interview: ${e.message}; retain the shown set and explicitly record each ask`, ); throw e; }
 }
 /** Partial interviews may retain unrelated pre-existing refusals, but a writer cannot add a new one. */
 export function save(file: string, dir: string, original: JsonObject, candidate: JsonObject, now: number, baseline: JsonObject[] = [],
@@ -171,98 +166,44 @@ export function interviewOptionsCommand(args: string[], now: number): string { r
   } finally { release(); }
 }); }
 
-export interface InterviewAnswerHooks {
-  fetch?: (transport: ReviewActTransport) => { bytes: string };
-}
-type FetchedInterviewAct = { act: InterviewPicksAct; bytes: string };
-
-function fetchInterviewAct(dir: string, actId: string, now: number, hooks: InterviewAnswerHooks): FetchedInterviewAct {
-  const transport: ReviewActTransport = { ...reviewActTransport(dir, actId), kind: 'interview-picks' };
-  const { bytes } = hooks.fetch ? hooks.fetch(transport) : { bytes: fetchReviewActBytes(transport) };
-  const act = decodeReviewAct(bytes, 'interview-picks');
-  if (act.jobId !== transport.jobId || act.actId !== transport.actId || Date.parse(act.at) > now) {
-    refuse('REVIEW_ACT_INVALID', 'project.json.interview: fetched identity or date differs; fetch the correct interview act');
-  }
-  return { act, bytes };
-}
-
-function retainedInterviewAnswer(project: JsonObject, item: Item, { act, bytes }: FetchedInterviewAct): JsonObject | undefined {
-  const existing = asArray(project.review_acts).filter(isObject).find(entry => entry.jobId === act.jobId && entry.actId === act.actId);
-  if (!existing) return;
-  if (existing.bytes !== bytes) refuse('REVIEW_ACT_REPLAY_CONFLICT', 'project.json.review_acts: immutable interview act changed; restore the original receipt');
-  const retained = [item.raw,...asArray(item.record.history)].filter(isObject).find(answer => answer.at === act.at
-    && sha256(Buffer.from(JSON.stringify(answer.choice))) === existing.version_hash);
-  if (!retained) refuse('REVIEW_ACT_LEDGER_INVALID', `${item.path}: original interview answer is absent; restore its history`);
-  return retained;
-}
-
-function reviewPicksPayload(dir: string, item: Item, act: InterviewPicksAct, original: Buffer): JsonObject {
-  const record = isRecordPicksAct(act) ? act : undefined;
-  if (record) {
-    assertActSubjectDeclared(dir, record, item.path);
-    if (!matchesActProjectSource(record, original)) refuse('REVIEW_ACT_SOURCE_STALE', `${item.path}: displayed record differs; publish the current question again`);
-    if (record.source.selection.questionId !== item.id || record.source.selection.setId !== record.source.optionSet.id) {
-      refuse('REVIEW_ACT_INVALID', `${item.path}: act question or set differs from its sealed source; fetch the correct interview act`);
-    }
-  }
-  const registered = item.record.pending_options;
-  if (!isObject(registered) || registered.sha256 !== act.source.optionSet.sha256
-    || (record && (registered.path !== record.source.optionSetFile.path || registered.sha256 !== record.source.optionSetFile.sha256))) {
-    refuse('INTERVIEW_OPTIONS_STALE', `${item.path}: displayed option set differs; refresh the questionnaire`);
-  }
-  const {set} = optionFile(dir,registered);
-  if (set.id !== act.source.optionSet.id) refuse('INTERVIEW_OPTIONS_STALE', `${item.path}: displayed option set identity differs; refresh the questionnaire`);
-  const by = reviewActBy(act);
-  if (by.trim().toLowerCase() === 'agent') refuse('INTERVIEW_CHOICE_INVALID', `${item.path}: act ${act.jobId}/${act.actId} came from a host opened for reviewer ${JSON.stringify(by)}, so it records the agent, who cannot answer for the owner; open the host for the owner and ask the owner to pick`);
-  return { set: registered, picks: act.value.selections.map(row => ({ ask: row.itemId, option_id: row.optionId,
-    ...(row.otherText === null ? {} : {other_text:row.otherText}) })), note: act.value.note,
-    by, at: act.at };
-}
-
 interface AnswerDraft {
   item: Item;
   answer: JsonObject;
   correction: boolean;
-  receipt?: JsonObject;
 }
 
 function prepareInterviewAnswer(
   dir: string, project: JsonObject, item: Item, opts: Args, now: number,
-  chat: ReturnType<typeof readOwnerChat>, review?: FetchedInterviewAct, payload?: JsonObject,
+  chat: ReturnType<typeof readOwnerChat>,
 ): AnswerDraft {
   const correction = answered(item.state);
   checkNewAnswer(dir,project,item,correction);
-  const binding = payload ? payload.set as JsonObject : {path:opts.one['--set'] as string,sha256:opts.one['--sha256'] as string};
+  const binding = {path:opts.one['--set'] as string,sha256:opts.one['--sha256'] as string};
   const registered = item.record.pending_options;
   if (isObject(registered) && binding.sha256 !== registered.sha256) refuse('INTERVIEW_OPTIONS_STALE',`${item.path}: displayed set sha differs from the registered set; refresh the questionnaire`);
-  if (payload && ((opts.one['--set'] && opts.one['--set'] !== binding.path) || (opts.one['--sha256'] && opts.one['--sha256'] !== binding.sha256))) refuse('INTERVIEW_OPTIONS_STALE',`${item.path}: review act set differs from the displayed set; refresh the questionnaire`);
-  if (payload && opts.one['--by'] && opts.one['--by'] !== payload.by) usage('--by differs from review act human identity');
   if (!equal(registered,binding)) refuse('INTERVIEW_CHOICE_INVALID',`${item.path}: displayed set is not the registered pending set; register/refresh the shown options`);
   const {set} = optionFile(dir,binding); validateSet(project,item,set,loadCollection(dir)); validateContext(dir,project,set,now,true);
   const offered = asArray(set.asks).filter(isObject);
-  const reviewPicks = payload ? (payload.picks as Json[]).filter(isObject) : null;
-  const selected = reviewPicks ? new Map(reviewPicks.map(p => [String(p.ask),String(p.option_id)])) : opts.many['--pick'] ?? new Map<string,string>();
-  if (selected.size !== offered.length || [...selected.keys()].some(k => !offered.some(a => a.id === k)) || (reviewPicks && !equal(reviewPicks.map(p=>p.ask),offered.map(a=>a.id)))) throw new ChoiceError('INTERVIEW_CHOICE_INVALID','pick exactly once per applicable ask in questionnaire order');
+  const selected = opts.many['--pick'] ?? new Map<string,string>();
+  if (selected.size !== offered.length || [...selected.keys()].some(k => !offered.some(a => a.id === k))) throw new ChoiceError('INTERVIEW_CHOICE_INVALID','pick exactly once per applicable ask in questionnaire order');
   const picks: JsonObject[] = offered.map(ask => {
     const option = asArray(ask.options).filter(isObject).find(o => o.id === selected.get(String(ask.id)));
     if (!option) throw new ChoiceError('INTERVIEW_CHOICE_INVALID',`unknown option for ${String(ask.id)}`);
     const pick: JsonObject = {ask:ask.id as Json,option_id:option.id as Json,shown:{label:option.label as Json,effect:option.effect as Json}};
-    const fromReview = reviewPicks?.find(p=>p.ask===ask.id);
     if (option.kind === 'other') {
       const textPath = opts.many['--other']?.get(String(ask.id)); const fragment = opts.many['--other-fragment']?.get(String(ask.id));
-      const words = fromReview?.other_text ?? (textPath ? readText(textPath) : undefined);
+      const words = textPath ? readText(textPath) : undefined;
       if (typeof words !== 'string' || !words.trim()) throw new ChoiceError('INTERVIEW_CHOICE_INVALID','Other requires exact nonempty text');
       pick.other_text = words;
       if (fragment) pick.other_fragment = jsonFile(fragment);
-    } else if (fromReview?.other_text !== undefined) throw new ChoiceError('INTERVIEW_CHOICE_INVALID','other_text is only for Other');
+    }
     return pick;
   });
   for (const flag of ['--other','--other-fragment']) for (const ask of opts.many[flag]?.keys() ?? []) if (!picks.some(p => p.ask === ask && 'other_text' in p)) usage(`${flag} supplied for non-Other ask ${ask}`);
   const choice: JsonObject = {spec:CHOICE_SPEC,set:binding,picks};
-  if (payload?.note !== undefined) choice.note = payload.note;
-  else if (opts.one['--note-file']) choice.note = readText(opts.one['--note-file']);
+  if (opts.one['--note-file']) choice.note = readText(opts.one['--note-file']);
   const result = selection(set,choice);
-  const answer: JsonObject = {delegated:result.delegated,by:payload?.by ?? opts.one['--by'],at:payload?.at ?? new Date(now).toISOString(),verbatim:choiceVerbatim(picks,choice.note),source:opts.one['--source'] ?? 'review questionnaire',choice,asks:result.asks};
+  const answer: JsonObject = {delegated:result.delegated,by:opts.one['--by'],at:new Date(now).toISOString(),verbatim:choiceVerbatim(picks,choice.note),source:opts.one['--source'] ?? 'review questionnaire',choice,asks:result.asks};
   if (chat) { answer.owner_words = chat.owner_words!; answer.said_at = chat.said_at!; answer.relayed_by = chat.relayed_by!; answer.source = chat.source!; }
   if (result.value !== undefined) answer.value = result.value;
   if (result.autos.length) answer.agent_decision = {covers:result.autos.join(',')};
@@ -291,13 +232,7 @@ function prepareInterviewAnswer(
     });
   }
   validateChoice(dir,project,item,answer);
-  const route = review && interviewFeedbackRoute(review.act);
-  return { item, answer, correction, receipt: review ? {
-    schema:'rig-create/review-act@1',kind:'interview-picks',
-    jobId:review.act.jobId,actId:review.act.actId,question:item.id,bytes:review.bytes,sha256:sha256(Buffer.from(review.bytes)),
-    version_hash:sha256(Buffer.from(JSON.stringify(choice))),
-    ...(route ? { feedback_route: route } : {}),
-  } : undefined };
+  return { item, answer, correction };
 }
 
 function applyInterviewAnswer(dir: string, next: JsonObject, draft: AnswerDraft): void {
@@ -309,7 +244,6 @@ function applyInterviewAnswer(dir: string, next: JsonObject, draft: AnswerDraft)
   }
   item.record[item.kind === 'framing' ? 'answer' : 'guide'] = draft.answer;
   delete item.record.pending_options;
-  if (draft.receipt) next.review_acts = [...asArray(next.review_acts), draft.receipt];
 }
 
 function closeInterviewComment(args: string[], now: number): string {
@@ -340,76 +274,37 @@ function closeInterviewComment(args: string[], now: number): string {
   } finally { release(); }
 }
 
-export function interviewAnswerCommand(args: string[], now: number, hooks: InterviewAnswerHooks = {}): string { return run(() => {
+const INTERVIEW_OWNER_CHAT_REMEDY = 'interview-answer <question> --set <id> --sha256 <hash> --pick <option> --by <owner> --owner-chat <words file> --said-at <ISO date> --relayed-by <operator>';
+
+export function interviewAnswerCommand(args: string[], now: number): string { return run(() => {
+  if (args.some(arg => arg === '--batch' || arg.startsWith('--batch='))) {
+    refuse('SIGNOFF_FROM_REVIEW_REMOVED', `project.json.interview: interview-answer --batch and --from-review were removed; relay the owner's answer with ${INTERVIEW_OWNER_CHAT_REMEDY}`, USAGE_EXIT);
+  }
+  if (args.some(arg => arg === '--from-review' || arg.startsWith('--from-review='))) {
+    refuse('SIGNOFF_FROM_REVIEW_REMOVED', `project.json.interview: interview-answer --from-review was removed; relay the owner's answer with ${INTERVIEW_OWNER_CHAT_REMEDY}`, USAGE_EXIT);
+  }
   if (args.includes('--close-comment')) return closeInterviewComment(args, now);
-  if (args.includes('--picks-file')) refuse('INTERVIEW_PICKS_FILE_REMOVED', 'project.json: --picks-file was removed; use interview-answer <question> --from-review <actId>', USAGE_EXIT);
-  const batch = args.includes('--batch');
-  if (batch && args.indexOf('--batch') !== args.lastIndexOf('--batch')) usage('duplicate --batch');
-  const opts = batch ? parse(args.filter(arg => arg !== '--batch'), [], ['--why-file'], true)
-    : parse(args,['--set','--sha256','--by','--note-file','--source','--from-review','--why-file',...OWNER_CHAT_FLAGS],['--pick','--other','--other-fragment']);
-  if (batch) {
-    if (opts.positional.length > 1 || opts.actIds.length < 1 || opts.actIds.length > 64) usage('--batch takes a project folder and 1 to 64 --from-review acts');
-  } else if (opts.positional.length > 2 || (!opts.one['--from-review'] && (!opts.one['--set'] || !opts.one['--sha256'] || !opts.one['--by']))) usage('question and --from-review, or --set/--sha256/--by required');
+  if (args.includes('--picks-file')) refuse('INTERVIEW_PICKS_FILE_REMOVED', `project.json: --picks-file was removed; relay the owner's answer with ${INTERVIEW_OWNER_CHAT_REMEDY}`, USAGE_EXIT);
+  const opts = parse(args,['--set','--sha256','--by','--note-file','--source','--why-file',...OWNER_CHAT_FLAGS],['--pick','--other','--other-fragment']);
+  if (opts.positional.length > 2 || !opts.one['--set'] || !opts.one['--sha256'] || !opts.one['--by']) usage('question and --set/--sha256/--by required');
   if (opts.one['--owner-chat'] !== undefined && opts.one['--by']?.toLowerCase() === 'agent') refuse('INTERVIEW_CHOICE_INVALID', 'project.json.interview: --by must name the owner; relay owner words without claiming agent authority');
-  const chat = readOwnerChat(opts.one, opts.one['--by'] ?? '', now, 'project.json.interview');
-  const dir = resolve(opts.positional[batch ? 0 : 1] ?? process.cwd());
-  const actIds = batch ? opts.actIds : opts.one['--from-review'] ? [opts.one['--from-review']] : [];
-  const release = acquireBoundJobWrite(dir, actIds.length ? undefined : { kind: 'record-only', writer: 'interview' });
+  const chat = readOwnerChat(opts.one, opts.one['--by'], now, 'project.json.interview');
+  const dir = resolve(opts.positional[1] ?? process.cwd());
+  const release = acquireBoundJobWrite(dir, { kind: 'record-only', writer: 'interview' });
   try {
-    // The first milestone waits for the job gate: a refused write leaves the project untouched.
-    const progress = actIds.length ? beginJobProgress(dir, 'ingest', 'Reading the Review interview answer') : undefined;
     const {file,project} = readProject(dir);
     const original = readFileSync(file);
     // The parsed record and the hash must describe the same snapshot.
     let captured: unknown;
     try { captured = JSON.parse(original.toString('utf8')); } catch { /* The record changed during the read. */ }
     if (!equal(project, captured)) refuse('REVIEW_ACT_SOURCE_STALE', 'project.json: record changed during interview read; retry against the current job');
-    const singleItem = batch ? undefined : itemAt(project, dir, opts.positional[0]);
-    const drafts: AnswerDraft[] = [];
-    const answers: JsonObject[] = [];
-    const reasons = opts.many['--why-file'];
-    if (!actIds.length) {
-      drafts.push(prepareInterviewAnswer(dir, project, singleItem!, opts, now, chat));
-      answers.push(drafts[0]!.answer);
-    } else {
-      if (!batch && (Object.keys(opts.many).length || opts.one['--note-file'])) usage('--from-review is exclusive with pick/Other/note flags');
-      const invalid = reviewActFindings(project)[0];
-      if (invalid) refuse(invalid.code,invalid.message);
-      const questions = new Set<string>();
-      let publication: string | undefined;
-      for (const actId of actIds) {
-        const fetched = fetchInterviewAct(dir, actId, now, hooks);
-        const { act } = fetched;
-        if (batch) {
-          const key = JSON.stringify([act.jobId, act.publicationId]);
-          if (!isRecordPicksAct(act) || (publication !== undefined && publication !== key)) {
-            refuse('REVIEW_ACT_INVALID', 'project.json.interview: batch requires record acts from one job publication; list the acts with job acts');
-          }
-          publication = key;
-          if (questions.has(act.value.questionId)) {
-            refuse('JOB_OPTION_SET_DUPLICATE', 'project.json.interview: batch repeats a question; supply one Review act per question');
-          }
-          questions.add(act.value.questionId);
-        }
-        const item = singleItem ?? itemAt(project, dir, act.value.questionId);
-        if (act.value.questionId !== item.id) refuse('REVIEW_ACT_INVALID', `${item.path}: fetched question differs; fetch the correct interview act`);
-        const retained = retainedInterviewAnswer(project, item, fetched);
-        if (retained) { answers.push(retained); continue; }
-        const answerOpts = batch ? { ...opts, one: { '--why-file': reasons?.get(item.id) ?? '' } } : opts;
-        const payload = reviewPicksPayload(dir, item, act, original);
-        const draft = prepareInterviewAnswer(dir, project, item, answerOpts, now, chat, fetched, payload);
-        drafts.push(draft);
-        answers.push(draft.answer);
-      }
-      for (const question of reasons?.keys() ?? []) if (!questions.has(question)) usage(`--why-file supplied for question ${question} outside this batch`);
-    }
-    if (drafts.length) {
-      const next = structuredClone(project);
-      for (const draft of drafts) { assertTurnBody(draft.item.id, draft.answer, draft.item.path); applyInterviewAnswer(dir, next, draft); }
-      save(file,dir,project,next,now,[],drafts.map(draft => ({ id: draft.item.id, correction: draft.correction })),original);
-    }
-    if (actIds.length) progress?.(drafts.length ? 'Review interview answer recorded' : 'Review interview answer already recorded');
-    return JSON.stringify(batch ? answers : answers[0]);
+    const singleItem = itemAt(project, dir, opts.positional[0]);
+    const draft = prepareInterviewAnswer(dir, project, singleItem, opts, now, chat);
+    const next = structuredClone(project);
+    assertTurnBody(draft.item.id, draft.answer, draft.item.path);
+    applyInterviewAnswer(dir, next, draft);
+    save(file,dir,project,next,now,[],[{ id: draft.item.id, correction: draft.correction }],original);
+    return JSON.stringify(draft.answer);
   } finally { release(); }
 }); }
 

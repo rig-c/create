@@ -37,7 +37,7 @@ function sortedCodes(findings: Findings = []): string[] {
   return findings.map(({ code }) => code).sort();
 }
 
-function fileHashes(root: string, prefix = ''): Record<string, string> {
+export function fileHashes(root: string, prefix = ''): Record<string, string> {
   const files: Record<string, string> = {};
   for (const entry of readdirSync(join(root, prefix), { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name, 'en'))) {
     const path = prefix ? `${prefix}/${entry.name}` : entry.name;
@@ -57,7 +57,7 @@ type ReaderReport = {
   post?: number;
 };
 
-function readerResults(dir: string) {
+export function readerResults(dir: string) {
   const project = JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')) as {
     versions: { kind: string; n: number }[];
   };
@@ -71,7 +71,7 @@ function readerResults(dir: string) {
   return commands.map(command => observe(dir, command, true));
 }
 
-function observe(dir: string, command: string[], json: boolean) {
+export function observe(dir: string, command: string[], json: boolean) {
   const label = command.join(' ');
   const run = Bun.spawnSync([process.execPath, cli, ...command, ...(json ? ['--json'] : [])], {
     cwd: dir, stdout: 'pipe', stderr: 'pipe',

@@ -6,12 +6,11 @@ import { dirname, join, posix } from 'node:path';
 import { checkDrafts } from '../src/drafts.ts';
 import { EDITED_PART_INPUTS_SINCE } from '../src/edited-part-inputs.ts';
 import { locateParts } from '../src/parts-sections.ts';
-import { partsReviewCommand } from '../src/parts-review.ts';
 import type { Finding } from '../src/check.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { checkProject, derivedCommand, draftRigCommand, testClock } from './clock.ts';
 import { arr, fixture, obj } from './fixtures.ts';
-import { reviewStdout } from './review-read-fixture.ts';
+import { seedPartsCliReceipt } from './parts-receipt-fixture.ts';
 
 const CODE = 'DRAFT_EDITED_PART_UNBOUND';
 const ROOT = 'derived/drafts/retouch';
@@ -101,10 +100,9 @@ test('PART_EDIT_UNCOVERED follows the exact edited receipt input to a later part
   const parts = obj(draft.parts);
   const files = arr(parts.files).map(obj).map(file => ({ ...file, path: posix.relative('evidence', String(file.path)) }));
   testClock.set(testClock.now() + 1000);
-  const response = { schema: 'rig-review-parts-verdict/4', mode: 'parts', updatedAt: testClock.iso(), status: 'approved', issues: [],
+  const response: JsonObject = { schema: 'rig-review-parts-verdict/4', mode: 'parts', updatedAt: testClock.iso(), status: 'approved', issues: [],
     tool: { name: '@rig-c/review', version: '0.0.0-synthetic' }, source: { sha256: 'a'.repeat(64), files } };
-  expect(partsReviewCommand([dir, '--draft', 'retouch', '--by', 'user', '--from-review-cli', '--', String(parts.path)],
-    testClock.now(), { runCli: reviewStdout(JSON.stringify(response)) }).exit).toBe(0);
+  seedPartsCliReceipt(dir, 'retouch', testClock.now(), response, [String(parts.path)]);
   expect(holes()).toEqual([]);
 });
 

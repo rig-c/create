@@ -12,7 +12,7 @@ export const SCENE_CHOICE_MISSING = 'SCENE_CHOICE_MISSING';
 export const SCENE_CHOICE_MISMATCH = 'SCENE_CHOICE_MISMATCH';
 
 export const SCENE_CHOICE_MISSING_REMEDY =
-  'register a post_composition option set whose value options carry value.scene:{background:{path,rect:{x,y,width,height}},foreground?:{path,rect:{x,y,width,height}}} with rig-create interview-options post_composition [<dir>] --file <retained project-relative JSON>, have the owner answer it with rig-create interview-answer post_composition [<dir>] --set <path> --sha256 <shown sha> --by <human> --pick post_composition=<option> --owner-chat <words file> --said-at <ISO date> --relayed-by <who> (or --from-review <actId>, or complete a delegated agent_decision with rig-create interview-decision), and run scene write';
+  'register a post_composition option set whose value options carry value.scene:{background:{path,rect:{x,y,width,height}},foreground?:{path,rect:{x,y,width,height}}} with rig-create interview-options post_composition [<dir>] --file <retained project-relative JSON>, have the owner answer it with rig-create interview-answer post_composition [<dir>] --set <path> --sha256 <shown sha> --by <human> --pick post_composition=<option> --owner-chat <words file> --said-at <ISO date> --relayed-by <who> (or complete a delegated agent_decision with rig-create interview-decision), and run scene write';
 const MISSING_REMEDY = SCENE_CHOICE_MISSING_REMEDY;
 const MISMATCH_REMEDY =
   'match the exact roles, paths and rects from the cited post_composition choice in the Review tool (or record a new post_composition choice in the Review tool) and run scene write';

@@ -628,109 +628,41 @@ new rig version, which needs a new first review.
 
 ### Recording a verdict
 
-```
-rig-create review <version> --verdict accepted|bounced|provisional --by <who>
-  --review rig-review|direction-review --verbatim "<words>" --source <where>
-  [--item <id>[:user|delegated|not-asked]]... [--quote <id>=<fragment>]
-  [--value <id>=<json>] [<project dir>] [--json]
-```
+`rig-create review` and `rig-create parts-review` are retired (`NUMBERED_WRITER_REMOVED`, exit 2).
+`check` continues to validate stored `versions[v<N>].verdicts[]` and `review_acts[]`
+receipts recorded by earlier releases (`rig-review` on a `rig` version,
+`direction-review` on a `post` version; rig feedback given at direction review
+was recorded on the post version shown and named the rig waypoints in its items).
 
-Appends one verdict to `versions[v<N>].verdicts[]`, dated now, with the words
-stored exactly as given, and prints what it recorded. The review must be the
-one that judges that kind of version (`rig-review` a rig version,
-`direction-review` a post version); rig feedback given at the direction review
-is recorded on the post version shown and names the rig waypoints in its items.
-
-`answer_was` comes from the record wherever the record decides it, and a value
-the record contradicts is refused by name (`FEEDBACK_ITEM_CONTRADICTS`):
+In stored verdicts, `answer_was` comes from the record wherever the record decides it:
 
 | The item's current answer | `answer_was` when not named | Also allowed |
 | --- | --- | --- |
 | a delegation | `delegated` | — |
 | a user sentence | `user` | `not-asked` — the feedback names something the sentence did not cover, which only the reader can tell |
-| a user sentence that left part open (`agent_decision` beside it) | none: name it (`FEEDBACK_ITEM_AMBIGUOUS`) | `user`, `delegated`, `not-asked` |
-| not applicable, or no answer | refused (`FEEDBACK_ITEM_NOT_APPLICABLE`, `FEEDBACK_ITEM_SILENT`): ask the question first | — |
+| a user sentence that left part open (`agent_decision` beside it) | none: name it | `user`, `delegated`, `not-asked` |
+| not applicable, or no answer | refused: ask the question first | — |
 
-A `not-asked` item is written in the same turn as a new sentence in that
-answer's `additions[]`: `by` and `at` of the verdict, `verbatim` = the
-`--quote` fragment (default: the whole feedback; it must be a fragment of it),
-`value` = `--value` (defaults to `null`)
-and `source: "polish feedback, v<N>"`. The original sentence is not edited.
-The steps resting on the guide may run again without a new signature (#981).
+A stored `not-asked` item holds its quoted sentence in that answer's
+`additions[]` (`by`, `at`, `verbatim`, `value` and `source: "polish feedback, v<N>"`,
+or `review_act` with a `review_acts[i].feedback_route` entry recording `by: "agent"`,
+the waypoint `item`, zero-based `comment_index`, `verbatim` and `at`). The
+original sentence is not edited, and steps resting on the guide may run again
+without a new signature (#981).
 
-For the latest live rig at `rig-review`, an agent can route an owner's
-changes-requested verdict with exactly one page-level comment to an existing
-rig waypoint. Use the act ID from `job acts` and name the waypoint explicitly.
+To update a waypoint or post answer on the current path, register a fresh option
+set with `interview-options`, relay the owner's pick with `interview-answer --owner-chat`,
+and relay any renewed approval named by `rig-create next` with `signoff <stage> --owner-chat`.
 
-With the rig verdict job still live, route the comment directly with
-`review --from-review <verdictActId> --item motion:not-asked`. To route after
-closing that job, ingest the verdict while the job is live, close the job
-that served the rig verdict, then route the same act from its retained receipt.
+An item id in a stored verdict that is no framing, waypoint or post item is refused
+(`FEEDBACK_ITEM_UNKNOWN`). A verdict never moved `stage` and wrote no sign-off:
+a stage moves only on a sign-off ([PROJECT.md § Stages](PROJECT.md#stages)).
 
-```sh
-rig-create review <version> <project> --from-review <verdictActId>
-rig-create job close <project>
-rig-create review <version> <project> --from-review <verdictActId> --item motion:not-asked
-```
-
-The verdict keeps its exact words, owner attribution and date. The guide
-addition contains the exact comment text, including whitespace, and records
-`value: null`. Its `review_act` field points to the verdict's source. The receipt's
-`feedback_route` records `by: "agent"`, the waypoint in `item`, the zero-based
-`comment_index` in the act's comment array, the comment in `verbatim`, and the
-routing time in `at`. The addition uses that time so the owner can re-sign the
-changed guide even if the previous signature was given after the comment.
-
-Run `rig-create next <project>` after routing to see which approval needs a
-new signature. Legacy stage order can name `plan-approved`. The example below
-applies when `next` names `rigging-interview`. While the project is still at
-`rig-review`, publish the revised plan for the owner using the
-[live Review job](LIVE-REVIEW.md#the-live-review-loop).
-
-```sh
-rig-create job open <project> --reviewer <owner> --role owner --plan
-```
-
-Have the owner re-sign the displayed `rigging-interview` plan in Review. Use
-the finalized signature act ID from `job acts` to record the re-sign.
-
-```sh
-rig-create job acts <project> --wait
-rig-create signoff rigging-interview <project> --from-review <signoffActId>
-rig-create next <project>
-```
-
-Follow `next` to build the next rig version. Cite the exact routed comment in
-its provenance and answer the verdict with
-`rig-version --answers <version>:<verdict-index>`.
-The routed addition's `value` remains `null`, and the new version cites its
-`verbatim` comment.
-
-The same `review` command can attach the route to an already-ingested act while
-its verdict remains current, even after `job close`. It takes the words from the
-act bytes in `review_acts[]` and verifies their SHA-256. Repeating the same
-route adds no second sentence. A different target is refused. Omit `--item`
-to ingest without routing, including when the verdict has multiple page-level
-comments. First ingest and replay without `--item` still use the live Review
-job.
-
-An item id that is no framing, waypoint or post item is refused
-(`FEEDBACK_ITEM_UNKNOWN`); `review` does not create an `x_` prompt. A prompt
-is a question with its own text and `required_for`, asked of the user like the
-rest (§ Questions outside this set) — a verdict cannot write it — and an `x_`
-prompt's answer lives in its waypoint's guide, so the item the verdict names is
-that waypoint either way. Add the prompt, then name the waypoint.
-
-`review` never moves `stage` and writes no sign-off: a verdict says what a
-person thought of a version, and a stage moves only on a sign-off. An
-acceptance is recorded with this command and signed with its sign-off in the
-same turn ([PROJECT.md § Stages](PROJECT.md#stages)).
-
-`interview --check` then refuses a bounced version that a later version does
-not answer, an `answers_feedback` ref that points at no earlier verdict, and a
-`not-asked` item whose sentence is not in the guide; and it counts every bounce
-by cause, so a bounce on a delegated item reads as the user's chosen cost
-([CHECKS.md § Polish feedback](CHECKS.md#polish-feedback)).
+`interview --check` refuses a bounced version that a later version (or current
+direction rebuild) does not answer, an `answers_feedback` ref that points at no
+earlier verdict, and a `not-asked` item whose sentence is not in the guide; and
+it counts every bounce by cause, so a bounce on a delegated item reads as the
+user's chosen cost ([CHECKS.md § Polish feedback](CHECKS.md#polish-feedback)).
 
 ## Checking the interview
 
@@ -854,8 +786,8 @@ command adopts only post choices, recording `interview.post.choices_adopted_at`.
 It preserves the stage order, earlier answers and signatures. Only `camera_depth`,
 `post_timing` and `post_composition` can use this adoption; framing and waypoint
 choices still require explicit split-order adoption. Repeating adoption preserves
-its original date. Post picks and approval use the owner-chat relay; previously
-stored Review acts still ingest with `--from-review`.
+its original date. Post picks and approval use the owner-chat relay (`--owner-chat`);
+historical stored Review receipts remain validated by `check`.
 
 Every newly asked framing question, waypoint and post item uses a retained
 option set. **Each applicable ask gets its own pick.** A waypoint is never a
@@ -999,9 +931,7 @@ a recommendation. Unadopted projects keep the earlier derived-answer rules.
 
 ```
 rig-create interview-options <question> [dir] --file evidence/interview/<id>.json
-rig-create interview-answer <question> [dir] --set <path> --sha256 <shown sha> --by <human> --pick <ask>=<option>...
-rig-create interview-answer <question> [dir] --from-review <actId>
-rig-create interview-answer --batch [dir] --from-review <actId> --from-review <actId> ...
+rig-create interview-answer <question> [dir] --set <path> --sha256 <shown sha> --by <human> --pick <ask>=<option>... [--owner-chat <words file> --said-at <ISO date> --relayed-by <operator>]
 rig-create interview-decision <question> [dir] --by <agent> --reasoning-file <file> --fragment <ask>=<JSON file>...
 ```
 
@@ -1019,24 +949,16 @@ inherited source answers as historical evidence.
 Option-set publications (`job open --question <question>` or
 `job open --questions`) publish the pending set(s) and their images to Review
 with `subjects: []` so the person can view them and comment. Ask the owner in
-chat and record their answer with `interview-answer --owner-chat`. Previously
-stored `interview-picks` acts (and acts from pages opened before retirement)
-still ingest through `interview-answer --from-review` and `--batch`.
+chat and record their answer with `interview-answer --owner-chat`.
 
-The writer fetches the act using its private sibling capability, binds the
-question and displayed option-set ID and SHA-256 to the pending set, and retains
-the semantic act bytes and SHA-256 in `review_acts`. Selections carry item and
-option IDs, optional Other text and the exact note. The writer derives shown
-text, assembly, coverage and verbatim from the retained options and checks
-constraints. The act's timestamp and reviewer role determine the answer's
-`at` and `by`. Identical replay returns the retained answer, including from
-history. Conflicting bytes under the same act identity refuse.
-
-`--from-review` is exclusive with pick, Other, fragment and note flags.
-Optional set/hash/by flags must agree with the act. A stale displayed set
-refuses `INTERVIEW_OPTIONS_STALE`. Malformed acts refuse `REVIEW_ACT_INVALID`.
-The removed `--picks-file` flag refuses `INTERVIEW_PICKS_FILE_REMOVED` and points
-to `--from-review`. Earlier file-route answers remain valid records. Synthetic
+`interview-answer --from-review` and `--batch` are retired and refuse with
+`SIGNOFF_FROM_REVIEW_REMOVED` (exit 2) before reading or writing `project.json`;
+`job acts` marks finalized `interview-picks` acts unavailable with the same code
+and the `--owner-chat` replacement command. `check` continues to validate
+historical `interview-picks` receipts already recorded in `project.json.review_acts`
+(including `rig-review/act@2`, `act@4` and `act@6` comment routes). The removed
+`--picks-file` flag refuses `INTERVIEW_PICKS_FILE_REMOVED` (exit 2) and points
+to the `--owner-chat` route. Earlier file-route answers remain valid records. Synthetic
 generators retain historical wire fixtures while constructing answers through
 the public flag writer. Flags use the writer's clock.
 
@@ -1092,10 +1014,9 @@ source `owner chat, relayed`. `at` remains the write time; no review act id is
 created. Empty or whitespace words, missing clocks or relay identity, and agent
 owners are refused.
 
-Stage signoffs use the same flags, retaining the exact words in `verbatim`.
-Parts-review, rig-review and direction-review first require the current
-accepted live verdict from the review tool; changes-requested does not count.
-Get that verdict with `job open --draft <id>` (parts) or `job open --rig <n>`
-(rig/post), then ingest it through the existing verdict writer. Verdict writers
-have no owner-chat route. Previously stored Review picks and signoffs still
-ingest through `--from-review`.
+Stage signoffs use the same flags, retaining the exact words in `verbatim`. On
+`current.<kind>`, `signoff parts-review|rig-review|direction-review` binds the
+live recorded output by the owner's relayed words. Numbered verdict writers
+(`review`, `parts-review`), numbered review-stage signoffs, and `--from-review`
+pick/signoff/checkpoint ingestion are retired; `check` continues to validate
+already stored receipts in `project.json`.

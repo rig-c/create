@@ -135,16 +135,16 @@ The full procedure, with recovery when the page stops, is in
 - `derived add`: record preparation another tool already ran, with the files' hashes.
 - `split-captions`: generate caption data for the split.
 - `draft-rig <id>`: record a labelled draft without building or promoting it.
-- `structure-snapshot --draft <id>`: prepare the structure snapshot before your verdict.
+- `structure-snapshot`: prepare the structure snapshot for recorded parts.
 - `diff-classes`: read measured component classes, or record the agent's classification.
-- `parts-review`: record your parts verdict. An approval also signs the step.
+- `record parts|rig|motion|direction`: record verified producer outputs under `current.<kind>`.
+- `comment --from-review <actId>`: record an owner comment act from the live review page, or close an addressed comment.
 - `correction record|resolve`: record a correction you described or made, and how the agent resolved it.
 
 **Rig and animation**
 
 - `rig-version <n>`: register a frozen rig build.
 - `review-package <n>`: copy the build's inputs for review and record the command that opens it.
-- `review <version>`: record what you said about a shown version, word for word.
 - `handoff`: name the accepted rig version that direction work runs on, or refuse.
 
 **Direction**

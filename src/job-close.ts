@@ -378,11 +378,8 @@ export async function refusePendingJobAsks(root: string, jobId: string, host: Jo
   const pending = pendingJobAsksForTarget(project, asks, acts, root, target, bytes);
   if (pending.length > 0) {
     const listed = pending.map(item => item.label).join('; ');
-    const version = pending.find(item => item.version !== null)?.version ?? null;
     const wait = `rig-create job acts ${shellWord(root)} --wait`;
-    const ingest = version === null || pending.some(item => item.version === null)
-      ? `have the owner respond in Review, run ${wait}, and run the printed ingest commands`
-      : `have the owner give the verdict in Review, run ${wait}, and ingest with rig-create review ${version} --from-review <actId> (review <n> --from-review <actId>)`;
+    const ingest = `have the owner respond in Review, run ${wait}, and inspect or withdraw pending acts before closing`;
     const retry = target.kind === 'record-only' ? 're-run this command' : 're-run this command to publish into the existing job';
     let remedy = `${ingest}; ${retry}`;
     const staleActIds = new Set(pending.flatMap(item => item.staleInterviewActId === undefined ? [] : [item.staleInterviewActId]));
@@ -397,9 +394,7 @@ export async function refusePendingJobAsks(root: string, jobId: string, host: Jo
       remedy = `run rig-create job acts ${shellWord(root)} to inspect the finalized acts. After ingesting any current acts, ${discard}, then open the remaining sets on the current record`;
       if (target.kind === 'record-only') remedy += '; re-run this command once the remaining asks are settled';
     } else if (target.kind === 'record-only' && target.writer === 'interview' && pending.some(item => item.interview)) {
-      remedy += '. For an interview ask, to keep the page, have the owner submit in Review if they have not already,'
-        + ' then run job acts --wait and interview-answer <question> --from-review <actId>,'
-        + " or, to record chat words, ingest finalized acts, run job close with the owner's authorization, then retry with --owner-chat.";
+      remedy += ". For an interview ask, run job close with the owner's authorization (or job withdraw-act <actId> for one stale act), then retry with --owner-chat.";
     }
     refuse('JOB_ASK_PENDING', `project.json: bound job ${jobId} holds pending owner ask(s) ${listed} with no ingested act; ${remedy}`);
   }

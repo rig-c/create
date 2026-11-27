@@ -206,8 +206,13 @@ ends as the head. `job open` prints `job: pending rig v<n> published` (or
 published. Later signoffs,
 inputs and other independent writes remain in that current record.
 Reconciliation never rewrites `project.json`. A changed or missing committed
-version refuses with `JOB_PUBLICATION_STALE`. Another participating writer and explicit close
-wait until pending work is reconciled. After process loss, `check` and reconcile
+version refuses with `JOB_PUBLICATION_STALE`. Pending work blocks other
+participating writers and ordinary close. For a recorded publication failure,
+`next` offers `rig-create job close <dir> --retire-refused`. This archives the
+failed receipts. When unfailed work remains, the job and its URL stay bound for
+`job reconcile`. Otherwise, the command closes the job after the usual act
+checks. See [job retirement](JOB-RETIREMENT.md) for the `--discard-acts` rules.
+After process loss, `check` and reconcile
 recover a dead writer's shared lock. An intent with a matching version entry is
 a pending HOLE, including after other writers change the surrounding record.
 An intent whose version is absent is dropped with its ID and version hash

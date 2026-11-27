@@ -2,11 +2,11 @@
 import { readFileSync, realpathSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { startJobHost } from '@rig-c/review/job-host';
-import { assertNoPendingJobAsk, attachCreateJobForClose, withdrawCreateJobAct } from './job-close.ts';
-import { askOutcomeLines, subjectLabel, assertRequestedCurrent, assertRequestedDraft, assertRequestedRig, closeCreateJob, listCreateJobActs, openCreateJob, openCurrentPublication, openDraftPublication, openRecordPublication, requestedRecordResult, publishPending, reconcileCreateJob, refuseAskOutcomes, type AskOutcome } from './job-host.ts';
+import { assertNoPendingJobAsk, attachCreateJobForClose, closeCreateJob, withdrawCreateJobAct } from './job-close.ts';
+import { askOutcomeLines, subjectLabel, assertRequestedCurrent, assertRequestedDraft, assertRequestedRig, listCreateJobActs, openCreateJob, openCurrentPublication, openDraftPublication, openRecordPublication, requestedRecordResult, publishPending, reconcileCreateJob, refuseAskOutcomes, type AskOutcome } from './job-host.ts';
 import { failPublication, pendingPublications, readWriterBinding, reconcilePublication } from './job-outbox.ts';
 import { postJobProgress, type JobProgressUpdate } from './job-progress.ts';
-import { jobActsText, type JobWriteAskTarget } from './job-acts.ts';
+import { jobActsText, shellWord, type JobWriteAskTarget } from './job-acts.ts';
 import { Refusal, refuse } from './refusal.ts';
 import { replacedRootRefusal } from './job-host-state.ts';
 import { requireOwnerLanguage } from './owner-language.ts';
@@ -94,7 +94,12 @@ async function run(): Promise<void> {
       console.log(`job: withdrew act ${input.actId}`);
       break;
     }
-    case 'close': await closeCreateJob(root, undefined, input.retireRefused, input.discardActs, input.now); console.log('job: closed'); break;
+    case 'close': {
+      const result = await closeCreateJob(root, undefined, input.retireRefused, input.discardActs, input.now);
+      console.log(result.status === 'closed' ? 'job: closed'
+        : `job: retired ${result.retired} failed publication(s); kept the job open with ${result.pending} pending publication(s). Run rig-create job reconcile ${shellWord(root)}`);
+      break;
+    }
     case 'open': {
       if (!input.reviewer || !input.role) refuse('JOB_BINDING_INVALID', 'project.json: job open needs --reviewer and --role owner|delegate');
       const record = requestedRecordResult(root, input.question, input.plan, input.now);

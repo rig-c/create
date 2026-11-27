@@ -74,6 +74,8 @@ export interface PendingPublication {
   result: PublicationResult;
   failure: { code: string; message: string } | null;
   generation?: number;
+  /** Current publications with a stored generation and no flag use the legacy request key. */
+  generationKeyed?: true;
   phase?: 'intent' | 'pending';
 }
 
@@ -328,7 +330,8 @@ export function pendingPublications(root: string, recoverIntents = false): Pendi
       || entry.versionHash !== undefined && !/^[a-f0-9]{64}$/.test(entry.versionHash)
       || entry.previousVersionHash !== undefined && !/^[a-f0-9]{64}$/.test(entry.previousVersionHash)
       || entry.commit !== undefined && !/^[a-f0-9]{40}$/.test(entry.commit)
-      || !entry.result || !entry.identity) {
+      || !entry.result || !entry.identity
+      || entry.generationKeyed !== undefined && (entry.generationKeyed !== true || entry.result.selector?.kind !== 'current')) {
       refuse('JOB_OUTBOX_INVALID', 'project.json: malformed pending publication; restore the writer-owned outbox before reconciling');
     }
     if (!entry.versionHash) {
@@ -370,8 +373,19 @@ export function retireRefusedPublications(root: string, entries: PendingPublicat
     if (!entry.failure) refuse('JOB_PUBLISH_PENDING', 'project.json: an unfailed publication cannot be retired; run rig-create job reconcile first');
     const directory = join(jobPrivateRoot(root), 'retired-publications');
     privateDirectory(directory);
-    writePrivateJson(join(directory, `${entry.id}.json`), entry);
-    rmSync(pendingPath(root, entry.id));
+    const pending = pendingPath(root, entry.id);
+    const receipt = JSON.stringify(entry);
+    // The active ID deduplicates pending work. A later retirement of that ID
+    // may carry a different generation or failure. Keep the first path readable.
+    let path = join(directory, `${entry.id}.json`);
+    if (existsSync(path) && JSON.stringify(privateJson(path)) !== receipt) {
+      path = join(directory, `${entry.id}-${jobHash(receipt)}.json`);
+    }
+    if (!existsSync(path)) writePrivateJson(path, entry);
+    else if (JSON.stringify(privateJson(path)) !== receipt) {
+      refuse('JOB_OUTBOX_INVALID', 'project.json: retirement identity conflicts with a retained receipt; restore the original writer-owned archive');
+    }
+    rmSync(pending);
     syncDirectory(join(jobPrivateRoot(root), 'outbox'));
   }
 }

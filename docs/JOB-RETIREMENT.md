@@ -12,12 +12,21 @@ rig-create job open <project> --reviewer <id> --role <owner|delegate> [--draft <
 
 ## Recovery rules
 
-- **Pending outbox entries block close.** If `.rig-create-review/outbox/`
+- **Pending outbox entries block ordinary close.** If `.rig-create-review/outbox/`
   holds a pending publication, `job close` refuses `JOB_PUBLISH_PENDING`
   whether the host is running or stopped. Reconcile against the original host
-  configuration first, or pass `job close --retire-refused` to archive failed
-  pending receipts under `retired-publications/` and close without publishing
-  them; unfailed pending publications still refuse `JOB_PUBLISH_PENDING`.
+  configuration first. To abandon a recorded publication failure, use the
+  `job close <dir> --retire-refused` move shown by `next`.
+  - When every pending publication has a recorded failure, the command archives
+    the failed receipts under `retired-publications/` and closes the job after
+    the normal finalized-act checks.
+  - When both failed and unfailed publications are pending, it archives the
+    failed receipts and keeps the bound job open. Run `job reconcile` to send
+    the remaining publications on that job. Combining `--retire-refused` with
+    `--discard-acts` in this case refuses before archiving any receipt. Retire
+    the failed publications, reconcile, then close with `--discard-acts`.
+  - When all pending publications are unfailed, `--retire-refused` still
+    refuses `JOB_PUBLISH_PENDING`. Run `job reconcile`.
 - **`job close` preserves `project.json`.** Retiring the bound job revokes the
   active job's fetch grant (when the Review store is present) and removes the
   matching `.rig-create-review-binding.json` while leaving `project.json`
@@ -25,8 +34,8 @@ rig-create job open <project> --reviewer <id> --role <owner|delegate> [--draft <
   receipts to `project.json.review_acts[]`. The subsequent `job open` starts a
   fresh job at the current pin and updates `project.json.review_job` and the
   private binding.
-- **Host identity and capability checks remain enforced on close.** `job close`
-  still verifies the project `root` (path and inode), `stateDir`, `fingerprint`,
+- **Host identity and capability checks remain enforced on close.** Closing
+  the job verifies the project `root` (path and inode), `stateDir`, `fingerprint`,
   `reviewer` (`id` and `role`), `jobId`, `origin`, `listenerIncarnation`, and
   host descriptor agreement (`JOB_HOST_REUSE_MISMATCH` or `JOB_HOST_ATTACH_REFUSED`),
   and verifies that the stored `fetchCapability` is authorized for the bound
@@ -83,7 +92,8 @@ they displayed when only withdrawal receipts have been appended.
 | Command or condition | Does the current Review page survive? |
 | --- | --- |
 | `job withdraw-act` | Yes. |
-| Successful `job close`, including `--discard-acts` and `--retire-refused` | No. The next open serves a new job. |
+| `job close` reports `job: closed` | No. The next open serves a new job. |
+| `job close --retire-refused` archives failed receipts and leaves unfailed work pending | Yes. Run `job reconcile` on the same job. |
 | `job open` with the existing live binding and the same reviewer and role | Yes. It publishes into the existing job when a new source is ready. |
 | `job reconcile` with the existing live binding | Yes. It publishes pending work into the bound job. |
 | `job open` or `job reconcile` archives an offline job bound to a replaced project root | No. `job open` serves a new job; `job reconcile` requires a subsequent open. |

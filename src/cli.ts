@@ -22,6 +22,7 @@ import { describeInit, initProject } from './init.ts';
 import { INTERVIEW_HELP, interviewCommand, type CommandResult } from './interview.ts';
 import { COLLECTION_HELP, collectionCommand } from './pins-check.ts';
 import { Refusal, formatRefusal, refuse, USAGE_EXIT } from './refusal.ts';
+import { refuseNumberedWriter, type NumberedWriterRetirement } from './numbered-retirement.ts';
 import { REVIEW_HELP, reviewCommand } from './feedback.ts';
 import { PROGRESS_HELP, advanceCommand, stepStatusCommand } from './progress-writers.ts';
 import { PAUSE_HELP, pauseCommand, resumeCommand } from './pause.ts';
@@ -330,6 +331,9 @@ const COMMANDS: Record<string, Command> = {
   'split-captions': splitCaptionsCommand,
 };
 
+/** Retired numbered subcommands and their current-path replacements, checked before UNKNOWN_COMMAND. */
+export const RETIRED_NUMBERED_COMMANDS: Record<string, string | NumberedWriterRetirement> = {};
+
 /**
  * Run one command at `now` (ms since the epoch). The process entry below is the
  * only place create reads the wall clock; tests and scripts pass a fixed instant
@@ -453,8 +457,11 @@ export function main(argv: string[], now: number): number {
       process.stdout.write(`${runningCreateVersion()}\n`);
       return 0;
     }
-    const command = COMMANDS[first];
+    const command = Object.hasOwn(COMMANDS, first) ? COMMANDS[first] : undefined;
     if (command === undefined) {
+      if (Object.hasOwn(RETIRED_NUMBERED_COMMANDS, first)) {
+        refuseNumberedWriter(first, RETIRED_NUMBERED_COMMANDS[first]);
+      }
       refuse('UNKNOWN_COMMAND', `no command named ${first} (see rig-create --help)`, USAGE_EXIT);
     }
     takePublishedLines();

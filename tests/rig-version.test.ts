@@ -2694,7 +2694,7 @@ test('#454 no-bounce rig writer and next preserve previous bytes and output', as
   const verdictMoves = report.moves.filter(move => move.field === field || move.awaits === awaits || move.review_act?.kind === 'review-verdict');
   expect(verdictMoves).toEqual([{
     role: 'human', field, awaits, command: null,
-    act: 'NUMBERED_ACT_RETIRED: Rig v1 needs an accepted live rig-review verdict. To continue on the current path, follow the adoption or rebuild instructions in docs/PROJECT.md#adopting-existing-numbered-outputs. To complete the numbered verdict gate, use Create 1.26.0.',
+    act: 'NUMBERED_ACT_RETIRED: Rig v1 needs an accepted live rig-review verdict. To continue on the current path, follow the adoption or rebuild instructions in docs/PROJECT.md#adopting-existing-numbered-outputs. To complete the numbered verdict gate, use Create 1.27.0.',
   }]);
   expect(text.stdout.split('\n')[0]).toBe(`next: ${projectId || '(unnamed)'} — stage: rig-review`);
   expect(text.stdout).toContain(`  [human] (${field} -> ${awaits}) ${verdictMoves[0]!.act}`);

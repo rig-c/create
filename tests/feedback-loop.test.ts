@@ -46,7 +46,7 @@ function expectRetiredPostVerdict(report: NextReport) {
   const moves = report.moves.filter(move => move.field === field || move.awaits === awaits || move.review_act?.kind === 'review-verdict');
   expect(moves).toEqual([{
     role: 'human', field, awaits, command: null,
-    act: 'NUMBERED_ACT_RETIRED: Post v3 needs an accepted live direction-review verdict. To continue on the current path, follow the adoption or rebuild instructions in docs/PROJECT.md#adopting-existing-numbered-outputs. To complete the numbered verdict gate, use Create 1.26.0.',
+    act: 'NUMBERED_ACT_RETIRED: Post v3 needs an accepted live direction-review verdict. To continue on the current path, follow the adoption or rebuild instructions in docs/PROJECT.md#adopting-existing-numbered-outputs. To complete the numbered verdict gate, use Create 1.27.0.',
   }]);
   return moves[0]!;
 }

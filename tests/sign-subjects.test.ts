@@ -8,6 +8,7 @@ import { cpSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync 
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { startJobHost, type JobHostOptions, type JobOwnerHost, type JobSubject } from '@rig-c/review/job-host';
+import { EXAMPLE_ANCHOR } from '../scripts/example-time.ts';
 import { checkProject } from '../src/check.ts';
 import { structureSnapshotCommand } from '../src/structure-snapshot.ts';
 import { diffClassesCommand } from '../src/diff-classes.ts';
@@ -97,10 +98,22 @@ function partsAtCheckpoint(): string {
 }
 function preparedParts(): string {
   const root = copy('1-parts-verdict');
+  const checkpoint = read(root);
+  // Review stamps its verdict with the wall clock. Date setup from the retained checkpoint and *_SINCE floor.
+  const records = [
+    ...(Array.isArray(checkpoint.inputs) ? checkpoint.inputs : []),
+    ...(Array.isArray(checkpoint.advances) ? checkpoint.advances : []),
+    ...(Array.isArray(checkpoint.drafts) ? checkpoint.drafts : []),
+    ...(Array.isArray(checkpoint.signoffs) ? checkpoint.signoffs : []),
+  ];
+  const times = records
+    .map(entry => (entry && typeof entry === 'object' && !Array.isArray(entry) ? Date.parse(String((entry as JsonObject).at)) : NaN))
+    .filter(Number.isFinite);
+  const prepNow = Math.max(EXAMPLE_ANCHOR, ...times) + 1_000;
   cpSync(join(import.meta.dir, '../templates/example-chain/evidence/diff-components.json'), join(root, 'evidence/diff-components.json'));
   structureSnapshotCommand([root, '--draft', 'chain', '--out', 'evidence/structure-chain.json']);
-  diffClassesCommand([root, '--diff-report', 'evidence/diff-components.json', '--by', 'agent'], Date.now());
-  advanceCommand(['parts-review', root, '--parts-check', 'evidence/parts-check.json', '--parts', 'derived/drafts/chain/input'], Date.now());
+  diffClassesCommand([root, '--diff-report', 'evidence/diff-components.json', '--by', 'agent'], prepNow);
+  advanceCommand(['parts-review', root, '--parts-check', 'evidence/parts-check.json', '--parts', 'derived/drafts/chain/input'], prepNow);
   return root;
 }
 const draftArgs = ['draft-rig', 'chain', '--config', 'derived/drafts/chain/config.json', '--from', 'derived/drafts/chain/out', '--parts', 'derived/drafts/chain/input', '--json'];

@@ -298,7 +298,7 @@ test('adopts a numbered post with <id>:<pose> output directories and checks with
         path, sha256: sha256(body), bytes: Buffer.byteLength(body),
       })),
     ];
-  }, 'example-project.json', composeFiles);
+  }, 'example-numbered/example-project.json', composeFiles);
 
   const adopted = recordCommand(['direction', dir, '--adopt', '--json'], checkNow);
   expect(adopted.exit).toBe(0);

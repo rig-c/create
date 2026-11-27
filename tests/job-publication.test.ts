@@ -337,6 +337,52 @@ test.each(['legacy', 'generation-keyed'] as const)('#1119 current %s lost acknow
   expect(readFileSync(join(root, 'project.json'))).toEqual(record);
 });
 
+test('#1119 a legacy current publication key conflict recovers on the second job reconcile', async () => {
+  const { root, host, record, enqueue } = await boundCurrentPublication();
+  const rig = enqueue('rig');
+  rig.generation = host.session.status().generation;
+  failPublication(root, rig, null);
+  expect(await reconcileCreateJob(root, undefined, EXAMPLE_NOW)).toBe(1);
+  const originalRig = host.session.status().publication!;
+  const legacyKey = jobHash(JSON.stringify([rig.id, rig.recordHash]));
+  expect(readAcknowledgedPublication(root, host.session.jobId, originalRig.publicationId)?.requestId).toBe(legacyKey);
+
+  await openCurrentPublication(root, host, 'parts', EXAMPLE_NOW);
+  const parts = host.session.status().publication!;
+  expect(parts.source).toMatchObject({ selector: { kind: 'current', output: 'parts' } });
+  const pending = enqueue('rig');
+  expect(pending.id).toBe(rig.id);
+  expect(pending.generationKeyed).toBeUndefined();
+  pending.generation = parts.generation;
+  failPublication(root, pending, null);
+
+  const reconcile = async () => {
+    const child = Bun.spawn([process.execPath, ...jobRuntimeExecArgv(), join(import.meta.dir, '../src/cli.ts'),
+      'job', 'reconcile', root], { cwd: root, stdout: 'pipe', stderr: 'pipe' });
+    const [exit, stdout, stderr] = await Promise.all([
+      child.exited, new Response(child.stdout).text(), new Response(child.stderr).text(),
+    ]);
+    return { exit, stdout, stderr };
+  };
+  expect(await reconcile()).toMatchObject({ exit: 1, stderr: expect.stringMatching(/^JOB_PUBLISH_PENDING: .*JOB_IDEMPOTENCY_CONFLICT/m) });
+  expect(host.session.status().publication?.publicationId).toBe(parts.publicationId);
+  const [failed] = pendingPublications(root);
+  expect(failed).toMatchObject({ id: pending.id, failure: { code: 'JOB_IDEMPOTENCY_CONFLICT' } });
+  expect(failed?.generation).toBeUndefined();
+  expect(checkProject(root, undefined, { now: EXAMPLE_NOW }).holes?.map(hole => hole.code)).toEqual(['JOB_PUBLISH_PENDING']);
+  expect(readFileSync(join(root, 'project.json'))).toEqual(record);
+
+  expect(await reconcile()).toMatchObject({ exit: 0, stdout: 'job: reconciled 1 publication(s)\n' });
+  const recovered = host.session.status().publication!;
+  expect(recovered.source).toMatchObject({ selector: { kind: 'current', output: 'rig' } });
+  expect(new Set([originalRig.publicationId, parts.publicationId, recovered.publicationId]).size).toBe(3);
+  expect(readAcknowledgedPublication(root, host.session.jobId, recovered.publicationId)?.requestId)
+    .toBe(jobHash(JSON.stringify([pending.id, pending.recordHash, parts.generation])));
+  expect(pendingPublications(root)).toEqual([]);
+  expect(checkProject(root, undefined, { now: EXAMPLE_NOW }).holes ?? []).toEqual([]);
+  expect(readFileSync(join(root, 'project.json'))).toEqual(record);
+}, 15_000);
+
 test('#1119 retirement preserves the original path and distinct generations or failures of one current outbox ID', async () => {
   const { root, enqueue } = await boundCurrentPublication();
   const archive = join(jobPrivateRoot(root), 'retired-publications');

@@ -1,7 +1,7 @@
 import { appendFileSync, closeSync, existsSync, mkdtempSync, openSync, readFileSync, rmSync, writeSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { consumerCases, guardConsumerCoverage, skippedTestNames, unpublishedCreateSkips } from './consumer-ci.ts';
+import { consumerCases, guardConsumerCoverage, skippedTestNames } from './consumer-ci.ts';
 import { listMatchingTmpEntries } from './tmp-leak-check.ts';
 import { parsePassedTestNames } from '../tests/source-only.ts';
 
@@ -37,7 +37,7 @@ export function runCiSuite(root: string, mode: 'source' | 'registry', extraEnv: 
       );
     }
     const registered = existsSync(registrations) ? readFileSync(registrations,'utf8').trim().split('\n').filter(Boolean).map(line => JSON.parse(line) as {file:string;name:string}) : [];
-    guardConsumerCoverage(consumerCases,registered,parsePassedTestNames(output),skipped,mode,mode === 'source' ? unpublishedCreateSkips(root) : new Set());
+    guardConsumerCoverage(consumerCases,registered,parsePassedTestNames(output),skipped,mode);
     return { output, exitCode: 0 };
   } finally { rmSync(scratch,{recursive:true,force:true}); }
 }

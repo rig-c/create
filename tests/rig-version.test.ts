@@ -14,7 +14,7 @@ import { PINNED_PACKAGES } from '../src/pins.ts';
 import { Refusal } from '../src/refusal.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { arr, fixture, obj, waypoint } from './fixtures.ts';
-import { clockedCli, run, skipInitInstall } from './helpers.ts';
+import { clockedCli, gitEnv, run, stagedCreateRegistry } from './helpers.ts';
 import { framedRigPin } from './comment-anchor-shapes.ts';
 import { openCreateJob, reconcileCreateJob } from '../src/job-host.ts';
 import { acquireJobLock, jobHash, jobHostStateRoot, jobPrivateRoot, pendingPublications, readWriterBinding } from '../src/job-outbox.ts';
@@ -1112,10 +1112,12 @@ describe('frozen rig registration', () => {
     throw new Error(`#849: no job in 12 put the receipt hashes in the order "${order}"`);
   }, 180_000);
 
-  test.skipIf(skipInitInstall())('registers a planted run with the unmodified lock from init', () => {
+  test.skipIf(process.env.RIG_CREATE_NETWORK !== '1')('registers a planted run with the unmodified lock from init', () => {
     const planted = setup();
-    const dir = join(dirname(planted.dir), 'initialized');
-    const init = run([process.execPath, join(import.meta.dir, '../src/cli.ts'), 'init', dir], dirname(dir), process.env as Record<string, string>);
+    const root = dirname(planted.dir);
+    const dir = join(root, 'initialized');
+    const env = { ...gitEnv(), ...stagedCreateRegistry(), BUN_INSTALL_CACHE_DIR: join(root, 'bun-cache') };
+    const init = run([process.execPath, join(import.meta.dir, '../src/cli.ts'), 'init', dir], root, env);
     expect(init.code).toBe(0);
     expect(existsSync(join(dir, 'package-lock.json'))).toBe(false);
     // Plant the synthetic pre-registration state and producer artifacts in the initialized project.

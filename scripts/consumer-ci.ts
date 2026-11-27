@@ -6,7 +6,6 @@ export const consumerCases = JSON.parse(readFileSync(join(import.meta.dir, 'cons
 export function guardConsumerCoverage(
   entries: readonly ConsumerCase[], registered: readonly { file: string; name: string }[],
   passed: ReadonlySet<string>, skipped: ReadonlySet<string>, mode: 'registry' | 'source',
-  allowedSkips: ReadonlySet<string> = new Set(),
 ): void {
   const seen = new Set<string>();
   for (const entry of entries) {
@@ -25,24 +24,8 @@ export function guardConsumerCoverage(
     }
   }
   if (mode === 'source') for (const name of skipped) {
-    if (!seen.has(name) && !allowedSkips.has(name)) throw new Error(`CONSUMER_CI_COVERAGE: unexpected source skip: ${name}; execute the test`);
+    if (!seen.has(name)) throw new Error(`CONSUMER_CI_COVERAGE: unexpected source skip: ${name}; execute the test`);
   }
-}
-/**
- * Tests that run `init` with its install skip while the running Create
- * version is not on the registry (`skipInitInstall()` in tests/helpers.ts):
- * `init` pins and installs that version (#1078). The source gate accepts
- * their skip only in that state; #1094 makes them testable before publish.
- */
-export const UNPUBLISHED_CREATE_SKIPS = [
-  'init with install writes a lockfile that reinstalls offline',
-  'every node_modules link in AGENTS.md resolves after init with install, and none of its lines is copied from them',
-  'frozen rig registration > registers a planted run with the unmodified lock from init',
-] as const;
-export function unpublishedCreateSkips(root: string): Set<string> {
-  const { version } = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')) as { version: string };
-  const view = Bun.spawnSync(['npm', 'view', `@rig-c/create@${version}`, 'version'], { stdout: 'pipe', stderr: 'pipe' });
-  return view.exitCode === 0 && view.stdout.toString().trim() === version ? new Set() : new Set(UNPUBLISHED_CREATE_SKIPS);
 }
 export function skippedTestNames(output: string): Set<string> {
   const clean = output.replace(new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, 'g'), '');

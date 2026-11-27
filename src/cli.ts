@@ -7,8 +7,8 @@ import { partsReviewCommand } from './parts-review.ts';
 import { INTAKE_HELP, intakeCommand, intakeReportCommand } from './intake.ts';
 import { DIRECTION_HELP, directionCommand } from './direction-writers.ts';
 import { SCENE_HELP, sceneCommand } from './scene-writers.ts';
-import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { runningCreateVersion } from './pins.ts';
 
 import { CHOICE_HELP, interviewOptionsCommand, interviewAnswerCommand, interviewDecisionCommand } from './choice-writers.ts';
 import { CORRECTION_HELP, correctionCommand } from './correction-writers.ts';
@@ -232,14 +232,6 @@ ${SPLIT_CAPTIONS_HELP}
  */
 type Command = (args: string[], now: number) => string | CommandResult;
 
-function version(): string {
-  const pkg: unknown = JSON.parse(readFileSync(join(import.meta.dir, '..', 'package.json'), 'utf8'));
-  if (pkg !== null && typeof pkg === 'object' && 'version' in pkg && typeof pkg.version === 'string') {
-    return pkg.version;
-  }
-  return 'unknown';
-}
-
 function initCommand(args: string[], now: number): string {
   if (args.includes('--collection') || args.includes('--member')) {
     const made = collectionInitCommand(args, now);
@@ -451,7 +443,7 @@ export function main(argv: string[], now: number): number {
       return 0;
     }
     if (first === '--version' || first === '-v') {
-      process.stdout.write(`${version()}\n`);
+      process.stdout.write(`${runningCreateVersion()}\n`);
       return 0;
     }
     const command = COMMANDS[first];

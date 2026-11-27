@@ -1,9 +1,43 @@
 /** Optional package migration history: old records need no adoption date. */
-import { isObject, type Finding } from './check.ts';
+import { join } from 'node:path';
+import { existsSync } from './check-reads.ts';
+import { isObject, readJsonObject, type Finding } from './check.ts';
+import { CREATE_PACKAGE, runningCreateVersion } from './pins.ts';
 import type { JsonObject } from './templates.ts';
 
 export const PACKAGE_NAMES = ['@rig-c/core', '@rig-c/parts', '@rig-c/review'] as const;
 export const exactVersion = (value: unknown): value is string => typeof value === 'string' && /^\d+\.\d+\.\d+$/.test(value);
+
+export function createPinWarning(dir: string, running = runningCreateVersion()): Finding | undefined {
+  const file = join(dir, 'package.json');
+  if (!existsSync(file)) return undefined;
+  const read = readJsonObject(file);
+  if (!read.ok) {
+    return {
+      code: 'CREATE_PIN_MISSING',
+      path: 'package.json',
+      message: `package.json: ${read.error}; restore a valid manifest and run rig-create packages upgrade --by <operator> to pin ${CREATE_PACKAGE}`,
+    };
+  }
+  const dependencies = isObject(read.value.dependencies) ? read.value.dependencies : undefined;
+  const declared = dependencies?.[CREATE_PACKAGE];
+  const path = `package.json.dependencies[${CREATE_PACKAGE}]`;
+  if (declared === undefined) {
+    return {
+      code: 'CREATE_PIN_MISSING',
+      path,
+      message: `${path}: ${CREATE_PACKAGE} is not declared (running ${CREATE_PACKAGE} ${running}); run rig-create packages upgrade --by <operator> to pin it`,
+    };
+  }
+  if (declared !== running) {
+    return {
+      code: 'CREATE_PIN_MISMATCH',
+      path,
+      message: `${path}: declares ${JSON.stringify(declared)}, while the running ${CREATE_PACKAGE} is ${running}; run rig-create packages upgrade --by <operator> to move the pin, or run the project's declared ${CREATE_PACKAGE}`,
+    };
+  }
+  return undefined;
+}
 const sha256Hex = (value: unknown): value is string => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
 export function compareVersions(a: string, b: string): number {
   const right = b.split('.').map(Number);

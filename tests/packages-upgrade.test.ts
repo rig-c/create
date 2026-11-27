@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSyn
 import { join, relative } from 'node:path';
 import { packagesCommand } from '../src/packages-upgrade.ts';
 import { packageUpgradeFindings, packageUpgradeWarnings } from '../src/package-upgrades.ts';
-import { PINNED_PACKAGES } from '../src/pins.ts';
+import { CREATE_PACKAGE, PINNED_PACKAGES, runningCreateVersion } from '../src/pins.ts';
 import { readTemplate } from '../src/templates.ts';
 import { checkProject } from '../src/check.ts';
 import { Refusal } from '../src/refusal.ts';
@@ -388,4 +388,31 @@ test('malformed rehearsal history rows refuse identically in check and writer', 
     refusal(() => packagesCommand(['upgrade', dir, '--by', 'operator'], EXAMPLE_NOW), 'PACKAGE_UPGRADE_MALFORMED');
     expect(snapshot(dir)).toEqual(before);
   }
+});
+
+test('check warns by name when @rig-c/create is undeclared or differs from the running version, and stays silent when equal', () => {
+  const running = runningCreateVersion();
+  const undeclared = fixture(pins);
+  const missingReport = checkProject(undeclared.dir, undefined, { now: EXAMPLE_NOW, readOnly: true });
+  expect(missingReport.warnings).toContainEqual(expect.objectContaining({
+    code: 'CREATE_PIN_MISSING',
+    path: `package.json.dependencies[${CREATE_PACKAGE}]`,
+    message: expect.stringContaining('rig-create packages upgrade --by <operator>'),
+  }));
+
+  for (const declared of ['0.0.1', '999.0.0', `^${running}`]) {
+    const mismatched = fixture({ ...pins, [CREATE_PACKAGE]: declared });
+    const mismatchReport = checkProject(mismatched.dir, undefined, { now: EXAMPLE_NOW, readOnly: true });
+    expect(mismatchReport.warnings).toContainEqual(expect.objectContaining({
+      code: 'CREATE_PIN_MISMATCH',
+      path: `package.json.dependencies[${CREATE_PACKAGE}]`,
+      message: expect.stringContaining('rig-create packages upgrade --by <operator>'),
+    }));
+    expect(mismatchReport.warnings.map(f => f.code)).not.toContain('CREATE_PIN_MISSING');
+  }
+
+  const aligned = fixture({ ...pins, [CREATE_PACKAGE]: running });
+  const alignedCodes = checkProject(aligned.dir, undefined, { now: EXAMPLE_NOW, readOnly: true }).warnings.map(f => f.code);
+  expect(alignedCodes).not.toContain('CREATE_PIN_MISSING');
+  expect(alignedCodes).not.toContain('CREATE_PIN_MISMATCH');
 });

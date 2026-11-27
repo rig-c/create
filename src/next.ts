@@ -7,6 +7,7 @@ import { createHash } from 'node:crypto';
 import { existsSync, lstatSync, readdirSync, readFileSync, realpathSync } from './check-reads.ts';
 import { isDeepStrictEqual } from 'node:util';
 import { CURRENT_KINDS, CURRENT_RIG_MODEL, currentFileBinding, isCurrentProject, outputRoot, RUN_RECORD_NAME, type CurrentKind } from './current.ts';
+import { readMotionLoopSeamPolicy } from './motion-loop-seam.ts';
 import { COMPOSE_CHECK_PATH, COMPOSE_RUN_PATH, CURRENT_DIRECTION_PATH, currentDirectionSource } from './current-direction.ts';
 import { currentAdvanceOutputFinding, isPublishAdvanceStage } from './job-advance.ts';
 import { eligibleRigDraftModel, optionPublicationStage, publicationFile, riggingDraftPartsChange } from './job-publication.ts';
@@ -1474,8 +1475,10 @@ function currentPostOutputMove(dir: string, project: JsonObject, kind: 'motion' 
   if (kind === 'motion') {
     if (!currentFileBinding(project, 'rig', CURRENT_RIG_MODEL)) return;
     if (existsSync(join(dir, 'outputs/motion.next/frames.json'))) return currentOutputMove(dir, kind, shellWord);
+    const { policy: seam } = readMotionLoopSeamPolicy(dir);
+    const flags = seam ? ` --loop-seam-bar ${seam.channel_delta},${seam.pixels_above} --loop-seam-cap ${seam.warmup_cap}` : '';
     return { role: 'producer', field: 'current.motion', awaits: 'current.motion',
-      command: inProject("rigc render --candidate outputs/rig/check/build --out outputs/motion.next --animation idle --fps '<frames-per-second>'"),
+      command: inProject(`rigc render --candidate outputs/rig/check/build --out outputs/motion.next --animation idle --fps '<frames-per-second>'${flags}`),
       act: 'Render the recorded rig at the requested sample rate, then record the staged motion.' };
   }
   if (!isObject(project.current) || !isObject(project.current.motion)) return;

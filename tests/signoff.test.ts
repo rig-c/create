@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test } from 'bun:test';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { stepHash } from '../src/step-hash.ts';
+import { Refusal, USAGE_EXIT } from '../src/refusal.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { arr, fixture, obj, step, withdrawSignature } from './fixtures.ts';
 import { EXAMPLE_DIFF_REPORT } from './diff-fixture.ts';
@@ -188,6 +189,26 @@ describe('parts-review evidence and execution checkpoints', () => {
     const dir = fixture();
     const before = readFileSync(join(dir, 'project.json'));
     expect(cli(['signoff', 'rigging', '--checkpoint', 'constraints', '--steps', 'constraints', '--by', 'user'], dir, gitEnv()).code).toBe(2);
+    expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
+  });
+
+  test.each([
+    { label: '--checkpoint=', stage: 'post-interview', flags: ['--checkpoint='] },
+    { label: '--checkpoint=x --checkpoint=y', stage: 'rigging', flags: ['--checkpoint=constraints', '--checkpoint=assemble'] },
+    { label: '--checkpoint=x --checkpoint y', stage: 'rigging', flags: ['--checkpoint=constraints', '--checkpoint', 'assemble'] },
+    { label: '--checkpoint x --checkpoint=y', stage: 'rigging', flags: ['--checkpoint', 'constraints', '--checkpoint=assemble'] },
+  ])('refuses malformed or repeated $label with SIGNOFF_OPTION_INVALID before writing', ({ stage, flags }) => {
+    const dir = fixture((p) => { p.signoffs = arr(p.signoffs).filter((s) => obj(s).checkpoint !== 'constraints'); });
+    const before = readFileSync(join(dir, 'project.json'));
+    let thrown: unknown;
+    try {
+      signoffCommand([stage, dir, ...flags, '--by', 'user', '--verbatim-file', input(dir)]);
+    } catch (error) {
+      thrown = error;
+    }
+    expect(thrown).toBeInstanceOf(Refusal);
+    expect((thrown as Refusal).code).toBe('SIGNOFF_OPTION_INVALID');
+    expect((thrown as Refusal).exitCode).toBe(USAGE_EXIT);
     expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
   });
 });

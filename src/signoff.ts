@@ -81,6 +81,11 @@ export function signoffCommand(args: string[], now: number): { stdout: string; e
     const eq = splitEqFlag(arg, eqFlags);
     if (eq) {
       const [name, value] = eq;
+      if (name === '--checkpoint') {
+        if (name in opts || value === '') refuse('SIGNOFF_OPTION_INVALID', `${name} needs one non-empty value`, USAGE_EXIT);
+        opts[name] = value;
+        continue;
+      }
       if (name === '--version') hasVersionFlag = true;
       else if (name === '--draft') hasDraftFlag = true;
       else if (name === '--from-review') hasFromReviewFlag = true;

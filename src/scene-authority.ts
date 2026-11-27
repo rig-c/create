@@ -1,7 +1,7 @@
 /** Agent scene authority: every agent-authored scene derives from a recorded post_composition choice or decided delegation. */
 import { isDeepStrictEqual as equal } from 'node:util';
 import { asArray, collectItems, isObject, loadCollection, type Ctx, type Finding } from './check.ts';
-import { CHOICE_SPEC, OPTIONS_SPEC, choiceVerbatim, assembleFragments, optionFile, selection } from './choices.ts';
+import { CHOICE_SPEC, OPTIONS_SPEC, choiceVerbatim, assembleFragments, optionFile, sameChoiceValue, selection } from './choices.ts';
 import { closed } from './direction.ts';
 import { checkPlateReceipt } from './plate-receipt.ts';
 import { answersOf } from './provenance.ts';
@@ -174,7 +174,7 @@ export function resolveAnswerValue(
     } catch {
       return sceneFail(SCENE_CHOICE_MISSING, `${itemPath}.agent_decision.value`, 'delegated post_composition fragment cannot be assembled', MISSING_REMEDY);
     }
-    if (!equal(decision.value, assembled)) {
+    if (!sameChoiceValue(decision.value, assembled)) {
       sceneFail(
         SCENE_CHOICE_MISSING,
         `${itemPath}.agent_decision.value`,
@@ -184,7 +184,7 @@ export function resolveAnswerValue(
     }
     return { value: decision.value, valuePath: `${itemPath}.agent_decision.value` };
   }
-  if (selected.delegated || selected.pending.length > 0 || selected.value === undefined || selected.value === null || !equal(answer.value, selected.value)) {
+  if (selected.delegated || selected.pending.length > 0 || selected.value === undefined || selected.value === null || !sameChoiceValue(answer.value, selected.value)) {
     sceneFail(
       SCENE_CHOICE_MISSING,
       `${itemPath}.value`,

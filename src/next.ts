@@ -11,7 +11,7 @@ import { motionLoopSeamFindings, readMotionLoopSeamPolicy } from './motion-loop-
 import { COMPOSE_CHECK_PATH, COMPOSE_RUN_PATH, CURRENT_DIRECTION_PATH, currentDirectionSource } from './current-direction.ts';
 import { directionLoopSeamFindings } from './direction-loop-seam.ts';
 import { currentAdvanceOutputFinding, isPublishAdvanceStage } from './job-advance.ts';
-import { eligibleRigDraftModel, optionPublicationStage, publicationFile, riggingDraftPartsChange, SUPPORTED_CURRENT_PUBLICATION_OUTPUTS } from './job-publication.ts';
+import { eligibleRigDraftModel, optionPublicationStage, publicationFile, riggingDraftPartsChange } from './job-publication.ts';
 import { latestRigDraftVerdict } from './rig-draft-verdict.ts';
 import { basename, dirname, isAbsolute, join, posix, relative, resolve, sep } from 'node:path';
 import {
@@ -1390,9 +1390,10 @@ function optionalCurrentOpenMove(
   report: CheckReport,
   kind: CurrentPublicationOutput,
 ): NextMove | undefined {
-  if (!SUPPORTED_CURRENT_PUBLICATION_OUTPUTS.has(kind)) return;
   const path = `current.${kind}`;
-  if (!isObject(project.current) || !isObject(project.current[kind])) return;
+  const node = isObject(project.current) ? project.current[kind] : undefined;
+  if (!isObject(node)) return;
+  if (kind === 'direction' && !asArray(node.built_from).filter(isObject).some(entry => entry.path === CURRENT_DIRECTION_PATH)) return;
   if (report.refusals.some(r => r.path === path || r.path.startsWith(`${path}.`))) return;
   if (report.warnings.some(w => w.code === 'OUTPUT_STALE' && w.path === path)) return;
   return {

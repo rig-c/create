@@ -224,7 +224,7 @@ test('the installed producers reproduce every shared draft output from the retai
       if (entry.isDirectory()) compare(child);
       else {
         outputs.push(`${outputPrefix}${child}`);
-        expect(readFileSync(join(out, child))).toEqual(files[`${outputPrefix}${child}`]);
+        expect<string | Uint8Array>(readFileSync(join(out, child))).toEqual(files[`${outputPrefix}${child}`]);
       }
     }
   };

@@ -194,7 +194,7 @@ async function submit(host: JobOwnerHost, kind: 'parts-verdict' | 'review-verdic
 
 async function generate(root: string, scratch: string, inputs: Map<string, Buffer>, reviseAfterBounce: boolean): Promise<string> {
   const [{ asArray, collectItems, isObject }, { main }, { applicableAsks, optionContext, OPTIONS_SPEC, sha256 },
-    { readHostActsAndAsks }, { openCreateJob, openDraftPublication }, { jobHostStateRoot }, { interviewStageOfGuide },
+    { agentCall, readHostActsAndAsks }, { openCreateJob, openDraftPublication }, { jobHostStateRoot }, { interviewStageOfGuide },
     { TURN_OPTIONS, TURN_QUESTION }, { EXAMPLE_ANCHOR, EXAMPLE_SOURCE_DATE_EPOCH }] = await Promise.all([
     import('../src/check.ts'), import('../src/cli.ts'), import('../src/choices.ts'), import('../src/job-acts.ts'),
     import('../src/job-host.ts'), import('../src/job-outbox.ts'), import('../src/stages.ts'), import('../src/waypoints.ts'), import('./example-time.ts'),
@@ -301,10 +301,37 @@ async function generate(root: string, scratch: string, inputs: Map<string, Buffe
     if (!isObject(answer) || typeof answer.verbatim !== 'string' || !Array.isArray(answer.asks)) throw Error(`Missing answer for ${guide}`);
     return { guide, quote: answer.verbatim, asks: answer.asks.filter(isObject).map(ask => ask.id!) };
   };
-  const publish = async (draft?: string, rig?: string) => {
+  const openPublication = async (target: { draft: string } | { kind: 'rig' | 'post'; version: number }) => {
     if (!host) throw Error('Review host did not start');
-    const lines = await openDraftPublication(root, host, ++now, draft, rig);
+    const lines = 'draft' in target
+      ? await openDraftPublication(root, host, ++now, target.draft)
+      : await openDraftPublication(root, host, ++now, undefined, String(target.version));
     console.log(lines.join('\n'));
+    const { publication } = host.session.status();
+    const source = publication?.source;
+    const selector = source && 'selector' in source ? source.selector : undefined;
+    const matches = 'draft' in target
+      ? selector?.kind === 'draft' && selector.id === target.draft
+      : selector?.kind === target.kind && selector.version === target.version;
+    if (!publication || !matches || source?.projectHash !== sha256(readFileSync(join(root, 'project.json')))) {
+      throw Error(`Expected Review publication bound to the current project record for ${JSON.stringify(target)}`);
+    }
+    return publication;
+  };
+  const askHistoricalVerdict = async (stage: 'rig-review' | 'direction-review', version: number) => {
+    if (!host || project().stage !== stage) throw Error(`Expected an open Review job at ${stage}`);
+    const publication = await openPublication({ kind: stage === 'rig-review' ? 'rig' : 'post', version });
+    const { generation, pending } = host.session.status();
+    if (pending.some(ask => ask.publicationId === publication.publicationId && ask.status === 'pending')) {
+      throw Error(`Expected an askless numbered publication at ${stage}`);
+    }
+    // Recreate a historical verdict ask through Review's package API in this fixture.
+    const reply = await agentCall(host, {
+      schema: 'rig-review/job-api@2', verb: 'ask', expectedGeneration: generation,
+      publicationId: publication.publicationId, idempotencyKey: crypto.randomUUID(),
+      subject: { kind: 'review-verdict', stage },
+    });
+    if (!reply.ok) throw Error(`Review historical ${stage} ask: ${JSON.stringify(reply.error)}`);
   };
   try {
     await write('init', root, '--no-install', '--owner-language', 'en');
@@ -353,7 +380,7 @@ async function generate(root: string, scratch: string, inputs: Map<string, Buffe
     await write('diff-classes', '--diff-report', 'evidence/diff-components.json', '--by', 'agent',
       ...diff.components.flatMap(component => ['--component', `${component.id}=in-painting:Part of the synthetic painting.`]));
     host = await openCreateJob(root, { id: owner, role: 'owner' }, now);
-    await publish(id);
+    await openPublication({ draft: id });
     const partsAct = await submit(host, 'parts-verdict', inputs.get('approval/parts.txt')!.toString());
     now = Math.max(now, Date.parse(partsAct.at));
     await write('parts-review', '--from-review', partsAct.actId);
@@ -386,15 +413,21 @@ async function generate(root: string, scratch: string, inputs: Map<string, Buffe
       '--at-source', rigPath('check/build/run.json'), '--at-pointer', '/finished_at', '--citations', rigPath('citations.json'), '--by', 'agent');
     await advance('rig-review');
     host = await openCreateJob(root, { id: owner, role: 'owner' }, now);
-    await publish(undefined, '1');
+    await askHistoricalVerdict('rig-review', 1);
     const stillRoot = join(candidate, 'check/setup_still');
     const png = files(stillRoot).find(path => path.endsWith('/f0000.png'));
     if (!png) throw Error('Parts --keep-stills did not produce a setup PNG');
-    const rigAct = await submit(host, 'review-verdict', inputs.get('approval/rig.txt')!.toString(), { picture: readFileSync(join(stillRoot, png)) });
+    const rigApproval = inputs.get('approval/rig.txt')!;
+    const rigAct = await submit(host, 'review-verdict', rigApproval.toString(), { picture: readFileSync(join(stillRoot, png)) });
     now = Math.max(now, Date.parse(rigAct.at));
     await write('review', '1', '--from-review', rigAct.actId);
+    // The historical ask on a view-only publication does not fold a signature.
+    const rigApprovalPath = 'evidence/rig-approval.txt';
+    put(join(root, rigApprovalPath), rigApproval);
+    await write('signoff', 'rig-review', '--version', '1', '--by', owner, '--owner-chat', rigApprovalPath,
+      '--said-at', rigAct.at, '--relayed-by', 'agent');
     await write('handoff', '--rig', '1');
-    // An open job would publish from direction write before the stage advance.
+    // Close the rig review before moving to post authoring.
     await write('job', 'close');
     host.stop();
     host = undefined;
@@ -446,7 +479,7 @@ async function generate(root: string, scratch: string, inputs: Map<string, Buffe
     }
     if (checked.refusals.length || checked.warnings.length) throw Error(JSON.stringify(checked));
     host = await openCreateJob(root, { id: owner, role: 'owner' }, now);
-    await publish(undefined, '2');
+    await askHistoricalVerdict('direction-review', 2);
     const { publication: published, pending } = host.session.status();
     const { acts } = await readHostActsAndAsks(host);
     const asks = pending.filter(ask => ask.publicationId === published?.publicationId && ask.status === 'pending');
@@ -594,7 +627,8 @@ async function generate(root: string, scratch: string, inputs: Map<string, Buffe
       // The bounce leaves the stage at direction-review. A new verdict and
       // signature authorize the next forward advance, to accepted.
       host = await openCreateJob(root, { id: owner, role: 'owner' }, now);
-      await publish(undefined, '3');
+      await askHistoricalVerdict('direction-review', 3);
+      const verdictPublicationId = host.session.status().publication?.publicationId;
       const approvalWords = 'Approve the revised post with both plates still.';
       const approval = await submit(host, 'review-verdict', approvalWords, { stage: 'direction-review' });
       now = Math.max(now, Date.parse(approval.at));
@@ -604,12 +638,9 @@ async function generate(root: string, scratch: string, inputs: Map<string, Buffe
       await write('signoff', 'direction-review', '--by', owner, '--owner-chat', approvalPath,
         '--said-at', new Date(now).toISOString(), '--relayed-by', 'agent');
       await advance('accepted');
-      await publish(undefined, '3');
-      const final = host.session.status();
-      const source = final.publication?.source;
-      if (!source || !('selector' in source) || source.selector?.kind !== 'post' || source.selector.version !== 3
-        || source.projectHash !== sha256(readFileSync(join(root, 'project.json')))
-        || final.pending.some(ask => ask.publicationId === final.publication?.publicationId && ask.status === 'pending')) {
+      const acceptedPublication = await openPublication({ kind: 'post', version: 3 });
+      if (acceptedPublication.publicationId === verdictPublicationId
+        || host.session.status().pending.some(ask => ask.publicationId === acceptedPublication.publicationId && ask.status === 'pending')) {
         throw Error('Expected the accepted v3 record on the published post, with no pending asks');
       }
       const finalCheck = JSON.parse(await write('interview', '--check', '--json')) as typeof checked;

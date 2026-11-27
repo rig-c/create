@@ -161,16 +161,27 @@ test('#1077 next offers owner-language set before job open when owner language i
   expect(freshError).toBeInstanceOf(Refusal);
   expect((freshError as Refusal).code).toBe('JOB_RECORD_INCOMPLETE');
 
-  const chainQuestionDir = join(import.meta.dir, '../templates/example-chain/checkpoints/0a-interview-options');
-  const chainRigDir = join(import.meta.dir, '../templates/example-chain/checkpoints/3-rig-review');
+  const chainDir = join(import.meta.dir, '../templates/example-chain');
+  const chainQuestionDir = join(chainDir, 'checkpoints/0a-interview-options');
+  const chainPartsDir = join(chainDir, 'checkpoints/1-parts-verdict');
 
   for (const [checkpointDir, mutate, expectedCode, kind] of [
     [chainQuestionDir, (project: JsonObject) => { delete project.owner; }, 'OWNER_LANGUAGE_MISSING', 'question'] as const,
-    [chainRigDir, (project: JsonObject) => { project.owner = { language: 'en_US' }; }, 'OWNER_LANGUAGE_INVALID', 'rig'] as const,
+    [chainPartsDir, (project: JsonObject) => { project.owner = { language: 'en_US' }; }, 'OWNER_LANGUAGE_INVALID', 'parts'] as const,
   ]) {
     const root = realpathSync(tempDir());
     roots.push(root);
     cpSync(checkpointDir, root, { recursive: true });
+    if (kind === 'parts') {
+      cpSync(join(chainDir, 'evidence/diff-components.json'), join(root, 'evidence/diff-components.json'));
+      for (const args of [
+        ['structure-snapshot', root, '--draft', 'chain', '--out', 'evidence/structure-chain.json'],
+        ['diff-classes', root, '--diff-report', 'evidence/diff-components.json', '--by', 'agent'],
+        ['advance', 'parts-review', root, '--parts-check', 'evidence/parts-check.json', '--parts', 'derived/drafts/chain/input'],
+      ]) {
+        expect(runMainQuiet(args, EXAMPLE_NOW)).toBe(0);
+      }
+    }
     const baseline = nextCommand([root, '--json'], EXAMPLE_NOW);
 
     const file = join(root, 'project.json');
@@ -185,7 +196,7 @@ test('#1077 next offers owner-language set before job open when owner language i
       expect(() => requestedRecordResult(root, 'rig_type', false, EXAMPLE_NOW))
         .toThrow(expect.objectContaining({ code: expectedCode }));
     } else {
-      const refused = cli(['job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner', '--rig', '1'], root, env);
+      const refused = cli(['job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner', '--draft', 'chain'], root, env);
       expect(refused.code).toBe(1);
       expect(refused.stderr).toContain(expectedCode);
     }
@@ -195,6 +206,9 @@ test('#1077 next offers owner-language set before job open when owner language i
     const firstJobMoveIndex = report.moves.findIndex(needsJobHost);
     expect(moveIndex).toBeGreaterThanOrEqual(0);
     expect(firstJobMoveIndex).toBe(moveIndex + 1);
+    const jobMove = report.moves[firstJobMoveIndex]!;
+    expect(jobMove.command).toStartWith('rig-create job open ');
+    expect(jobMove.command).toContain(kind === 'question' ? '--question rig_type' : '--draft chain');
     expect(report.awaits).toContain('owner.language');
 
     const languageMove = report.moves[moveIndex]!;
@@ -217,8 +231,9 @@ test('#1077 next offers owner-language set before job open when owner language i
     try {
       const lines = kind === 'question'
         ? await openRecordPublication(root, host, 'rig_type', false, EXAMPLE_NOW)
-        : await openDraftPublication(root, host, EXAMPLE_NOW, undefined, '1');
+        : await openDraftPublication(root, host, EXAMPLE_NOW, 'chain');
       expect(lines[0]).toContain('published');
+      if (kind === 'parts') expect(lines).toContain('job: asked parts-verdict chain');
     } finally {
       host.stop();
     }

@@ -8,12 +8,9 @@ import { afterEach, expect, test } from 'bun:test';
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { EXAMPLE_NOW } from '../scripts/example-time.ts';
 import { askOutcomeLines, closeCreateJob } from '../src/job-host.ts';
 import { jobHostStateRoot, jobPrivateRoot, pendingPublications, readAcknowledgedPublication, readWriterBinding } from '../src/job-outbox.ts';
 import { jobRuntimeExecArgv } from '../src/job-writer.ts';
-import { advanceCommand } from '../src/progress-writers.ts';
-import { Refusal } from '../src/refusal.ts';
 import type { JsonObject } from '../src/templates.ts';
 
 const CLI = join(import.meta.dir, '../src/cli.ts');
@@ -115,64 +112,6 @@ for (const signal of ['SIGTERM', 'SIGINT'] as const) test(`job open CLI forwards
   expect(await isOriginListening(url.origin)).toBe(false);
 });
 
-test('bound writers surface JOB_ASK_REFUSED by named code when Review refuses a declared ask after acknowledging the publication', async () => {
-  const root = copyCheckpoint('3-rig-review', project => {
-    project.stage = 'rigging';
-    project.advances = (project.advances as JsonObject[]).filter(entry => entry.stage !== 'rig-review');
-  });
-  const opening = await open(root);
-  const binding = readWriterBinding(root)!;
-
-  // Invalidate only the synthetic host's retained model binding after publish succeeds.
-  // Review validates a rig verdict against that binding, so its declared ask refuses
-  // with JOB_ASK_INVALID without relying on the removed separate signoff subject.
-  const sqlitePath = join(binding.identity.stateDir, 'jobs.sqlite');
-  const db = new Database(sqlitePath);
-  try {
-    db.exec(`
-      CREATE TRIGGER refuse_verdict_ask AFTER UPDATE OF document ON jobs
-      WHEN json_extract(NEW.document, '$.head') IS NOT NULL
-        AND json_extract(OLD.document, '$.head') IS NOT json_extract(NEW.document, '$.head')
-      BEGIN
-        UPDATE jobs
-        SET document = json_set(NEW.document, '$.publications.' || json_extract(NEW.document, '$.head') || '.retained.source.model', NULL)
-        WHERE job_id = NEW.job_id;
-      END;
-    `);
-  } finally {
-    db.close();
-  }
-
-  let thrown: unknown;
-  try {
-    advanceCommand(['rig-review', root, '--json'], EXAMPLE_NOW);
-  } catch (error) {
-    thrown = error;
-  }
-  expect(thrown).toBeInstanceOf(Refusal);
-  expect((thrown as Refusal).code).toBe('JOB_ASK_REFUSED');
-  expect((thrown as Refusal).message).toContain('review-verdict rig-review (JOB_ASK_INVALID)');
-
-  // The record is committed and the publication is acknowledged (never left pending).
-  expect(read(root).stage).toBe('rig-review');
-  expect(pendingPublications(root)).toEqual([]);
-  const headEvents = await fetch(`${opening.url.origin}/jobs/${binding.jobId}/events`, {
-    headers: { origin: opening.url.origin, 'X-Review-Capability': opening.url.hash.replace('#cap=', '') },
-    signal: AbortSignal.timeout(1000),
-  });
-  const reader = headEvents.body!.getReader();
-  const firstChunk = await reader.read();
-  await reader.cancel();
-  const lines = new TextDecoder().decode(firstChunk.value).trim().split('\n').map(line => JSON.parse(line) as JsonObject);
-  const published = lines.filter(event => event.type === 'published').at(-1)!.publication as JsonObject;
-  const acknowledged = readAcknowledgedPublication(root, binding.jobId, String(published.publicationId));
-  expect(acknowledged).not.toBeNull();
-  expect(acknowledged?.subjects).toEqual([
-    { kind: 'review-verdict', stage: 'rig-review' },
-  ]);
-
-}, 15_000);
-
 test('bound writers print concise asked/already subject lines in text mode and preserve JSON stdout in --json mode', async () => {
   expect(askOutcomeLines([
     { subject: { kind: 'parts-verdict', draftId: 'chain-2' }, status: 'asked' },
@@ -180,18 +119,6 @@ test('bound writers print concise asked/already subject lines in text mode and p
   ])).toEqual([
     'job: asked parts-verdict chain-2',
     'job: already asked checkpoint assemble',
-  ]);
-
-  const root = copyCheckpoint('3-rig-review', project => {
-    project.stage = 'rigging';
-    project.advances = (project.advances as JsonObject[]).filter(entry => entry.stage !== 'rig-review');
-  });
-  await open(root);
-  const advanced = await cli(root, ['advance', 'rig-review', root]);
-  expect({ exit: advanced.exit, stderr: advanced.stderr }).toEqual({ exit: 0, stderr: '' });
-  expect(advanced.stdout.trim().split('\n')).toEqual([
-    'advance: rigging -> rig-review',
-    'job: asked review-verdict rig-review',
   ]);
 
   // --json stdout stays one JSON document; a bound draft-rig carries the page update inside it.
@@ -332,21 +259,20 @@ test('#690 explicit job open --draft replaces a publication with an unanswered e
   expect(pendingPublications(root)).toEqual([]);
 }, 30_000);
 
-test('#690 advance updates the same rig with its review verdict ask', async () => {
+test('#690 advance keeps the open numbered rig page unchanged', async () => {
   const root = copyCheckpoint('3-rig-review', project => {
     project.stage = 'rigging';
     project.advances = (project.advances as JsonObject[]).filter(entry => entry.stage !== 'rig-review');
   });
   const opening = await open(root, ['--rig', '1']);
-  // At rigging the page carries no verdict ask yet; advance adds it on the same rig (#754).
   const before = publicationId(root);
-  expect(opening.lines.slice(1)).toEqual([`job: rig v1 published (publication ${before})`]);
-  expect(opening.lines[0]).toStartWith('WARN JOB_RIG_VERDICT_DEFERRED: versions[v1]: ');
+  expect(opening.lines).toEqual([`job: rig v1 published (publication ${before})`]);
   const advanced = await cli(root, ['advance', 'rig-review', root]);
   const after = publicationId(root);
   expect({ exit: advanced.exit, stderr: advanced.stderr }).toEqual({ exit: 0, stderr: '' });
-  expect(after).not.toBe(before);
-  expect(advanced.stdout).toContain(`updated the open page: publication ${after}, ask review-verdict rig-review`);
+  expect(after).toBe(before);
+  expect(advanced.stdout.trim()).toBe('advance: rigging -> rig-review');
+  expect(pendingPublications(root)).toEqual([]);
   const binding = readWriterBinding(root)!;
-  expect(readAcknowledgedPublication(root, binding.jobId, after)?.subjects).toEqual([{ kind: 'review-verdict', stage: 'rig-review' }]);
+  expect(readAcknowledgedPublication(root, binding.jobId, after)?.subjects).toEqual([]);
 }, 30_000);

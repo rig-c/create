@@ -5,15 +5,15 @@ import { startJobHost, waitForJobAct, type JobHostAttachFailure, type JobHostOpt
 import { asArray, checkProject, collectItems, loadCollection, isObject, type Finding } from './check.ts';
 import { baselineOf, newFindings } from './refusal-baseline.ts';
 import { assembleOnlyDraftTarget, assembleOnlyVersionFinding, assertDraftHasRig, readAssembleOnlyDraftTarget } from './draft-layout.ts';
+import { DirectionError } from './direction.ts';
 import { Refusal, refuse, USAGE_EXIT } from './refusal.ts';
-import { CURRENT_LIVE_MANIFEST, liveManifestPath, livePublicationSubjects, draftPackageIdentity, draftPublishedContext, eligibleRigDraftModel, inspectCurrentPublication, inspectDraftPublication, currentJobIdentity, optionPublicationRemedy, optionPublicationStage, partsEnumerator, prepareCurrentManifest, prepareDraftManifest, prepareLiveManifest, publicationFile, publicationSelector, publishedDraft, publishedSourcePainting, readPublished, readRecordPublished, recordOptionSets, riggingDraftPartsChange, type RecordPublicationResult } from './job-publication.ts';
+import { CURRENT_LIVE_MANIFEST, liveManifestPath, draftPackageIdentity, draftPublishedContext, eligibleRigDraftModel, inspectCurrentPublication, inspectDraftPublication, inspectNumberedPostPublication, currentJobIdentity, optionPublicationRemedy, optionPublicationStage, partsEnumerator, prepareCurrentManifest, prepareDraftManifest, prepareLiveManifest, publicationFile, publicationSelector, publishedDraft, readPublished, readRecordPublished, recordOptionSets, riggingDraftPartsChange, type RecordPublicationResult } from './job-publication.ts';
 import { acknowledgePublication, acquireJobLock, assertJobIdentity, CURRENT_PUBLICATION_OUTPUTS, enqueuePublication, ensureJobPrivateIgnores, failPublication, JOB_BINDING_FILE, jobHash, jobHostStateRoot, pendingPublications, privateDirectory, publicationVersionHash, readAcknowledgedPublication, readWriterBinding, reconcilePublication, refuseJobIdentityMismatch, writePrivateJson, isRecordResult, type CreateJobSelector, type CurrentPublicationOutput, type CurrentPublicationSelector, type NumberedPublicationSelector, type PublicationResult, type JobIdentity, type PendingPublication, type WriterBinding, type PublicationSubject } from './job-outbox.ts';
 import { commitCurrentPublication } from './project-step-commit.ts';
 import { draftPublicationResult } from './job-writer.ts';
 import { attachCreateJobForClose, refusePendingJobAsks } from './job-close.ts';
 import { actionablePendingAct, agentCall, ingestedJobActs, ingestedSummary, jobEvents, pendingJobActs, readHostActsAndAsks, shellWord, type AgentReply, type IngestedJobAct, type PendingJobAct } from './job-acts.ts';
 import { checkReviewPackages } from './review-package.ts';
-import { rigVerdictDeferred } from './rig-signoff.ts';
 import type { JsonObject } from './templates.ts';
 import { recoverReplacedJobHostState, replacedRootRefusal } from './job-host-state.ts';
 import { requireOwnerLanguage } from './owner-language.ts';
@@ -280,7 +280,6 @@ export async function publishPending(
     if (!result.value) refuse('JOB_OUTBOX_INVALID', 'project.json: publication response lacks its identity; reconcile the pending publication');
     const draftIdentity = selector?.kind === 'draft' ? draftPackageIdentity(selector.id, true) : undefined;
     let draftSource;
-    let draftReview;
     if (draftIdentity && entry.result.path === draftIdentity.path) {
       const source = result.value.source;
       if (!source || source.package?.id !== draftIdentity.id || source.package.revision !== entry.versionHash
@@ -289,27 +288,15 @@ export async function publishPending(
         refuse('JOB_PUBLICATION_INVALID', 'project.json: Review acknowledged a different rigging draft source; reconcile the retained draft');
       }
       draftSource = { sourceHash: source.sourceHash, projectHash: source.projectHash };
-    } else if (selector?.kind === 'draft' && subjects.some(subject => subject.kind === 'review-verdict' && subject.stage === 'rig-review')) {
-      const source = result.value.source;
-      const model = eligibleRigDraftModel(publishedDraft(project, selector.id));
-      if (!model || !source || source.package?.id !== draftPackageIdentity(selector.id).id || source.package.revision !== entry.versionHash
-        || !isDeepStrictEqual(source.selector, selector) || source.projectHash !== entry.recordHash
-        || typeof source.sourceHash !== 'string' || !/^[a-f0-9]{64}$/.test(source.sourceHash)
-        || !isDeepStrictEqual(source.model, model) || source.direction !== null) {
-        refuse('JOB_PUBLICATION_INVALID', `drafts[${selector.id}]: Review acknowledged a different compiled draft source; reconcile the retained draft`);
-      }
-      draftReview = { projectHash: source.projectHash, sourceHash: source.sourceHash, model,
-        painting: publishedSourcePainting(entry.root, project, `drafts[${selector.id}]`) };
     }
     const { publicationId, generation } = result.value;
-    let acknowledgedSubjects: readonly PublicationSubject[] | undefined = subjects;
-    if (viewOnly && !isCurrentSelector) {
-      // A replay can return a publication from before this workflow became view-only.
-      const retained = host.session.retainedSource(publicationId).subjects;
-      const prior = readAcknowledgedPublication(entry.root, entry.jobId, publicationId);
-      acknowledgedSubjects = prior && prior.subjects === undefined ? undefined : retained;
-    }
-    acknowledgePublication(entry, publicationId, generation, attempt, acknowledgedSubjects, draftSource, draftReview);
+    const prior = readAcknowledgedPublication(entry.root, entry.jobId, publicationId);
+    // An exact replay keeps the old receipt's authority for historical act decoders.
+    const replay = prior?.requestId === attempt ? prior : undefined;
+    const acknowledgedSubjects = replay ? replay.subjects : viewOnly && !isCurrentSelector
+      ? host.session.retainedSource(publicationId).subjects : subjects;
+    acknowledgePublication(entry, publicationId, generation, attempt, acknowledgedSubjects,
+      replay ? replay.draftSource : draftSource, replay?.draftReview);
     onPublished?.({ publicationId: result.value.publicationId, replaced: Boolean(status.publication && status.publication.publicationId !== result.value.publicationId) });
     // The person answers on the page, so every declared subject is asked here, with the
     // agent authority this process already holds in memory. An ask Review refuses never
@@ -618,6 +605,13 @@ export function assertRequestedRig(root: string, requested?: string, draft?: str
   if (selector.kind === 'post') {
     const finding = assembleOnlyVersionFinding(root, project, rigVersion, `versions[v${rig}]`);
     if (finding) refuse(finding.code, finding.message);
+    try {
+      // A composed post is sealed by its own build, while still binding the recorded parent above.
+      if (inspectNumberedPostPublication(root, project, n).composed) return selector;
+    } catch (error) {
+      if (error instanceof DirectionError) refuse(error.code, error.message);
+      throw error;
+    }
   }
   const pkg = rigVersion.review_package;
   if (!isObject(pkg) || !Array.isArray(pkg.files) || pkg.files.length === 0) {
@@ -793,15 +787,12 @@ export async function openDraftPublication(root: string, host: JobOwnerHost, now
   const warnings: Finding[] = [];
   const project = JSON.parse(bytes.toString('utf8')) as JsonObject;
   const viewOnly = isCurrentProject(project) && (targetSelector?.kind === 'rig' || targetSelector?.kind === 'post');
-  const deferred = targetSelector?.kind === 'rig' && !viewOnly
-    ? rigVerdictDeferred(root, project, stage, targetSelector.version, now) : null;
-  if (deferred) warnings.push(deferred);
   const draft = targetSelector?.kind === 'draft'
     ? inspectDraftPublication(root, project, targetSelector.id, warnings, stage)
     : undefined;
-  // Re-publish an older head that still declares retired sign-off or checkpoint asks.
+  // Refresh package subjects before asking on a reused head.
   const currentSubjects = draft?.context.subjects ?? (targetSelector && targetSelector.kind !== 'draft'
-    ? livePublicationSubjects(root, project, targetSelector)
+    ? []
     : undefined);
   const sameDraftPackage = targetSelector?.kind !== 'draft'
     || Boolean(draft?.rigging) === (source?.package?.id === draftPackageIdentity(targetSelector.id, true).id);

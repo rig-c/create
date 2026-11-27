@@ -2,8 +2,7 @@ import { sceneFixture } from './scene-fixture.ts';
 import { reviewPackageHash } from '../src/signoff-target.ts';
 import { currentScene, sceneReference } from '../src/scene.ts';
 import { DIRECTION_SCENE_SPEC } from '../src/direction.ts';
-import { plantLegacyReopen, retainSignoffs } from './fixtures.ts';
-import { resignAfterChange } from './fixtures.ts';
+import { plantLegacyReopen } from './fixtures.ts';
 import { afterEach, expect, test } from 'bun:test';
 import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -11,9 +10,8 @@ import { attachCreateJobForClose } from '../src/job-close.ts';
 import { readHostActsAndAsks } from '../src/job-acts.ts';
 import { jobHostStateRoot, pendingPublications, readAcknowledgedPublication, readWriterBinding } from '../src/job-outbox.ts';
 import { jobRuntimeExecArgv } from '../src/job-writer.ts';
-import { isDeepStrictEqual as equal } from 'node:util';
 import { checkProject as checkProjectRaw, type Finding } from '../src/check.ts';
-import { DIRECTION_CONTRACT, DIRECTION_PATCH_SINCE, DirectionError, directionHash, directionPostIdentity, objects, readDirection, validateDirectionCitations, validateDirectionIdentity, validateDirectionShape } from '../src/direction.ts';
+import { DIRECTION_CONTRACT, DIRECTION_PATCH_SINCE, directionHash, directionPostIdentity, objects, readDirection, validateDirectionCitations, validateDirectionIdentity, validateDirectionShape } from '../src/direction.ts';
 import { reviewPackageCommand } from '../src/review-package.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { directionFixture } from './direction-fixture.ts';
@@ -67,7 +65,7 @@ test('direction and correction writers replay a described closure on the frozen 
   expect((on.direction as JsonObject).sha256).not.toBe((outcome.direction as JsonObject).sha256);
 });
 test('writer publishes exact input bytes and record points to them, check CLI succeeds',()=>{const f=setup();write(f.dir);expect(readFileSync(join(f.dir,'evidence/input.json'))).toEqual(readFileSync(join(f.dir,'evidence/direction/v2.json')));expect(checked(f.dir)).toEqual([]);expect(JSON.parse(directionCommand(['check','2',f.dir,'--json']).stdout).post).toBe(2);});
-test('#690 direction publication updates an open page with its direction verdict ask', async () => {
+test('#690 numbered direction commits without updating the open page', async () => {
   const root = join(tempDir(), 'direction-job');
   const example = join(import.meta.dir, '../templates/example-chain');
   const exampleRig = objects((JSON.parse(readFileSync(join(example, 'project.json'), 'utf8')) as JsonObject).versions)
@@ -87,8 +85,6 @@ test('#690 direction publication updates an open page with its direction verdict
   const seed = f.load();
   objects(seed.versions)[0]!.review_package = pkg;
   f.save({ ...seed, inputs: [] });
-  const projectPath = join(root, 'project.json');
-  const directionPath = join(root, 'evidence/direction/v2.json');
   expect(write(root).exit).toBe(0);
   const published = f.load();
   f.save({ ...published, stage: 'direction-review' });
@@ -104,7 +100,7 @@ test('#690 direction publication updates an open page with its direction verdict
   try {
     const decoder = new TextDecoder();
     let opening = '';
-    while (opening.split('\n').filter(Boolean).length < 3 || !opening.endsWith('\n')) {
+    while (opening.split('\n').filter(Boolean).length < 2 || !opening.endsWith('\n')) {
       const chunk = await Promise.race([output.read(), startupError]);
       if (!chunk || chunk.done) throw Error('Synthetic job host exited before opening its page');
       opening += decoder.decode(chunk.value, { stream: true });
@@ -123,39 +119,22 @@ test('#690 direction publication updates an open page with its direction verdict
     const beforeJob = await jobState();
     const receipt = readAcknowledgedPublication(root, binding.jobId, beforeJob.status.publication!.publicationId);
     expect(receipt).not.toBeNull();
-    expect(lines).toEqual([`job: post v2 published (publication ${receipt!.publicationId})`, 'job: asked review-verdict direction-review']);
-    expect(beforeJob.asks).toHaveLength(1);
+    expect(lines).toEqual([`job: post v2 published (publication ${receipt!.publicationId})`]);
+    expect(beforeJob.asks).toEqual([]);
     expect(beforeJob.acts).toEqual([]);
 
-    // Restore a pre-write synthetic record while keeping the external page on post v2.
-    const opened = f.load();
-    f.save({ ...opened, stage: 'post', versions: objects(opened.versions).filter(version => version.n !== 2) });
-    rmSync(directionPath);
-    const beforeProject = readFileSync(projectPath);
-    const run = (n: number) => Bun.spawnSync([...command, 'direction', 'write', String(n), root,
+    f.save({ ...f.load(), stage: 'post' });
+    const nextDirectionPath = join(root, 'evidence/direction/v3.json');
+    const next = Bun.spawnSync([...command, 'direction', 'write', '3', root,
       '--file', 'evidence/input.json', '--rig', '1'], { stdout: 'pipe', stderr: 'pipe' });
-    const other = run(3);
-    expect(other.exitCode).toBe(1);
-    expect(other.stderr.toString()).toContain('JOB_ASK_PENDING:');
-    expect(readFileSync(projectPath)).toEqual(beforeProject);
-    expect(existsSync(join(root, 'evidence/direction/v3.json'))).toBe(false);
+    expect(next.exitCode).toBe(0);
+    expect(next.stderr.toString()).toBe('');
+    expect(next.stdout.toString()).toContain('direction: v3 committed without publishing');
+    expect(next.stdout.toString()).not.toMatch(/JOB_PUBLICATION_ASK_REQUIRED|JOB_RIG_VERDICT_DEFERRED/);
+    expect(objects(f.load().versions).at(-1)).toMatchObject({ n: 3, kind: 'post', rig_version: 1 });
+    expect(readFileSync(nextDirectionPath)).toEqual(readFileSync(join(root, 'evidence/input.json')));
     expect(await jobState()).toEqual(beforeJob);
-
-    const same = run(2);
-    const afterJob = await jobState();
-    expect(same.exitCode).toBe(0);
-    expect(same.stderr.toString()).toBe('');
-    expect(objects(f.load().versions).at(-1)).toMatchObject({ n: 2, kind: 'post', rig_version: 1 });
-    expect(readFileSync(directionPath)).toEqual(readFileSync(join(root, 'evidence/input.json')));
-    expect(afterJob.status.generation).toBeGreaterThan(beforeJob.status.generation);
-    const publicationId = afterJob.status.publication!.publicationId;
-    expect(publicationId).not.toBe(beforeJob.status.publication!.publicationId);
-    expect(afterJob.asks).toHaveLength(1);
-    expect(afterJob.asks[0]).toMatchObject({ publicationId, subject: { kind: 'review-verdict', stage: 'direction-review' } });
-    expect(afterJob.acts).toEqual([]);
     expect(pendingPublications(root)).toEqual([]);
-    expect(same.stdout.toString()).toContain('review-verdict direction-review');
-    expect(same.stdout.toString()).toContain(publicationId);
   } finally {
     proc.kill();
     await proc.exited;

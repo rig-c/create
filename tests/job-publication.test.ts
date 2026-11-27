@@ -13,7 +13,7 @@ import { JOB_API_SCHEMA, JOB_API_V3_SCHEMA, startJobHost, type JobHostAttachFail
 import { attachCreateJob, closeCreateJob, openCreateJob, openDraftPublication, openRecordPublication, publishPending, reconcileCreateJob, requestedRecordResult } from '../src/job-host.ts';
 import { reportOwnerSubmitRefusal } from '../src/job-refusal.ts';
 import { acquireJobLock, cancelUncommittedIntent, enqueuePublication, failPublication, JOB_BINDING_FILE, jobHash, jobHostStateRoot, jobPrivateRoot, pendingPublications, publicationVersionHash, readAcknowledgedPublication, readWriterBinding, reconcilePublication, writePrivateJson } from '../src/job-outbox.ts';
-import { jobRuntimeExecArgv, prepareVersionIntent } from '../src/job-writer.ts';
+import { jobRuntimeExecArgv } from '../src/job-writer.ts';
 import { draftPublicationContext, draftPublishedContext, liveManifestPath, loadedPartsIdentity, partsEnumerator, prepareDraftManifest, prepareLiveManifest, readPublished, readRecordPublished } from '../src/job-publication.ts';
 import { checkProject, collectItems, formatReport } from '../src/check.ts';
 import { interviewAnswerCommand, interviewOptionsCommand } from '../src/choice-writers.ts';
@@ -166,7 +166,7 @@ test('check preserves a live precommit intent and refusal cancels it without a p
   const release = acquireJobLock(root)!;
   const project = JSON.parse(original.toString());
   project.versions.push({ ...project.versions[0], n: 2 });
-  const intent = prepareVersionIntent(root, Buffer.from(JSON.stringify(project)), 2)!;
+  const intent = enqueuePublication(root, readWriterBinding(root)!, { path: 'review-live-v2.json', selector: { kind: 'rig', version: 2 } }, Buffer.from(JSON.stringify(project)))!;
   const path = join(jobPrivateRoot(root), 'outbox', `${intent.id}.json`);
   try {
     expect(checkProject(root, undefined, { now }).holes ?? []).toEqual([]);
@@ -187,7 +187,7 @@ test('private binding and discard log refuse dangling symlinks without creating 
   hosts.push(host);
   const project = JSON.parse(readFileSync(join(root, 'project.json'), 'utf8'));
   project.versions.push({ ...project.versions[0], n: 2 });
-  prepareVersionIntent(root, Buffer.from(JSON.stringify(project)), 2);
+  enqueuePublication(root, readWriterBinding(root)!, { path: 'review-live-v2.json', selector: { kind: 'rig', version: 2 } }, Buffer.from(JSON.stringify(project)));
   symlinkSync(target, join(jobPrivateRoot(root), 'discarded-intents.jsonl'));
   expect(checkProject(root, undefined, { now }).holes?.map(hole => hole.code)).toEqual(['JOB_OUTBOX_INVALID']);
   expect(existsSync(target)).toBe(false);
@@ -251,13 +251,19 @@ test('lost acknowledgment replays the same request without a second publication'
     await publishPending(entry);
     refuse('JOB_PUBLISH_PENDING', 'project.json: planted acknowledgment loss');
   })).rejects.toMatchObject({ code: 'JOB_PUBLISH_PENDING' });
-  // One publication and its declared asks; the replay publishes and asks nothing again.
-  const asked = host.session.status();
-  expect(asked.pending.length).toBeGreaterThan(0);
-  expect(asked.generation).toBe(1 + asked.pending.length);
+  const first = host.session.status();
+  expect(first.generation).toBe(1);
+  expect(first.pending).toEqual([]);
+  expect(first.publication).not.toBeNull();
+  const publicationId = first.publication!.publicationId;
+  expect(readAcknowledgedPublication(root, host.session.jobId, publicationId)?.subjects).toEqual([]);
+
   expect(await reconcileCreateJob(root)).toBe(1);
-  expect(host.session.status().generation).toBe(asked.generation);
-  expect(host.session.status().pending).toEqual(asked.pending);
+  const replay = host.session.status();
+  expect(replay.generation).toBe(1);
+  expect(replay.publication?.publicationId).toBe(publicationId);
+  expect(replay.pending).toEqual([]);
+  expect(readAcknowledgedPublication(root, host.session.jobId, publicationId)?.subjects).toEqual([]);
   expect(pendingPublications(root)).toEqual([]);
 });
 
@@ -628,12 +634,12 @@ test.each(['drop', 'reorder', 'version'])('review refuses the C4 %s control', as
 test('unbound writer publishes nothing and allocates no outbox', async () => {
   const { root } = setup();
   const { publishCommittedVersion } = await import('../src/job-writer.ts');
-  publishCommittedVersion(root, 1);
+  publishCommittedVersion(root, 'synthetic');
   expect(existsSync(jobPrivateRoot(root))).toBe(false);
   expect(existsSync(join(root, 'review-live-v1.json'))).toBe(false);
 });
 
-test.each(['before-commit', 'after-commit', 'publish-failed'])('process kill %s recovers the version intent across an independent writer', async phase => {
+test.each(['before-commit', 'after-commit', 'publish-failed'])('process kill %s recovers a legacy version intent across an independent writer', async phase => {
   const { root } = setup();
   const host = await openCreateJob(root, { id: 'reviewer', role: 'owner' }, now);
   hosts.push(host);
@@ -647,12 +653,11 @@ test.each(['before-commit', 'after-commit', 'publish-failed'])('process kill %s 
   const worker = `
     import { readFileSync, writeFileSync, renameSync } from 'node:fs';
     import { join } from 'node:path';
-    import { acquireJobLock, reconcilePublication, failPublication } from ${JSON.stringify(join(import.meta.dir, '../src/job-outbox.ts'))};
-    import { prepareVersionIntent } from ${JSON.stringify(join(import.meta.dir, '../src/job-writer.ts'))};
-    const {root, bytes, phase} = JSON.parse(readFileSync(0, 'utf8'));
+    import { acquireJobLock, enqueuePublication, readWriterBinding, reconcilePublication, failPublication } from ${JSON.stringify(join(import.meta.dir, '../src/job-outbox.ts'))};
+    const {root, bytes, phase, result} = JSON.parse(readFileSync(0, 'utf8'));
     acquireJobLock(root);
     const candidate = Buffer.from(bytes);
-    const intent = prepareVersionIntent(root, candidate, 2);
+    const intent = enqueuePublication(root, readWriterBinding(root), result, candidate);
     if (phase !== 'before-commit') {
       writeFileSync(join(root, 'project.crash-control'), candidate);
       renameSync(join(root, 'project.crash-control'), join(root, 'project.json'));
@@ -664,7 +669,7 @@ test.each(['before-commit', 'after-commit', 'publish-failed'])('process kill %s 
     process.kill(process.pid, 'SIGKILL');
   `;
   const child = Bun.spawn([process.execPath, ...jobRuntimeExecArgv(), '--eval', worker], {
-    stdin: new Blob([JSON.stringify({ root, bytes: [...candidate], phase })]), stdout: 'pipe', stderr: 'pipe',
+    stdin: new Blob([JSON.stringify({ root, bytes: [...candidate], phase, result })]), stdout: 'pipe', stderr: 'pipe',
   });
   await child.exited;
   expect(child.signalCode).toBe('SIGKILL');

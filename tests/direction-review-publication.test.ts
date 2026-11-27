@@ -5,8 +5,8 @@ import { join } from 'node:path';
 import { EXAMPLE_REOPEN_AT } from '../scripts/example-time.ts';
 import { objects } from '../src/direction.ts';
 import { readProject } from '../src/feedback.ts';
-import { closeCreateJob, openCreateJob, reconcileCreateJob } from '../src/job-host.ts';
-import { enqueuePublication, jobHash, jobHostStateRoot, pendingPublications, readWriterBinding } from '../src/job-outbox.ts';
+import { askDeclaredSubjects, closeCreateJob, openCreateJob } from '../src/job-host.ts';
+import { acknowledgePublication, enqueuePublication, jobHash, jobHostStateRoot, pendingPublications, readWriterBinding, reconcilePublication } from '../src/job-outbox.ts';
 import { prepareLiveManifest, readPublished } from '../src/job-publication.ts';
 import { jobRuntimeExecArgv } from '../src/job-writer.ts';
 import type { JsonObject } from '../src/templates.ts';
@@ -51,14 +51,15 @@ function postRequest(root: string, version: number) {
   return { root, record, result };
 }
 
-async function publishPost(host: JobOwnerHost, { record, result }: ReturnType<typeof postRequest>) {
+async function publishPost(host: JobOwnerHost, { record, result }: ReturnType<typeof postRequest>,
+  requestId = crypto.randomUUID(), holdId = 'direction-test-hold') {
   const { jobId } = host.session;
   const response = await host.ports.handleJobApi(new Request(`${host.origin}/jobs/${jobId}/api`, {
     method: 'POST',
     headers: { authorization: `Bearer ${host.session.hostCredentials().agent}`, 'content-type': 'application/json' },
-    body: JSON.stringify({ schema: JOB_API_SCHEMA, verb: 'publish', jobId, requestId: crypto.randomUUID(),
-      expectedGeneration: host.session.status().generation, idempotencyKey: crypto.randomUUID(),
-      freeze: { kind: 'producer-held', holdId: 'direction-test-hold', record }, result }),
+    body: JSON.stringify({ schema: JOB_API_SCHEMA, verb: 'publish', jobId, requestId,
+      expectedGeneration: host.session.status().generation, idempotencyKey: requestId,
+      freeze: { kind: 'producer-held', holdId, record }, result }),
   }));
   const body = await response.json();
   expect(body).toMatchObject({ ok: true });
@@ -82,15 +83,26 @@ test('#955 a direction post projects an ingested same-job bounce only when Revie
   const root = authoredPost('fixed');
   expect(advanceCommand(['direction-review', root]).exit).toBe(0);
   const reviewer = { id: 'synthetic-owner', role: 'owner' } as const;
-  const host = await openCreateJob(root, reviewer, testClock.now());
+  const subjects = [{ kind: 'review-verdict', stage: 'direction-review' }] as const;
+  const host = await openCreateJob(root, reviewer, testClock.now(), options => startJobHost({
+    ...options, readPublished: async input => {
+      const published = await readPublished(input);
+      return input.result.selector?.kind === 'post' && input.result.selector.version === 2
+        ? { ...published, subjects } : published;
+    },
+  }));
   let laterHost: JobOwnerHost | undefined;
   const { jobId } = host.session;
   const text = 'Keep this synthetic shot fixed.';
   try {
     const input = postRequest(root, 2);
-    enqueuePublication(root, readWriterBinding(root)!, input.result);
-    expect(await reconcileCreateJob(root, undefined, testClock.now())).toBe(1);
-    const earlier = host.session.status().publication!;
+    const entry = enqueuePublication(root, readWriterBinding(root)!, input.result);
+    const requestId = crypto.randomUUID();
+    const earlier = await publishPost(host, input, requestId, entry.id);
+    await reconcilePublication(root, entry, async pending => {
+      acknowledgePublication(pending, earlier.publicationId, earlier.generation, requestId, subjects);
+    });
+    expect(await askDeclaredSubjects(host, earlier.publicationId, subjects, false)).toEqual([{ status: 'asked', subject: subjects[0] }]);
     const ask = host.session.status().pending.find(row => row.subject.kind === 'review-verdict')!;
     const pageId = 'synthetic-direction-owner-page';
     const request = (route: string, value: object) => new Request(`${host.origin}/jobs/${jobId}/ui/${route}`, {
@@ -124,7 +136,8 @@ test('#955 a direction post projects an ingested same-job bounce only when Revie
     `, root, actId, now + 1000);
     expect(pendingPublications(root)).toEqual([]);
     const actual = await readPublished(postRequest(root, 3));
-    const publication = host.session.status().publication!;
+    expect(host.session.status().publication?.publicationId).toBe(earlier.publicationId);
+    const publication = await publishPost(host, postRequest(root, 3));
     expect(publication.source.selector).toEqual({ kind: 'post', version: 3, rigVersion: 1 });
     const { answeredDirectionFeedback: references, ...baseline } = actual as typeof actual & {
       answeredDirectionFeedback?: readonly { jobId: string; actId: string }[];

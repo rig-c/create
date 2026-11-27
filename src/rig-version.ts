@@ -2,8 +2,8 @@
 import { createHash } from 'node:crypto';
 import { closeSync, linkSync, mkdirSync, mkdtempSync, openSync, renameSync, rmdirSync, rmSync, writeFileSync } from 'node:fs';
 import { existsSync, lstatSync, readFileSync, readdirSync, realpathSync } from './check-reads.ts';
-import { acquireBoundJobWrite, beginJobProgress, prepareVersionIntent, publishCommittedVersion } from './job-writer.ts';
-import { cancelUncommittedIntent, isRecordResult, pendingPublications, type PendingPublication } from './job-outbox.ts';
+import { acquireBoundJobWrite, beginJobProgress } from './job-writer.ts';
+import { isRecordResult, pendingPublications } from './job-outbox.ts';
 import { shellWord } from './job-acts.ts';
 import { FIGURE_MASK_FILE, PAINTING_IN_RIG_FILE, partsFileReferences, readPartsManifest } from '@rig-c/parts/src/parts.ts';
 import { BODY_YAW_DIAL_BONE } from '@rig-c/parts/src/turn.ts';
@@ -1454,12 +1454,11 @@ export function rigVersionCommand(args: string[], now: number): { stdout: string
   const sourceDirectories = new Map<string, string[]>();
   const outputFiles: JsonObject[] = [];
   let releasePublication = () => {};
-  let publicationIntent: PendingPublication | null = null;
   let progress: ReturnType<typeof beginJobProgress>;
   try {
     // Before the job gate: a retry while v<n>'s publication is pending names v<n>, not the gate.
     refuseRegisteredVersion(dir, project, n);
-    releasePublication = acquireBoundJobWrite(dir, { kind: 'rig', version: n });
+    releasePublication = acquireBoundJobWrite(dir);
     // The first milestone waits for the job gate: a refused write leaves the project untouched.
     progress = beginJobProgress(dir, 'build', 'Starting rig registration');
     ({ file, project } = readProject(dir));
@@ -1725,18 +1724,15 @@ export function rigVersionCommand(args: string[], now: number): { stdout: string
     if (!readFileSync(file).equals(original)) fail('RIG_REGISTRATION_SOURCE_CHANGED', 'project.json', 'record changed during registration');
     const pending = join(dir, evidence, 'project.pending');
     const recordBytes = Buffer.from(`${JSON.stringify(candidate, null, 2)}\n`);
-    publicationIntent = prepareVersionIntent(dir, recordBytes, n);
     writeFileSync(pending, recordBytes);
     renameSync(pending, file);
     created.length = 0;
-    progress?.('Rig registration finished', { i: 2, n: 2 });
-    publishCommittedVersion(dir, n);
-    return { stdout: json ? JSON.stringify(version, null, 2) : `rig-version: v${n} registered; ${String((version.review_package as JsonObject).open)}`, exit: 0 };
+    progress?.('Rig version committed without publishing', { i: 2, n: 2 });
+    return { stdout: json ? JSON.stringify(version, null, 2) : `rig-version: v${n} committed without publishing; ${String((version.review_package as JsonObject).open)}`, exit: 0 };
   } catch (error) {
     if (error instanceof Refusal) throw error;
     return fail('RIG_REGISTRATION_FILE_INVALID', `versions[v${n}].registration`, error instanceof Error ? error.message : String(error));
   } finally {
-    cancelUncommittedIntent(dir, publicationIntent);
     for (const path of created.reverse()) rmSync(path, { recursive: true, force: true });
     for (const path of createdParents.sort((a, b) => b.length - a.length)) {
       if (existsSync(path) && readdirSync(path).length === 0) rmdirSync(path);

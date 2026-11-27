@@ -15,8 +15,7 @@ import { parseFeedbackAnswers } from './feedback.ts';
 import type { CommandResult } from './interview.ts';
 import { commitProjectStep } from './project-step-commit.ts';
 import { handoff } from './review.ts';
-import { acquireBoundJobWrite, beginJobProgress, prepareVersionIntent, publishCommittedVersion } from './job-writer.ts';
-import { cancelUncommittedIntent, type PendingPublication } from './job-outbox.ts';
+import { acquireBoundJobWrite, beginJobProgress } from './job-writer.ts';
 import type { JsonObject } from './templates.ts';
 
 export const DIRECTION_HELP = `direction --adopt [<dir>]
@@ -101,7 +100,6 @@ function command(args:string[],now:number,hooks:DirectionWriteHooks):{stdout:str
   try{fd=openSync(lock,'wx');}catch{directionFail('DIRECTION_SOURCE_CHANGED','project.json','another direction writer holds the lock');}
   let published:string|null=null;const staged:string[]=[];
   let releasePublication = () => {};
-  let publicationIntent: PendingPublication | null = null;
   let progress: ReturnType<typeof beginJobProgress>;
   try{
     releasePublication = acquireBoundJobWrite(dir);
@@ -160,10 +158,8 @@ function command(args:string[],now:number,hooks:DirectionWriteHooks):{stdout:str
     for(const[path,expected]of snapshots)if(!(doc?.schema === DIRECTION_COMPOSE_SPEC ? sceneBytes(dir,path,'DIRECTION_SOURCE_CHANGED') : doc&&directionIdlePath(path)?directionIdleBytes(dir,project,Number((doc.rig as JsonObject).version),{path,sha256:directionHash(expected)}):directionBytes(dir,path)).equals(expected))directionFail('DIRECTION_SOURCE_CHANGED',path,'source bytes changed during publication');
     if(bytes&&doc){const target=directionPath(n);if(!directionBytes(dir,target).equals(bytes))directionFail('DIRECTION_SOURCE_CHANGED',target,'published document changed before commit');}
     const recordBytes = Buffer.from(`${JSON.stringify(next,null,2)}\n`);
-    if (action !== '--adopt') publicationIntent = prepareVersionIntent(dir, recordBytes, n);
     const temp=join(dir,`.direction-${crypto.randomUUID()}.tmp`);staged.push(temp);writeFileSync(temp,recordBytes,{flag:'wx'});renameSync(temp,file);published=null;rollbackCompose.length=0;
-    progress?.('Direction post recorded', { i: 2, n: 2 });
-    if (action !== '--adopt') publishCommittedVersion(dir, n);
-    return{stdout:action==='--adopt'?'direction: adopted; historical posts preserved':`direction: v${n} recorded; stage unchanged`,exit:0};
-  }finally{cancelUncommittedIntent(dir,publicationIntent);if(published)rmSync(published,{force:true});for(const path of staged)rmSync(path,{force:true});rollbackComposeDirectories(dir,n,rollbackCompose);closeSync(fd);rmSync(lock);releasePublication();}
+    progress?.('Direction post committed without publishing', { i: 2, n: 2 });
+    return{stdout:action==='--adopt'?'direction: adopted; historical posts preserved':`direction: v${n} committed without publishing; stage unchanged`,exit:0};
+  }finally{if(published)rmSync(published,{force:true});for(const path of staged)rmSync(path,{force:true});rollbackComposeDirectories(dir,n,rollbackCompose);closeSync(fd);rmSync(lock);releasePublication();}
 }

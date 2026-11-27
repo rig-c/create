@@ -63,10 +63,6 @@ function copyCheckpoint(checkpoint: string, edit?: (project: JsonObject) => void
   return root;
 }
 
-function isRetiredAskKind(kind: string): boolean {
-  return kind === 'signoff' || kind === 'checkpoint' || kind === 'reopen' || kind === 'interview-picks';
-}
-
 test('publication carries no ask of any retired kind', async () => {
   const now = Math.max(EXAMPLE_NOW, Date.now());
 
@@ -138,7 +134,7 @@ test('publication carries no ask of any retired kind', async () => {
   expect(partsPlan.subjects).toEqual([]);
   expect(nextProject(partsCheckpointRoot, now).moves.some(m => m.command?.includes('job open') || m.command?.includes('--from-review'))).toBe(false);
 
-  // 3. Rigging interview, rigging checkpoint, and rig-review carry only review-verdict when eligible.
+  // 3. Rigging interview, rigging checkpoint, and rig-review carry no verdict or checkpoint ask.
   const riggingRoot = copyCheckpoint('3-rig-review', project => {
     project.stage = 'rigging';
     project.advances = arr(project.advances).filter(a => obj(a).stage !== 'rig-review');
@@ -162,8 +158,7 @@ test('publication carries no ask of any retired kind', async () => {
   hosts.push(rigHost);
   await openDraftPublication(rigReviewRoot, rigHost, now, undefined, '1');
   const rigAsks = (await readHostActsAndAsks(rigHost)).asks;
-  expect(rigAsks.map(a => a.subject)).toEqual([{ kind: 'review-verdict', stage: 'rig-review' }]);
-  expect(rigAsks.some(a => isRetiredAskKind(a.subject.kind))).toBe(false);
+  expect(rigAsks).toEqual([]);
 
   // 4. Post-interview, post checkpoint, and direction-review carry no signoff or checkpoint asks.
   const directionRoot = copyCheckpoint('example-chain', project => {

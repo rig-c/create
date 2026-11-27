@@ -476,18 +476,17 @@ test('a bound current direction advances, signs in owner chat and reaches accept
   expect(readProject(dir).versions).toEqual(freshRecord.versions!);
 });
 
-test('next keeps the numbered rig verdict move for a project without current', () => {
+test('next gives numbered rig migration guidance for a project without current', () => {
   const dir = tempDir('rig-create-next-legacy-');
   cpSync(join(import.meta.dir, '../templates/example-chain/checkpoints/3-rig-review'), dir, { recursive: true });
   expect(readProject(dir).current).toBeUndefined();
   const report = next(dir);
   const awaits = 'versions[n=1].verdicts[review=rig-review]';
   expect(report.awaits).toContain(awaits);
-  expect(report.moves.find(move => move.awaits === awaits && move.role === 'human'
-    && move.review_act?.kind === 'review-verdict')).toMatchObject({
-    role: 'human', command: null,
-    review_act: { kind: 'review-verdict', stage: 'rig-review', version_id: 'v1', review: 'rig-review' },
-  });
+  expect(report.moves.filter(move => move.awaits === awaits)).toMatchObject([{
+    role: 'human', command: null, act: expect.stringContaining('NUMBERED_ACT_RETIRED'),
+  }]);
+  expect(report.moves.some(move => move.review_act?.kind === 'review-verdict')).toBe(false);
 });
 
 test('a lapsed numbered direction verdict stays visible while next offers current owner chat re-signoff', () => {

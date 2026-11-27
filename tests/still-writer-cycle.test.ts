@@ -72,7 +72,14 @@ test('writer-only draft, parts approval, new producer build and verdict ingestio
       '--citations', 'citations.json', '--run-record', 'new-build/run.json', '--at-source', 'new-build/run.json', '--at-pointer', '/finished_at', '--by', 'synthetic registrant'], now + 1000);
     command(['advance', 'rig-review', dir], now + 2000);
     const identity = currentJobIdentity({ root: dir, stateDir: join(scratch, 'host'), fingerprint: 'rig-create/still-cycle/1', reviewer: { id: 'synthetic-reviewer', role: 'owner' } }, dir);
-    host = await startJobHost({ ...identity, partsEnumerator, readPublished, installWriterBinding: grant => writePrivateJson(join(dir, JOB_BINDING_FILE), { schema: 'rig-create/job-binding@1', identity, ...grant }, true) });
+    const historicalSubject = { kind: 'review-verdict' as const, stage: 'rig-review' as const };
+    host = await startJobHost({
+      ...identity,
+      partsEnumerator,
+      // Model an already-issued numbered ask while the producer and writer cycle remains available.
+      readPublished: async input => ({ ...await readPublished(input), subjects: [historicalSubject] }),
+      installWriterBinding: grant => writePrivateJson(join(dir, JOB_BINDING_FILE), { schema: 'rig-create/job-binding@1', identity, ...grant }, true),
+    });
     const project = load();
     project.review_job = { jobId: host.session.jobId, origin: host.origin };
     put('project.json', `${JSON.stringify(project, null, 2)}\n`);
@@ -86,7 +93,7 @@ test('writer-only draft, parts approval, new producer build and verdict ingestio
       expect(result.ok).toBe(true); return result.value;
     };
     const publication = await agent('publish', { result: { path, selector: { kind: 'rig', version: 1 } }, freeze: { kind: 'producer-held', holdId: 'cycle-freeze', record: { path: 'project.json', sha256: jobHash(readFileSync(join(dir, 'project.json'))) } } });
-    const ask = await agent('ask', { publicationId: publication.publicationId, subject: { kind: 'review-verdict', stage: 'rig-review' } });
+    const ask = await agent('ask', { publicationId: publication.publicationId, subject: historicalSubject });
     const request = (route: string, value: object): Request => new Request(`${host!.origin}/jobs/${host!.session.jobId}/ui/${route}`, {
       method: 'POST', headers: { origin: host!.origin, 'X-Review-Capability': host!.session.hostCredentials().ui, 'content-type': 'application/json' }, body: JSON.stringify(value),
     });

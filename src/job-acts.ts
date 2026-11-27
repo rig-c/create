@@ -7,7 +7,7 @@ import { asArray, collectItems, collectSignoffs, isObject, loadCollection, type 
 import { optionFile } from './choices.ts';
 import { existsSync, readFileSync } from './check-reads.ts';
 import { join } from 'node:path';
-import { recordedPartsVerdict } from './parts-verdict-record.ts';
+import { LAST_NUMBERED_CREATE_RELEASE } from './numbered-retirement.ts';
 import { isRiggingDraftAct } from './parts-act.ts';
 import { refuse } from './refusal.ts';
 import { collectReopens, liveSignoff } from './reopen.ts';
@@ -90,7 +90,7 @@ export interface PendingJobAct {
   args: string[] | null;
   command: string | null;
   preconditions?: { command: string | null; act: string }[];
-  unavailable?: { code: 'JOB_ACTS_WRITER_UNAVAILABLE' | 'REOPEN_ACT_RETIRED'; message: string };
+  unavailable?: { code: 'JOB_ACTS_WRITER_UNAVAILABLE' | 'REOPEN_ACT_RETIRED' | 'NUMBERED_ACT_RETIRED'; message: string };
   /** A grouped interview page whose other sets have not all submitted: no ingest command yet. */
   waiting?: { received: number; total: number };
 }
@@ -128,6 +128,13 @@ export function partsStructureSnapshot(root: string, project: JsonObject, draft:
   }
 }
 
+function numberedActRetirement(actId: string): NonNullable<PendingJobAct['unavailable']> {
+  return {
+    code: 'NUMBERED_ACT_RETIRED',
+    message: `project.json.review_acts: numbered act ${actId} is retired; adopt existing outputs with rig-create record <kind> --adopt, rig-create direction --adopt, or rig-create correction --adopt as applicable, or finish the numbered project on Create ${LAST_NUMBERED_CREATE_RELEASE}`,
+  };
+}
+
 export function pendingJobActs(project: JsonObject, acts: readonly ActV3[], root: string): PendingJobAct[] {
   const ingested = new Set(asArray(project.review_acts).filter(isObject).map(row => JSON.stringify([row.jobId, row.actId])));
   const signoffs = asArray(project.signoffs).filter(isObject);
@@ -139,7 +146,7 @@ export function pendingJobActs(project: JsonObject, acts: readonly ActV3[], root
     seen.add(key);
     let subject: string = act.kind;
     let args: string[] | null = null;
-    const preconditions: { command: string | null; act: string }[] = [];
+    let unavailable: PendingJobAct['unavailable'];
     switch (act.kind) {
       case 'comments': {
         // act@10 answers no ask: it is actionable on its own, whatever asks are pending (#982).
@@ -154,12 +161,11 @@ export function pendingJobActs(project: JsonObject, acts: readonly ActV3[], root
         subject = act.value.stage;
         if (selector?.kind === 'draft' && act.value.stage === 'rig-review') {
           subject = `draft ${selector.id} / rig-review`;
-          args = ['review', root, '--draft', selector.id];
         } else if (selector && (selector.kind === 'rig' || selector.kind === 'post')
           && act.value.stage === (selector.kind === 'rig' ? 'rig-review' : 'direction-review')) {
           subject = `${selector.kind} v${selector.version} / ${act.value.stage}`;
-          args = ['review', String(selector.version), root];
         }
+        unavailable = numberedActRetirement(act.actId);
         break;
       }
       case 'parts-verdict': {
@@ -167,18 +173,8 @@ export function pendingJobActs(project: JsonObject, acts: readonly ActV3[], root
         if (selector?.kind === 'draft') {
           const rigging = isRiggingDraftAct(act);
           subject = `${rigging ? 'rigging ' : ''}draft ${selector.id}`;
-          args = ['parts-review', root];
-          if (!rigging && act.value.verdict === 'approved') {
-            const structure = partsStructureSnapshot(root, project, selector.id);
-            const missing: string[] = [];
-            if (!structure.valid) missing.push(`retained structure snapshot ${structure.path}`);
-            if (!isObject(project.diff_map)) missing.push('diff-components evidence and diff-classes');
-            if (!asArray(project.advances).some(row => isObject(row) && row.stage === 'parts-review' && isObject(row.parts_check))) missing.push('recorded check-parts evidence');
-            if (project.stage !== 'parts-review') missing.push('advance parts-review');
-            if (missing.length) preconditions.push({ command: null,
-              act: `missing ${missing.join(', ')}; prepare all evidence and advance before publishing the draft and asking for a new parts-verdict; changing project.json after this act makes its projectHash stale` });
-          }
         }
+        unavailable = numberedActRetirement(act.actId);
         break;
       }
       case 'interview-picks':
@@ -194,19 +190,10 @@ export function pendingJobActs(project: JsonObject, acts: readonly ActV3[], root
         subject = `stage ${act.value.stage}`;
         args = ['signoff', act.value.stage, root];
         if (act.value.stage === 'parts-review') {
-          const selector = act.source.selector;
-          // Select only the draft shown by Review, never the latest draft by guess.
-          if (selector?.kind !== 'draft') { args = null; break; }
-          const draft = selector.id;
-          const structure = partsStructureSnapshot(root, project, draft);
-          let approved = false;
-          try { recordedPartsVerdict(root, project, draft); approved = true; } catch { /* Ordered prerequisite below. */ }
-          if (!approved) preconditions.push({ command: null, act: `this separate signoff route is only for a midflight approved parts-verdict already ingested unsigned for draft ${draft}; otherwise prepare evidence and advance, republish the draft and ask for one parts-verdict` });
-          if (!structure.valid) preconditions.push({
-            command: ['rig-create', 'structure-snapshot', root, '--draft', draft].map(shellWord).join(' '),
-            act: 'retain the structure snapshot from the draft; no verdict is required to create it',
-          });
-          args.push('--draft', draft, '--structure-file', structure.path);
+          args = null;
+          if (act.source.selector?.kind === 'draft') {
+            unavailable = numberedActRetirement(act.actId);
+          }
         }
         break;
       }
@@ -224,9 +211,8 @@ export function pendingJobActs(project: JsonObject, acts: readonly ActV3[], root
     if (args) args.push('--from-review', act.actId);
     const row: PendingJobAct = { actId: act.actId, ...(act.publicationId === undefined ? {} : { publicationId: act.publicationId }),
       kind: act.kind, subject, at: act.at, value: act.value, args,
-      ...(preconditions.length ? { preconditions } : {}),
       command: args ? ['rig-create', ...args].map(shellWord).join(' ') : null,
-      ...(args ? {} : { unavailable: { code: 'JOB_ACTS_WRITER_UNAVAILABLE' as const,
+      ...(args ? {} : { unavailable: unavailable ?? { code: 'JOB_ACTS_WRITER_UNAVAILABLE' as const,
         message: `project.json: act ${act.actId} (${subject}) has no current writer target; restore its plan step or use a supported Review subject before ingestion` } }) };
     if (isRecordPicksAct(act) && isMultiOptionSource(act.source)) {
       const key = JSON.stringify([act.jobId, act.publicationId]);

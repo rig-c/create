@@ -1,12 +1,10 @@
 import { afterEach, expect, test } from 'bun:test';
-import { randomUUID } from 'node:crypto';
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { checkProject } from '../src/check.ts';
 import { outputRoot, outputSetHash, sha256, treeFiles } from '../src/current.ts';
 import { commitAdvance } from '../src/job-advance.ts';
-import { JOB_BINDING_FILE, jobHostStateRoot, jobPrivateRoot, pendingPublications, readWriterBinding, writePrivateJson } from '../src/job-outbox.ts';
+import { jobHostStateRoot, jobPrivateRoot, pendingPublications, readWriterBinding } from '../src/job-outbox.ts';
 import { jobRuntimeExecArgv } from '../src/job-writer.ts';
 import type { JsonObject } from '../src/templates.ts';
 
@@ -29,7 +27,6 @@ afterEach(async () => {
   }
 });
 
-const WORDS = '  Synthetic approval, 좋아.\r\n';
 const read = (root: string): JsonObject => JSON.parse(readFileSync(join(root, 'project.json'), 'utf8')) as JsonObject;
 const write = (root: string, project: JsonObject): void => writeFileSync(join(root, 'project.json'), `${JSON.stringify(project, null, 2)}\n`);
 
@@ -109,178 +106,8 @@ async function page(url: URL, expectedAsks = 1) {
   }
   abort.abort();
   const { head, asks } = pending();
-  const post = async (route: string, body: object) =>
-    (await fetch(base + route, { method: 'POST', headers, body: JSON.stringify(body) })).json() as Promise<JsonObject>;
-  const pageId = randomUUID();
-  const displayed = await post('ui/displayed', {
-    publicationId: head!.publicationId,
-    pageId,
-    sourceHash: (head!.source as JsonObject).sourceHash,
-  });
-  let expectedGeneration = Number(events.at(-1)!.generation);
-  return {
-    pageId,
-    head: head!,
-    asks,
-    events,
-    act: async (subject: string, kind: string, value: object, extra: object = {}): Promise<JsonObject> => {
-      const ask = asks.find(item => (item.subject as JsonObject).kind === subject)!;
-      const result = await post('ui/acts', {
-        publicationId: head!.publicationId,
-        askId: ask.askId,
-        pageId,
-        displayedNonce: (displayed.value as JsonObject).displayedNonce,
-        expectedGeneration,
-        submissionId: randomUUID(),
-        kind,
-        value,
-        ...extra,
-      });
-      expect(result.error).toBeUndefined();
-      expectedGeneration++;
-      return result.value as JsonObject;
-    },
-  };
+  return { head: head!, asks, events };
 }
-
-/** Submit the actual displayed rig capture and approval through Review, including after outbox recovery. */
-async function approveRig(root: string, person: Awaited<ReturnType<typeof page>>) {
-  const ask = person.asks.find(item => (item.subject as JsonObject).kind === 'review-verdict')!;
-  const png = readFileSync(join(root, 'evidence/setup.png'));
-  return person.act('review-verdict', 'review-verdict', { stage: 'rig-review', verdict: 'approved', words: WORDS }, {
-    capture: { png: `data:image/png;base64,${png.toString('base64')}`, width: png.readUInt32BE(16), height: png.readUInt32BE(20),
-      camera: 'fixed', framing: 'default', view: 'whole-rig', frame: 'setup', playing: false,
-      binding: { publicationId: person.head.publicationId, instanceKey: person.head.instanceKey,
-        sourceHash: (person.head.source as JsonObject).sourceHash, pageId: person.pageId, askId: ask.askId,
-        drawGeneration: 1, playerGeneration: 0 } },
-  });
-}
-
-test('advance rig-review on a bound job publishes the current rig and folds the approved UI verdict into its signature via CLI', async () => {
-  const root = copy('3-rig-review', project => {
-    project.stage = 'rigging';
-    project.advances = (project.advances as JsonObject[]).filter(entry => entry.stage !== 'rig-review');
-  });
-  const opening = await open(root);
-
-  const advanced = await cli(root, ['advance', 'rig-review', root, '--json']);
-  expect({ exit: advanced.exit, stderr: advanced.stderr }).toEqual({ exit: 0, stderr: '' });
-  expect(read(root).stage).toBe('rig-review');
-
-  const person = await page(opening.url);
-  expect((person.head.source as JsonObject).selector).toEqual({ kind: 'rig', version: 1 });
-  expect(person.asks.map(ask => ask.subject)).toEqual([
-    { kind: 'review-verdict', stage: 'rig-review' },
-  ]);
-
-  const verdictAsk = person.asks.find(item => (item.subject as JsonObject).kind === 'review-verdict')!;
-  const png = readFileSync(join(root, 'evidence/setup.png'));
-  const verdict = await person.act('review-verdict', 'review-verdict', { stage: 'rig-review', verdict: 'approved', words: WORDS }, {
-    capture: {
-      png: `data:image/png;base64,${png.toString('base64')}`,
-      width: png.readUInt32BE(16),
-      height: png.readUInt32BE(20),
-      camera: 'fixed',
-      framing: 'default',
-      view: 'whole-rig',
-      frame: 'setup',
-      playing: false,
-      binding: {
-        publicationId: person.head.publicationId,
-        instanceKey: person.head.instanceKey,
-        sourceHash: (person.head.source as JsonObject).sourceHash,
-        pageId: person.pageId,
-        askId: verdictAsk.askId,
-        drawGeneration: 1,
-        playerGeneration: 0,
-      },
-    },
-  });
-
-  const reviewed = await cli(root, ['review', '1', root, '--from-review', String(verdict.actId), '--json']);
-  expect({ exit: reviewed.exit, stderr: reviewed.stderr }).toEqual({ exit: 0, stderr: '' });
-  expect((read(root).signoffs as JsonObject[]).at(-1)).toMatchObject({ stage: 'rig-review', source: `review act ${String(verdict.jobId)}/${String(verdict.actId)}`, target: { version: 1 } });
-  expect(pendingPublications(root)).toEqual([]);
-}, 30_000);
-
-test('advance direction-review on a bound job publishes the current post, asks only the verdict, ingests it, and moves to accepted without a sign-off (#981)', async () => {
-  const root = copy('example-chain', project => {
-    project.stage = 'post';
-    project.advances = (project.advances as JsonObject[]).filter(entry => entry.stage !== 'direction-review' && entry.stage !== 'accepted');
-    project.signoffs = (project.signoffs as JsonObject[]).filter(entry => entry.stage !== 'direction-review');
-    const postVersion = (project.versions as JsonObject[]).find(v => v.n === 2)!;
-    postVersion.verdicts = [];
-  });
-  const opening = await open(root);
-
-  const advanced = await cli(root, ['advance', 'direction-review', root, '--json']);
-  expect({ exit: advanced.exit, stderr: advanced.stderr }).toEqual({ exit: 0, stderr: '' });
-  expect(read(root).stage).toBe('direction-review');
-
-  const person = await page(opening.url, 1);
-  expect((person.head.source as JsonObject).selector).toEqual({ kind: 'post', version: 2, rigVersion: 1 });
-  expect(person.asks.map(ask => ask.subject)).toEqual([
-    { kind: 'review-verdict', stage: 'direction-review' },
-  ]);
-
-  const verdict = await person.act('review-verdict', 'review-verdict', { stage: 'direction-review', verdict: 'approved', words: WORDS });
-
-  const reviewed = await cli(root, ['review', '2', root, '--from-review', String(verdict.actId), '--json']);
-  expect({ exit: reviewed.exit, stderr: reviewed.stderr }).toEqual({ exit: 0, stderr: '' });
-  const toAccepted = await cli(root, ['advance', 'accepted', root, '--json']);
-  expect({ exit: toAccepted.exit, stderr: toAccepted.stderr }).toEqual({ exit: 0, stderr: '' });
-  expect(read(root).stage).toBe('accepted');
-  expect((read(root).signoffs as JsonObject[]).some(signature => signature.stage === 'direction-review')).toBe(false);
-  const report = checkProject(root, undefined, { now: Date.now() });
-  expect(report.refusals).toEqual([]);
-  expect(report.holes ?? []).toEqual([]);
-}, 30_000);
-
-test('forced publish failure after advance commits project.json, leaves JOB_PUBLISH_PENDING in the outbox, and job reconcile publishes and asks via CLI', async () => {
-  const root = copy('3-rig-review', project => {
-    project.stage = 'rigging';
-    project.advances = (project.advances as JsonObject[]).filter(entry => entry.stage !== 'rig-review');
-  });
-  const opening = await open(root);
-  const binding = readWriterBinding(root)!;
-  writePrivateJson(join(root, JOB_BINDING_FILE), { ...binding, listenerIncarnation: 'offline-incarnation' }, true);
-
-  const advanced = await cli(root, ['advance', 'rig-review', root, '--json']);
-  // The advance is committed; only its publication waits (create#844).
-  expect(advanced.exit).toBe(0);
-  expect(advanced.stderr).toMatch(/^WARN JOB_PUBLISH_PENDING: project\.json: versions\[v\d+\] is recorded /);
-  expect(read(root).stage).toBe('rig-review');
-  expect(pendingPublications(root)).toHaveLength(1);
-  expect(pendingPublications(root)[0]!.phase).toBe('pending');
-
-  const checkWhilePending = await cli(root, ['interview', root, '--check', '--json']);
-  expect(checkWhilePending.exit).toBe(1);
-  const parsedPending = JSON.parse(checkWhilePending.stdout) as { refusals: unknown[]; holes: { code: string }[] };
-  expect(parsedPending.refusals).toEqual([]);
-  expect(parsedPending.holes.map(h => h.code)).toEqual(['JOB_PUBLISH_PENDING']);
-
-  writePrivateJson(join(root, JOB_BINDING_FILE), binding, true);
-
-  const reconciled = await cli(root, ['job', 'reconcile', root]);
-  expect({ exit: reconciled.exit, stderr: reconciled.stderr }).toEqual({ exit: 0, stderr: '' });
-  expect(reconciled.stdout.trim()).toBe('job: reconciled 1 publication(s)');
-  expect(pendingPublications(root)).toEqual([]);
-
-  const checkAfterReconcile = await cli(root, ['interview', root, '--check', '--json']);
-  expect(checkAfterReconcile.exit).toBe(0);
-
-  const person = await page(opening.url);
-  expect((person.head.source as JsonObject).selector).toEqual({ kind: 'rig', version: 1 });
-  expect(person.asks.map(ask => ask.subject)).toEqual([
-    { kind: 'review-verdict', stage: 'rig-review' },
-  ]);
-  const verdict = await approveRig(root, person);
-  expect(verdict.kind).toBe('review-verdict');
-  const ingested = await cli(root, ['review', '1', root, '--from-review', String(verdict.actId), '--json']);
-  expect({ exit: ingested.exit, stderr: ingested.stderr }).toEqual({ exit: 0, stderr: '' });
-  expect((read(root).signoffs as JsonObject[]).at(-1)).toMatchObject({ stage: 'rig-review', source: `review act ${String(verdict.jobId)}/${String(verdict.actId)}`, target: { version: 1 } });
-  expect(pendingPublications(root)).toEqual([]);
-}, 30_000);
 
 test('advances into other stages on a bound job and advances without a bound job do not publish or touch the outbox', async () => {
   const boundRoot = copy('1-parts-verdict');
@@ -323,18 +150,41 @@ test('advances into other stages on a bound job and advances without a bound job
   expect(existsSync(jobPrivateRoot(unboundRoot))).toBe(false);
 }, 30_000);
 
-test('planted write failures on advance with an existing version never leave an advanced stage without a pending or acknowledged publication', async () => {
+test.each([
+  { checkpoint: '3-rig-review', from: 'rigging', stage: 'rig-review', version: '1' },
+  { checkpoint: 'example-chain', from: 'post', stage: 'direction-review', version: '2' },
+])('bound numbered advance to $stage commits without replacing the page or queuing publication', async ({ checkpoint, from, stage, version }) => {
+  const root = copy(checkpoint, project => {
+    project.stage = from;
+    project.advances = (project.advances as JsonObject[]).filter(entry => entry.stage !== stage && entry.stage !== 'accepted');
+  });
+  const opening = await open(root, ['--rig', version]);
+  const before = await page(opening.url, 0);
+  const ackDir = join(jobPrivateRoot(root), 'acknowledged-publications');
+  const receipts = readdirSync(ackDir).sort();
+  const advanced = await cli(root, ['advance', stage, root, '--json']);
+  expect({ exit: advanced.exit, stderr: advanced.stderr }).toEqual({ exit: 0, stderr: '' });
+  expect(read(root).stage).toBe(stage);
+  const after = await page(opening.url, 0);
+  expect(after.head).toEqual(before.head);
+  expect(after.asks).toEqual([]);
+  expect(readdirSync(ackDir).sort()).toEqual(receipts);
+  expect(pendingPublications(root)).toEqual([]);
+}, 30_000);
+
+test('planted write failures on advance with an existing version keep the numbered record atomic and allocate no publication', async () => {
   const root = copy('3-rig-review', project => {
     project.stage = 'rigging';
     project.advances = (project.advances as JsonObject[]).filter(entry => entry.stage !== 'rig-review');
   });
-  const opening = await open(root);
+  const opening = await open(root, ['--rig', '1']);
+  const beforePage = await page(opening.url, 0);
   const file = join(root, 'project.json');
   const preAdvanceBytes = readFileSync(file);
   const candidate = JSON.parse(readFileSync(join(import.meta.dir, '../templates/example-chain/checkpoints/3-rig-review/project.json'), 'utf8')) as JsonObject;
   candidate.review_job = read(root).review_job!;
 
-  // 1. Pre-rename write failure: project.json is still at rigging, and the intent for existing v1 is cleaned up.
+  // 1. Pre-rename write failure: project.json is still at rigging, with an empty outbox.
   expect(() =>
     commitAdvance(root, file, structuredClone(candidate), () => {
       throw new Error('planted pre-rename write failure');
@@ -344,7 +194,7 @@ test('planted write failures on advance with an existing version never leave an 
   expect(read(root).stage).toBe('rigging');
   expect(pendingPublications(root)).toEqual([]);
 
-  // 2. Post-rename failure before publishCommittedVersion runs: stage is advanced AND durable outbox entry is retained.
+  // 2. Post-rename failure leaves the committed stage and an empty outbox.
   expect(() =>
     commitAdvance(root, file, structuredClone(candidate), (temp, target, bytes) => {
       writeFileSync(temp, bytes, { flag: 'wx' });
@@ -353,34 +203,8 @@ test('planted write failures on advance with an existing version never leave an 
     }),
   ).toThrow('planted post-rename failure before publish');
   expect(read(root).stage).toBe('rig-review');
-  expect(pendingPublications(root)).toHaveLength(1);
-  expect(checkProject(root, undefined, { now: Date.now() }).holes?.map(h => h.code)).toEqual(['JOB_PUBLISH_PENDING']);
-
-  const reconciled = await cli(root, ['job', 'reconcile', root]);
-  expect({ exit: reconciled.exit, stderr: reconciled.stderr }).toEqual({ exit: 0, stderr: '' });
   expect(pendingPublications(root)).toEqual([]);
-  const person = await page(opening.url);
-  expect(person.asks.map(ask => ask.subject)).toEqual([
-    { kind: 'review-verdict', stage: 'rig-review' },
-  ]);
-}, 30_000);
-
-test('advance rig-review on a bound job refuses before writing when no live rig version exists', async () => {
-  const root = copy('3-rig-review', project => {
-    project.stage = 'rigging';
-    project.advances = (project.advances as JsonObject[]).filter(entry => entry.stage !== 'rig-review');
-  });
-  await open(root);
-  const withoutVersions = read(root);
-  withoutVersions.versions = [];
-  write(root, withoutVersions);
-  const beforeBytes = readFileSync(join(root, 'project.json'));
-
-  const advanced = await cli(root, ['advance', 'rig-review', root, '--json']);
-  expect(advanced.exit).toBe(1);
-  expect(advanced.stderr).toContain('JOB_PUBLICATION_INVALID');
-  expect(readFileSync(join(root, 'project.json'))).toEqual(beforeBytes);
-  expect(pendingPublications(root)).toEqual([]);
+  expect((await page(opening.url, 0)).head).toEqual(beforePage.head);
 }, 30_000);
 
 /** A synthetic current record with its actual tree and one independently mutable input. */

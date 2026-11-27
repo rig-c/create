@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test } from 'bun:test';
 import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import { dirname, join, posix, relative, resolve, sep } from 'node:path';
+import { startJobHost } from '@rig-c/review/job-host';
 import { readPlatePainting, readSourceMask } from '@rig-c/parts/src/plate.ts';
 import { TURN_OPTIONS, TURN_QUESTION } from '../src/waypoints.ts';
 import { DEPTH_MAP_BINDING_SINCE, depthPlanFindings, depthPlanMoves, registeredDepthPartsMatch, rigRegistrationFindings, turnExtraGroup, turnExtraGroupMoves, turnMissingBodyGroup } from '../src/rig-version.ts';
@@ -17,8 +18,8 @@ import { arr, fixture, obj, waypoint } from './fixtures.ts';
 import { clockedCli, gitEnv, run, stagedCreateRegistry } from './helpers.ts';
 import { framedRigPin } from './comment-anchor-shapes.ts';
 import { openCreateJob, reconcileCreateJob } from '../src/job-host.ts';
-import { acquireJobLock, jobHash, jobHostStateRoot, jobPrivateRoot, pendingPublications, readWriterBinding } from '../src/job-outbox.ts';
-import { readRecordPublished } from '../src/job-publication.ts';
+import { acknowledgePublication, acquireJobLock, enqueuePublication, jobHash, jobHostStateRoot, jobPrivateRoot, pendingPublications, readWriterBinding, reconcilePublication } from '../src/job-outbox.ts';
+import { prepareLiveManifest, readPublished, readRecordPublished } from '../src/job-publication.ts';
 /** Retired accepted-parts contract date (#981): kept as a fixture time only. */
 const RIG_PARTS_APPROVAL_SINCE = '2026-11-19T00:00:00Z';
 
@@ -845,129 +846,53 @@ describe('frozen rig registration', () => {
     for (const path of ['outputs/v1', 'evidence/v1/registration', 'derived/review/v1']) expect(existsSync(join(dir, path))).toBe(false);
   });
 
-  test.each([false, true])('writer commit owns live publication, with stopped host=%s', async stopped => {
+  test.each([false, true])('numbered rig writers commit without publishing, with stopped host=%s', async stopped => {
     const { dir, args, load } = setup();
-    const source = readFileSync(join(dir, 'source/rig/images/rectangle.png'));
-    writeFileSync(join(dir, 'inputs/painting.png'), source);
+    const root = realpathSync(dir);
+    const source = readFileSync(join(root, 'source/rig/images/rectangle.png'));
+    writeFileSync(join(root, 'inputs/painting.png'), source);
     const record = load();
     record.inputs = [{ path: 'inputs/painting.png', sha256: jobHash(source), bytes: source.length,
       origin: 'synthetic original painting', at: new Date(testClock.now()).toISOString() }];
-    writeFileSync(join(dir, 'project.json'), `${JSON.stringify(record, null, 2)}\n`);
-    const host = await openCreateJob(dir, { id: 'reviewer', role: 'owner' }, testClock.now());
-    const binding = readWriterBinding(dir)!;
-    expect(binding.listenerIncarnation).toBe(host.attachment!.listenerIncarnation);
-    let recovery: Awaited<ReturnType<typeof openCreateJob>> | undefined;
+    put(root, 'project.json', record);
+    expect(rigVersionCommand(args).exit).toBe(0);
+    const host = await openCreateJob(root, { id: 'reviewer', role: 'owner' }, testClock.now());
     try {
+      const path = prepareLiveManifest(root, load(), 1);
+      enqueuePublication(root, readWriterBinding(root)!, { path, selector: { kind: 'rig', version: 1 } });
+      expect(await reconcileCreateJob(root)).toBe(1);
+      const before = host.session.status();
+      expect(before.publication?.source.selector).toEqual({ kind: 'rig', version: 1 });
+      expect(before.pending).toEqual([]);
+      const receipts = readdirSync(join(jobPrivateRoot(root), 'acknowledged-publications')).sort();
       if (stopped) host.stop();
-      // The agent only invokes the writer. No test/agent publish call occurs here.
-      const child = Bun.spawn([process.execPath, ...clockedCli(), 'rig-version', ...args], {
-        cwd: dir, stdout: 'pipe', stderr: 'pipe',
+      const v2 = ['rig-version', '2', ...args.slice(1).filter(arg => arg !== '--json')];
+      const child = Bun.spawn([process.execPath, ...clockedCli(), ...v2], {
+        cwd: root, stdout: 'pipe', stderr: 'pipe',
       });
-      const [exit, stderr] = await Promise.all([child.exited, new Response(child.stderr).text()]);
-      const bytes = readFileSync(join(dir, 'project.json'));
-      if (stopped) {
-        expect(exit).toBe(0);
-        expect(stderr).toStartWith('WARN JOB_PUBLISH_PENDING: project.json: versions[v1] is recorded');
-        expect(pendingPublications(dir)[0].failure?.code).toBe('JOB_HOST_ATTACH_REFUSED');
-        expect(checkProject(dir).holes?.map(hole => hole.code)).toEqual(['JOB_PUBLISH_PENDING']);
-        recovery = await openCreateJob(dir, { id: 'reviewer', role: 'owner' }, testClock.now());
-        expect(recovery.session.status().generation).toBe(0);
-        await reconcileCreateJob(dir);
-        expect(checkProject(dir).holes ?? []).toEqual([]);
-        expect(recovery.session.status().publication?.source.projectHash).toBe(jobHash(bytes));
-        expect(readFileSync(join(dir, 'project.json'))).toEqual(bytes);
-      } else {
-        expect(stderr).toBe('');
-        expect(exit).toBe(0);
-        expect(host.session.status().publication?.source.projectHash).toBe(jobHash(bytes));
-        expect(host.session.status().publication?.label).toBe('rig v1');
-        const painting = host.session.status().publication?.source.parts?.images.find(image => image.path === 'painting_in_rig.png');
-        expect(painting?.sha256).toBe(jobHash(readFileSync(join(dir, 'outputs/v1/out/painting_in_rig.png'))));
-        expect(painting?.sha256).toBe(jobHash(readFileSync(join(dir, 'derived/review/v1/out/painting_in_rig.png'))));
-        expect(((load().versions as JsonObject[])[0].review_package as JsonObject).files).toContainEqual({ path: 'out/painting_in_rig.png', sha256: painting!.sha256 });
-      }
+      const [exit, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
+      expect({ exit, stderr }).toEqual({ exit: 0, stderr: '' });
+      expect(stdout).toContain('rig-version: v2 committed without publishing');
+      expect(stdout).not.toMatch(/JOB_PUBLICATION_ASK_REQUIRED|JOB_RIG_VERDICT_DEFERRED/);
+      expect(arr(load().versions).map(v => obj(v).n)).toEqual([1, 2]);
+      expect(pendingPublications(root)).toEqual([]);
+      expect(existsSync(join(root, 'review-live-v2.json'))).toBe(false);
+      expect(readdirSync(join(jobPrivateRoot(root), 'acknowledged-publications')).sort()).toEqual(receipts);
+      if (!stopped) expect(host.session.status()).toEqual(before);
+      const painting = jobHash(readFileSync(join(root, 'outputs/v2/out/painting_in_rig.png')));
+      expect(jobHash(readFileSync(join(root, 'derived/review/v2/out/painting_in_rig.png')))).toBe(painting);
+      expect(obj(obj(arr(load().versions)[1]).review_package).files).toContainEqual({ path: 'out/painting_in_rig.png', sha256: painting });
+      const committed = readFileSync(join(root, 'project.json'));
+      const retry = Bun.spawnSync([process.execPath, ...clockedCli(), ...v2], { cwd: root, stdout: 'pipe', stderr: 'pipe' });
+      expect(retry.exitCode).toBe(1);
+      expect(retry.stderr.toString()).toMatch(/RIG_VERSION_ALREADY_REGISTERED: versions\[v2\]: .*no publication of it is pending/);
+      expect(readFileSync(join(root, 'project.json'))).toEqual(committed);
     } finally {
-      recovery?.stop(); host.stop();
-      rmSync(jobPrivateRoot(dir), { recursive: true, force: true });
-      rmSync(jobHostStateRoot(dir), { recursive: true, force: true });
+      host.stop();
+      rmSync(jobPrivateRoot(root), { recursive: true, force: true });
+      rmSync(jobHostStateRoot(root), { recursive: true, force: true });
     }
   });
-
-  test('#844 a registration committed while the host is stopped exits 0, names its pending publication, and a retry names the version', async () => {
-    const { dir, args, load } = setup();
-    const source = readFileSync(join(dir, 'source/rig/images/rectangle.png'));
-    writeFileSync(join(dir, 'inputs/painting.png'), source);
-    const record = load();
-    record.inputs = [{ path: 'inputs/painting.png', sha256: jobHash(source), bytes: source.length,
-      origin: 'synthetic original painting', at: new Date(testClock.now()).toISOString() }];
-    writeFileSync(join(dir, 'project.json'), `${JSON.stringify(record, null, 2)}\n`);
-    const file = join(dir, 'project.json');
-    const runCli = async (...argv: string[]) => {
-      const child = Bun.spawn([process.execPath, ...clockedCli(), ...argv], { cwd: dir, stdout: 'pipe', stderr: 'pipe' });
-      const [exit, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
-      return { exit, stdout, stderr };
-    };
-    const acknowledged = () => {
-      const receipts = join(jobPrivateRoot(dir), 'acknowledged-publications');
-      return readdirSync(receipts).map(name => JSON.parse(readFileSync(join(receipts, name), 'utf8')) as JsonObject)
-        .map(receipt => obj(obj(receipt.result).selector).version);
-    };
-    const v2 = ['2', ...args.slice(1)];
-    const host = await openCreateJob(dir, { id: 'reviewer', role: 'owner' }, testClock.now());
-    let reopened: Bun.Subprocess<'ignore', 'pipe', 'pipe'> | undefined;
-    try {
-      expect((await runCli('rig-version', ...args)).exit).toBe(0);
-      host.stop();
-
-      // 1. The record is committed and only its publication waits: success with a named WARN, not a refusal.
-      const before = readFileSync(file);
-      const committed = await runCli('rig-version', ...v2);
-      expect(committed.exit).toBe(0);
-      expect(obj(JSON.parse(committed.stdout)).n).toBe(2);
-      expect(committed.stderr).toMatch(/^WARN JOB_PUBLISH_PENDING: project\.json: versions\[v2\] is recorded .*\(JOB_HOST_ATTACH_REFUSED: .*job reconcile\n$/);
-      expect(readFileSync(file).equals(before)).toBe(false);
-      expect(arr(load().versions).map(v => obj(v).n)).toEqual([1, 2]);
-      expect(pendingPublications(dir)).toMatchObject([{ result: { selector: { kind: 'rig', version: 2 } }, phase: 'pending', failure: { code: 'JOB_HOST_ATTACH_REFUSED' } }]);
-
-      // 2. A retry names the registered version and its pending publication, and leaves the record byte-identical.
-      const committedBytes = readFileSync(file);
-      const retry = await runCli('rig-version', ...v2);
-      expect(retry.exit).toBe(1);
-      expect(retry.stderr).toMatch(/^rig-create: RIG_VERSION_ALREADY_REGISTERED: versions\[v2\]: .*\(JOB_PUBLISH_PENDING: JOB_HOST_ATTACH_REFUSED\).*job reconcile\n$/);
-      expect(readFileSync(file)).toEqual(committedBytes);
-
-      // 3. Restarting the host with job open reconciles the pending entry under its own publication step,
-      // so close finds nothing pending and a later reconcile has nothing left.
-      reopened = Bun.spawn([process.execPath, ...clockedCli(), 'job', 'open', dir, '--reviewer', 'reviewer', '--role', 'owner'], { cwd: dir, stdout: 'pipe', stderr: 'pipe' });
-      const stderr = new Response(reopened.stderr).text();
-      const reader = reopened.stdout.getReader();
-      let printed = '';
-      while (!/\njob: .*\n$/.test(printed)) {
-        const chunk = await reader.read();
-        if (chunk.done) break;
-        printed += new TextDecoder().decode(chunk.value);
-      }
-      reader.releaseLock();
-      // Its printed lines name only the republished head (rig v1); the reconciled v2 is not named (reported on create#844).
-      expect(printed).toMatch(/^http:\/\/.*\n[\s\S]*\njob: rig v1 published \(publication [A-Za-z0-9][A-Za-z0-9._-]{0,127}\)\n/);
-      expect(pendingPublications(dir)).toEqual([]);
-      expect(acknowledged()).toContain(2);
-      expect(await runCli('job', 'close', dir)).toEqual({ exit: 0, stdout: 'job: closed\n', stderr: '' });
-      expect(existsSync(join(jobPrivateRoot(dir), 'retired-publications'))).toBe(false);
-      expect(await runCli('job', 'reconcile', dir)).toEqual({ exit: 0, stdout: 'job: reconciled 0 publication(s)\n', stderr: '' });
-      expect(await reopened.exited).toBe(0);
-      expect(await stderr).toBe('');
-
-      const settled = await runCli('rig-version', ...v2);
-      expect(settled.exit).toBe(1);
-      expect(settled.stderr).toMatch(/^rig-create: RIG_VERSION_ALREADY_REGISTERED: versions\[v2\]: .*no publication of it is pending/);
-      expect(readFileSync(file)).toEqual(committedBytes);
-    } finally {
-      reopened?.kill(); host.stop();
-      rmSync(jobPrivateRoot(dir), { recursive: true, force: true });
-      rmSync(jobHostStateRoot(dir), { recursive: true, force: true });
-    }
-  }, 90_000);
 
   test('public CLI records real producer frames, declared tools, cited date and unchanged stage', () => {
     const { dir, args, load } = setup();
@@ -1055,13 +980,19 @@ describe('frozen rig registration', () => {
       let reopened: Bun.Subprocess<'ignore', 'pipe', 'pipe'> | undefined;
       try {
         expect((await runCli(dir, 'rig-version', ...args)).exit).toBe(0);
+        const root = realpathSync(dir);
+        const v1Path = prepareLiveManifest(root, load(), 1);
+        enqueuePublication(root, readWriterBinding(root)!, { path: v1Path, selector: { kind: 'rig', version: 1 } });
+        expect(await reconcileCreateJob(root)).toBe(1);
         const [v1] = receipts(dir);
         const v1Id = jobHash(JSON.stringify([v1!.jobId, v1!.versionHash, v1!.result]));
         host.stop();
-        // The writer commits v2 and leaves its publication pending (its exit is #844's subject).
         const committed = await runCli(dir, 'rig-version', '2', ...args.slice(1));
-        expect(committed.stderr).toContain('JOB_PUBLISH_PENDING');
+        expect({ exit: committed.exit, stderr: committed.stderr }).toEqual({ exit: 0, stderr: '' });
         expect(arr(load().versions).map(v => obj(v).n)).toEqual([1, 2]);
+        // Seed a legacy numbered outbox entry for the retained replay path.
+        const v2Path = prepareLiveManifest(root, load(), 2);
+        enqueuePublication(root, readWriterBinding(root)!, { path: v2Path, selector: { kind: 'rig', version: 2 } });
         const [v2] = pendingPublications(dir);
         expect(v2!.result.selector).toEqual({ kind: 'rig', version: 2 });
         if (order !== 'named --rig 1' && (v1Id < v2!.id) !== (order === 'v1 sorts first')) continue;
@@ -2463,7 +2394,10 @@ describe('#812/#929 live rig feedback', () => {
     project.diff_map = { ...obj(partsSignoff.diff_map), by: 'agent', at: testClock.iso() };
     put(dir, 'project.json', project);
     expect(checkProject(dir).refusals).toEqual([]);
-    const host = await openCreateJob(dir, { id: 'synthetic-owner', role: 'owner' }, testClock.now());
+    const subjects = [{ kind: 'review-verdict', stage: 'rig-review' }] as const;
+    const host = await openCreateJob(dir, { id: 'synthetic-owner', role: 'owner' }, testClock.now(), options => startJobHost({
+      ...options, readPublished: async input => ({ ...await readPublished(input), subjects }),
+    }));
     try {
       const runCli = async (...argv: string[]) => {
         const child = Bun.spawn([process.execPath, ...clockedCli(), ...argv], { cwd: dir, stdout: 'pipe', stderr: 'pipe' });
@@ -2476,6 +2410,22 @@ describe('#812/#929 live rig feedback', () => {
         return JSON.parse(stdout) as JsonObject;
       };
       await cli('rig-version', ...args);
+      const binding = readWriterBinding(dir)!;
+      const path = prepareLiveManifest(dir, load(), 1);
+      const result = { path, selector: { kind: 'rig', version: 1 } } as const;
+      const entry = enqueuePublication(dir, binding, result);
+      const requestId = crypto.randomUUID();
+      await reconcilePublication(dir, entry, async pending => {
+        const response = await host.ports.handleJobApi(new Request(`${host.origin}/jobs/${binding.jobId}/api`, {
+          method: 'POST', headers: { authorization: `Bearer ${host.session.hostCredentials().agent}`, 'content-type': 'application/json' },
+          body: JSON.stringify({ schema: binding.identity.apiSchema, verb: 'publish', jobId: binding.jobId,
+            requestId, idempotencyKey: requestId, expectedGeneration: host.session.status().generation, result,
+            freeze: { kind: 'producer-held', holdId: pending.id, record: { path: 'project.json', sha256: pending.recordHash } } }),
+        }));
+        expect(await response.json()).toMatchObject({ ok: true });
+        const published = host.session.status().publication!;
+        acknowledgePublication(pending, published.publicationId, published.generation, requestId, subjects);
+      });
       const publication = host.session.status().publication!;
       const pinnedWords = 'Adjust the wind pose here.';
       const pin = mode === 'pinned comment' || mode === 'mixed comments'
@@ -2705,7 +2655,7 @@ describe('#454 feedback rebuild writer', () => {
     expect(report.refusals).toEqual([]);
     expect(report.warnings.filter(w => w.code === 'FEEDBACK_OPEN')).toEqual([]);
     const next = nextProject(f.dir, testClock.now());
-    expect(next.moves.find(m => m.review_act?.kind === 'review-verdict')).toMatchObject({ role: 'human', review_act: { version_id: 'v2', review: 'rig-review' } });
+    expect(next.moves.some(m => m.review_act?.kind === 'review-verdict')).toBe(false);
     expect(next.moves.some(m => m.command?.includes('--answers'))).toBe(false);
   });
   test.each(['missing', 'accepted', 'agent', 'later', 'malformed', 'duplicate'])('rig answers refuses %s byte-identically', async kind => {
@@ -2725,12 +2675,30 @@ test('#454 no-bounce rig writer and next preserve previous bytes and output', as
   const { nextCommand } = await import('../src/next.ts');
   const f = setup(true);
   const result = rigVersionCommand(f.args);
-  const record = readFileSync(join(f.dir, 'project.json'));
-  const output = (json = false): string => nextCommand([f.dir, ...(json ? ['--json'] : [])], testClock.now()).stdout.replaceAll(f.dir, '<project>');
-  const nextJson = output(true);
-  const nextText = output();
-  expect({ exit: result.exit, stdout: jobHash(result.stdout), record: jobHash(record), nextJson: jobHash(nextJson), nextText: jobHash(nextText) }).toMatchSnapshot();
-  expect(readFileSync(join(f.dir, 'project.json'))).toEqual(record);
+  const path = join(f.dir, 'project.json');
+  const record = readFileSync(path);
+  expect({ exit: result.exit, stdout: jobHash(result.stdout), record: jobHash(record) }).toMatchSnapshot();
+
+  const json = nextCommand([f.dir, '--json'], testClock.now());
+  const text = nextCommand([f.dir], testClock.now());
+  expect([json.exit, text.exit]).toEqual([0, 0]);
+  const report = JSON.parse(json.stdout) as import('../src/next.ts').NextReport;
+  const awaits = 'versions[n=1].verdicts[review=rig-review]';
+  const field = 'versions[v1].verdicts';
+  const projectId = String(f.load().name ?? '');
+  expect(report).toMatchObject({
+    schema: 'rig-create/next@1', project_id: projectId, stage: 'rig-review', effective_stage: 'rig-review',
+    accepted: false, refusals: [],
+  });
+  expect(report.awaits).toContain(awaits);
+  const verdictMoves = report.moves.filter(move => move.field === field || move.awaits === awaits || move.review_act?.kind === 'review-verdict');
+  expect(verdictMoves).toEqual([{
+    role: 'human', field, awaits, command: null,
+    act: 'NUMBERED_ACT_RETIRED: Rig v1 needs an accepted live rig-review verdict. To continue on the current path, follow the adoption or rebuild instructions in docs/PROJECT.md#adopting-existing-numbered-outputs. To complete the numbered verdict gate, use Create 1.26.0.',
+  }]);
+  expect(text.stdout.split('\n')[0]).toBe(`next: ${projectId || '(unnamed)'} — stage: rig-review`);
+  expect(text.stdout).toContain(`  [human] (${field} -> ${awaits}) ${verdictMoves[0]!.act}`);
+  expect(readFileSync(path)).toEqual(record);
 });
 
 test('#1044 next uses the frozen registration config for the adopted rig replacement', async () => {

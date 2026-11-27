@@ -55,8 +55,9 @@ test('the numbered fixture CLI verifies the file hash and reader baselines', () 
     join(root, 'numbered'), '--check'], root, process.env as Record<string, string>);
   expect(result.stderr).toBe('');
   expect(result.code).toBe(0);
-  expect(result.stdout.trim().split('\n')).toHaveLength(8);
+  expect(result.stdout.trim().split('\n')).toHaveLength(16);
   expect(result.stdout).toContain('numbered example: 216 file hashes and 7 reader results match');
+  expect(result.stdout).toContain('numbered example: 7 adoption results match');
 }, 30_000);
 
 test('the default materialized example has current outputs and passes at zero refusals and warnings', () => {

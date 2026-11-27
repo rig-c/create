@@ -1,6 +1,7 @@
 import { deepStrictEqual } from 'node:assert';
 import { createHash } from 'node:crypto';
-import { cpSync, existsSync, readFileSync, readdirSync, renameSync } from 'node:fs';
+import { cpSync, existsSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { generatorArgs } from './generator-args.ts';
 
@@ -45,30 +46,52 @@ function readerResults(dir: string) {
     ...project.versions.filter(version => version.kind === 'rig').map(({ n }) => ['handoff', '--rig', String(n)]),
     ...project.versions.filter(version => version.kind === 'post').map(({ n }) => ['direction', 'check', String(n)]),
   ];
-  return commands.map(command => {
-    const run = Bun.spawnSync([process.execPath, cli, ...command, '--json'], {
-      cwd: dir, stdout: 'pipe', stderr: 'pipe',
-    });
-    if (run.exitCode === null) throw new Error(`${command.join(' ')} ended by ${run.signalCode}`);
-    const stderr = run.stderr.toString().trim();
-    const refusals = stderr ? stderr.split('\n').map(line => {
-      const code = /^rig-create: ([A-Z][A-Z0-9_]+): /.exec(line)?.[1];
-      if (!code) throw new Error(`${command.join(' ')}: ${line}`);
-      return code;
-    }) : [];
-    const stdout = run.stdout.toString().trim();
-    const report = stdout ? JSON.parse(stdout) as ReaderReport : {};
-    return {
-      command: command.join(' '),
-      exit: run.exitCode,
-      refusals: [...sortedCodes(report.refusals), ...refusals].sort(),
-      warnings: sortedCodes(report.warnings),
-      stage: report.stage,
-      moves: report.moves?.length,
-      rig: report.rig_version,
-      post: report.post,
-    };
-  }).map(row => Object.fromEntries(Object.entries(row).filter(([, value]) => value !== undefined)));
+  return commands.map(command => observe(dir, command, true));
+}
+
+function observe(dir: string, command: string[], json: boolean) {
+  const label = command.join(' ');
+  const run = Bun.spawnSync([process.execPath, cli, ...command, ...(json ? ['--json'] : [])], {
+    cwd: dir, stdout: 'pipe', stderr: 'pipe',
+  });
+  if (run.exitCode === null) throw new Error(`${label} ended by ${run.signalCode}`);
+  const stderr = run.stderr.toString().trim();
+  const refusals: string[] = [];
+  const warnings: string[] = [];
+  for (const line of stderr ? stderr.split('\n') : []) {
+    const match = /^rig-create: (WARN )?([A-Z][A-Z0-9_]+): /.exec(line);
+    if (!match?.[2]) throw new Error(`${label}: ${line}`);
+    (match[1] ? warnings : refusals).push(match[2]);
+  }
+  const stdout = run.stdout.toString().trim();
+  const report = json && stdout ? JSON.parse(stdout) as ReaderReport : {};
+  const row = {
+    command: label,
+    exit: run.exitCode,
+    refusals: [...sortedCodes(report.refusals), ...refusals].sort(),
+    warnings: [...sortedCodes(report.warnings), ...warnings].sort(),
+    stage: report.stage,
+    moves: report.moves?.length,
+    rig: report.rig_version,
+    post: report.post,
+  };
+  return Object.fromEntries(Object.entries(row).filter(([, value]) => value !== undefined));
+}
+
+function adoptionResults(project: string) {
+  const scratch = mkdtempSync(join(tmpdir(), 'create-numbered-adoption-'));
+  const copy = join(scratch, 'project');
+  try {
+    cpSync(project, copy, { recursive: true });
+    return [
+      ...['parts', 'rig', 'motion', 'direction'].map(kind => observe(copy, ['record', kind, '--adopt'], true)),
+      observe(copy, ['direction', '--adopt'], false),
+      observe(copy, ['correction', '--adopt'], false),
+      observe(copy, ['interview', '--check'], true),
+    ];
+  } finally {
+    rmSync(scratch, { recursive: true, force: true });
+  }
 }
 
 /** Measure copies of the retained bytes. The CLI only compares against the committed baseline. */
@@ -85,7 +108,7 @@ export function measureNumberedExample(destination: string, expectedFiles?: Reco
   }
   cpSync(fixture, destination, { recursive: true, force: false, errorOnExist: true });
   renameSync(join(destination, 'example-project.json'), join(destination, 'project.json'));
-  return { files, readers: readerResults(destination) };
+  return { files, readers: readerResults(destination), adoption: adoptionResults(destination) };
 }
 
 if (import.meta.main) {
@@ -95,6 +118,9 @@ if (import.meta.main) {
   const expected = JSON.parse(readFileSync(baseline, 'utf8')) as ReturnType<typeof measureNumberedExample>;
   const measured = measureNumberedExample(resolve(destination), expected.files);
   deepStrictEqual(measured.readers, expected.readers, 'frozen numbered reader results differ');
+  deepStrictEqual(measured.adoption, expected.adoption, 'frozen numbered adoption results differ');
   console.log(`numbered example: ${Object.keys(measured.files).length} file hashes and ${measured.readers.length} reader results match`);
   for (const result of measured.readers) console.log(JSON.stringify(result));
+  console.log(`numbered example: ${measured.adoption.length} adoption results match`);
+  for (const result of measured.adoption) console.log(JSON.stringify(result));
 }

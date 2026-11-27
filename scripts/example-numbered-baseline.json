@@ -270,5 +270,58 @@
       "warnings": [],
       "post": 4
     }
+  ],
+  "adoption": [
+    {
+      "command": "record parts --adopt",
+      "exit": 1,
+      "refusals": [
+        "RECORD_ADOPT_SOURCE_MISSING"
+      ],
+      "warnings": []
+    },
+    {
+      "command": "record rig --adopt",
+      "exit": 1,
+      "refusals": [
+        "RECORD_ADOPT_SOURCE_MISSING"
+      ],
+      "warnings": []
+    },
+    {
+      "command": "record motion --adopt",
+      "exit": 1,
+      "refusals": [
+        "RECORD_ADOPT_SOURCE_MISSING"
+      ],
+      "warnings": []
+    },
+    {
+      "command": "record direction --adopt",
+      "exit": 1,
+      "refusals": [
+        "RECORD_ADOPT_SOURCE_MISSING"
+      ],
+      "warnings": []
+    },
+    {
+      "command": "direction --adopt",
+      "exit": 0,
+      "refusals": [],
+      "warnings": []
+    },
+    {
+      "command": "correction --adopt",
+      "exit": 0,
+      "refusals": [],
+      "warnings": []
+    },
+    {
+      "command": "interview --check",
+      "exit": 0,
+      "refusals": [],
+      "warnings": [],
+      "stage": "accepted"
+    }
   ]
 }

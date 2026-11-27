@@ -20,20 +20,25 @@ Read this before choosing work. It ranks every issue in this repository.
    from parts, review and core. When a project hits a gap in another
    package, file the issue in that package's repository, name the step it
    blocks, and follow it until it lands. Don't work around the gap here.
-3. **Agents route stage approvals through the owner's relayed chat.**
-   Stage signoffs and interview answers relay owner chat through the
-   existing writers with
+3. **On the current path no stage waits for an approval; owner words go
+   through the relayed chat.** The agent tells the owner each stage's plan
+   once in chat and moves on (owner ruling 2026-11-27). The three
+   post-interview questions (`camera_depth`, `post_timing`,
+   `post_composition`) stay chat questions: they are choices, not approvals.
+   Interview answers, and a stage signoff when the owner actually said
+   something about a stage, relay owner chat through the existing writers
+   with
    `--owner-chat <words file> --said-at <ISO date> --relayed-by <operator>`
    and the owner's `--by`. Interview picks still bind the displayed set and
-   option ids. A rig-review or direction-review signoff on `current.<kind>`
-   binds the live recorded output and quotes the owner's words, when they
-   were said and who relayed them. A numbered project keeps its review-tool
+   option ids. A signoff recorded on `current.<kind>` binds the live
+   recorded output and quotes the owner's words, when they were said and who
+   relayed them; it never gates progression. A numbered project keeps its review-tool
    verdicts, and its verdict-bearing signoffs need the current accepted
    live verdict, until the numbered writers are deleted. Until #1040 lands,
    a numbered project's parts verdicts remain review-tool acts and its
    parts-review signoff requires the accepted live parts verdict; on
-   `current.parts` a parts-review signoff binds the live recorded output by
-   the owner's relayed words. A stored signoff with a verdict reference
+   `current.parts` an optional parts-review signoff binds the live recorded
+   output by the owner's relayed words. A stored signoff with a verdict reference
    still validates that reference.
    Shared context images and option images shown in Review do not remove an
    interview question from this route.

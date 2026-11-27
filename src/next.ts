@@ -1899,7 +1899,7 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
       const pendingDirection: NextMove = { role: 'agent', field: directionField, awaits: directionField, command: null,
         act: 'Prepare the current rig and motion first. Run next again for the scene and direction writers, compose the revised take, then run rig-create record direction.' };
       const reopens = collectReopens(project, []);
-      const missing = new Map(CURRENT_KINDS.flatMap(kind => {
+      const missing = new Map(CURRENT_KINDS.flatMap<readonly [CurrentKind, { adoption?: NextMove; producer: NextMove }]>(kind => {
         const node = current[kind];
         if (reviseDirection && kind === 'direction') {
           const producer = currentPostOutputMove(dir, project, kind) ?? pendingDirection;

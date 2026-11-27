@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import {
   JOB_CHEST_LANDMARKS_ACT_SCHEMA, JOB_COMMENTS_ACT_SCHEMA, JOB_RECORD_ACT_SCHEMA, parseCommentsAct, parseRecordAct,
   type JobActV3, type JobComment, type JobOwnerHost, type JobRetainedSourceV3, type JobReviewerBinding,
@@ -33,8 +33,8 @@ import { assertPlanSignoffCandidate } from '../src/signoff.ts';
 import { selectAnswerHashes } from '../src/signoff-answers.ts';
 import { signoffPairFinding } from '../src/signoff-pair.ts';
 import { selectSignoffTarget } from '../src/signoff-target.ts';
-import { stageIndex } from '../src/stages.ts';
-import { checkStructure } from '../src/structure.ts';
+import { hasStageOrder, stageIndex } from '../src/stages.ts';
+import { checkStructure, structurePathIsIgnored } from '../src/structure.ts';
 import type { JsonObject } from '../src/templates.ts';
 
 export function assertHistoricalRigReviewSignable(project: JsonObject, path: string): void {
@@ -240,33 +240,53 @@ export function seedStoredVersionSignoff(
 export function seedStoredPartsSignoff(
   dir: string,
   draftId: string,
-  options: { by?: string; at?: string | number; verbatim: string; structureFile?: string; source?: string },
+  options: { by?: string; at?: string | number; verbatim: string; structureFile?: string; explicitStructure?: boolean; source?: string },
 ): JsonObject {
   const projectPath = join(dir, 'project.json');
   const project = JSON.parse(readFileSync(projectPath, 'utf8')) as JsonObject;
   const at = isoOf(options.at);
-  const latestProblem = latestPartsVerdictFinding(project, draftId, 'signoffs.parts-review.evidence');
+  const path = `signoffs[${asArray(project.signoffs).length}]`;
+  const latestProblem = latestPartsVerdictFinding(project, draftId, `${path}.draft_id`);
   if (latestProblem) refuse(latestProblem.code, latestProblem.message);
   const verdict = recordedPartsVerdict(dir, project, draftId);
-  const structurePath = options.structureFile ?? `evidence/structure-${draftId}.json`;
-  const structureBytes = readFileSync(join(dir, structurePath));
-  const structure = { path: structurePath, sha256: jobHash(structureBytes) };
-  const errors: Finding[] = [];
-  checkStructure(dir, project, { draft_id: draftId, structure }, `signoffs[${asArray(project.signoffs).length}].structure`, errors);
-  if (errors[0]) refuse(errors[0].code, errors[0].message);
   const signoff: JsonObject = {
     stage: 'parts-review',
     checkpoint: null,
     by: options.by ?? 'user',
     at,
     verbatim: options.verbatim,
-    draft_id: draftId,
-    evidence: verdict.evidence,
-    structure,
     ...(options.source === undefined ? {} : { source: options.source }),
   };
   const answerHashes = selectAnswerHashes(dir, project, signoff);
   if (answerHashes !== undefined) signoff.answer_hashes = answerHashes;
+  signoff.evidence = verdict.evidence;
+  signoff.draft_id = draftId;
+  const diffErrors: Finding[] = [];
+  checkDiffMap(dir, signoff, path, verdict.partsFile, diffErrors, [], project);
+  if (diffErrors[0]) refuse(diffErrors[0].code, diffErrors[0].message);
+  const structureFile = options.explicitStructure
+    ? options.structureFile
+    : (options.structureFile ?? `evidence/structure-${draftId}.json`);
+  if (hasStageOrder(project) || structureFile !== undefined) {
+    if (structureFile !== undefined) {
+      try {
+        if (structurePathIsIgnored(dir, structureFile)) {
+          throw new Error('structure snapshots must survive a clone; retain the file outside ignored roots, for example evidence/');
+        }
+        const canonical = realpathSync(resolve(dir, structureFile));
+        const rel = relative(realpathSync(dir), canonical).split(sep).join('/');
+        if (isAbsolute(structureFile)) throw new Error('pass the project-relative path, for example evidence/structure-<id>.json');
+        if (rel === '' || rel === '..' || rel.startsWith('../')) throw new Error('structure file must stay under the project');
+        signoff.structure = { path: rel, sha256: jobHash(readFileSync(canonical)) };
+      } catch (error) {
+        refuse('STRUCTURE_DECISIONS_INVALID', `signoffs.structure: ${error instanceof Error ? error.message : String(error)}; retain the structure snapshot under the project`);
+      }
+    }
+    const errors: Finding[] = [];
+    checkStructure(dir, project, signoff, path, errors);
+    if (errors[0]) refuse(errors[0].code, errors[0].message);
+  }
+  assertCorrectionApproval(dir, project, 'parts-review', Date.parse(at), signoff);
   project.signoffs = [...asArray(project.signoffs), signoff];
   writeFileSync(projectPath, `${JSON.stringify(project, null, 2)}\n`);
   return signoff;

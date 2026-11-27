@@ -144,6 +144,9 @@ if (import.meta.main) {
     if (arg === '--clip') {
       if (variant === 'clip') { bad ??= arg; break; }
       variant = 'clip';
+    } else if (arg.startsWith('-') && arg !== '--check' && arg !== '--write-inputs') {
+      bad ??= arg;
+      break;
     } else positional.push(arg);
   }
   const [mode, ...extra] = positional;

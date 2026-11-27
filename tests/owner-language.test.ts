@@ -3,10 +3,10 @@ import { cpSync, existsSync, readFileSync, realpathSync, rmSync, writeFileSync }
 import { join } from 'node:path';
 import { EXAMPLE_NOW } from '../scripts/example-time.ts';
 import { renderAgentGuide } from '../src/agent-guide.ts';
-import { checkProject } from '../src/check.ts';
+import { asArray, checkProject, isObject } from '../src/check.ts';
 import { main } from '../src/cli.ts';
 import { freshProjectRecord } from '../src/init.ts';
-import { openCreateJob, openDraftPublication, openRecordPublication, requestedRecordResult } from '../src/job-host.ts';
+import { openCreateJob, openCurrentPublication, openRecordPublication, requestedRecordResult } from '../src/job-host.ts';
 import { enqueuePublication, JOB_BINDING_FILE, JOB_OUTBOX_DIRECTORY, type WriterBinding } from '../src/job-outbox.ts';
 import { nextCommand, nextProject, type NextMove } from '../src/next.ts';
 import { Refusal } from '../src/refusal.ts';
@@ -163,28 +163,34 @@ test('#1077 next offers owner-language set before job open when owner language i
 
   const chainDir = join(import.meta.dir, '../templates/example-chain');
   const chainQuestionDir = join(chainDir, 'checkpoints/0a-interview-options');
-  const chainPartsDir = join(chainDir, 'checkpoints/1-parts-verdict');
+  const currentExampleDir = join(import.meta.dir, '../templates/example-current');
 
   for (const [checkpointDir, mutate, expectedCode, kind] of [
     [chainQuestionDir, (project: JsonObject) => { delete project.owner; }, 'OWNER_LANGUAGE_MISSING', 'question'] as const,
-    [chainPartsDir, (project: JsonObject) => { project.owner = { language: 'en_US' }; }, 'OWNER_LANGUAGE_INVALID', 'parts'] as const,
+    [currentExampleDir, (project: JsonObject) => { project.owner = { language: 'en_US' }; }, 'OWNER_LANGUAGE_INVALID', 'parts'] as const,
   ]) {
     const root = realpathSync(tempDir());
     roots.push(root);
     cpSync(checkpointDir, root, { recursive: true });
+    const file = join(root, 'project.json');
     if (kind === 'parts') {
-      cpSync(join(chainDir, 'evidence/diff-components.json'), join(root, 'evidence/diff-components.json'));
-      for (const args of [
-        ['structure-snapshot', root, '--draft', 'chain', '--out', 'evidence/structure-chain.json'],
-        ['diff-classes', root, '--diff-report', 'evidence/diff-components.json', '--by', 'agent'],
-        ['advance', 'parts-review', root, '--parts-check', 'evidence/parts-check.json', '--parts', 'derived/drafts/chain/input'],
-      ]) {
-        expect(runMainQuiet(args, EXAMPLE_NOW)).toBe(0);
-      }
+      const atParts = JSON.parse(readFileSync(file, 'utf8')) as JsonObject;
+      atParts.owner = { language: 'en' };
+      atParts.stage = 'parts';
+      atParts.signoffs = asArray(atParts.signoffs).slice(0, 2);
+      atParts.advances = asArray(atParts.advances).slice(0, 2);
+      delete (atParts.current as JsonObject).rig;
+      delete (atParts.current as JsonObject).motion;
+      delete (atParts.current as JsonObject).direction;
+      (atParts.plan as JsonObject).steps = asArray((atParts.plan as JsonObject).steps).filter(
+        step => isObject(step) && (step.id === 'seethrough' || step.id === 'assemble'),
+      );
+      delete (atParts.interview as JsonObject).rigging_context;
+      for (const item of asArray(((atParts.interview as JsonObject).post as JsonObject).items).filter(isObject)) item.guide = null;
+      writeFileSync(file, `${JSON.stringify(atParts, null, 2)}\n`);
     }
     const baseline = nextCommand([root, '--json'], EXAMPLE_NOW);
 
-    const file = join(root, 'project.json');
     const mutated = JSON.parse(readFileSync(file, 'utf8')) as JsonObject;
     mutate(mutated);
     writeFileSync(file, `${JSON.stringify(mutated, null, 2)}\n`);
@@ -196,7 +202,7 @@ test('#1077 next offers owner-language set before job open when owner language i
       expect(() => requestedRecordResult(root, 'rig_type', false, EXAMPLE_NOW))
         .toThrow(expect.objectContaining({ code: expectedCode }));
     } else {
-      const refused = cli(['job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner', '--draft', 'chain'], root, env);
+      const refused = cli(['job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner', '--current', 'parts'], root, env);
       expect(refused.code).toBe(1);
       expect(refused.stderr).toContain(expectedCode);
     }
@@ -208,7 +214,7 @@ test('#1077 next offers owner-language set before job open when owner language i
     expect(firstJobMoveIndex).toBe(moveIndex + 1);
     const jobMove = report.moves[firstJobMoveIndex]!;
     expect(jobMove.command).toStartWith('rig-create job open ');
-    expect(jobMove.command).toContain(kind === 'question' ? '--question rig_type' : '--draft chain');
+    expect(jobMove.command).toContain(kind === 'question' ? '--question rig_type' : '--current parts');
     expect(report.awaits).toContain('owner.language');
 
     const languageMove = report.moves[moveIndex]!;
@@ -231,9 +237,8 @@ test('#1077 next offers owner-language set before job open when owner language i
     try {
       const lines = kind === 'question'
         ? await openRecordPublication(root, host, 'rig_type', false, EXAMPLE_NOW)
-        : await openDraftPublication(root, host, EXAMPLE_NOW, 'chain');
+        : await openCurrentPublication(root, host, 'parts', EXAMPLE_NOW);
       expect(lines[0]).toContain('published');
-      if (kind === 'parts') expect(lines).toContain('job: asked parts-verdict chain');
     } finally {
       host.stop();
     }

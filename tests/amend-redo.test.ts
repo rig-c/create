@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { EXAMPLE_NOW } from '../scripts/example-time.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { arr, fixture, obj } from './fixtures.ts';
+import { seedStoredVersionSignoff } from './historical-review-fixture.ts';
 import { amendCommand, checkProject, signoffCommand, stepStatusCommand, testClock } from './clock.ts';
 
 const read = (dir: string): JsonObject => JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')) as JsonObject;
@@ -41,7 +42,14 @@ describe('redoing the steps an amendment reset', () => {
     for (const id of post) redo(dir, id);
     expect(checkProject(dir).refusals).toEqual([]);
     expect(checkProject(dir).effective_stage).toBe('direction-review');
-    signoffCommand(['direction-review', dir, '--by', 'owner', '--verbatim-file', words(dir)]);
+    expect(() => signoffCommand(['direction-review', dir, '--by', 'owner', '--verbatim-file', words(dir)]))
+      .toThrow(expect.objectContaining({ code: 'NUMBERED_WRITER_REMOVED' }));
+    const postVersion = Math.max(...arr(read(dir).versions).map(obj).filter(v => v.kind === 'post').map(v => Number(v.n)));
+    seedStoredVersionSignoff(dir, 'direction-review', postVersion, {
+      by: 'owner',
+      at: testClock.now(),
+      verbatim: readFileSync(words(dir), 'utf8'),
+    });
     const report = checkProject(dir);
     expect(report.refusals).toEqual([]);
     expect([report.stage, report.effective_stage]).toEqual(['accepted', 'accepted']);
@@ -56,7 +64,12 @@ describe('redoing the steps an amendment reset', () => {
     signoffCommand(['post-interview', dir, '--by', 'owner', '--verbatim-file', words(dir)]);
     expect(checkProject(dir).effective_stage).toBe('post');
     for (const id of stepsOf(dir, 'post')) redo(dir, id);
-    signoffCommand(['direction-review', dir, '--by', 'owner', '--verbatim-file', words(dir)]);
+    const postVersion = Math.max(...arr(read(dir).versions).map(obj).filter(v => v.kind === 'post').map(v => Number(v.n)));
+    seedStoredVersionSignoff(dir, 'direction-review', postVersion, {
+      by: 'owner',
+      at: testClock.now(),
+      verbatim: readFileSync(words(dir), 'utf8'),
+    });
     const report = checkProject(dir);
     expect(report.refusals).toEqual([]);
     expect([report.stage, report.effective_stage]).toEqual(['accepted', 'accepted']);

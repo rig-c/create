@@ -15,6 +15,7 @@ import { plantLegacyReopen, arr, fixture, obj, rehashSignoffs, step, supersede, 
 import { withPartsCheck } from './parts-check-fixture.ts';
 import { partsPackage, writeReviewedInput } from './parts-package.ts';
 import { recordPartsReceipt } from './parts-receipt-fixture.ts';
+import { seedStoredPartsSignoff } from './historical-review-fixture.ts';
 
 afterEach(() => testClock.reset());
 const read = (dir: string): JsonObject => JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')) as JsonObject;
@@ -43,7 +44,12 @@ function approveParts(dir: string, id: string): void {
   const snapshot = `evidence/structure-${id}.json`;
   structureSnapshotCommand([dir, '--draft', id, '--out', snapshot]);
   recordPartsReceipt(dir, id, testClock.now());
-  signoffCommand(['parts-review', dir, '--draft', id, '--structure-file', snapshot, ...words(dir)]);
+  seedStoredPartsSignoff(dir, id, {
+    by: 'owner',
+    at: testClock.now(),
+    verbatim: readFileSync(join(dir, 'words.txt'), 'utf8'),
+    structureFile: snapshot,
+  });
 }
 
 function version(dir: string, n: number, at: string): JsonObject {

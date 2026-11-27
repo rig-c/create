@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os';
 import { CorrectionError, checkUnrecordedPartRepaints, correctionApprovalFindings, correctionHash, validateCorrectionPatch } from '../src/corrections.ts';
 import { plantLegacyReopen, fixture as projectFixture } from './fixtures.ts';
 import { recordPartsReceipt, seedPartsCliReceipt } from './parts-receipt-fixture.ts';
+import { seedStoredPartsSignoff } from './historical-review-fixture.ts';
 import { withPartsCheck } from './parts-check-fixture.ts';
 import { Refusal } from '../src/refusal.ts';
 import { selectAnswerHashes } from '../src/signoff-answers.ts';
@@ -680,18 +681,23 @@ test('legacy-order project with a resolved part-image correction on a model-less
   testClock.set(new Date('2026-11-06T03:30:00Z'));
   diffClassesCommand([dir, '--diff-report', 'evidence/diff-components.json', '--by', 'agent']);
   // Plant: signing the unfixed parent draft without --structure-file refuses CORRECTION_OUTCOME and preserves project.json.
-  rejected(dir, 'CORRECTION_OUTCOME', () => signoffCommand([
+  rejected(dir, 'NUMBERED_WRITER_REMOVED', () => signoffCommand([
     'parts-review', dir, '--by', 'user', '--draft', 'parent',
     '--verbatim-file', join(dir, 'words.txt'),
   ]));
-  // Signing the resolving draft with --draft alone (no --structure-file) records draft_id and passes check.
-  const signed = cli(dir, [
-    'signoff', 'parts-review', dir, '--by', 'user', '--draft', 'repainted',
-    '--verbatim-file', join(dir, 'words.txt'), '--json',
-  ]);
-  expect(signed.stderr).toBe('');
-  expect(signed.exit).toBe(0);
-  const record = JSON.parse(signed.stdout) as JsonObject;
+  rejected(dir, 'CORRECTION_OUTCOME', () => seedStoredPartsSignoff(dir, 'parent', {
+    by: 'user',
+    at: testClock.now(),
+    verbatim: readFileSync(join(dir, 'words.txt'), 'utf8'),
+    explicitStructure: true,
+  }));
+  // Signing the resolving draft without --structure-file records draft_id and passes check.
+  const record = seedStoredPartsSignoff(dir, 'repainted', {
+    by: 'user',
+    at: testClock.now(),
+    verbatim: readFileSync(join(dir, 'words.txt'), 'utf8'),
+    explicitStructure: true,
+  });
   expect(record.draft_id).toBe('repainted');
   expect(record.structure).toBeUndefined();
   expect(checkProject(dir).refusals).toEqual([]);

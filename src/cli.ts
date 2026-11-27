@@ -98,6 +98,8 @@ ${INPUT_CLI}  rig-create init <dir> [--no-install]              create a project
   rig-create signoff <stage> --from-review <actId> [<project dir>]
   rig-create comment --from-review <actId> [<dir>] [--config <path>] [--json]
                                                     record a Review comment-only act in comments[]; it pins nothing
+  rig-create comment --close <index> [<dir>] --act-sha256 <sha256> --after <path>=<sha256>...
+                                                    record a comment closure with the changed file hashes
   rig-create signoff <stage> --by <who> [--steps <id,id,...>] [--verbatim-file <file>] [<project dir>]
                                                     record a signature without moving the stage
   rig-create signoff parts-review [<dir>] ${OWNER_CHAT_USAGE} [--structure-file <path>]

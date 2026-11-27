@@ -30,7 +30,7 @@ import { structureSnapshotCommand } from '../src/structure-snapshot.ts';
 import { assertPartsActSource, partsActDraftHash, partsActFindings } from '../src/parts-act.ts';
 import { latestPartsReceipt, latestPartsVerdictStatus, partsReadFindings, recordedPartsVerdict } from '../src/parts-verdict-record.ts';
 import { decodeReviewAct, partsActIssues, reviewActFindings, type PartsVerdictActV5 } from '../src/review-act.ts';
-import { EXAMPLE_NOW } from '../scripts/example-time.ts';
+import { EXAMPLE_ANCHOR, EXAMPLE_NOW } from '../scripts/example-time.ts';
 import { treeDigest } from './helpers.ts';
 import type { JsonObject } from '../src/templates.ts';
 
@@ -125,11 +125,24 @@ async function bound(ready = true, reviewer = 'synthetic-owner') {
   if (ready) await readyForVerdict(root, host);
   return { root, host };
 }
+function prepTime(project: JsonObject): number {
+  // Exclude runtime-registered drafts: Review stamps acts on the wall clock, so setup anchors to retained checkpoint dates and *_SINCE.
+  const records = [
+    ...(Array.isArray(project.inputs) ? project.inputs : []),
+    ...(Array.isArray(project.advances) ? project.advances : []),
+    ...(Array.isArray(project.signoffs) ? project.signoffs : []),
+  ];
+  const times = records
+    .map(entry => (entry && typeof entry === 'object' && !Array.isArray(entry) ? Date.parse(String((entry as JsonObject).at)) : NaN))
+    .filter(Number.isFinite);
+  return Math.max(EXAMPLE_ANCHOR, ...times) + 1_000;
+}
 async function readyForVerdict(root: string, host: JobOwnerHost): Promise<void> {
+  const prepNow = prepTime(read(root));
   structureSnapshotCommand([root, '--draft', 'chain', '--out', 'evidence/structure-chain.json']);
-  diffClassesCommand([root, '--diff-report', 'evidence/diff-components.json', '--by', 'agent'], Date.now());
-  advanceCommand(['parts-review', root, '--parts-check', 'evidence/parts-check.json', '--parts', 'derived/drafts/chain/input'], Date.now());
-  await openDraftPublication(root, host, Date.now(), 'chain');
+  diffClassesCommand([root, '--diff-report', 'evidence/diff-components.json', '--by', 'agent'], prepNow);
+  advanceCommand(['parts-review', root, '--parts-check', 'evidence/parts-check.json', '--parts', 'derived/drafts/chain/input'], prepNow);
+  await openDraftPublication(root, host, prepNow, 'chain');
 }
 async function submit(
   root: string,

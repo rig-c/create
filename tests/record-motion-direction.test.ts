@@ -154,6 +154,7 @@ test('#1073 motion records producer seam hashes and check detects drift of eithe
 
 test('#1073 motion can retain an unjudged measurement without a declared budget', () => {
   const f = sceneFixture();
+  testClock.set(LOOP_SEAM_REPORT_SINCE);
   currentRig(f);
   render(f.dir, false);
   seamReport(f.dir, 'unjudged');

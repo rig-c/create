@@ -11,9 +11,17 @@ import { matchesCitationSurface, resolveAnswerValue, validateAgentPlateRegistrat
 import type { JsonObject } from './templates.ts';
 
 export const DIRECTION_COMPOSE_SPEC = 'rig-create/direction@3';
+export const COMPOSE_CAMERA_REPORT_SPEC = 'spine-parts-scene-report/2';
 const positive = (v: unknown): v is number => typeof v === 'number' && Number.isSafeInteger(v) && v > 0;
 export const composeRoot = (n: number): string => `outputs/v${n}/compose`;
 export const composeScenePath = (n: number): string => `evidence/compose-src/v${n}/scene.json`;
+
+export function validateComposeCameraModel(report: JsonObject, modelSha256: string, path: string): void {
+  if (report.spec === COMPOSE_CAMERA_REPORT_SPEC
+    && (!isObject(report.camera) || report.camera.model_sha256 !== modelSha256)) {
+    directionFail('DIRECTION_COMPOSE_CAMERA_MODEL', `${path}.camera.model_sha256`, 'retain the Parts camera report and packed model from the same compose run');
+  }
+}
 
 export function validateComposeDirectionShape(doc: JsonObject, path = 'direction'): void {
   const bad = (why: string): never => directionFail('DIRECTION_COMPOSE_SCHEMA', path, why);
@@ -198,7 +206,10 @@ export function validateComposeDirection(dir: string, project: JsonObject, doc: 
     const report = directionJson(bound(dir, compose.report as JsonObject, snapshots), paths.report);
     const check = directionJson(bound(dir, compose.check as JsonObject, snapshots), paths.check);
     const model = directionJson(bound(dir, doc.model as JsonObject, snapshots), String((doc.model as JsonObject).path));
-    if (scene.spec !== 'spine-parts-scene/1' || report.spec !== 'spine-parts-scene-report/1') directionFail('DIRECTION_COMPOSE_SCHEMA', 'direction.compose', 'retain Parts scene input and scene-report/1 output');
+    if (scene.spec !== 'spine-parts-scene/1' || (report.spec !== 'spine-parts-scene-report/1' && report.spec !== COMPOSE_CAMERA_REPORT_SPEC)) {
+      directionFail('DIRECTION_COMPOSE_SCHEMA', 'direction.compose', 'retain Parts scene input and scene-report/1 or scene-report/2 output');
+    }
+    validateComposeCameraModel(report, String((doc.model as JsonObject).sha256), paths.report);
     if (check.PASS !== true || check.gate_spine_html_green !== true) directionFail('DIRECTION_COMPOSE_GREEN', paths.check, 'compose must report PASS and gate_spine_html_green; rebuild with Parts');
     if (!Array.isArray(scene.characters) || scene.characters.length !== 1 || !isObject(scene.characters[0]) || !Array.isArray(scene.plates)) directionFail('DIRECTION_COMPOSE_SCHEMA', paths.scene, 'declare one accepted character and the cited named plates');
     if (scene.plate !== undefined) directionFail('DIRECTION_COMPOSE_SCHEMA', paths.scene, 'use only named plates declared by the cited compose value');

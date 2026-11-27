@@ -3,7 +3,7 @@ import { isDeepStrictEqual as equal } from 'node:util';
 import { isObject } from './check.ts';
 import { ComposeValueError, readComposeValue } from './compose-value.ts';
 import { CURRENT_RIG_MODEL, currentFileBinding, outputRoot, sha256 } from './current.ts';
-import { citedValues, readComposeRun, validateComposeCitations, validateComposeRunInputs } from './direction-compose.ts';
+import { citedValues, COMPOSE_CAMERA_REPORT_SPEC, readComposeRun, validateComposeCameraModel, validateComposeCitations, validateComposeRunInputs } from './direction-compose.ts';
 import { COMPOSE_CHECK_PATH, COMPOSE_MODEL_PATH } from './direction-loop-seam.ts';
 import { closed, directionBytes, directionFail, directionJson, objects, validateDirectionCitations } from './direction.ts';
 import { CURRENT_SCENE_PATH, SceneError, plateRegistration, sceneBinding, sceneBytes, validateCurrentScene } from './scene.ts';
@@ -154,7 +154,7 @@ export function readDirectionOutput(dir: string, project: JsonObject, from: stri
     const reportedPlates = objects(sceneReport.plates);
     const sourcePlates = objects(input.scene.plates);
     const placed = placement[0];
-    if (sceneReport.spec !== 'spine-parts-scene-report/1' || typeof sceneReport.scene !== 'string'
+    if ((sceneReport.spec !== 'spine-parts-scene-report/1' && sceneReport.spec !== COMPOSE_CAMERA_REPORT_SPEC) || typeof sceneReport.scene !== 'string'
       || resolve(dir, sceneReport.scene) !== resolve(dir, input.source.path) || !equal(sceneReport.canvas, input.scene.canvas)
       || placement.length !== 1 || !placed || placed.id !== entry.id || placed.build !== entry.build
       || !equal(placed.offset, input.character.offset) || (placed.scale ?? 1) !== (input.character.scale ?? 1)
@@ -167,6 +167,7 @@ export function readDirectionOutput(dir: string, project: JsonObject, from: stri
     const check = output(COMPOSE_CHECK_PATH, 'DIRECTION_COMPOSE_GREEN');
     const report = directionJson(check.bytes, check.binding.path);
     const model = output(COMPOSE_MODEL_PATH, 'DIRECTION_COMPOSE_FILE');
+    validateComposeCameraModel(sceneReport, model.binding.sha256, `${from}/${sceneReportPath}`);
     if (report.spec !== 'rig-parts-check/1' || report.PASS !== true || report.gate_spine_html_green !== true
       || !isObject(report.build) || report.build.model_sha256 !== model.binding.sha256) {
       directionFail('DIRECTION_COMPOSE_GREEN', check.binding.path, 'retain the green Parts compose check that binds this compiled model; compose again');

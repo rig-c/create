@@ -7,7 +7,9 @@ import { correctionApprovalFindings, currentDirectionIdentity } from '../src/cor
 import { COMPOSE_CHECK_PATH, COMPOSE_RUN_PATH, CURRENT_DIRECTION_PATH } from '../src/current-direction.ts';
 import { sha256, treeFiles } from '../src/current.ts';
 import { DIRECTION_CORRECTION_SPEC, directionPostIdentity } from '../src/direction.ts';
+import { inspectCurrentPublication } from '../src/job-publication.ts';
 import { recordCommand } from '../src/record.ts';
+import { sceneCommand } from '../src/scene-writers.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { checkCorrections, checkProject, correctionCommand, directionCommand, signoffCommand, testClock } from './clock.ts';
 import { tempDir } from './helpers.ts';
@@ -84,6 +86,45 @@ function restageAndRecordDirection(dir: string, intentFile: string, revision: nu
   }, null, 2) + '\n');
   expect(recordCommand(['direction', dir, '--from', directionFrom, '--direction', CURRENT_DIRECTION_PATH], Date.parse(recordAt)).exit).toBe(0);
 }
+
+test.each([
+  { binding: 'matching', modelMatches: true },
+  { binding: 'mismatched', modelMatches: false },
+])('current direction records and publishes a camera report with a $binding model hash', ({ modelMatches }) => {
+  const f = cloneFixture();
+  const sourcePath = 'specs/direction/compose-camera.json';
+  const from = 'outputs/direction.next';
+  const modelPath = 'check/build/skeleton.model.json';
+  const read = (path: string): JsonObject => JSON.parse(readFileSync(join(f.dir, path), 'utf8')) as JsonObject;
+  const put = (path: string, value: JsonObject): string => {
+    const bytes = `${JSON.stringify(value, null, 2)}\n`;
+    writeFileSync(join(f.dir, path), bytes);
+    return sha256(bytes);
+  };
+  const backdrop = 'backdrop';
+  const source = read('specs/direction/compose-scene.json');
+  source.camera = { backdrop, tracks: { idle: [{ t: 0, pan: [0, 0], zoom: 1 }, { t: 4, pan: [0, 0], zoom: 1 }] } };
+  const sourceSha = put(sourcePath, source);
+  expect(sceneCommand(['write', f.dir, '--compose-scene', sourcePath], Date.parse('2026-11-26T09:11:00Z')).exit).toBe(0);
+  expect(directionCommand(['write', f.dir, '--file', 'evidence/intent-revised.json']).exit).toBe(0);
+  cpSync(join(f.dir, 'outputs/direction'), join(f.dir, from), { recursive: true });
+  const modelSha = sha256(readFileSync(join(f.dir, from, modelPath)));
+  put(`${from}/${COMPOSE_RUN_PATH}`, { ...read(`${from}/${COMPOSE_RUN_PATH}`), scene: { path: sourcePath, sha256: sourceSha } });
+  const reportSha = put(`${from}/scene.json`, { ...read(`${from}/scene.json`), spec: 'spine-parts-scene-report/2', scene: sourcePath,
+    camera: { backdrop, model_sha256: modelMatches ? modelSha : '0'.repeat(64) } });
+  const record = () => recordCommand(['direction', f.dir, '--from', from, '--direction', CURRENT_DIRECTION_PATH], Date.parse('2026-11-26T09:12:00Z'));
+  if (!modelMatches) {
+    refusesByteIdentical(f.dir, 'DIRECTION_COMPOSE_CAMERA_MODEL', 1, record);
+    return;
+  }
+
+  expect(record().exit).toBe(0);
+  const project = f.load();
+  const bindings = [{ path: 'outputs/direction/scene.json', sha256: reportSha }, { path: `outputs/direction/${modelPath}`, sha256: modelSha }];
+  expect(((project.current as JsonObject).direction as JsonObject).files).toEqual(expect.arrayContaining(bindings.map(binding => expect.objectContaining(binding))));
+  const publication = inspectCurrentPublication(f.dir, project, 'direction', sha256(readFileSync(join(f.dir, 'project.json'))));
+  expect(publication.closureFiles).toEqual(expect.arrayContaining(bindings));
+});
 
 test('current-direction correction fixture reproduces byte-for-byte through writers and passes check', () => {
   const generated = generateCurrentDirectionCorrectionFixture(join(tempDir(), 'fresh'));

@@ -192,11 +192,41 @@ test('job open --question publishes after upgrading an actual older synthetic in
   }
 }, 30000);
 
-test('install failure preserves every original byte and install', () => {
+test('install failure preserves every original byte and install, and names an unpublished running Create version', () => {
   const { dir } = fixture({ ...pins, '@rig-c/parts': '2.23.4', 'invalid package name': '1.0.0' });
   const before = snapshot(dir);
-  refusal(() => packagesCommand(['upgrade', dir, '--by', 'operator'], EXAMPLE_NOW), 'PACKAGE_UPGRADE_INSTALL');
+  const beforeModules = readdirSync(join(dir, 'node_modules'));
+  try {
+    packagesCommand(['upgrade', dir, '--by', 'operator'], EXAMPLE_NOW);
+    throw new Error('expected refusal');
+  } catch (error) {
+    expect(error).toBeInstanceOf(Refusal);
+    expect((error as Refusal).code).toBe('PACKAGE_UPGRADE_INSTALL');
+    expect((error as Error).message).not.toContain(CREATE_PACKAGE);
+  }
   expect(snapshot(dir)).toEqual(before);
+  expect(readdirSync(join(dir, 'node_modules'))).toEqual(beforeModules);
+
+  const unpublishedVersion = '999.999.999';
+  const unpublished = fixture({ ...pins, [CREATE_PACKAGE]: '1.24.0' });
+  // Write a manifest without overrides so the staged install queries the registry for the forced Create version.
+  writeFileSync(
+    join(unpublished.dir, 'package.json'),
+    `${JSON.stringify({ name: 'synthetic-project', private: true, type: 'module', dependencies: { ...pins, [CREATE_PACKAGE]: '1.24.0' } }, null, 2)}\n`,
+  );
+  const unpublishedBefore = snapshot(unpublished.dir);
+  const unpublishedModules = readdirSync(join(unpublished.dir, 'node_modules'));
+  try {
+    packagesCommand(['upgrade', unpublished.dir, '--by', 'operator'], EXAMPLE_NOW, { runningCreateVersion: unpublishedVersion });
+    throw new Error('expected refusal');
+  } catch (error) {
+    expect(error).toBeInstanceOf(Refusal);
+    expect((error as Refusal).code).toBe('PACKAGE_UPGRADE_INSTALL');
+    expect((error as Error).message).toContain(CREATE_PACKAGE);
+    expect((error as Error).message).toContain(unpublishedVersion);
+  }
+  expect(snapshot(unpublished.dir)).toEqual(unpublishedBefore);
+  expect(readdirSync(join(unpublished.dir, 'node_modules'))).toEqual(unpublishedModules);
 }, 30000);
 
 test('a changed existing refusal message is refused even when its code and path match', async () => {

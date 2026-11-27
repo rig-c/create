@@ -5,7 +5,7 @@ import { dirname, join } from 'node:path';
 
 import { jobHostStateRoot, jobPrivateRoot, readWriterBinding } from '../src/job-outbox.ts';
 import { SOURCE_CONDITION, SOURCE_CONDITION_FLAG, jobRuntimeCommand, jobRuntimeExecArgv } from '../src/job-writer.ts';
-import { PINNED_PACKAGES } from '../src/pins.ts';
+import { CREATE_PACKAGE, PINNED_PACKAGES, initDependencies, runningCreateVersion } from '../src/pins.ts';
 import { readTemplate } from '../src/templates.ts';
 
 const EXACT = /^\d+\.\d+\.\d+$/;
@@ -103,7 +103,8 @@ function linkSourcePackages(baseDir: string): {
 
 test('every pin is an exact version, no range', () => {
   expect(Object.keys(PINNED_PACKAGES).sort()).toEqual(['@rig-c/core', '@rig-c/parts']);
-  for (const [pkg, version] of Object.entries(PINNED_PACKAGES)) {
+  expect(Object.keys(initDependencies()).sort()).toEqual(['@rig-c/core', CREATE_PACKAGE, '@rig-c/parts']);
+  for (const [pkg, version] of Object.entries(initDependencies())) {
     expect(`${pkg}@${version}`).toBe(`${pkg}@${version.match(EXACT)?.[0]}`);
   }
 });

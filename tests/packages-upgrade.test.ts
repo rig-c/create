@@ -1,10 +1,10 @@
 import { afterEach, expect, test } from 'bun:test';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { packagesCommand } from '../src/packages-upgrade.ts';
 import { packageUpgradeFindings, packageUpgradeWarnings } from '../src/package-upgrades.ts';
-import { PINNED_PACKAGES } from '../src/pins.ts';
+import { CREATE_PACKAGE, PINNED_PACKAGES, runningCreateVersion } from '../src/pins.ts';
 import { readTemplate } from '../src/templates.ts';
 import { checkProject } from '../src/check.ts';
 import { Refusal } from '../src/refusal.ts';
@@ -13,7 +13,13 @@ import { EXAMPLE_ANCHOR, EXAMPLE_NOW } from '../scripts/example-time.ts';
 
 const roots: string[] = [];
 afterEach(() => { for (const dir of roots.splice(0)) rmSync(dir, { recursive: true, force: true }); });
-const pins = { ...PINNED_PACKAGES, '@rig-c/review': '4.22.0' };
+const pins = {
+  '@rig-c/core': PINNED_PACKAGES['@rig-c/core'],
+  [CREATE_PACKAGE]: runningCreateVersion(),
+  '@rig-c/parts': PINNED_PACKAGES['@rig-c/parts'],
+  '@rig-c/review': '4.22.0',
+};
+const legacyPins = { ...PINNED_PACKAGES, '@rig-c/review': '4.22.0' };
 function fixture(dependencies: Record<string, string>) {
   const dir = tempDir(); roots.push(dir);
   const project = readTemplate('project.json');
@@ -83,7 +89,7 @@ test('an older synthetic project upgrades all release pins and changes only the 
   const expected = `${JSON.stringify({ ...readTemplate('project.json'), package_upgrades: project.package_upgrades }, null, 2)}\n`;
   expect(record).toBe(expected);
   expect(record.slice(0, bytes.lastIndexOf('\n}'))).toBe(bytes.slice(0, bytes.lastIndexOf('\n}')));
-  expect(project.package_upgrades[0]).toMatchObject({ by: 'operator', at: new Date(EXAMPLE_NOW).toISOString(), packages: [{ name: '@rig-c/core', from: pins['@rig-c/core'], to: pins['@rig-c/core'] }, { name: '@rig-c/parts', from: '2.23.4', to: pins['@rig-c/parts'] }, { name: '@rig-c/review', from: '4.7.0', to: pins['@rig-c/review'] }] });
+  expect(project.package_upgrades[0]).toMatchObject({ by: 'operator', at: new Date(EXAMPLE_NOW).toISOString(), packages: [{ name: '@rig-c/core', from: pins['@rig-c/core'], to: pins['@rig-c/core'] }, { name: CREATE_PACKAGE, from: pins[CREATE_PACKAGE], to: pins[CREATE_PACKAGE] }, { name: '@rig-c/parts', from: '2.23.4', to: pins['@rig-c/parts'] }, { name: '@rig-c/review', from: '4.7.0', to: pins['@rig-c/review'] }] });
   expect(packageUpgradeFindings(project)).toEqual([]);
   expect(existsSync(join(dir, 'node_modules/sentinel'))).toBe(false);
 }, 30000);
@@ -193,22 +199,47 @@ test('a changed existing refusal message is refused even when its code and path 
   expect(snapshot(dir)).toEqual(before);
 }, 30000);
 
-test('adds an absent review pin while preserving earlier history rows, detected manifest indentation and trailing newline', () => {
+test('adds absent create and review pins while preserving earlier 3-pin history rows, detected manifest indentation and trailing newline', () => {
   const { dir } = fixture(PINNED_PACKAGES);
-  const row = { by: 'earlier-operator', at: new Date(EXAMPLE_NOW - 1000).toISOString(), packages: Object.entries(pins).map(([name, to]) => ({ name, from: null, to })), lock_sha256: '0'.repeat(64) };
+  const row = { by: 'earlier-operator', at: new Date(EXAMPLE_NOW - 1000).toISOString(), packages: Object.entries(legacyPins).map(([name, to]) => ({ name, from: null, to })), lock_sha256: '0'.repeat(64) };
   const initialProject = { ...readTemplate('project.json'), package_upgrades: [row] };
   writeFileSync(join(dir, 'project.json'), `${JSON.stringify(initialProject, null, 2)}\n`);
   const pkg = { name: 'synthetic-project', private: true, dependencies: { ...PINNED_PACKAGES } };
   writeFileSync(join(dir, 'package.json'), JSON.stringify(pkg, null, '\t'));
   packagesCommand(['upgrade', dir, '--by', 'operator'], EXAMPLE_NOW);
   const written = readFileSync(join(dir, 'project.json'), 'utf8');
-  const rows = JSON.parse(written).package_upgrades;
+  const parsed = JSON.parse(written);
+  const rows = parsed.package_upgrades;
   expect(rows[0]).toEqual(row);
-  expect(rows[1].packages[2]).toEqual({ name: '@rig-c/review', from: null, to: pins['@rig-c/review'] });
+  expect(rows[1].packages).toEqual([
+    { name: '@rig-c/core', from: PINNED_PACKAGES['@rig-c/core'], to: pins['@rig-c/core'] },
+    { name: CREATE_PACKAGE, from: null, to: pins[CREATE_PACKAGE] },
+    { name: '@rig-c/parts', from: PINNED_PACKAGES['@rig-c/parts'], to: pins['@rig-c/parts'] },
+    { name: '@rig-c/review', from: null, to: pins['@rig-c/review'] },
+  ]);
+  expect(packageUpgradeFindings(parsed)).toEqual([]);
   expect(written).toBe(`${JSON.stringify({ ...initialProject, package_upgrades: rows }, null, 2)}\n`);
   expect(readFileSync(join(dir, 'package.json'), 'utf8')).toBe(
-    JSON.stringify({ ...pkg, dependencies: pins }, null, '\t'),
+    JSON.stringify({ ...pkg, dependencies: { ...PINNED_PACKAGES, [CREATE_PACKAGE]: pins[CREATE_PACKAGE], '@rig-c/review': pins['@rig-c/review'] } }, null, '\t'),
   );
+  const afterWarnings = checkProject(dir, undefined, { now: EXAMPLE_NOW, readOnly: true }).warnings.map(f => f.code);
+  expect(afterWarnings).not.toContain('CREATE_PIN_MISSING');
+  expect(afterWarnings).not.toContain('CREATE_PIN_MISMATCH');
+}, 30000);
+
+test('moves an older @rig-c/create pin and refuses a newer @rig-c/create pin byte-identically', () => {
+  const { dir } = fixture({ ...pins, [CREATE_PACKAGE]: '1.24.0' });
+  const result = packagesCommand(['upgrade', dir, '--by', 'operator'], EXAMPLE_NOW);
+  expect(result).toContain(`${CREATE_PACKAGE} 1.24.0 → ${pins[CREATE_PACKAGE]}`);
+  const project = JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8'));
+  expect(project.package_upgrades[0].packages[1]).toEqual({ name: CREATE_PACKAGE, from: '1.24.0', to: pins[CREATE_PACKAGE] });
+  expect(JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8')).dependencies[CREATE_PACKAGE]).toBe(pins[CREATE_PACKAGE]);
+  expect(checkProject(dir, undefined, { now: EXAMPLE_NOW, readOnly: true }).warnings.map(f => f.code)).not.toContain('CREATE_PIN_MISMATCH');
+
+  const newer = fixture({ ...pins, [CREATE_PACKAGE]: '999.0.0' });
+  const before = snapshot(newer.dir);
+  refusal(() => packagesCommand(['upgrade', newer.dir, '--by', 'operator'], EXAMPLE_NOW), 'PACKAGE_UPGRADE_DOWNGRADE');
+  expect(snapshot(newer.dir)).toEqual(before);
 }, 30000);
 
 test('an upgrade that moves parts also moves interview.question_set and records the move', () => {
@@ -388,4 +419,77 @@ test('malformed rehearsal history rows refuse identically in check and writer', 
     refusal(() => packagesCommand(['upgrade', dir, '--by', 'operator'], EXAMPLE_NOW), 'PACKAGE_UPGRADE_MALFORMED');
     expect(snapshot(dir)).toEqual(before);
   }
+});
+
+test('check warns by name when @rig-c/create is undeclared or differs from the running version, and stays silent when equal', () => {
+  const running = runningCreateVersion();
+  const undeclared = fixture(legacyPins);
+  const missingReport = checkProject(undeclared.dir, undefined, { now: EXAMPLE_NOW, readOnly: true });
+  expect(missingReport.warnings).toContainEqual(expect.objectContaining({
+    code: 'CREATE_PIN_MISSING',
+    path: `package.json.dependencies[${CREATE_PACKAGE}]`,
+    message: expect.stringContaining('rig-create packages upgrade --by <operator>'),
+  }));
+
+  for (const declared of ['0.0.1', '999.0.0', `^${running}`]) {
+    const mismatched = fixture({ ...pins, [CREATE_PACKAGE]: declared });
+    const mismatchReport = checkProject(mismatched.dir, undefined, { now: EXAMPLE_NOW, readOnly: true });
+    expect(mismatchReport.warnings).toContainEqual(expect.objectContaining({
+      code: 'CREATE_PIN_MISMATCH',
+      path: `package.json.dependencies[${CREATE_PACKAGE}]`,
+      message: expect.stringContaining('rig-create packages upgrade --by <operator>'),
+    }));
+    expect(mismatchReport.warnings.map(f => f.code)).not.toContain('CREATE_PIN_MISSING');
+  }
+
+  const aligned = fixture({ ...pins, [CREATE_PACKAGE]: running });
+  const alignedCodes = checkProject(aligned.dir, undefined, { now: EXAMPLE_NOW, readOnly: true }).warnings.map(f => f.code);
+  expect(alignedCodes).not.toContain('CREATE_PIN_MISSING');
+  expect(alignedCodes).not.toContain('CREATE_PIN_MISMATCH');
+});
+
+test('a standalone project without package.json (or with a dangling symlink) warns CREATE_PIN_MISSING, while a collection member without its own manifest does not', async () => {
+  const { initCollection, initMember } = await import('../src/collection.ts');
+  const { freshProjectRecord } = await import('../src/init.ts');
+
+  const standalone = tempDir();
+  roots.push(standalone);
+  const record = { ...freshProjectRecord('synthetic-standalone', EXAMPLE_NOW), owner: { language: 'en' } };
+  writeFileSync(join(standalone, 'project.json'), `${JSON.stringify(record, null, 2)}\n`);
+  expect(existsSync(join(standalone, 'package.json'))).toBe(false);
+  const absentReport = checkProject(standalone, undefined, { now: EXAMPLE_NOW, readOnly: true });
+  expect(absentReport.warnings).toContainEqual({
+    code: 'CREATE_PIN_MISSING',
+    path: 'package.json',
+    message: expect.stringContaining('rig-create packages upgrade --by <operator>'),
+  });
+
+  symlinkSync(join(standalone, 'missing-manifest-target.json'), join(standalone, 'package.json'));
+  const danglingReport = checkProject(standalone, undefined, { now: EXAMPLE_NOW, readOnly: true });
+  expect(danglingReport.warnings).toContainEqual(expect.objectContaining({
+    code: 'CREATE_PIN_MISSING',
+    path: 'package.json',
+    message: expect.stringContaining('rig-create packages upgrade --by <operator>'),
+  }));
+
+  // A folder named members/<name> with no parent collection.json is still standalone, not a member.
+  const orphanContainer = tempDir();
+  roots.push(orphanContainer);
+  const orphanDir = join(orphanContainer, 'members', 'orphan');
+  mkdirSync(orphanDir, { recursive: true });
+  writeFileSync(join(orphanDir, 'project.json'), `${JSON.stringify(record, null, 2)}\n`);
+  expect(checkProject(orphanDir, undefined, { now: EXAMPLE_NOW, readOnly: true }).warnings).toContainEqual(expect.objectContaining({
+    code: 'CREATE_PIN_MISSING',
+    path: 'package.json',
+  }));
+
+  // A real collection member legitimately shares its parent collection's manifest and has no package.json of its own.
+  const colParent = tempDir();
+  roots.push(colParent);
+  const colDir = join(colParent, 'harbour');
+  initCollection(colDir, { install: false });
+  const member = initMember(colDir, 'keeper', new Date(EXAMPLE_NOW), 'en');
+  expect(existsSync(join(member.dir, 'package.json'))).toBe(false);
+  const memberReport = checkProject(member.dir, undefined, { now: EXAMPLE_NOW, readOnly: true });
+  expect(memberReport.warnings).toEqual([]);
 });

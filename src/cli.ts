@@ -7,8 +7,8 @@ import { partsReviewCommand } from './parts-review.ts';
 import { INTAKE_HELP, intakeCommand, intakeReportCommand } from './intake.ts';
 import { DIRECTION_HELP, directionCommand } from './direction-writers.ts';
 import { SCENE_HELP, sceneCommand } from './scene-writers.ts';
-import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { runningCreateVersion } from './pins.ts';
 
 import { CHOICE_HELP, interviewOptionsCommand, interviewAnswerCommand, interviewDecisionCommand } from './choice-writers.ts';
 import { CORRECTION_HELP, correctionCommand } from './correction-writers.ts';
@@ -98,6 +98,8 @@ ${INPUT_CLI}  rig-create init <dir> [--no-install]              create a project
   rig-create signoff <stage> --from-review <actId> [<project dir>]
   rig-create comment --from-review <actId> [<dir>] [--config <path>] [--json]
                                                     record a Review comment-only act in comments[]; it pins nothing
+  rig-create comment --close <index> [<dir>] --act-sha256 <sha256> --after <path>=<sha256>...
+                                                    record a comment closure with the changed file hashes
   rig-create signoff <stage> --by <who> [--steps <id,id,...>] [--verbatim-file <file>] [<project dir>]
                                                     record a signature without moving the stage
   rig-create signoff parts-review [<dir>] ${OWNER_CHAT_USAGE} [--structure-file <path>]
@@ -231,14 +233,6 @@ ${SPLIT_CAPTIONS_HELP}
  * `now` is the instant the command runs at, which every written date and every "not in the future" check uses.
  */
 type Command = (args: string[], now: number) => string | CommandResult;
-
-function version(): string {
-  const pkg: unknown = JSON.parse(readFileSync(join(import.meta.dir, '..', 'package.json'), 'utf8'));
-  if (pkg !== null && typeof pkg === 'object' && 'version' in pkg && typeof pkg.version === 'string') {
-    return pkg.version;
-  }
-  return 'unknown';
-}
 
 function initCommand(args: string[], now: number): string {
   if (args.includes('--collection') || args.includes('--member')) {
@@ -451,7 +445,7 @@ export function main(argv: string[], now: number): number {
       return 0;
     }
     if (first === '--version' || first === '-v') {
-      process.stdout.write(`${version()}\n`);
+      process.stdout.write(`${runningCreateVersion()}\n`);
       return 0;
     }
     const command = COMMANDS[first];

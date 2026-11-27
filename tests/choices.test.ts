@@ -17,7 +17,7 @@ import { decodeReviewResponse, fetchReviewAct, REVIEW_ACT_ACTOR_SINCE, reviewAct
 import { partsReviewCommand } from '../src/parts-review.ts';
 import { PARTS_CLI_RECEIPT, partsReadFindings } from '../src/parts-verdict-record.ts';
 import { Refusal } from '../src/refusal.ts';
-import { nextProject } from '../src/next.ts';
+import { nextCommand, nextProject } from '../src/next.ts';
 import { assertPlanSignoffCandidate, signoffCommand as rawSignoff } from '../src/signoff.ts';
 import { fixture, obj, arr, waypoint, framing } from './fixtures.ts';
 import type { Json, JsonObject } from '../src/templates.ts';
@@ -42,12 +42,12 @@ function working(question='motion'): {dir:string;set:JsonObject;path:string;hash
   },'example-project.json');
   return registerReask(dir, question, `test-${question}`, source ? sourceDraftAt : riggingDraftAt);
 }
-function registerReask(dir: string, question: string, id: string, draftedAt: number) {
+function registerReask(dir: string, question: string, id: string, draftedAt: number, encode = (set: JsonObject) => JSON.stringify(set, null, 2)) {
   const p=load(dir);const item=current(p,question);const original=obj(obj(item.raw).choice).set as JsonObject;
   const set=JSON.parse(readFileSync(join(dir,String(original.path)),'utf8')) as JsonObject;
   set.id=id;set.drafted_at=new Date(draftedAt).toISOString();
   set.context=optionContext(p,String(set.stage),Date.parse(set.drafted_at as string));
-  const path=`evidence/interview/${id}.json`;const bytes=JSON.stringify(set,null,2)+'\n';writeFileSync(join(dir,path),bytes);
+  const path=`evidence/interview/${id}.json`;const bytes=encode(set)+'\n';writeFileSync(join(dir,path),bytes);
   testClock.set(draftedAt+1_000);
   interviewOptionsCommand([question,dir,'--file',path]);
   return{dir,set,path,hash:sha256(Buffer.from(bytes))};
@@ -223,6 +223,27 @@ test('single leaves a framing scalar unchanged; concat and merge are mechanical'
   expect(assembleFragments('concat',[[1],[2,3]])).toEqual([1,2,3]);expect(assembleFragments('merge',[{a:1},{b:2}])).toEqual({a:1,b:2});
   expect(code(()=>assembleFragments('merge',[{a:1},{a:2}]))).toBe('INTERVIEW_CHOICE_INVALID');
   expect(code(()=>assembleFragments('arbitrary',[]))).toBe('INTERVIEW_OPTIONS_INVALID');
+});
+test('#1084 an accepted nested negative zero rereads without rewriting the record or set', () => {
+  const { dir } = working('reference');
+  const set = registerReask(dir, 'reference', 'signed-zero-reference', testClock.now(), draft => {
+    const keep = arr(obj(arr(draft.asks)[0]).options).map(obj).find(option => option.id === 'keep')!;
+    keep.fragment = { offset: ['negative-zero-fixture', 2] };
+    return JSON.stringify(draft).replace('"negative-zero-fixture"', '-0.0');
+  });
+  const retainedSet = readFileSync(join(dir, set.path));
+  expect(JSON.parse(answer(set)).value).toEqual({ offset: [0, 2] });
+  expect(obj(current(load(dir), 'reference').raw).value).toEqual({ offset: [0, 2] });
+  const record = readFileSync(join(dir, 'project.json'));
+
+  const next = nextCommand([dir], testClock.now());
+  const check = interviewCommand(['--check', dir]);
+  process.stdout.write(`#1084 next (exit ${next.exit})\n${next.stdout.replaceAll(dir, '<project>')}\n#1084 interview --check (exit ${check.exit})\n${check.stdout.replaceAll(dir, '<project>')}\n`);
+  expect(next.stdout).not.toContain('INTERVIEW_CHOICE_INVALID');
+  expect(check.stdout).not.toContain('INTERVIEW_CHOICE_INVALID');
+  expect(check.exit).toBe(0);
+  expect(readFileSync(join(dir, 'project.json'))).toEqual(record);
+  expect(readFileSync(join(dir, set.path))).toEqual(retainedSet);
 });
 test('per-ask cardinality, recommendation, special options, applicable asks and single are closed',()=>{
   const w=working();const p=load(w.dir);const item=current(p,'motion');
@@ -413,6 +434,55 @@ test('constraint tuples check ordinary, Other and landed auto contributions with
   const choice:JsonObject={spec:CHOICE_SPEC,set:{path:w.path,sha256:w.hash},picks:arr(w.set.asks).map(a=>({ask:obj(a).id as Json,option_id:obj(a).id==='ground'?'other':'keep',shown:{label:'',effect:''}}))};
   const fragments=new Map<string,Json>([['projection',{project:'core'}],['ground',{ground:'novel'}]]);
   expect(code(()=>checkChoiceConstraints(w.set,choice,fragments))).toBe('INTERVIEW_CHOICE_CONSTRAINT');
+});
+test.each(['other', 'auto'] as const)('#1084 a constrained %s fragment still matches its offered negative zero after storage', kind => {
+  const { dir } = working('assemble');
+  const w = registerReask(dir, 'assemble', `signed-zero-${kind}`, testClock.now(), set => {
+    const options = arr(obj(arr(set.asks)[0]).options).map(obj);
+    options.find(option => option.id === 'keep')!.fragment = { project: 'core', offset: ['negative-zero-fixture'] };
+    set.constraints = [{ asks: ['projection', String(obj(arr(set.asks)[1]).id)], allowed: [['keep', 'keep']] }];
+    return JSON.stringify(set).replace('"negative-zero-fixture"', '-0.0');
+  });
+  const words = join(dir, 'words.txt');
+  const fragment = join(dir, 'fragment.json');
+  writeFileSync(words, 'Keep the offered projection.');
+  writeFileSync(fragment, '{"project":"core","offset":[-0.0]}');
+  const picks = ['projection=' + kind, ...arr(w.set.asks).slice(1).map(ask => `${String(obj(ask).id)}=keep`)];
+  if (kind === 'other') {
+    interviewAnswerCommand(['assemble', dir, '--set', w.path, '--sha256', w.hash, '--by', 'user',
+      ...picks.flatMap(pick => ['--pick', pick]), '--other', `projection=${words}`, '--other-fragment', `projection=${fragment}`]);
+  } else {
+    answer(w, picks);
+    testClock.set(testClock.now() + 1_000);
+    interviewDecisionCommand(['assemble', dir, '--by', 'agent', '--reasoning-file', words, '--fragment', `projection=${fragment}`]);
+  }
+  expect(interviewCommand(['--check', dir]).exit).toBe(0);
+});
+
+test('#1084 a constraint keeps the exact zero option and refuses a fragment that would change IDs on write', () => {
+  const { dir } = working('assemble');
+  const w = registerReask(dir, 'assemble', 'two-signed-zero-options', testClock.now(), set => {
+    const options = arr(obj(arr(set.asks)[0]).options).map(obj);
+    options.find(option => option.id === 'keep')!.fragment = { project: 'core', offset: [0] };
+    options.find(option => option.id === 'alternative')!.fragment = { project: 'core', offset: ['negative-zero-fixture'] };
+    set.asks = arr(set.asks).filter(ask => obj(ask).id !== 'ground');
+    set.constraints = [{ asks: ['projection', String(obj(arr(set.asks)[1]).id)], allowed: [['keep', 'keep'], ['alternative', 'keep']] }];
+    return JSON.stringify(set).replace('"negative-zero-fixture"', '-0.0');
+  });
+  const words = join(dir, 'words.txt');
+  const fragment = join(dir, 'fragment.json');
+  writeFileSync(words, 'Keep this projection.');
+  const select = () => interviewAnswerCommand(['assemble', dir, '--set', w.path, '--sha256', w.hash, '--by', 'user',
+    '--pick', 'projection=other', ...arr(w.set.asks).slice(1).flatMap(ask => ['--pick', `${String(obj(ask).id)}=keep`]),
+    '--other', `projection=${words}`, '--other-fragment', `projection=${fragment}`]);
+  const projectFile = join(dir, 'project.json');
+  const before = readFileSync(projectFile);
+  writeFileSync(fragment, '{"project":"core","offset":[-0.0]}');
+  expect(code(select)).toBe('INTERVIEW_CHOICE_CONSTRAINT');
+  expect(readFileSync(projectFile)).toEqual(before);
+  writeFileSync(fragment, '{"project":"core","offset":[0]}');
+  expect(code(select)).toBe('NO_REFUSAL');
+  expect(interviewCommand(['--check', dir]).exit).toBe(0);
 });
 test('retained bytes, shown text, value, coverage and note tampering are named refusals',()=>{
   const edits:((a:JsonObject)=>void)[]=[a=>{a.value={wrong:true};},a=>{obj(obj(arr(obj(a.choice).picks)[0]).shown).label='changed';},a=>{a.verbatim='paraphrase';},a=>{a.asks=[];},a=>{obj(a.choice).note='not in verbatim';}];

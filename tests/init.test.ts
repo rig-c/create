@@ -4,7 +4,8 @@ import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 import { FALLBACK_IDENTITY, GITIGNORE, IGNORED_DIRS, TRACKED_EMPTY_DIRS, packageNameFor } from '../src/init.ts';
-import { PINNED_PACKAGES } from '../src/pins.ts';
+import { CREATE_PACKAGE, PINNED_PACKAGES, initDependencies, runningCreateVersion } from '../src/pins.ts';
+import { checkProject } from '../src/check.ts';
 import { readTemplate } from '../src/templates.ts';
 import { cli, gitEnv, run, tempDir } from './helpers.ts';
 
@@ -91,10 +92,14 @@ describe('init --no-install into an empty folder', () => {
     expect(run(['git', 'check-ignore', '--', 'outputs/rig/rig.json'], dir, env).stdout).toBe('outputs/rig/rig.json\n');
   });
 
-  test('package.json pins the rig-c packages exactly', () => {
+  test('package.json pins the rig-c packages and running Create version exactly', () => {
     const pkg = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'));
-    expect(pkg.dependencies).toEqual(PINNED_PACKAGES);
+    expect(pkg.dependencies).toEqual(initDependencies());
+    expect(pkg.dependencies[CREATE_PACKAGE]).toBe(runningCreateVersion());
     expect(pkg.private).toBe(true);
+    const warnings = checkProject(dir, undefined, { now: Date.now(), readOnly: true }).warnings.map(f => f.code);
+    expect(warnings).not.toContain('CREATE_PIN_MISSING');
+    expect(warnings).not.toContain('CREATE_PIN_MISMATCH');
   });
 
   test('git status is clean after exactly one commit, with the fallback identity', () => {

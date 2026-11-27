@@ -95,9 +95,10 @@ import { checkVersionDeclarations, type VersionDeclaration } from './version-dec
 import { checkRigReport, parseRigCheckReport, RIG_CHECK_REPORT_FILE } from './rig-check-report.ts';
 import { validateRunRecord } from './run-record.ts';
 import { latestPartsApproval, partsApprovalIdentity } from './structure.ts';
-import { resolveAgentCitationSpec } from './scene-authority.ts';
+import { postCompositionSetOffersScene, resolveAgentCitationSpec } from './scene-authority.ts';
 import { DIRECTION_COMPOSE_SPEC } from './direction-compose.ts';
 import { DirectionError, directionJson, missingDirectionStepApprovals } from './direction.ts';
+import { type NextComment, withCurrentComments } from './comment-closures.ts';
 import { currentOutputMove, withStaleOutputs } from './next-stale.ts';
 
 export const NEXT_SCHEMA = 'rig-create/next@1';
@@ -181,6 +182,8 @@ export interface NextReport {
   bust_landmark_commands?: string[];
   /** A view of existing answers, never a new project record. */
   answers?: { question_id: string; field: string; by: Json; at: Json; picks: { ask: Json; option_id: Json; label: Json }[]; command?: string }[];
+  /** Current-output comments with live `current` / `earlier` status and closure state (#1064). */
+  comments?: NextComment[];
   awaits: string[];
   moves: NextMove[];
 }
@@ -262,6 +265,7 @@ function isOpenInterviewTodo(finding: Finding, effectiveStage: string): boolean 
 }
 
 const SCENE_OTHER_FOLLOW_UP = 'use the recorded Other words to draft concrete scene options with fragment.scene. Write each label and effect as one plain 해요체 sentence. Register the new set for an owner pick, then cite that pick in scene write';
+const SCENE_OPTIONS_REPAIR_ACT = 'register a post_composition option set whose value options carry value.scene, then have the owner answer it before scene write';
 
 function delegatedAsks(dir: string, item: Item): string[] {
   const answer = item.state.state === 'user' || item.state.state === 'delegated' ? item.state.answer : null;
@@ -812,6 +816,63 @@ function runnableNextMoves(dir: string, project: JsonObject, effectiveStage: str
       && moves.some(other => other.review_act?.stage === 'direction-review' && other.review_act.kind === 'review-verdict')) return [move];
     return reviewCommands(dir, project, move);
   });
+}
+
+function answeredPostCompositionSetLacksScene(dir: string, item: Item | undefined): boolean {
+  if (!item || (item.state.state !== 'user' && item.state.state !== 'delegated')) return false;
+  const answer = item.state.answer;
+  const resolved = item.state.state === 'delegated' && isObject(answer.agent_decision)
+    ? answer.agent_decision.value
+    : answer.value;
+  if (isObject(resolved) && isObject(resolved.scene)) return false;
+  if (!isObject(answer.choice) || !isObject(answer.choice.set)) return false;
+  try {
+    const { set } = optionFile(dir, answer.choice.set);
+    return !postCompositionSetOffersScene(set);
+  } catch {
+    return false;
+  }
+}
+
+function postCompositionSceneRepairMoves(
+  dir: string,
+  project: JsonObject,
+  item: Item | undefined,
+  effectiveStage: string,
+  now: number,
+): NextMove[] {
+  if (!item || !answeredPostCompositionSetLacksScene(dir, item)) return [];
+  const pending = pendingInterviewOptions(item);
+  if (pending !== undefined) {
+    if (optionPublicationStage(project, effectiveStage, now) === 'post-interview') {
+      return interviewQuestionMoves(dir, [item], effectiveStage);
+    }
+    let optSetId = typeof pending.id === 'string' ? pending.id : '';
+    if (!optSetId && typeof pending.path === 'string') {
+      try {
+        const rawSet = JSON.parse(readFileSync(join(dir, pending.path), 'utf8')) as JsonObject;
+        if (typeof rawSet.id === 'string') optSetId = rawSet.id;
+      } catch {
+        optSetId = pending.path;
+      }
+    }
+    const questionPath = item.path.replace(/\.(answer|guide)$/, '');
+    const humanMove: NextMove = {
+      role: 'human',
+      field: pendingInterviewOptionsPath(item),
+      awaits: item.path,
+      command: null,
+      act: `ask the owner in chat for ${questionPath} (option set ${optSetId}), then relay the answer with interview-answer --owner-chat`,
+    };
+    return [humanMove, ...ownerChatPickMove(dir, project, humanMove, item.id)];
+  }
+  return [{
+    role: 'agent',
+    field: item.path,
+    awaits: item.path,
+    command: optionCommand(item.id, dir),
+    act: SCENE_OPTIONS_REPAIR_ACT,
+  }];
 }
 
 function sceneWriteCommand(dir: string, project: JsonObject, rigN: string): string {
@@ -1700,6 +1761,31 @@ export function nextCollection(collectionDirArg: string): NextCollectionReport {
   };
 }
 
+function moveNeedsJobHost(move: NextMove, hasJobBinding: boolean): boolean {
+  const cmd = move.command;
+  if (!cmd) return false;
+  if (cmd.startsWith('rig-create job ') || cmd.includes(' --from-review')) return true;
+  if (!hasJobBinding) return false;
+  return /^rig-create (?:draft-rig|rig-version (?!adapter\b)|direction write [0-9]|advance (?:rig-review|direction-review)\b)/.test(cmd);
+}
+
+function ownerLanguageMove(dir: string, report: CheckReport): NextMove | undefined {
+  const finding = report.warnings.find(
+    warning => warning.code === 'OWNER_LANGUAGE_MISSING' || warning.code === 'OWNER_LANGUAGE_INVALID',
+  );
+  if (!finding) return undefined;
+  const status = finding.code === 'OWNER_LANGUAGE_INVALID'
+    ? 'owner.language is invalid'
+    : 'owner.language is undeclared';
+  return {
+    role: 'agent',
+    field: 'owner.language',
+    awaits: 'owner.language',
+    command: `rig-create owner-language set '<tag>' ${shellWord(dir)}`,
+    act: `${status} (${finding.code}): ask the owner through the relayed chat for their language tag (such as ko or en-US), then declare it with owner-language set before opening Review`,
+  };
+}
+
 export function nextProject(projectDirArg: string, now: number = Date.now()): NextReport {
   const dir = resolve(projectDirArg);
   const report: CheckReport = checkProject(dir, undefined, { now, readOnly: true, includeRoutedAnswerWarnings: true });
@@ -1742,6 +1828,23 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
       next = withStaleOutputs(dir, current, report.warnings, derived, shellWord, missing);
     }
   }
+  const languageMove = next.stage !== PAUSED_STAGE && !next.accepted
+    && (!blocksOutputMoves || next.moves.length > 0 || staleSteps.length > 0)
+    ? ownerLanguageMove(dir, report)
+    : undefined;
+  if (languageMove) {
+    const hasJobBinding = readWriterBinding(dir) !== null;
+    const jobIndex = next.moves.findIndex(move => moveNeedsJobHost(move, hasJobBinding));
+    const moves = jobIndex >= 0
+      ? [...next.moves.slice(0, jobIndex), languageMove, ...next.moves.slice(jobIndex)]
+      : [...next.moves, languageMove];
+    const awaits = next.awaits.includes(languageMove.awaits)
+      ? next.awaits
+      : jobIndex >= 0
+        ? [languageMove.awaits, ...next.awaits]
+        : [...next.awaits, languageMove.awaits];
+    next = { ...next, awaits, moves };
+  }
   // Every stage shows the repairs. Approval gating uses only the steps that approval covers.
   const revisionMoves = staleSteps.map(({ finding, step }): NextMove => {
     if (planStepCompleted(project, step)) {
@@ -1775,10 +1878,12 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
       act: 'Replace <file> with your explanation. Add --resolved-by-answer <question> if a later completed answer or guide resolves the comment.',
     }];
   });
-  if (revisionMoves.length === 0 && commentMoves.length === 0) return next;
-  return { ...next,
+  const combined = revisionMoves.length === 0 && commentMoves.length === 0 ? next : {
+    ...next,
     awaits: [...revisionMoves.map(move => move.awaits), ...next.awaits, ...commentMoves.map(move => move.awaits)],
-    moves: [...revisionMoves, ...next.moves, ...commentMoves] };
+    moves: [...revisionMoves, ...next.moves, ...commentMoves],
+  };
+  return withCurrentComments(dir, project, combined, shellWord, now, currentPath || isCurrentProject(project));
 }
 
 function deriveNextProject(dir: string, project: JsonObject, report: CheckReport, now: number,
@@ -1937,10 +2042,14 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
       });
     }
     // Keep the interview and plan drafting available while a stale step blocks approval.
+    const postComp = allItems.find(item => item.id === 'post_composition');
+    const sceneChoiceMoves = report.refusals.some(r => r.code === 'SCENE_CHOICE_MISSING')
+      ? postCompositionSceneRepairMoves(dir, project, postComp, effectiveStage, now)
+      : [];
     const interviewCanContinue = holes.length === 0 && blockingRefusals.every(r => r.code === 'PLAN_STEP_PREDATES_ANSWER')
       && stage !== PAUSED_STAGE && isOpenInterviewStage(effectiveStage);
     const stepPlans = stepPlanQuestions(dir, project, stageItems, allowPostOptions);
-    const questions = interviewCanContinue ? [...stepPlans.moves, ...interviewQuestionMoves(dir, stepPlans.questionItems, effectiveStage)] : [];
+    const questions = [...sceneChoiceMoves, ...(interviewCanContinue ? [...stepPlans.moves, ...interviewQuestionMoves(dir, stepPlans.questionItems, effectiveStage)] : [])];
     const plan = interviewCanContinue ? interviewPlanMoves(dir, project, stageItems, effectiveStage, steps) : undefined;
     const awaits = [...moves, ...questions].map(move => move.awaits);
     if (plan?.missingPlanIds.length) awaits.push('plan.steps');
@@ -2833,10 +2942,17 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
           command: `rig-create direction write ${nextPostN} ${shellWord(dir)} --file '<direction@3.json>' --rig ${shellWord(rigN)} --compose-out '<compose-out>' --compose-scene '<compose-scene.json>'`,
           act: 'compose the cited owner values with Parts, then freeze the green idle as direction@3' });
       } else if (currentScene === undefined) {
-        addAwait('scenes[n=1]');
-        moves.push({ role: 'agent', field: 'scenes', awaits: 'scenes[n=1]',
-          command: sceneWriteCommand(dir, project, rigN),
-          act: 'author scene inputs matching the current post_composition Review choice, then write the scene' });
+        const postComp = allItems.find(item => item.id === 'post_composition');
+        const repairMoves = postCompositionSceneRepairMoves(dir, project, postComp, effectiveStage, now);
+        if (repairMoves.length > 0) {
+          for (const move of repairMoves) addAwait(move.awaits);
+          moves.push(...repairMoves);
+        } else {
+          addAwait('scenes[n=1]');
+          moves.push({ role: 'agent', field: 'scenes', awaits: 'scenes[n=1]',
+            command: sceneWriteCommand(dir, project, rigN),
+            act: 'author scene inputs matching the current post_composition Review choice, then write the scene' });
+        }
       } else {
         addAwait(`versions[n=${nextPostN}]`);
         moves.push({ role: 'agent', field: 'versions', awaits: `versions[n=${nextPostN}]`,
@@ -3050,6 +3166,9 @@ export function formatNext(report: NextReport | NextCollectionReport): string {
     }`,
   );
   for (const w of report.warnings ?? []) lines.push(`  WARN [${w.code}]: ${w.message}`);
+  for (const c of report.comments ?? []) {
+    lines.push(`  comment comments[${c.comment}] [${c.status}${c.closed ? ', closed' : ''}]: ${c.comments.length} comment(s)`);
+  }
   for (const command of report.bust_landmark_commands ?? []) lines.push(command);
   if (report.refusals.length > 0) {
     lines.push(`refusals (${report.refusals.length}):`);
@@ -3073,8 +3192,9 @@ export function formatNext(report: NextReport | NextCollectionReport): string {
   for (const move of report.moves) {
     const label = move.command ?? move.act;
     lines.push(`  [${move.role}] (${move.field} -> ${move.awaits}) ${label}`);
-    if (move.command !== null && (ROUTED_ANSWER_COMMENT_PATH.test(move.field) || move.field.startsWith('current.')
-      || move.field === CURRENT_SCENE_PATH || move.field === CURRENT_DIRECTION_PATH
+    if (move.command !== null && (ROUTED_ANSWER_COMMENT_PATH.test(move.field) || move.field.startsWith('comments[')
+      || move.field.startsWith('current.') || move.field === CURRENT_SCENE_PATH || move.field === CURRENT_DIRECTION_PATH
+      || move.act === SCENE_OPTIONS_REPAIR_ACT
       || move.act.startsWith(OPTIONAL_SIGNOFF_PREFIX))) {
       lines.push(`    ${move.act}`);
     }

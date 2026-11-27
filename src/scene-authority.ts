@@ -1,7 +1,7 @@
 /** Agent scene authority: every agent-authored scene derives from a recorded post_composition choice or decided delegation. */
 import { isDeepStrictEqual as equal } from 'node:util';
 import { asArray, collectItems, isObject, loadCollection, type Ctx, type Finding } from './check.ts';
-import { CHOICE_SPEC, OPTIONS_SPEC, choiceVerbatim, assembleFragments, optionFile, selection } from './choices.ts';
+import { CHOICE_SPEC, OPTIONS_SPEC, choiceVerbatim, assembleFragments, optionFile, sameChoiceValue, selection } from './choices.ts';
 import { closed } from './direction.ts';
 import { checkPlateReceipt } from './plate-receipt.ts';
 import { answersOf } from './provenance.ts';
@@ -11,10 +11,29 @@ import type { Json, JsonObject } from './templates.ts';
 export const SCENE_CHOICE_MISSING = 'SCENE_CHOICE_MISSING';
 export const SCENE_CHOICE_MISMATCH = 'SCENE_CHOICE_MISMATCH';
 
-const MISSING_REMEDY =
-  'record a post_composition choice in the Review tool (or complete its delegated agent_decision) whose value.scene binds {background:{path,rect:{x,y,width,height}},foreground?:{path,rect:{x,y,width,height}}} and run scene write';
+export const SCENE_CHOICE_MISSING_REMEDY =
+  'register a post_composition option set whose value options carry value.scene:{background:{path,rect:{x,y,width,height}},foreground?:{path,rect:{x,y,width,height}}} with rig-create interview-options post_composition [<dir>] --file <retained project-relative JSON>, have the owner answer it with rig-create interview-answer post_composition [<dir>] --set <path> --sha256 <shown sha> --by <human> --pick post_composition=<option> --owner-chat <words file> --said-at <ISO date> --relayed-by <who> (or --from-review <actId>, or complete a delegated agent_decision with rig-create interview-decision), and run scene write';
+const MISSING_REMEDY = SCENE_CHOICE_MISSING_REMEDY;
 const MISMATCH_REMEDY =
   'match the exact roles, paths and rects from the cited post_composition choice in the Review tool (or record a new post_composition choice in the Review tool) and run scene write';
+
+export function postCompositionSetOffersScene(set: JsonObject): boolean {
+  if (set.schema !== OPTIONS_SPEC || set.question !== 'post_composition') return false;
+  const rule = isObject(set.assembly) && typeof set.assembly.rule === 'string' ? set.assembly.rule : 'single';
+  for (const ask of asArray(set.asks).filter(isObject)) {
+    if (ask.id !== 'post_composition') continue;
+    for (const option of asArray(ask.options).filter(isObject)) {
+      if (option.kind !== 'value' || !('fragment' in option)) continue;
+      try {
+        const assembled = assembleFragments(rule, [option.fragment as Json]);
+        if (isObject(assembled) && isObject(assembled.scene)) return true;
+      } catch {
+        // Malformed option fragments cannot supply a scene binding.
+      }
+    }
+  }
+  return false;
+}
 
 const text = (value: unknown): value is string => typeof value === 'string' && value.trim().length > 0;
 const finite = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value);
@@ -174,7 +193,7 @@ export function resolveAnswerValue(
     } catch {
       return sceneFail(SCENE_CHOICE_MISSING, `${itemPath}.agent_decision.value`, 'delegated post_composition fragment cannot be assembled', MISSING_REMEDY);
     }
-    if (!equal(decision.value, assembled)) {
+    if (!sameChoiceValue(decision.value, assembled)) {
       sceneFail(
         SCENE_CHOICE_MISSING,
         `${itemPath}.agent_decision.value`,
@@ -184,7 +203,7 @@ export function resolveAnswerValue(
     }
     return { value: decision.value, valuePath: `${itemPath}.agent_decision.value` };
   }
-  if (selected.delegated || selected.pending.length > 0 || selected.value === undefined || selected.value === null || !equal(answer.value, selected.value)) {
+  if (selected.delegated || selected.pending.length > 0 || selected.value === undefined || selected.value === null || !sameChoiceValue(answer.value, selected.value)) {
     sceneFail(
       SCENE_CHOICE_MISSING,
       `${itemPath}.value`,

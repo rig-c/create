@@ -115,6 +115,18 @@ export function assembleFragments(rule: string, fragments: Json[]): Json {
   return invalid('assembly.rule must be single, concat or merge');
 }
 
+// JSON.stringify stores -0 as 0. Retained input files still parse their original numbers.
+function normalizeChoiceZero(value: Json): Json {
+  if (value === 0) return 0;
+  if (Array.isArray(value)) return value.map(normalizeChoiceZero);
+  if (isObject(value)) return Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, normalizeChoiceZero(entry)]));
+  return value;
+}
+
+export function sameChoiceValue(left: Json | undefined, right: Json | undefined): boolean {
+  return equal(left, right) || (left !== undefined && right !== undefined && equal(normalizeChoiceZero(left), normalizeChoiceZero(right)));
+}
+
 export function validateSet(project: JsonObject, item: Item, set: JsonObject, collection: JsonObject | null = null): void {
   if (set.schema !== OPTIONS_SPEC || !id(set.id) || set.question !== item.id || set.stage !== (item.path === 'intake.choice.answer' ? 'parts' : interviewStageOfGuide(item.id, item.kind === 'post', hasStageOrder(project)))
     || !text(set.drafted_by) || !Number.isFinite(date(set.drafted_at)) || !isObject(set.context) || !Array.isArray(set.asks)
@@ -448,13 +460,27 @@ export function checkChoiceConstraints(set: JsonObject, choice: JsonObject, frag
   for (const constraint of objects(set.constraints)) {
     const names = asArray(constraint.asks).map(String);
     const tuple = names.map(name => {
-      if (!fragments.has(name)) return undefined; // Check every landed contribution even while another is pending.
+      const fragment = fragments.get(name);
+      if (fragment === undefined) return undefined; // Check every landed contribution even while another is pending.
       const ask = asks.find(a => a.id === name) as JsonObject;
       const pick = picks.find(p => p.ask === name) as JsonObject;
       const option = objects(ask.options).find(o => o.id === pick.option_id) as JsonObject;
       if (option.kind === 'value') return option.id;
-      const matches = objects(ask.options).filter(o => o.kind === 'value' && equal(o.fragment, fragments.get(name)));
+      const options = objects(ask.options).filter(o => o.kind === 'value');
+      const matchesFor = (value: Json | undefined): JsonObject[] => {
+        // Existing constraints resolve an exact match by its retained option ID.
+        const exact = options.filter(o => equal(o.fragment, value));
+        return exact.length ? exact : options.filter(o => sameChoiceValue(o.fragment, value));
+      };
+      const matches = matchesFor(fragment);
       if (matches.length !== 1) fail('INTERVIEW_CHOICE_CONSTRAINT', `ask ${name}: fragment resolves to ${matches.length} value options; redraft the set to offer that option`);
+      const stored = normalizeChoiceZero(fragment);
+      if (!equal(stored, fragment)) {
+        const storedMatches = matchesFor(stored);
+        if (storedMatches.length !== 1 || storedMatches[0] !== matches[0]) {
+          fail('INTERVIEW_CHOICE_CONSTRAINT', `ask ${name}: writing the fragment would change its matched option; pick the offered option by id or redraft the set`);
+        }
+      }
       return matches[0]?.id;
     });
     if (tuple.some(id => id === undefined)) continue;
@@ -568,7 +594,7 @@ export function validateChoice(dir: string, project: JsonObject, item: Item, ans
   if (!text(answer.by) || answer.by.toLowerCase() === 'agent' || !Number.isFinite(date(answer.at))) badChoice('a selection needs a human identity and valid clock');
   const projected = selection(set, choice);
   if (answer.delegated !== projected.delegated || !equal(answer.asks, projected.asks) || answer.verbatim !== choiceVerbatim(objects(choice.picks), choice.note)
-    || (projected.value === undefined ? 'value' in answer : !equal(answer.value, projected.value))) badChoice('answer state, asks, value or verbatim differs from selected contributions');
+    || (projected.value === undefined ? 'value' in answer : !sameChoiceValue(answer.value, projected.value))) badChoice('answer state, asks, value or verbatim differs from selected contributions');
   if (projected.pending.length && item.path !== 'intake.choice.answer') {
     const stage = approvalStageOfGuide(item.id,item.kind === 'post',true);
     const reopens = collectReopens(project,[]).filter(r => r.at <= date(answer.at));
@@ -586,7 +612,7 @@ export function validateChoice(dir: string, project: JsonObject, item: Item, ans
     validateAnsweredContext(dir, project, set, date(decision.at), warn);
     const entries = objects(decision.fragments);
     const assembled = assembleFragments(String((set.assembly as JsonObject).rule), entries.map(f => f.fragment as Json));
-    if (!equal(decision.value, assembled)) badChoice('agent_decision.value differs from its per-ask fragments');
+    if (!sameChoiceValue(decision.value, assembled)) badChoice('agent_decision.value differs from its per-ask fragments');
     for (const entry of entries) projected.fragments.set(String(entry.ask), entry.fragment as Json);
   }
   if (projected.fragments.size === objects(set.asks).length) assembleFragments(String((set.assembly as JsonObject).rule), objects(set.asks).map(a => projected.fragments.get(String(a.id)) as Json));

@@ -1,10 +1,15 @@
 import { afterEach, expect, test } from 'bun:test';
-import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { EXAMPLE_NOW } from '../scripts/example-time.ts';
 import { renderAgentGuide } from '../src/agent-guide.ts';
 import { checkProject } from '../src/check.ts';
+import { main } from '../src/cli.ts';
 import { freshProjectRecord } from '../src/init.ts';
+import { openCreateJob, openDraftPublication, openRecordPublication, requestedRecordResult } from '../src/job-host.ts';
 import { enqueuePublication, JOB_BINDING_FILE, JOB_OUTBOX_DIRECTORY, type WriterBinding } from '../src/job-outbox.ts';
+import { nextCommand, nextProject, type NextMove } from '../src/next.ts';
+import { Refusal } from '../src/refusal.ts';
 import { readTemplate, type JsonObject } from '../src/templates.ts';
 import { cli, tempDir } from './helpers.ts';
 
@@ -102,3 +107,120 @@ test('the rendered guide names each authored field and fits its byte budget', ()
   }
   expect(Buffer.byteLength(guide)).toBeLessThan(10_000);
 });
+
+function needsJobHost(move: NextMove): boolean {
+  return Boolean(move.command && (move.command.startsWith('rig-create job ') || move.command.includes('--from-review')));
+}
+
+function printedArgs(command: string): string[] {
+  const words: string[] = [];
+  let word = '', quote = '', started = false;
+  for (let i = 0; i < command.length; i++) {
+    const char = command[i]!;
+    if (quote) {
+      if (char === quote) quote = '';
+      else word += char;
+      started = true;
+    } else if (char === "'" || char === '"') { quote = char; started = true; }
+    else if (char === '\\') { word += command[++i]!; started = true; }
+    else if (/\s/.test(char)) { if (started) { words.push(word); word = ''; started = false; } }
+    else { word += char; started = true; }
+  }
+  if (started) words.push(word);
+  return words;
+}
+
+function runMainQuiet(argv: string[], at: number): number {
+  const origOut = process.stdout.write;
+  process.stdout.write = (() => true) as typeof process.stdout.write;
+  try {
+    return main(argv, at);
+  } finally {
+    process.stdout.write = origOut;
+  }
+}
+
+test('#1077 next offers owner-language set before job open when owner language is missing or invalid', async () => {
+  const freshDir = realpathSync(fixture(freshProjectRecord('synthetic-fresh', EXAMPLE_NOW)));
+  expect(() => requestedRecordResult(freshDir, undefined, true, EXAMPLE_NOW))
+    .toThrow(expect.objectContaining({ code: 'OWNER_LANGUAGE_MISSING' }));
+  const freshReport = nextProject(freshDir, EXAMPLE_NOW);
+  const freshLanguageMove = freshReport.moves.find(move => move.field === 'owner.language');
+  expect(freshLanguageMove).toMatchObject({
+    role: 'agent',
+    field: 'owner.language',
+    awaits: 'owner.language',
+    command: `rig-create owner-language set '<tag>' ${freshDir}`,
+  });
+  expect(freshLanguageMove!.act).toContain('OWNER_LANGUAGE_MISSING');
+  expect(freshLanguageMove!.act).toContain('relayed chat');
+  expect(runMainQuiet(printedArgs(freshLanguageMove!.command!).slice(1).map(arg => arg === '<tag>' ? 'ko' : arg), EXAMPLE_NOW)).toBe(0);
+  expect(nextProject(freshDir, EXAMPLE_NOW).moves.some(move => move.field === 'owner.language')).toBe(false);
+  let freshError: unknown;
+  try { requestedRecordResult(freshDir, undefined, true, EXAMPLE_NOW); } catch (error) { freshError = error; }
+  expect(freshError).toBeInstanceOf(Refusal);
+  expect((freshError as Refusal).code).toBe('JOB_RECORD_INCOMPLETE');
+
+  const chainQuestionDir = join(import.meta.dir, '../templates/example-chain/checkpoints/0a-interview-options');
+  const chainRigDir = join(import.meta.dir, '../templates/example-chain/checkpoints/3-rig-review');
+
+  for (const [checkpointDir, mutate, expectedCode, kind] of [
+    [chainQuestionDir, (project: JsonObject) => { delete project.owner; }, 'OWNER_LANGUAGE_MISSING', 'question'] as const,
+    [chainRigDir, (project: JsonObject) => { project.owner = { language: 'en_US' }; }, 'OWNER_LANGUAGE_INVALID', 'rig'] as const,
+  ]) {
+    const root = realpathSync(tempDir());
+    roots.push(root);
+    cpSync(checkpointDir, root, { recursive: true });
+    const baseline = nextCommand([root, '--json'], EXAMPLE_NOW);
+
+    const file = join(root, 'project.json');
+    const mutated = JSON.parse(readFileSync(file, 'utf8')) as JsonObject;
+    mutate(mutated);
+    writeFileSync(file, `${JSON.stringify(mutated, null, 2)}\n`);
+
+    expect(checkProject(root, undefined, { now: EXAMPLE_NOW, readOnly: true }).warnings)
+      .toContainEqual(expect.objectContaining({ code: expectedCode, path }));
+
+    if (kind === 'question') {
+      expect(() => requestedRecordResult(root, 'rig_type', false, EXAMPLE_NOW))
+        .toThrow(expect.objectContaining({ code: expectedCode }));
+    } else {
+      const refused = cli(['job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner', '--rig', '1'], root, env);
+      expect(refused.code).toBe(1);
+      expect(refused.stderr).toContain(expectedCode);
+    }
+
+    const report = nextProject(root, EXAMPLE_NOW);
+    const moveIndex = report.moves.findIndex(move => move.field === 'owner.language');
+    const firstJobMoveIndex = report.moves.findIndex(needsJobHost);
+    expect(moveIndex).toBeGreaterThanOrEqual(0);
+    expect(firstJobMoveIndex).toBe(moveIndex + 1);
+    expect(report.awaits).toContain('owner.language');
+
+    const languageMove = report.moves[moveIndex]!;
+    expect(languageMove).toMatchObject({
+      role: 'agent',
+      field: 'owner.language',
+      awaits: 'owner.language',
+      command: `rig-create owner-language set '<tag>' ${root}`,
+    });
+    expect(languageMove.act).toContain(expectedCode);
+    expect(languageMove.act).toContain('relayed chat');
+
+    const setArgv = printedArgs(languageMove.command!).slice(1).map(arg => arg === '<tag>' ? 'en' : arg);
+    expect(runMainQuiet(setArgv, EXAMPLE_NOW)).toBe(0);
+
+    const after = nextCommand([root, '--json'], EXAMPLE_NOW);
+    expect(after).toEqual(baseline);
+
+    const host = await openCreateJob(root, { id: 'synthetic-owner', role: 'owner' }, EXAMPLE_NOW, undefined, kind === 'question');
+    try {
+      const lines = kind === 'question'
+        ? await openRecordPublication(root, host, 'rig_type', false, EXAMPLE_NOW)
+        : await openDraftPublication(root, host, EXAMPLE_NOW, undefined, '1');
+      expect(lines[0]).toContain('published');
+    } finally {
+      host.stop();
+    }
+  }
+}, 20_000);

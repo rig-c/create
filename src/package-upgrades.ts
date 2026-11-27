@@ -1,9 +1,56 @@
 /** Optional package migration history: old records need no adoption date. */
-import { isObject, type Finding } from './check.ts';
+import { join } from 'node:path';
+import { lstatSync } from './check-reads.ts';
+import { isObject, readJsonObject, type Finding } from './check.ts';
+import { COLLECTION_SCHEMA } from './collection-binding-reader.ts';
+import { CREATE_PACKAGE, runningCreateVersion } from './pins.ts';
 import type { JsonObject } from './templates.ts';
 
-export const PACKAGE_NAMES = ['@rig-c/core', '@rig-c/parts', '@rig-c/review'] as const;
+export const LEGACY_PACKAGE_NAMES = ['@rig-c/core', '@rig-c/parts', '@rig-c/review'] as const;
+export const PACKAGE_NAMES = ['@rig-c/core', CREATE_PACKAGE, '@rig-c/parts', '@rig-c/review'] as const;
 export const exactVersion = (value: unknown): value is string => typeof value === 'string' && /^\d+\.\d+\.\d+$/.test(value);
+
+export function createPinWarning(
+  dir: string,
+  collection: JsonObject | null = null,
+  running = runningCreateVersion(),
+): Finding | undefined {
+  const file = join(dir, 'package.json');
+  if (lstatSync(file, { throwIfNoEntry: false }) === undefined) {
+    if (collection !== null && collection.schema === COLLECTION_SCHEMA) return undefined;
+    return {
+      code: 'CREATE_PIN_MISSING',
+      path: 'package.json',
+      message: `package.json: manifest is missing (running ${CREATE_PACKAGE} ${running}); restore package.json (as written by rig-create init) and run rig-create packages upgrade --by <operator> to pin ${CREATE_PACKAGE}`,
+    };
+  }
+  const read = readJsonObject(file);
+  if (!read.ok) {
+    return {
+      code: 'CREATE_PIN_MISSING',
+      path: 'package.json',
+      message: `package.json: ${read.error}; restore a valid manifest and run rig-create packages upgrade --by <operator> to pin ${CREATE_PACKAGE}`,
+    };
+  }
+  const dependencies = isObject(read.value.dependencies) ? read.value.dependencies : undefined;
+  const declared = dependencies?.[CREATE_PACKAGE];
+  const path = `package.json.dependencies[${CREATE_PACKAGE}]`;
+  if (declared === undefined) {
+    return {
+      code: 'CREATE_PIN_MISSING',
+      path,
+      message: `${path}: ${CREATE_PACKAGE} is not declared (running ${CREATE_PACKAGE} ${running}); run rig-create packages upgrade --by <operator> to pin it`,
+    };
+  }
+  if (declared !== running) {
+    return {
+      code: 'CREATE_PIN_MISMATCH',
+      path,
+      message: `${path}: declares ${JSON.stringify(declared)}, while the running ${CREATE_PACKAGE} is ${running}; run rig-create packages upgrade --by <operator> to move the pin, or run the project's declared ${CREATE_PACKAGE}`,
+    };
+  }
+  return undefined;
+}
 const sha256Hex = (value: unknown): value is string => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
 export function compareVersions(a: string, b: string): number {
   const right = b.split('.').map(Number);
@@ -33,10 +80,13 @@ export function packageUpgradeFindings(project: JsonObject): Finding[] {
   const out: Finding[] = [];
   for (const [index, row] of history.entries()) {
     const path = `package_upgrades[${index}]`;
-    if (!isObject(row) || typeof row.by !== 'string' || !row.by.trim() || typeof row.at !== 'string' || !Number.isFinite(Date.parse(row.at)) || !sha256Hex(row.lock_sha256) || !Array.isArray(row.packages) || row.packages.length !== PACKAGE_NAMES.length) {
+    const expectedNames: readonly string[] = isObject(row) && Array.isArray(row.packages) && row.packages.length === LEGACY_PACKAGE_NAMES.length
+      ? LEGACY_PACKAGE_NAMES
+      : PACKAGE_NAMES;
+    if (!isObject(row) || typeof row.by !== 'string' || !row.by.trim() || typeof row.at !== 'string' || !Number.isFinite(Date.parse(row.at)) || !sha256Hex(row.lock_sha256) || !Array.isArray(row.packages) || row.packages.length !== expectedNames.length) {
       out.push(bad(path)); continue;
     }
-    for (const [i, name] of PACKAGE_NAMES.entries()) {
+    for (const [i, name] of expectedNames.entries()) {
       const pin = row.packages[i];
       if (!isObject(pin) || pin.name !== name || (pin.from !== null && !exactVersion(pin.from)) || !exactVersion(pin.to) || (typeof pin.from === 'string' && compareVersions(pin.from, pin.to) > 0)) out.push(bad(`${path}.packages[${i}]`));
     }

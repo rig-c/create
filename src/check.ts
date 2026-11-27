@@ -1,11 +1,12 @@
 import { ownerChatFinding } from './owner-chat.ts';
 import { ownerLanguageFinding } from './owner-language.ts';
-import { packageUpgradeFindings, packageUpgradeWarnings } from './package-upgrades.ts';
+import { createPinWarning, packageUpgradeFindings, packageUpgradeWarnings } from './package-upgrades.ts';
 import { checkPublicationGenerations } from './job-publication.ts';
 import { collectBarAmendments, effectiveBar } from './plan-bar-amendments.ts';
 import { partsReadFindings, latestPartsVerdictFinding, PARTS_VERDICT_LATEST_SINCE, recordedPartsVerdict, recordedPartsFinding } from './parts-verdict-record.ts';
 import { partsActFindings } from './parts-act.ts';
 import { isDiscardReceipt, reviewActFindings, type VerifiedInterviewPick } from './review-act.ts';
+import { checkCommentClosures, projectCommentViews, type NextComment } from './comment-closures.ts';
 import { checkInterviewCommentClosures } from './interview-comment-closures.ts';
 import { checkCheckpointEvidence } from './checkpoint-evidence.ts';
 import { checkAdvances, checkDirectionReviewAdvances, checkPauses, checkProgressLinkage, checkRiggingInterviewPainting, checkStepStatusHistory } from './stage-progress.ts';
@@ -165,6 +166,8 @@ export interface CheckReport {
   readonly amendments?: AmendmentSummary[];
   /** Per draft bound to a ledger report: fixes, known regressions and accepted failures (docs/CHECKS.md § Fix ledger). */
   readonly ledger?: LedgerSummary[];
+  /** Current-output comments with their live `current` / `earlier` status and closure flag (#1064). */
+  readonly comments?: NextComment[];
   readonly refusals: Finding[];
   readonly warnings: Finding[];
   /** Local delivery gaps, distinct from record-validation refusals. */
@@ -875,6 +878,8 @@ interface CheckOptions {
   /** Exact target selected by the resume writer when validating the pause exit. */
   resumeStage?: string;
   includeRoutedAnswerWarnings?: boolean;
+  /** Candidate `comment_closures[]` index whose `after` hashes must match disk at write time. */
+  verifyingCommentClosure?: number;
 }
 
 /**
@@ -947,6 +952,10 @@ function checkProjectOnce(projectDirArg: string, candidate: JsonObject | undefin
   warnings.push(...packageUpgradeWarnings(project));
   checkCollectionBinding(dir, project, refusals);
   const collection = loadCollection(dir, project);
+  if (!options.recordPublication) {
+    const createPin = createPinWarning(dir, collection);
+    if (createPin) warnings.push(createPin);
+  }
   const reopens = collectReopens(project, refusals, warnings);
   const historySignoffs = collectSignoffs(project, refusals).filter(s => {
     if (STAGE_VALUES.includes(s.stage)) return true;
@@ -1043,6 +1052,10 @@ function checkProjectOnce(projectDirArg: string, candidate: JsonObject | undefin
   );
   const closures = picks && checkInterviewCommentClosures(dir, project, picks, options.now);
   if (closures) refusals.push(...closures.findings);
+  const commentClosures = checkCommentClosures(dir, project, options.now, options.verifyingCommentClosure);
+  refusals.push(...commentClosures.findings);
+  const comments = options.recordPublication ? []
+    : projectCommentViews(dir, project, commentClosures.closed, isCurrentProject(project) || isCurrentPathProject(project, items));
   const draftAmendments = amendments.filter(amendment => amendment.target.kind === 'draft');
   for (const [index, raw] of asArray(project.signoffs).entries()) {
     if (!isObject(raw) || raw.stage !== PARTS_REVIEW || isCurrentPartsSignoff(raw) || typeof raw.draft_id !== 'string') continue;
@@ -1108,6 +1121,7 @@ function checkProjectOnce(projectDirArg: string, candidate: JsonObject | undefin
     feedback,
     ...(amendments.length === 0 ? {} : { amendments: amendmentSummaries(project, amendments, reopens) }),
     ...(ledger.length === 0 ? {} : { ledger }),
+    ...(comments.length === 0 ? {} : { comments }),
     refusals,
     warnings: closures?.closed.size
       ? warnings.filter(warning => warning.code !== 'REVIEW_ANSWER_COMMENT_ROUTED' || !closures.closed.has(warning.path))
@@ -1143,6 +1157,9 @@ export function formatReport(report: CheckReport): string {
       const measured = failure.measured === undefined ? '' : ` (measured ${JSON.stringify(failure.measured)})`;
       lines.push(`    ${failure.id} FAIL${measured} (accepted failure): ${failure.reason}`);
     }
+  }
+  for (const comment of report.comments ?? []) {
+    lines.push(`  comments[${comment.comment}] ${comment.status}${comment.closed ? ' (closed)' : ''}: ${comment.comments.length} comment(s)`);
   }
   for (const r of report.refusals) lines.push(`  REFUSED ${r.code}: ${r.message}`);
   for (const w of report.warnings) lines.push(`  warning ${w.code}: ${w.message}`);

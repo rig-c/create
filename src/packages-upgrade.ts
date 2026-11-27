@@ -5,7 +5,7 @@ import { basename, join, resolve } from 'node:path';
 import { isObject, type CheckReport } from './check.ts';
 import { acquireBoundJobWrite, jobRuntimeExecArgv } from './job-writer.ts';
 import { PACKAGE_NAMES, compareVersions, exactVersion, packageUpgradeFindings } from './package-upgrades.ts';
-import { PINNED_PACKAGES } from './pins.ts';
+import { CREATE_PACKAGE, PINNED_PACKAGES, runningCreateVersion } from './pins.ts';
 import { writeRecord } from './record-input.ts';
 import { Refusal, refuse, USAGE_EXIT } from './refusal.ts';
 import type { JsonObject } from './templates.ts';
@@ -109,21 +109,16 @@ export function packagesCommand(args: string[], now: number): string {
     const malformed = packageUpgradeFindings(project)[0];
     if (malformed) refuse(malformed.code, malformed.message);
     const dependencies = pkg.dependencies as JsonObject;
-    const pins = { ...PINNED_PACKAGES, '@rig-c/review': JSON.parse(readFileSync(join(import.meta.dir, '../package.json'), 'utf8')).dependencies['@rig-c/review'] as string };
-    const packages = PACKAGE_NAMES.map(name => {
-      const from = dependencies[name] ?? null; const to = pins[name];
-      if (!exactVersion(to) || from !== null && !exactVersion(from)) refuse('PACKAGE_UPGRADE_INPUT', `package.json.dependencies[${name}]: expected an exact release version; resolve ranges before packages upgrade`);
-      if (from !== null && compareVersions(from as string, to) > 0) refuse('PACKAGE_UPGRADE_DOWNGRADE', `package.json.dependencies[${name}]: ${from} is newer than ${to}; use a newer Create release`);
-      for (const section of ['devDependencies', 'optionalDependencies', 'peerDependencies']) {
-        if (pkg[section] && typeof pkg[section] === 'object' && name in pkg[section]) refuse('PACKAGE_UPGRADE_INPUT', `package.json.${section}[${name}]: duplicate pin location; keep the release pin in dependencies before packages upgrade`);
-      }
-      return { name, from, to };
-    });
-    const current = packages.every(pin => pin.from === pin.to);
-    const questionSet = questionSetMove(project, pins['@rig-c/parts']);
-    const currentRefusal = () => refuse('PACKAGE_UPGRADE_CURRENT', 'package.json.dependencies: all packages already match Create release pins, and interview.question_set and waypoint config[] match the installed parts; no upgrade to record');
+    const reviewPin = (JSON.parse(readFileSync(join(import.meta.dir, '../package.json'), 'utf8')) as { dependencies: Record<string, string> }).dependencies['@rig-c/review']!;
+    const pins: Record<(typeof PACKAGE_NAMES)[number], string> = {
+      '@rig-c/core': PINNED_PACKAGES['@rig-c/core'],
+      [CREATE_PACKAGE]: runningCreateVersion(),
+      '@rig-c/parts': PINNED_PACKAGES['@rig-c/parts'],
+      '@rig-c/review': reviewPin,
+    };
     // A staging install must not resolve local dependencies against a different directory.
     const localDeps: { name: string; path: string; sha256: string }[] = [];
+    const rehearsedDeps = new Set<string>();
     const seenLocalNames = new Set<string>();
     for (const section of ['dependencies', 'devDependencies', 'optionalDependencies']) {
       const entries = pkg[section];
@@ -143,16 +138,31 @@ export function packagesCommand(args: string[], now: number): string {
           }
           if (seenLocalNames.has(name)) refuse('PACKAGE_UPGRADE_INPUT', `package.json.${section}[${name}]: duplicate local dependency across manifest sections; keep each rehearsal tarball in one section`);
           seenLocalNames.add(name);
+          if (section === 'dependencies') rehearsedDeps.add(name);
           localDeps.push({ name, path: tarball, sha256: createHash('sha256').update(tarballBytes).digest('hex') });
         }
       }
     }
+    const packages = PACKAGE_NAMES.map(name => {
+      const rawFrom = dependencies[name] ?? null;
+      const from = rehearsedDeps.has(name) ? null : rawFrom;
+      const to = pins[name];
+      if (!exactVersion(to) || from !== null && !exactVersion(from)) refuse('PACKAGE_UPGRADE_INPUT', `package.json.dependencies[${name}]: expected an exact release version; resolve ranges before packages upgrade`);
+      if (from !== null && compareVersions(from as string, to) > 0) refuse('PACKAGE_UPGRADE_DOWNGRADE', `package.json.dependencies[${name}]: ${from} is newer than ${to}; use a newer Create release`);
+      for (const section of ['devDependencies', 'optionalDependencies', 'peerDependencies']) {
+        if (pkg[section] && typeof pkg[section] === 'object' && name in pkg[section]) refuse('PACKAGE_UPGRADE_INPUT', `package.json.${section}[${name}]: duplicate pin location; keep the release pin in dependencies before packages upgrade`);
+      }
+      return { name, from, to };
+    });
+    const current = rehearsedDeps.size === 0 && packages.every(pin => pin.from === pin.to);
+    const questionSet = questionSetMove(project, pins['@rig-c/parts']);
+    const currentRefusal = () => refuse('PACKAGE_UPGRADE_CURRENT', 'package.json.dependencies: all packages already match Create release pins, and interview.question_set and waypoint config[] match the installed parts; no upgrade to record');
     if (pkg.workspaces) refuse('PACKAGE_UPGRADE_INPUT', 'package.json.workspaces: upgrade a standalone project install; resolve workspace ownership before packages upgrade');
     const before = checked(dir, project, now);
     if (before.stage === null) refuse('PACKAGE_UPGRADE_CHECK_FAILED', 'project.json: check stopped before validating the project; repair its schema and stage before packages upgrade');
     if (current && questionSet === null && !before.warnings.some(w => w.code === 'WAYPOINT_CONFIG_STALE')) currentRefusal();
     const nextDependencies: JsonObject = { ...dependencies };
-    for (const pin of packages) nextDependencies[pin.name] = pin.to;
+    for (const pin of packages) if (!rehearsedDeps.has(pin.name)) nextDependencies[pin.name] = pin.to;
     const manifest = serializePackageJson({ ...pkg, dependencies: nextDependencies }, pkgBytes);
     scratch = mkdtempSync(join(tmpdir(), 'rig-create-packages-'));
     writeFileSync(join(scratch, 'package.json'), manifest);

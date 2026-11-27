@@ -33,7 +33,7 @@ import { validCarriedRigDraftVerdict } from '../src/rig-draft-verdict.ts';
 import { parseRigCheckReport, RIG_CHECK_REPORT_FILE, SOURCE_EXPOSURE_ID } from '../src/rig-check-report.ts';
 import { FROZEN_RUN_SPECS, validateRunRecord } from '../src/run-record.ts';
 import { resolveAgentCitationSpec, validateAgentPlateRegistration } from '../src/scene-authority.ts';
-import { plateRegistration, pngDimensions, SCENE_SPEC, SceneError, sceneEntries, scenePath, sceneRig } from '../src/scene.ts';
+import { plateRegistration, pngDimensions, SCENE_SPEC, SceneError, sceneEntries, scenePath, sceneRig, validateSceneAcceptance } from '../src/scene.ts';
 import { isScratchBindingPath } from '../src/scratch-bindings.ts';
 import { approvedStructureDelta, rigPartsApproval } from '../src/structure.ts';
 import type { Json, JsonObject } from '../src/templates.ts';
@@ -144,6 +144,17 @@ export function materializeReviewPackageOnVersion(
       const setup = isObject(reqDoc.setup_painting) ? reqDoc.setup_painting : {};
       const legacyUnadapted = isObject(version.registration) && version.registration.kind === 'frozen-rig/1'
         && version.registration.requirements_source === undefined;
+      if (setup.figure_mask !== undefined) {
+        const fm = setup.figure_mask;
+        if (!isObject(fm) || typeof fm.path !== 'string' || !fm.path.trim()
+          || typeof fm.sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(fm.sha256)) {
+          refuse('FIGURE_MASK_MISSING', `${reqRel}: declare setup_painting.figure_mask {path, sha256} before packaging`);
+        }
+        const fmAbs = resolve(dirname(configAbs), dirname(reqRel), fm.path);
+        if (!existsSync(fmAbs) || !lstatSync(fmAbs).isFile() || sha(readFileSync(fmAbs)) !== fm.sha256) {
+          refuse('FIGURE_MASK_CHANGED', `${fm.path}: restore the declared mask before packaging`);
+        }
+      }
       for (const key of ['figure_mask', 'backdrop'] as const) {
         if (key === 'backdrop' && legacyUnadapted) continue;
         const item = setup[key];
@@ -397,6 +408,7 @@ export function seedRetainedScene(args: string[], now = Date.UTC(2026, 10, 7)): 
       plates,
       layers: opts['--foreground'] ? ['background', 'rig', 'foreground'] : ['background', 'rig'],
     };
+    validateSceneAcceptance(project, binding.rig as JsonObject);
     const docBytes = Buffer.from(`${JSON.stringify(doc, null, 2)}\n`);
     const relPath = scenePath(n);
     mkdirSync(dirname(join(dir, relPath)), { recursive: true });

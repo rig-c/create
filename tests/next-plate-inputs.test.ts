@@ -4,12 +4,12 @@ import { cpSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:f
 import { join } from 'node:path';
 import { nextProject } from '../src/next.ts';
 import { inputCommand } from '../src/inputs.ts';
-import { sceneCommand } from '../src/scene-writers.ts';
 import { selectAnswerHashes } from '../src/signoff-answers.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { EXAMPLE_NOW } from '../scripts/example-time.ts';
 import { arr, obj } from './fixtures.ts';
 import { tempDir } from './helpers.ts';
+import { seedRetainedScene } from './numbered-seed.ts';
 import { testClock } from './clock.ts';
 
 const CHAIN = join(import.meta.dir, '../templates/example-chain');
@@ -95,7 +95,7 @@ test.each([false, true])('#504 names each existing unregistered plate before its
     const command = nextProject(f.dir, EXAMPLE_NOW).moves.find(move => move.command?.startsWith('rig-create scene write '))!.command!;
     const args = printedArgs(command).slice(1).map(arg => arg === '<background.png>' ? f.background
       : arg === '<foreground.png>' ? f.foreground : arg === '<scene-citations.json>' ? 'evidence/plate-citations.json' : arg);
-    expect(sceneCommand(args, EXAMPLE_NOW).exit).toBe(0);
+    expect(seedRetainedScene(args.slice(1), EXAMPLE_NOW).exit).toBe(0);
   }
 });
 

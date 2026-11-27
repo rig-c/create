@@ -125,7 +125,8 @@ that comment exists. Codex's own review of it does not count.
      never written by hand.
    - JSON templates are edited in place; a whole-file reserialization is a
      defect.
-   - The frozen numbered fixture is verified by SHA-256 because its numbered writers are being removed.
+   - The frozen numbered fixture (`templates/example-numbered/`) has no writer:
+     it is verified by SHA-256 and never regenerated.
 6. **Writers refuse before they write.** A command that records into
    `project.json` validates with the same function the check uses, and a
    refused write leaves the file byte-identical.

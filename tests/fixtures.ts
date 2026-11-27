@@ -20,6 +20,7 @@ import { isLiveMemberRoot } from '../src/collection-binding-reader.ts';
 import { writePackageJson } from '../src/init.ts';
 import { stepHash } from '../src/step-hash.ts';
 import { readTemplate, TEMPLATES_DIR, type Json, type JsonObject } from '../src/templates.ts';
+import { currentQuestionSet } from '../scripts/check-example-numbered.ts';
 import { tempDir, type TempDirScope } from './helpers.ts';
 import { EXAMPLE_VERDICT, partsPackage } from './parts-package.ts';
 import { EXAMPLE_PARTS_CHECK, newOrderExampleFiles } from './draft-fixture.ts';
@@ -86,6 +87,9 @@ export function materializeFixture(dir: string, mutate: Mutate = () => {}, templ
     }
   }
   const project = readTemplate(template);
+  if (numbered && isObject(project.interview) && typeof project.interview.question_set === 'string') {
+    project.interview.question_set = currentQuestionSet(project.interview.question_set);
+  }
   if (!rawLegacy && !numbered && !current && project.owner === undefined) {
     project.owner = { language: 'en' };
   }

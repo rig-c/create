@@ -1,8 +1,10 @@
 import { deepStrictEqual } from 'node:assert';
 import { createHash } from 'node:crypto';
-import { cpSync, existsSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync } from 'node:fs';
+import { cpSync, existsSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { writePackageJson } from '../src/init.ts';
+import { readPartsSections } from '../src/parts-sections.ts';
 import { generatorArgs } from './generator-args.ts';
 
 const fixture = join(import.meta.dir, '../templates/example-numbered');
@@ -10,6 +12,26 @@ const baseline = join(import.meta.dir, 'example-numbered-baseline.json');
 const cli = join(import.meta.dir, '../src/cli.ts');
 
 type Findings = { code: string }[];
+
+/** Name the installed @rig-c/parts in a numbered `interview.question_set`, leaving the rest of the value as frozen. */
+export function currentQuestionSet(value: string): string {
+  return value.replace(/(waypoints read from @rig-c\/parts )[^)]+/, `$1${readPartsSections(join(import.meta.dir, '..')).version}`);
+}
+
+/**
+ * The frozen bytes name the producers of their day. A copy is re-pinned to the running
+ * release (package.json and the question set's parts version) before any reader runs,
+ * so a release bump never reads as a numbered-reader change. The source bytes stay frozen.
+ */
+export function repinNumberedCopy(dir: string): void {
+  const name = (JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8')) as { name: string }).name;
+  writePackageJson(dir, name);
+  const path = join(dir, 'project.json');
+  const text = readFileSync(path, 'utf8');
+  const match = /"question_set": ("[^"]*")/.exec(text);
+  if (!match) throw new Error('project.json: frozen numbered record has no interview.question_set');
+  writeFileSync(path, text.replace(match[0], `"question_set": ${JSON.stringify(currentQuestionSet(JSON.parse(match[1]) as string))}`));
+}
 
 function sortedCodes(findings: Findings = []): string[] {
   return findings.map(({ code }) => code).sort();
@@ -108,6 +130,7 @@ export function measureNumberedExample(destination: string, expectedFiles?: Reco
   }
   cpSync(fixture, destination, { recursive: true, force: false, errorOnExist: true });
   renameSync(join(destination, 'example-project.json'), join(destination, 'project.json'));
+  repinNumberedCopy(destination);
   return { files, readers: readerResults(destination), adoption: adoptionResults(destination) };
 }
 

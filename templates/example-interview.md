@@ -133,7 +133,7 @@ the camera does not parallax; nothing in the rig changed for that.
 
 ### The timing bar's chain-tip reading
 
-The timing bar in `example-project.json` keeps the eight-second length and the
+The timing bar in `example-numbered/example-project.json` keeps the eight-second length and the
 single late beam sweep, and adds a command-backed chain-tip clause. For
 `scarf`, `coat_tail_l`, `coat_tail_r`, `hair_tail` and `lantern_hinge`, each boundary jump at
 8 seconds and 16 seconds must be no larger than that tip's own largest in-loop

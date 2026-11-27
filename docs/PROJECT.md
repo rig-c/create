@@ -68,6 +68,8 @@ folder answers.
 | `outputs/v<N>/` | until discarded | no | One folder per version that was shown to anyone, frozen when shown. Hashes go into `versions[].outputs`. If the user keeps finals elsewhere, `archive` records where. |
 | `scratch/` | none | no | Anything. Deleting it must never lose information; if it would, the file belongs in `evidence/` or `derived/`. |
 
+`scratch/` is the agent's working folder. `init` adds `/scratch/` to `.gitignore`, nothing in the record points into `scratch/` (`SCRATCH_BINDING_FORBIDDEN` in [CHECKS.md](CHECKS.md)), and Create never deletes `scratch/` or anything in it; clearing it is the user's call. Writers that read a file from `scratch/` only to copy its text verbatim into `project.json` (such as `--owner-chat scratch/owner-words.txt` or `--verbatim-file`) are allowed because no `scratch/` path is stored in the record.
+
 ## Stages
 
 `interview` → `plan-approved` → `parts` → `parts-review` → `rigging-interview` → `rigging` →

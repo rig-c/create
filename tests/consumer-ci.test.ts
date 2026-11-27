@@ -1,5 +1,5 @@
 import { test, expect } from 'bun:test';
-import { consumerCases, guardConsumerCoverage, skippedTestNames } from '../scripts/consumer-ci.ts';
+import { consumerCases, guardConsumerCoverage, skippedTestNames, UNPUBLISHED_CREATE_SKIPS } from '../scripts/consumer-ci.ts';
 const entries=consumerCases;
 const row=entries[0]!;
 const registered=entries.map(entry=>({file:entry.file,name:entry.name}));
@@ -20,6 +20,13 @@ test('scripts/ci-suite.ts source permits only the exact consumer skip, never its
  expect(()=>guardConsumerCoverage(entries,registered,new Set([row.displayName]),names,'source')).toThrow('must SKIP');
  expect(()=>guardConsumerCoverage(entries,registered,new Set(),new Set([...names,'another test']),'source')).toThrow('unexpected source skip');
  expect(skippedTestNames(`(skip) ${row.displayName}\n(skip) ${row.displayName}`)).toEqual(new Set([row.displayName]));
+});
+
+test('the source gate accepts the unpublished-Create skips only when they are allowed',()=>{
+ const withInit=new Set([...names,...UNPUBLISHED_CREATE_SKIPS]);
+ expect(()=>guardConsumerCoverage(entries,registered,new Set(),withInit,'source',new Set(UNPUBLISHED_CREATE_SKIPS))).not.toThrow();
+ expect(()=>guardConsumerCoverage(entries,registered,new Set(),withInit,'source')).toThrow('unexpected source skip');
+ expect(()=>guardConsumerCoverage(entries,registered,new Set(),new Set([...withInit,'another test']),'source',new Set(UNPUBLISHED_CREATE_SKIPS))).toThrow('unexpected source skip');
 });
 
 test('registry check invokes the coverage-enforcing full-suite runner', async()=>{

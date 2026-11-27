@@ -1523,7 +1523,7 @@ function stagedSeamInventory(dir: string, root: string, from: string, kind: 'mot
   return inventory;
 }
 
-function currentPostOutputMove(dir: string, project: JsonObject, kind: 'motion' | 'direction'): NextMove | undefined {
+function currentPostOutputMove(dir: string, project: JsonObject, kind: 'motion' | 'direction', directionRecord?: NextMove): NextMove | undefined {
   const inProject = (command: string) => `(cd ${shellWord(dir)} && ${command})`;
   const root = outputRoot(kind);
   const from = `${root}.next`;
@@ -1580,7 +1580,7 @@ function currentPostOutputMove(dir: string, project: JsonObject, kind: 'motion' 
       const [problem] = directionLoopSeamFindings(dir, seam, inventory, from, { path, sha256: inventory.get(path) ?? null }, input.takeDuration);
       if (problem) return preserveStaging(`${problem.code}: ${problem.message}.`);
     }
-    return currentOutputMove(dir, kind, shellWord);
+    return directionRecord ?? currentOutputMove(dir, kind, shellWord);
   }
   if (seam && retouchPathExists(dir, from)) return preserveStaging(`Inspect the incomplete compose output and the Parts diagnostics for ${from}.`);
   return { role: 'producer', field: 'current.direction', awaits: 'current.direction',
@@ -1892,17 +1892,25 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
     if (isObject(current)) {
       const postQuestionsPending = optionPublicationStage(project, derived.effective_stage, now) === 'post-interview'
         && allItems.some(item => item.kind === 'post' && pendingInterviewOptions(item));
-      const feedbackFields = stageIndex(derived.effective_stage) >= stageIndex('post') && !postQuestionsPending
-        ? directionFeedbackFields(current.direction, report, openVerdicts, openComments) : [];
+      const canReviseDirection = stageIndex(derived.effective_stage) >= stageIndex('post') && !postQuestionsPending;
+      const directionVerdicts = canReviseDirection ? report.feedback.filter(feedback =>
+        feedback.review === 'direction-review' && openVerdicts.has(feedback.verdict)) : [];
+      const feedbackFields = [
+        ...directionVerdicts.map(feedback => feedback.verdict),
+        ...(canReviseDirection ? directionCommentFields(current.direction, openComments) : []),
+      ];
       const reviseDirection = feedbackFields.length > 0;
       const directionField = 'current.direction';
+      const directionRecord = currentOutputMove(dir, 'direction', shellWord);
+      const recordCommand = [directionRecord.command, ...directionVerdicts.map(feedback =>
+        `--answers-feedback ${feedback.version}:${feedback.index}`)].join(' ');
       const pendingDirection: NextMove = { role: 'agent', field: directionField, awaits: directionField, command: null,
-        act: 'Prepare the current rig and motion first. Run next again for the scene and direction writers, compose the revised take, then run rig-create record direction.' };
+        act: `Prepare the current rig and motion first. Run next again for the scene and direction writers, then compose the revised take. After compose succeeds, run\n    ${recordCommand}` };
       const reopens = collectReopens(project, []);
       const missing = new Map(CURRENT_KINDS.flatMap<readonly [CurrentKind, { adoption?: NextMove; producer: NextMove }]>(kind => {
         const node = current[kind];
         if (reviseDirection && kind === 'direction') {
-          const producer = currentPostOutputMove(dir, project, kind) ?? pendingDirection;
+          const producer = currentPostOutputMove(dir, project, kind, { ...directionRecord, command: recordCommand }) ?? pendingDirection;
           return [[kind, { producer }]] as const;
         }
         const preCutoffDirection = kind === 'direction' && currentPath && isObject(node)
@@ -2006,23 +2014,17 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
   return { ...result, refusals: [{ code, field: 'project.json.stage', message, fix: remedyForFinding(code, message) }] };
 }
 
-function directionFeedbackFields(direction: Json | undefined, report: CheckReport,
-  openVerdicts: ReadonlySet<string>, openComments: NextComment[]): string[] {
-  const fields = report.feedback.flatMap(feedback => feedback.review === 'direction-review' && openVerdicts.has(feedback.verdict)
-    ? [feedback.verdict] : []);
-  if (!isObject(direction)) return fields;
+function directionCommentFields(direction: Json | undefined, openComments: NextComment[]): string[] {
+  if (!isObject(direction)) return [];
   const version = isObject(direction.adopted) ? direction.adopted.version : undefined;
   const specPath = typeof version === 'number' ? directionPath(version) : CURRENT_DIRECTION_PATH;
   const bindings = [
     ...asArray(direction.files).filter(isObject),
     ...asArray(direction.built_from).filter(isObject).filter(binding => binding.path === specPath),
   ];
-  for (const comment of openComments) {
-    if (comment.saw.some(seen => bindings.some(binding => binding.path === seen.path && binding.sha256 === seen.sha256))) {
-      fields.push(`comments[${comment.comment}]`);
-    }
-  }
-  return fields;
+  return openComments.filter(comment => comment.saw.some(seen =>
+    bindings.some(binding => binding.path === seen.path && binding.sha256 === seen.sha256)))
+    .map(comment => `comments[${comment.comment}]`);
 }
 
 function deriveNextProject(dir: string, project: JsonObject, report: CheckReport, now: number,

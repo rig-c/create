@@ -15,22 +15,27 @@ import { arr, obj } from './fixtures.ts';
 import { ownerChatArgs, tempDir } from './helpers.ts';
 
 const feedbackPath = 'versions[v3].verdicts[0]';
-const currentDirectionCommand = /rig-create (?:scene write|direction write(?! \d)|record direction)\b|rig-parts compose\b/;
 
-function expectCurrentDirectionFeedback(dir: string, path: string): NextReport {
+function expectDeferredDirectionFeedback(dir: string, version: number, ...verdicts: number[]): NextReport {
   const current = JSON.parse(nextCommand([dir, '--json'], testClock.now()).stdout) as NextReport;
   const human = nextCommand([dir], testClock.now()).stdout;
+  const flags = verdicts.map(index => `--answers-feedback ${version}:${index}`).join(' ');
+  const command = `rig-create record direction ${dir} --from outputs/direction.next --direction specs/direction/direction.json ${flags}`;
   const { moves, awaits, refusals } = current;
   expect({ moves, awaits, refusals }).not.toEqual({ moves: [], awaits: [], refusals: [] });
   expect(current).toMatchObject({ stage: 'accepted', effective_stage: 'direction-review', accepted: false, refusals: [] });
-  expect(current.moves.some(move => /\bdirection write \d|--answers \d+:\d/.test(move.command ?? ''))).toBe(false);
-  expect(current.moves).toContainEqual(expect.objectContaining({ field: 'current.direction', act: expect.stringContaining(path) }));
-  const route = current.moves.find(move => move.field === 'current.direction' && move.act.includes(path))!;
-  expect(`${route.command ?? ''} ${route.act}`).toMatch(currentDirectionCommand);
-  expect(current.awaits).toContain(route.awaits);
-  expect(human).toContain('stage: accepted (effective: direction-review)');
-  expect(human).toContain(path);
-  expect(human).toMatch(currentDirectionCommand);
+  expect(current.moves.some(move => /\bdirection write \d|--answers(?:-feedback)? \d+:\d/.test(move.command ?? ''))).toBe(false);
+  const routes = current.moves.filter(move => move.field === 'current.direction');
+  expect(routes).toHaveLength(1);
+  const route = routes[0]!;
+  expect(route).toMatchObject({ role: 'agent', awaits: 'current.direction', command: null });
+  for (const index of verdicts) expect(route.act).toContain(`project.json.versions[v${version}].verdicts[${index}]`);
+  expect([...route.act.matchAll(/--answers-feedback (\d+:\d+)/g)].map(match => match[1]))
+    .toEqual(verdicts.map(index => `${version}:${index}`));
+  expect(route.act).toEndWith(`\n    ${command}`);
+  expect(current.awaits).toContain('current.direction');
+  expect(human.split('\n')[0]).toEndWith('stage: accepted (effective: direction-review)');
+  expect(human).toContain(`  [agent] (current.direction -> current.direction) ${route.act}`);
   return current;
 }
 
@@ -79,9 +84,18 @@ test('#1106 next routes a live numbered direction bounce through current outputs
     const adopted = JSON.parse(adoptedBytes.toString('utf8')) as JsonObject;
     expect(adopted).toMatchObject({ versions: beforeAdoption.versions, current: { rig: { adopted: { version: 1 } } } });
 
-    const current = expectCurrentDirectionFeedback(dir, feedbackPath);
+    const current = expectDeferredDirectionFeedback(dir, 3, 0);
     expect(current.moves).toContainEqual(expect.objectContaining({ field: 'current.rig' }));
     expect(readFileSync(recordPath)).toEqual(adoptedBytes);
+
+    const secondBounce = join(dir, 'evidence/direction-bounce-follow-up.txt');
+    writeFileSync(secondBounce, 'Keep the framing steady at the end.\n');
+    testClock.set(TEST_NOW + 4_000);
+    expect(reviewCommand(['3', dir, '--verdict', 'bounced', '--by', 'user', '--review', 'direction-review',
+      '--verbatim-file', secondBounce, '--source', 'synthetic review']).exit).toBe(0);
+    const repeatedBytes = readFileSync(recordPath);
+    expectDeferredDirectionFeedback(dir, 3, 0, 1);
+    expect(readFileSync(recordPath)).toEqual(repeatedBytes);
   } finally {
     testClock.reset();
   }
@@ -228,13 +242,11 @@ test('#1106 next offers a direction rebuild with all four output trees adopted',
     const checked = checkProject(dir);
     expect(checked).toMatchObject({ stage: 'accepted', effective_stage: 'direction-review', refusals: [] });
     expect(checked.warnings).toContainEqual(expect.objectContaining({ code: 'FEEDBACK_OPEN', path }));
-    expectCurrentDirectionFeedback(dir, path);
+    expectDeferredDirectionFeedback(dir, 4, 0);
   } finally {
     testClock.reset();
   }
 });
 
-// #1107 supplies the writer-owned projection. Exercise it against the same numbered bounce:
-// next JSON exposes the #1064 comment index, receipt sha256, attribution, saw bindings, exact
-// comments, and current/open status. Text renders its comment line beside the direction route.
-test.todo('#1106 projected numbered direction feedback uses the #1064 next comments shape after #1107');
+// The writer will consume the offered command and bind the exact verdicts in current.direction.
+test.todo('#1106 recording the offered direction command settles numbered feedback once #1107 lands');

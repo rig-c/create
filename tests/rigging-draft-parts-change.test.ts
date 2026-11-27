@@ -9,10 +9,12 @@ import { draftRigCommand } from '../src/drafts.ts';
 import { assertRequestedDraft } from '../src/job-host.ts';
 import { acknowledgePublication, JOB_BINDING_FILE, jobHash, publicationVersionHash, writePrivateJson, type WriterBinding } from '../src/job-outbox.ts';
 import { currentJobIdentity, draftPackageIdentity, inspectDraftPublication, prepareDraftManifest, readPublished, riggingDraftPartsChange } from '../src/job-publication.ts';
+import { main } from '../src/cli.ts';
 import { prepareDraftIntent } from '../src/job-writer.ts';
 import { nextProject } from '../src/next.ts';
-import { partsReviewCommand } from '../src/parts-review.ts';
+import { assertPartsActSource, partsActDraftHash, partsActFindings } from '../src/parts-act.ts';
 import { pauseCommand } from '../src/pause.ts';
+import { decodeReviewAct } from '../src/review-act.ts';
 import { signoffCommand } from '../src/signoff.ts';
 import type { JsonObject } from '../src/templates.ts';
 
@@ -97,14 +99,14 @@ test('changed model-less draft refuses job open before a write and next names th
   expect(readFileSync(path)).toEqual(bound);
 });
 
-test('matching paths and hashes in a different draft root keep the #718 mesh feedback ask', () => {
+test('matching paths and hashes in a different draft root publish view-only without RIGGING_DRAFT_PARTS_CHANGED', () => {
   const root = fixture(false);
   const project = readProject(root);
   expect(assertRequestedDraft(root, id, EXAMPLE_NOW)).toMatchObject({ stage: 'rigging', draftId: id });
   const draft = (project.drafts as JsonObject[]).at(-1)!;
   (draft.parts as { files: JsonObject[] }).files.reverse();
   expect(inspectDraftPublication(root, project, id, [], 'rigging')).toMatchObject({
-    rigging: true, context: { subjects: [{ kind: 'parts-verdict', draftId: id }] },
+    rigging: true, context: { subjects: [] },
   });
   expect(nextProject(root, EXAMPLE_NOW).refusals.map(row => row.code)).not.toContain(refusal);
 
@@ -172,10 +174,10 @@ test('a historical acknowledgment on changed parts still ingests as mesh feedbac
   const sourceHash = jobHash('synthetic sealed source');
   prepareDraftManifest(root, project, id, result.path);
   const context = await readPublished({ root, record: { path: 'project.json', sha256: projectHash }, result });
-  expect(context.subjects).toEqual([{ kind: 'parts-verdict', draftId: id }]);
+  expect(context.subjects).toEqual([]);
   acknowledgePublication({ schema: 'rig-create/job-pending@1', root, jobId: binding.jobId, origin: binding.origin,
     id: 'synthetic-pending', identity: binding.identity, recordHash: projectHash, versionHash: revision, result, failure: null },
-  publicationId, 1, 'synthetic-publish-request', context.subjects, { projectHash, sourceHash });
+  publicationId, 1, 'synthetic-publish-request', [{ kind: 'parts-verdict', draftId: id }], { projectHash, sourceHash });
 
   const act = { schema: 'rig-review/act@5', kind: 'parts-verdict', actId, publicationId, jobId: binding.jobId, askId: 'synthetic-ask',
     at: new Date(EXAMPLE_NOW).toISOString(),
@@ -183,12 +185,21 @@ test('a historical acknowledgment on changed parts still ingests as mesh feedbac
     source: { projectHash, sourceHash, package: { id: identity.id, revision }, selector: result.selector,
       parts: context.parts, plan: context.plan, model: null, direction: null },
     value: { verdict: 'approved', issues: [], words: 'Synthetic owner words.' } };
-  const ingest = () => partsReviewCommand([root, '--from-review', actId, '--json'], EXAMPLE_NOW,
-    { fetch: () => ({ bytes: JSON.stringify(act) }) });
-  expect(ingest().exit).toBe(0);
-  expect(readProject(root)).toMatchObject({ stage: 'rigging', signoffs: project.signoffs,
-    review_acts: expect.arrayContaining([expect.objectContaining({ actId, draft_id: id })]) });
-  const recorded = readFileSync(join(root, 'project.json'));
-  expect(ingest().exit).toBe(0);
-  expect(readFileSync(join(root, 'project.json'))).toEqual(recorded);
+  const actBytes = JSON.stringify(act);
+  const decoded = decodeReviewAct(actBytes, 'parts-verdict');
+  assertPartsActSource(root, project, decoded);
+  expect(main(['parts-review', root, '--from-review', actId, '--json'], EXAMPLE_NOW)).toBe(2);
+  expect(readFileSync(join(root, 'project.json'))).toEqual(bytes);
+  const evidencePath = `evidence/review-acts/${jobHash(JSON.stringify([act.jobId, act.actId]))}.json`;
+  writeFileSync(join(root, 'project.json'), JSON.stringify({
+    ...project,
+    review_acts: [{
+      schema: 'rig-create/review-act@1', kind: 'parts-verdict', jobId: act.jobId, actId,
+      draft_id: id, version_hash: partsActDraftHash(project, decoded), bytes: actBytes, sha256: jobHash(actBytes),
+      evidence: { path: evidencePath, sha256: jobHash(actBytes) },
+    }],
+  }, null, 2) + '\n');
+  writePrivateJson(join(root, evidencePath), act);
+  writeFileSync(join(root, evidencePath), actBytes);
+  expect(partsActFindings(root, readProject(root))).toEqual([]);
 });

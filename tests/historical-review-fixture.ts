@@ -236,7 +236,7 @@ export function seedStoredInterviewPicks(
     by,
     at: act.at,
     verbatim: choiceVerbatim(picks, choice.note),
-    source: `review act ${act.jobId}/${act.actId}`,
+    source: 'review questionnaire',
     asks: projected.asks,
     ...(projected.value === undefined ? {} : { value: projected.value }),
     choice,

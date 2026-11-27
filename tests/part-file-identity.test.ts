@@ -9,11 +9,13 @@ import { Refusal } from '../src/refusal.ts';
 import { checkReviewPackages, reviewPackageCommand } from '../src/review-package.ts';
 /** Retired part-identity contract date (#981): kept as a fixture time only. */
 const PART_FILE_IDENTITY_SINCE = '2026-11-06T00:00:00Z';
+import { selectSignoffTarget } from '../src/signoff-target.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { EXAMPLE_DIFF_REPORT } from './diff-fixture.ts';
 import { clockedCli, tempDir } from './helpers.ts';
+import { seedStoredPartsSignoff, seedStoredVerdict, seedStoredVersionSignoff } from './historical-review-fixture.ts';
 import { partsPackage } from './parts-package.ts';
-import { advanceCommand, checkProject, diffClassesCommand, reviewCommand, handoffCommand, signoffCommand, testClock } from './clock.ts';
+import { advanceCommand, checkProject, diffClassesCommand, handoffCommand, testClock } from './clock.ts';
 
 const roots: string[] = [];
 afterEach(() => {
@@ -29,7 +31,7 @@ function load(dir: string): JsonObject {
   return JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')) as JsonObject;
 }
 function approveParts(dir: string): void {
-  const flags = preparePartsApproval(dir, testClock.now(), 'reviewed');
+  preparePartsApproval(dir, testClock.now(), 'reviewed');
   // Negative consumer tests restore a separately recorded version population
   // after approval so they can plant disagreements the forward writer refuses.
   const original = load(dir);
@@ -38,8 +40,12 @@ function approveParts(dir: string): void {
   put(dir, 'project.json', JSON.stringify(original));
   diffClassesCommand([dir, '--diff-report', EXAMPLE_DIFF_REPORT,
     '--component', 'p10-n3=in-painting:synthetic source', '--component', 'p1000-n3=in-painting:synthetic source', '--by', 'agent']);
-  signoffCommand(['parts-review', dir, '--by', 'user', '--verbatim-file', join(dir, 'words.txt'),
-    ...flags]);
+  seedStoredPartsSignoff(dir, 'receipt-fixture', {
+    by: 'user',
+    at: testClock.now(),
+    verbatim: readFileSync(join(dir, 'words.txt'), 'utf8'),
+    structureFile: 'evidence/structure-receipt-fixture.json',
+  });
   const approved = load(dir);
   approved.versions = versions!;
   put(dir, 'project.json', JSON.stringify(approved));
@@ -92,11 +98,12 @@ function packageRig(dir: string): void {
   reviewPackageCommand(['1', dir, '--config', 'frozen/config.json', '--from', 'build']);
 }
 function accept(dir: string, n = '1'): void {
-  reviewCommand([n, dir, '--verdict', 'accepted', '--by', 'user', '--review', 'rig-review',
-    '--verbatim-file', join(dir, 'words.txt'), '--source', 'synthetic retained-byte control']);
+  seedStoredVerdict(dir, Number(n), { review: 'rig-review', verdict: 'accepted', by: 'user',
+    at: testClock.now(), verbatim: readFileSync(join(dir, 'words.txt'), 'utf8'), source: 'synthetic retained-byte control' });
 }
 function sign(dir: string, n = '1'): void {
-  signoffCommand(['rig-review', dir, '--version', n, '--by', 'user', '--verbatim-file', join(dir, 'words.txt')]);
+  seedStoredVersionSignoff(dir, 'rig-review', Number(n), { by: 'user', at: testClock.now(),
+    verbatim: readFileSync(join(dir, 'words.txt'), 'utf8') });
 }
 function checked(dir: string) {
   const ctx = { dir, project: load(dir), refusals: [] as { code: string; path: string; message: string }[], warnings: [] as { code: string; path: string; message: string }[] };
@@ -122,16 +129,18 @@ test('honest files pass package, acceptance, signoff and handoff through public 
   expect(JSON.parse(handoffCommand([dir, '--json']).stdout).rig_version).toBe(1);
 });
 
-for (const artifact of ['parts/torso.png', 'parts.json']) for (const boundary of ['acceptance', 'handoff']) test(`${boundary} refuses post-write package drift: ${artifact}`, () => {
+for (const artifact of ['parts/torso.png', 'parts.json']) test(`handoff and target selection refuse post-write package drift: ${artifact}`, () => {
   const dir = setup();
   packageRig(dir);
-  if (boundary === 'handoff') { accept(dir); sign(dir); }
+  accept(dir);
+  const unsigned = load(dir);
+  put(dir, `derived/review/v1/out/${artifact}`, 'distinct post-write bytes\n');
+  expect(refusal(() => selectSignoffTarget(dir, unsigned, 'rig-review', '1')).code).toBe('SIGNOFF_TARGET_STALE');
+  put(dir, `derived/review/v1/out/${artifact}`, readFileSync(join(dir, 'reviewed', artifact)));
+  sign(dir);
   put(dir, `derived/review/v1/out/${artifact}`, 'distinct post-write bytes\n');
   const before = readFileSync(join(dir, 'project.json'));
-  const args = boundary === 'acceptance'
-    ? ['review', '1', dir, '--verdict', 'accepted', '--by', 'user', '--review', 'rig-review', '--verbatim-file', join(dir, 'words.txt'), '--source', 'synthetic control']
-    : ['handoff', dir, '--json'];
-  const result = Bun.spawnSync([process.execPath, ...clockedCli(), ...args], { env: process.env });
+  const result = Bun.spawnSync([process.execPath, ...clockedCli(), 'handoff', dir, '--json'], { env: process.env });
   expect(result.exitCode).toBe(1);
   expect(result.stderr.toString()).toContain('REVIEW_PACKAGE_CHANGED');
   expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
@@ -178,7 +187,7 @@ for (const at of ['pending', '', null, 123, undefined, '2026-02-31', '2026-02-31
   put(dir, 'derived/review/v1/out/parts/torso.png', 'distinct reader-date drift\n');
   const before = readFileSync(join(dir, 'project.json'));
   expect(checkProject(dir).refusals.map(f => f.code)).toContain('RIG_VERSION_AT_INVALID');
-  for (const action of [() => packageRig(dir), () => accept(dir), () => sign(dir), () => { handoffCommand([dir, '--json']); }]) {
+  for (const action of [() => packageRig(dir), () => selectSignoffTarget(dir, load(dir), 'rig-review', '1'), () => { handoffCommand([dir, '--json']); }]) {
     const error = refusal(action);
     expect(error.code).toBe('RIG_VERSION_AT_INVALID');
     expect(error.message).toContain('versions[v1].at');

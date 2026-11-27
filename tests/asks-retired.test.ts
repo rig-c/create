@@ -14,6 +14,7 @@ import {
 import { EXAMPLE_NOW } from '../scripts/example-time.ts';
 import { checkProject } from '../src/check.ts';
 import { interviewAnswerCommand } from '../src/choice-writers.ts';
+import { main } from '../src/cli.ts';
 import { diffClassesCommand } from '../src/diff-classes.ts';
 import { interviewCommand } from '../src/interview.ts';
 import { agentCall, readHostActsAndAsks } from '../src/job-acts.ts';
@@ -21,16 +22,18 @@ import { openCreateJob, openDraftPublication, openRecordPublication, reconcileCr
 import { acknowledgePublication, enqueuePublication, jobHash, jobHostStateRoot, jobPrivateRoot, readWriterBinding } from '../src/job-outbox.ts';
 import { prepareDraftManifest, prepareLiveManifest, readPublished, readRecordPublished, type RecordPublicationRequest } from '../src/job-publication.ts';
 import { nextProject } from '../src/next.ts';
-import { assertPartsActSource, partsActDraftHash, partsActFindings } from '../src/parts-act.ts';
-import { partsReviewCommand } from '../src/parts-review.ts';
 import { planCommand } from '../src/plan-writers.ts';
 import { advanceCommand } from '../src/progress-writers.ts';
-import { decodeReviewAct, fetchReviewAct, reviewActFindings } from '../src/review-act.ts';
+import { decodeReviewAct, fetchReviewAct, reviewActFindings, reviewActSignoff, signoffActIdentity } from '../src/review-act.ts';
+import { selectAnswerHashes } from '../src/signoff-answers.ts';
+import { selectSignoffTarget } from '../src/signoff-target.ts';
 import { signoffCommand } from '../src/signoff.ts';
-import { stageIndex } from '../src/stages.ts';
+import { stageIndex, stepCoveredByApproval } from '../src/stages.ts';
+import { stepHash } from '../src/step-hash.ts';
 import { structureSnapshotCommand } from '../src/structure-snapshot.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { arr, obj, retainSignoffs } from './fixtures.ts';
+import { seedStoredInterviewPicks } from './historical-review-fixture.ts';
 
 const roots: string[] = [];
 const hosts: JobOwnerHost[] = [];
@@ -249,16 +252,33 @@ test('a stored sign-off act from before still ingests', async () => {
     kind: 'signoff',
   });
   expect(JSON.parse(fetchedRecord.bytes)).toMatchObject({ schema: JOB_RECORD_ACT_SCHEMA, kind: 'signoff', actId: recordActId });
-  expect(signoffCommand(['plan-approved', planRoot, '--from-review', recordActId], now + 1000, { fetch: () => fetchedRecord }).exit).toBe(0);
-  const signedPlanBytes = readFileSync(join(planRoot, 'project.json'));
-  expect(arr(read(planRoot).signoffs).at(-1)).toMatchObject({
-    stage: 'plan-approved',
-    by: 'user',
-    verbatim: words,
-    source: `review act ${planBinding.jobId}/${recordActId}`,
-  });
-  expect(signoffCommand(['plan-approved', planRoot, '--from-review', recordActId], now + 2000, { fetch: () => fetchedRecord }).exit).toBe(0);
-  expect(readFileSync(join(planRoot, 'project.json'))).toEqual(signedPlanBytes);
+  const beforePlanBytes = readFileSync(join(planRoot, 'project.json'));
+  expect(() => signoffCommand(['plan-approved', planRoot, '--from-review', recordActId], now + 1000))
+    .toThrow(expect.objectContaining({ code: 'SIGNOFF_FROM_REVIEW_REMOVED', exitCode: 2 }));
+  expect(readFileSync(join(planRoot, 'project.json'))).toEqual(beforePlanBytes);
+
+  const decodedPlanAct = decodeReviewAct(fetchedRecord.bytes, 'signoff');
+  const planProject = read(planRoot);
+  const coveredSteps = arr(obj(planProject.plan).steps).map(obj).filter(step => stepCoveredByApproval(planProject, step, 'plan-approved'));
+  for (const step of coveredSteps) {
+    if (step.checkpoint === null || step.checkpoint === undefined) {
+      step.checkpoint = { delegated: false, by: 'user', at: decodedPlanAct.at, verbatim: words, value: step.checkpoint_proposed };
+    }
+  }
+  const planSig: JsonObject = {
+    ...reviewActSignoff(decodedPlanAct),
+    steps: coveredSteps.map(step => step.id!),
+    step_hashes: Object.fromEntries(coveredSteps.map(step => [String(step.id), stepHash(step)])),
+  };
+  const planAnswers = selectAnswerHashes(planRoot, planProject, planSig);
+  if (planAnswers !== undefined) planSig.answer_hashes = planAnswers;
+  planProject.signoffs = [...arr(planProject.signoffs), planSig];
+  planProject.review_acts = [...(Array.isArray(planProject.review_acts) ? planProject.review_acts : []), {
+    schema: 'rig-create/review-act@1', kind: 'signoff', jobId: decodedPlanAct.jobId, actId: decodedPlanAct.actId,
+    stage: 'plan-approved', bytes: fetchedRecord.bytes, sha256: jobHash(fetchedRecord.bytes),
+    version_hash: jobHash(JSON.stringify(signoffActIdentity(decodedPlanAct))),
+  }];
+  save(planRoot, planProject);
   expect(reviewActFindings(read(planRoot))).toEqual([]);
   expect(checkProject(planRoot, undefined, { now: now + 2000 }).refusals).toEqual([]);
 
@@ -345,16 +365,24 @@ test('a stored sign-off act from before still ingests', async () => {
     kind: 'signoff',
   });
   expect(JSON.parse(fetchedPkg.bytes)).toMatchObject({ schema: JOB_COMMENTS_ACT_SCHEMA, kind: 'signoff', actId: pkgActId });
-  expect(signoffCommand(['rig-review', rigRoot, '--from-review', pkgActId], now + 1000, { fetch: () => fetchedPkg }).exit).toBe(0);
-  const signedRigBytes = readFileSync(join(rigRoot, 'project.json'));
-  expect(arr(read(rigRoot).signoffs).at(-1)).toMatchObject({
-    stage: 'rig-review',
-    by: 'user',
-    target: { version: 1 },
-    source: `review act ${rigBinding.jobId}/${pkgActId}`,
-  });
-  expect(signoffCommand(['rig-review', rigRoot, '--from-review', pkgActId], now + 2000, { fetch: () => fetchedPkg }).exit).toBe(0);
-  expect(readFileSync(join(rigRoot, 'project.json'))).toEqual(signedRigBytes);
+  const beforeRigBytes = readFileSync(join(rigRoot, 'project.json'));
+  expect(() => signoffCommand(['rig-review', rigRoot, '--from-review', pkgActId], now + 1000))
+    .toThrow(expect.objectContaining({ code: 'SIGNOFF_FROM_REVIEW_REMOVED', exitCode: 2 }));
+  expect(readFileSync(join(rigRoot, 'project.json'))).toEqual(beforeRigBytes);
+
+  const decodedRigAct = decodeReviewAct(fetchedPkg.bytes, 'signoff');
+  const rigProject = read(rigRoot);
+  const rigSig: JsonObject = {
+    ...reviewActSignoff(decodedRigAct),
+    target: selectSignoffTarget(rigRoot, rigProject, 'rig-review', '1')!,
+  };
+  rigProject.signoffs = [...arr(rigProject.signoffs), rigSig];
+  rigProject.review_acts = [...arr(rigProject.review_acts), {
+    schema: 'rig-create/review-act@1', kind: 'signoff', jobId: decodedRigAct.jobId, actId: decodedRigAct.actId,
+    stage: 'rig-review', bytes: fetchedPkg.bytes, sha256: jobHash(fetchedPkg.bytes),
+    version_hash: jobHash(JSON.stringify(signoffActIdentity(decodedRigAct))),
+  }];
+  save(rigRoot, rigProject);
   expect(reviewActFindings(read(rigRoot))).toEqual([]);
   expect(checkProject(rigRoot, undefined, { now: now + 2000 }).refusals).toEqual([]);
 }, 30_000);
@@ -435,19 +463,16 @@ test('a stored interview-picks act from before still ingests', async () => {
     kind: 'interview-picks',
   });
   expect(JSON.parse(fetchedPicks.bytes)).toMatchObject({ schema: JOB_COMMENTS_ACT_SCHEMA, kind: 'interview-picks', actId: picksActId });
-  const answered = interviewAnswerCommand(['rig_type', picksRoot, '--from-review', picksActId], now + 1000, { fetch: () => fetchedPicks });
-  const savedBytes = readFileSync(join(picksRoot, 'project.json'));
-  expect(JSON.parse(answered)).toMatchObject({
-    by: 'user',
-    source: 'review questionnaire',
-  });
+  const beforePicksBytes = readFileSync(join(picksRoot, 'project.json'));
+  expect(() => interviewAnswerCommand(['rig_type', picksRoot, '--from-review', picksActId], now + 1000))
+    .toThrow(expect.objectContaining({ code: 'SIGNOFF_FROM_REVIEW_REMOVED', exitCode: 2 }));
+  expect(readFileSync(join(picksRoot, 'project.json'))).toEqual(beforePicksBytes);
+  seedStoredInterviewPicks(picksRoot, fetchedPicks.bytes);
   expect(arr(read(picksRoot).review_acts).at(-1)).toMatchObject({
     kind: 'interview-picks',
     jobId: picksBinding.jobId,
     actId: picksActId,
   });
-  expect(interviewAnswerCommand(['rig_type', picksRoot, '--from-review', picksActId], now + 2000, { fetch: () => fetchedPicks })).toBe(answered);
-  expect(readFileSync(join(picksRoot, 'project.json'))).toEqual(savedBytes);
   expect(reviewActFindings(read(picksRoot))).toEqual([]);
 }, 30_000);
 
@@ -485,10 +510,9 @@ test('a plan replace under a signed plan no longer refuses', () => {
   expect(JSON.parse(checked.stdout).refusals).toEqual([]);
 });
 
-test('a legacy unsigned approved parts draft publishes parts-verdict again and folds the new verdict into signoffs', async () => {
+test('an unsigned parts draft publishes view-only without parts-verdict asks, and parts-review exits 2', async () => {
   const root = copyCheckpoint('1-parts-verdict');
   const checkpoint = read(root);
-  // Review stamps its verdict with the wall clock. Date setup from the retained checkpoint.
   const prepNow = Math.max(...[...arr(checkpoint.advances), ...arr(checkpoint.drafts), ...arr(checkpoint.signoffs)]
     .map(entry => Date.parse(String(obj(entry).at)))) + 1_000;
   cpSync(join(import.meta.dir, '../templates/example-chain/evidence/diff-components.json'), join(root, 'evidence/diff-components.json'));
@@ -498,118 +522,11 @@ test('a legacy unsigned approved parts draft publishes parts-verdict again and f
 
   const host = await openCreateJob(root, reviewer, prepNow);
   hosts.push(host);
-  await openDraftPublication(root, host, prepNow, 'chain');
-
-  const uiRequest = (route: string, body: object) => new Request(`${host.origin}/jobs/${host.session.jobId}/ui/${route}`, {
-    method: 'POST',
-    headers: { origin: host.origin, 'X-Review-Capability': host.session.hostCredentials().ui, 'content-type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-  const submitPartsVerdict = async (words: string) => {
-    const { asks } = await readHostActsAndAsks(host);
-    expect(asks.map(a => a.subject)).toEqual([{ kind: 'parts-verdict', draftId: 'chain' }]);
-    const publication = host.session.status().publication!;
-    const pageId = randomUUID();
-    const displayed = await host.ports.ackDisplayed(host.session.jobId, uiRequest('displayed', {
-      publicationId: publication.publicationId,
-      pageId,
-      sourceHash: publication.source.sourceHash,
-    }));
-    expect(displayed.ok).toBe(true);
-    if (!displayed.ok) throw new Error(displayed.error.code);
-    const committed = await host.ports.commitUIAct(host.session.jobId, uiRequest('acts', {
-      publicationId: publication.publicationId,
-      askId: asks[0]!.askId,
-      pageId,
-      displayedNonce: displayed.value.displayedNonce,
-      expectedGeneration: host.session.status().generation,
-      submissionId: randomUUID(),
-      kind: 'parts-verdict',
-      value: { verdict: 'approved', issues: [], words },
-    }));
-    expect(committed.ok).toBe(true);
-    if (!committed.ok) throw new Error(committed.error.code);
-    return committed.value;
-  };
-
-  // Seed a legacy pre-fold state: an approved parts-verdict receipt in review_acts with no parts-review signature.
-  const legacyAct = await submitPartsVerdict('Legacy pre-fold approved parts verdict.\n');
-  const binding = readWriterBinding(root)!;
-  const legacyFetched = await fetchReviewAct({
-    origin: binding.origin,
-    jobId: binding.jobId,
-    actId: legacyAct.actId,
-    fetchCapability: binding.fetchCapability,
-    kind: 'parts-verdict',
-  });
-  const decodedLegacy = decodeReviewAct(legacyFetched.bytes, 'parts-verdict');
-  const legacyProject = read(root);
-  const legacyEvidence = {
-    path: `evidence/review-acts/${jobHash(JSON.stringify([decodedLegacy.jobId, decodedLegacy.actId]))}.json`,
-    sha256: jobHash(legacyFetched.bytes),
-  };
-  mkdirSync(join(root, 'evidence/review-acts'), { recursive: true });
-  writeFileSync(join(root, legacyEvidence.path), legacyFetched.bytes);
-  legacyProject.review_acts = [...(Array.isArray(legacyProject.review_acts) ? legacyProject.review_acts : []), {
-    schema: 'rig-create/review-act@1',
-    kind: 'parts-verdict',
-    jobId: decodedLegacy.jobId,
-    actId: decodedLegacy.actId,
-    draft_id: 'chain',
-    version_hash: partsActDraftHash(legacyProject, decodedLegacy),
-    bytes: legacyFetched.bytes,
-    sha256: legacyEvidence.sha256,
-    evidence: legacyEvidence,
-  }];
-  save(root, legacyProject);
-  expect(arr(read(root).signoffs).some(s => obj(s).stage === 'parts-review')).toBe(false);
-  expect(partsActFindings(root, read(root))).toEqual([]);
-
-  // Re-publishing the unsigned approved draft declares parts-verdict again (legacyApproval branch is gone).
-  const republishNow = Math.max(Date.now(), Date.parse(decodedLegacy.at)) + 1_000;
-  await openDraftPublication(root, host, republishNow, 'chain');
-  const freshAct = await submitPartsVerdict('Approve the unsigned parts draft and fold its signature.\n');
-  const freshFetched = await fetchReviewAct({
-    origin: binding.origin,
-    jobId: binding.jobId,
-    actId: freshAct.actId,
-    fetchCapability: binding.fetchCapability,
-    kind: 'parts-verdict',
-  });
-  const decodedFresh = decodeReviewAct(freshFetched.bytes, 'parts-verdict');
-  assertPartsActSource(root, read(root), decodedFresh);
-
-  // Ingesting the new verdict folds into the parts-review signature and passes partsActFindings + checkProject.
-  const ingestNow = Math.max(Date.now(), Date.parse(decodedFresh.at)) + 1_000;
-  const ingested = partsReviewCommand([root, '--from-review', freshAct.actId, '--json'], ingestNow, {
-    fetch: () => freshFetched,
-  });
-  expect(ingested.exit).toBe(0);
-
-  const after = read(root);
-  const signoffs = arr(after.signoffs).map(obj);
-  const receipts = arr(after.review_acts).map(obj);
-  expect(receipts).toHaveLength(2);
-  expect(receipts[0]!.signoff).toBeUndefined();
-  expect(receipts[1]!.actId).toBe(freshAct.actId);
-  expect(receipts[1]!.signoff).toBe(signoffs.length - 1);
-  expect(signoffs.at(-1)).toMatchObject({
-    stage: 'parts-review',
-    checkpoint: null,
-    draft_id: 'chain',
-    by: 'user',
-    source: `review act ${binding.jobId}/${freshAct.actId}`,
-    evidence: {
-      kind: 'parts-verdict',
-      path: obj(receipts[1]!.evidence).path,
-      sha256: receipts[1]!.sha256,
-      spec: decodedFresh.schema,
-    },
-  });
-  expect(partsActFindings(root, after)).toEqual([]);
-  expect(reviewActFindings(after)).toEqual([]);
-  expect(checkProject(root, undefined, { now: ingestNow }).refusals).toEqual([]);
-
-  await openDraftPublication(root, host, ingestNow + 1_000, 'chain');
+  const lines = await openDraftPublication(root, host, prepNow, 'chain');
+  expect(lines).toEqual([expect.stringMatching(/^job: draft chain published \(publication .+\)$/)]);
   expect((await readHostActsAndAsks(host)).asks).toEqual([]);
+
+  const before = readFileSync(join(root, 'project.json'));
+  expect(main(['parts-review', root, '--from-review', 'act-1', '--json'], prepNow)).toBe(2);
+  expect(readFileSync(join(root, 'project.json'))).toEqual(before);
 }, 30_000);

@@ -1,17 +1,18 @@
-import { reviewStdout } from './review-read-fixture.ts';
 import { structureSnapshotCommand } from '../src/structure-snapshot.ts';
 import { afterEach, expect, test } from 'bun:test';
 import { cpSync, existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { EXAMPLE_NOW } from '../scripts/example-time.ts';
-import { partsReviewCommand } from '../src/parts-review.ts';
+import { main } from '../src/cli.ts';
 import { checkProject } from '../src/check.ts';
-import { partsReadFindings, latestPartsVerdictFinding, PARTS_CLI_RECEIPT, recordedPartsVerdict, recordedPartsFinding, PARTS_VERDICT_RECEIPT_SINCE } from '../src/parts-verdict-record.ts';
+import { assertPartsCliArgs, assertPartsReadDraft, decodePartsRead, partsReadFindings, partsVerdictNames, latestPartsVerdictFinding, PARTS_CLI_RECEIPT, recordedPartsVerdict, recordedPartsFinding, PARTS_VERDICT_RECEIPT_SINCE } from '../src/parts-verdict-record.ts';
+import { ReviewReadError, storeReviewRead } from '../src/review-read.ts';
 import { signoffCommand } from '../src/signoff.ts';
-import { Refusal } from '../src/refusal.ts';
+import { Refusal, refuse } from '../src/refusal.ts';
 import { jobHash } from '../src/job-outbox.ts';
 import type { JsonObject } from '../src/templates.ts';
+import { seedStoredPartsSignoff } from './historical-review-fixture.ts';
 
 const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
@@ -32,12 +33,40 @@ function response(root: string, status = 'approved'): JsonObject {
 const args = (root: string) => [root, '--draft', 'chain', '--from-review-cli', '--by', 'user', '--json', '--', 'opaque/input', '--verdict', 'never-created.json'];
 function record(root: string, value: JsonObject) {
   const bytes = Buffer.from(` ${JSON.stringify(value)}\n`);
-  const result = partsReviewCommand(args(root), EXAMPLE_NOW, { runCli: (cwd, argv) => {
-    expect(argv).toEqual(['rig-review', 'parts', 'opaque/input', '--verdict', 'never-created.json', '--format', 'json']);
-    expect(cwd).toBe(root);
-    return reviewStdout(bytes)(cwd, argv);
-  } });
-  return { result, bytes, receipt: JSON.parse(result.stdout) as JsonObject };
+  const extra = args(root).slice(args(root).indexOf('--') + 1);
+  assertPartsCliArgs(extra);
+  const decoded = decodePartsRead(bytes);
+  const project = read(root);
+  assertPartsReadDraft(root, project, decoded, 'chain');
+  let stored;
+  try {
+    stored = storeReviewRead(root, bytes);
+  } catch (error) {
+    if (error instanceof ReviewReadError) refuse('PARTS_REVIEW_EVIDENCE_CONFLICT', error.message);
+    throw error;
+  }
+  const existing = Array.isArray(project.review_acts)
+    ? (project.review_acts as JsonObject[]).find(row => row.draft_id === 'chain' && (row.evidence as JsonObject | undefined)?.sha256 === stored.file.sha256)
+    : undefined;
+  if (existing) return { bytes, receipt: existing };
+  const names = partsVerdictNames(decoded);
+  const receipt: JsonObject = {
+    schema: PARTS_CLI_RECEIPT,
+    kind: 'parts-verdict',
+    route: 'cli',
+    draft_id: 'chain',
+    argv: ['rig-review', 'parts', ...extra, '--format', 'json'],
+    evidence: { path: stored.file.path, sha256: stored.file.sha256 },
+    tool: decoded.tool!,
+    status: decoded.status!,
+    flagged: names.flagged,
+    noted: names.noted,
+    by: 'user',
+    at: new Date(EXAMPLE_NOW).toISOString(),
+  };
+  project.review_acts = [...(Array.isArray(project.review_acts) ? project.review_acts : []), receipt];
+  writeFileSync(join(root, 'project.json'), `${JSON.stringify(project, null, 2)}\n`);
+  return { bytes, receipt };
 }
 function refuses(root: string, code: string, action: () => unknown): void {
   const before = readFileSync(join(root, 'project.json'));
@@ -58,7 +87,7 @@ for (const status of ['approved', 'changes-requested', 'pending']) {
     expect(receipt.status).toBe(status);
     expect(receipt.flagged).toEqual(status === 'changes-requested' ? ['synthetic part'] : []);
     expect(receipt.noted).toEqual(['synthetic part']);
-    expect(receipt.argv).toEqual(args(root).slice(args(root).indexOf('--') + 1));
+    expect(receipt.argv).toEqual(['rig-review', 'parts', ...args(root).slice(args(root).indexOf('--') + 1), '--format', 'json']);
     const evidence = receipt.evidence as JsonObject;
     expect(evidence.sha256).toBe(jobHash(bytes));
     expect(readFileSync(join(root, String(evidence.path))).equals(bytes)).toBe(true);
@@ -109,30 +138,29 @@ test('source multiplicity is compared, outputs are optional, painting occurrence
 for (const [label, stdout] of [
   ['non-JSON', 'no'], ['unsupported schema', '{"schema":"unsupported"}'], ['invalid UTF-8', Buffer.from([0xff])],
 ] as const) {
-  test(`${label} refuses without changing the record`, () => {
+  test(`${label} refuses in decodePartsRead without changing the record`, () => {
     const root = fixture();
-    refuses(root, 'PARTS_REVIEW_CLI_INVALID', () => partsReviewCommand(args(root), EXAMPLE_NOW, { runCli: reviewStdout(Buffer.from(stdout)) }));
+    refuses(root, 'PARTS_REVIEW_CLI_INVALID', () => decodePartsRead(Buffer.from(stdout)));
   });
 }
 
 for (const path of ['/absolute/file', '../escape', 'inside/../../escape', 'C:\\escape', '--verdict=/absolute/file']) {
-  test(`unsafe CLI argument ${path} refuses before invoking the runner`, () => {
+  test(`unsafe CLI argument ${path} refuses in assertPartsCliArgs`, () => {
     const root = fixture();
-    refuses(root, 'PARTS_REVIEW_CLI_ARGUMENT_INVALID', () => partsReviewCommand([...args(root), path], EXAMPLE_NOW, { runCli: () => { throw Error('must not run'); } }));
+    refuses(root, 'PARTS_REVIEW_CLI_ARGUMENT_INVALID', () => assertPartsCliArgs([path]));
   });
 }
 
-test('CLI failure carries its code and diagnostic and writes nothing', () => {
+test('parts-review CLI writer is retired with NUMBERED_WRITER_REMOVED and exit 2', () => {
   const root = fixture();
-  refuses(root, 'PARTS_REVIEW_CLI_FAILED', () => partsReviewCommand(args(root), EXAMPLE_NOW, { runCli: reviewStdout(Buffer.alloc(0), 1, 'PARTS_VERDICT_UNAVAILABLE: save a verdict first\n') }));
-  try { partsReviewCommand(args(root), EXAMPLE_NOW, { runCli: reviewStdout(Buffer.alloc(0), 1, 'PARTS_VERDICT_UNAVAILABLE: save a verdict first\n') }); }
-  catch (error) { expect((error as Error).message).toContain('PARTS_VERDICT_UNAVAILABLE: save a verdict first'); }
+  const before = readFileSync(join(root, 'project.json'));
+  expect(main(['parts-review', ...args(root)], EXAMPLE_NOW)).toBe(2);
+  expect(readFileSync(join(root, 'project.json')).equals(before)).toBe(true);
 });
 
-test('invalid human and unknown draft refuse without writing', () => {
+test('unknown draft refuses in assertPartsReadDraft without writing', () => {
   const root = fixture();
-  refuses(root, 'SIGNOFF_NOT_HUMAN', () => partsReviewCommand(args(root).map(arg => arg === 'user' ? 'agent' : arg), EXAMPLE_NOW));
-  refuses(root, 'PARTS_VERDICT_RECEIPT_INVALID', () => partsReviewCommand(args(root).map(arg => arg === 'chain' ? 'unknown' : arg), EXAMPLE_NOW, { runCli: reviewStdout(JSON.stringify(response(root))) }));
+  refuses(root, 'PARTS_VERDICT_RECEIPT_INVALID', () => assertPartsReadDraft(root, read(root), response(root), 'unknown'));
 });
 
 test('retained stdout hash and copied receipt fields are checked', () => {
@@ -145,21 +173,14 @@ test('retained stdout hash and copied receipt fields are checked', () => {
   expect(partsReadFindings(root, read(root)).map(f => f.code)).toEqual(['PARTS_VERDICT_RECEIPT_INVALID']);
 });
 
-test('evidence tampering between storage and commit refuses and cleans its new file', () => {
-  const root = fixture();
-  let evidence = '';
-  refuses(root, 'PARTS_VERDICT_RECEIPT_INVALID', () => partsReviewCommand(args(root), EXAMPLE_NOW, {
-    runCli: reviewStdout(JSON.stringify(response(root))),
-    afterEvidence: path => { evidence = path; writeFileSync(path, '{}'); },
-  }));
-  expect(existsSync(evidence)).toBe(false);
-});
-
-test('latest changes-requested receipt blocks the signoff writer before it writes', () => {
+test('latest changes-requested receipt blocks parts-review signoff gate and numbered signoff refuses exit 2', () => {
   const root = fixture();
   record(root, response(root, 'changes-requested'));
-  refuses(root, 'PARTS_VERDICT_LATEST_NOT_APPROVED', () => signoffCommand(['parts-review', root, '--by', 'user', '--draft', 'chain',
+  refuses(root, 'NUMBERED_WRITER_REMOVED', () => signoffCommand(['parts-review', root, '--by', 'user', '--draft', 'chain',
     '--structure-file', 'evidence/structure.json', '--verbatim-file', 'unused'], EXAMPLE_NOW));
+  refuses(root, 'PARTS_VERDICT_LATEST_NOT_APPROVED', () => seedStoredPartsSignoff(root, 'chain', {
+    by: 'user', at: EXAMPLE_NOW, verbatim: 'Approve', structureFile: 'evidence/structure.json',
+  }));
 });
 
 test('current signatures refuse a latest changes request while earlier signatures warn', () => {
@@ -264,11 +285,14 @@ test('historical receipt checking warns when ignored draft bytes are unavailable
   expect(report.refusals.map(f => f.code)).not.toContain('PARTS_VERDICT_RECEIPT_INVALID');
 });
 
-test('snapshot copies retained config while signoff still requires ignored draft source bytes', () => {
+test('snapshot copies retained config while recordedPartsVerdict still requires ignored draft source bytes', () => {
   const root = fixture();
   record(root, response(root));
   rmSync(join(root, 'derived/drafts/chain/input'), { recursive: true });
   expect(structureSnapshotCommand([root, '--draft', 'chain', '--out', 'evidence/structure-chain.json']).exit).toBe(0);
   expect(existsSync(join(root, 'evidence/structure-chain.json'))).toBe(true);
-  refuses(root, 'PARTS_VERDICT_RECEIPT_INVALID', () => signoffCommand(['parts-review', root, '--by', 'user', '--draft', 'chain', '--structure-file', 'evidence/structure-chain.json'], EXAMPLE_NOW));
+  refuses(root, 'NUMBERED_WRITER_REMOVED', () => signoffCommand(['parts-review', root, '--by', 'user', '--draft', 'chain', '--structure-file', 'evidence/structure-chain.json'], EXAMPLE_NOW));
+  refuses(root, 'PARTS_VERDICT_RECEIPT_INVALID', () => seedStoredPartsSignoff(root, 'chain', {
+    by: 'user', at: EXAMPLE_NOW, verbatim: 'Approve', structureFile: 'evidence/structure-chain.json',
+  }));
 });

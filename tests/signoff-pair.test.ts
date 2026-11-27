@@ -3,7 +3,7 @@ import { prepareJobRecordSource } from '@rig-c/review/job-host';
 import { readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { type Finding } from '../src/check.ts';
-import { recordVerdict } from '../src/feedback.ts';
+import { main } from '../src/cli.ts';
 import { DIRECTION_SCENE_SPEC, objects, validateDirectionScene } from '../src/direction.ts';
 import { JOB_BINDING_FILE, jobHash, writePrivateJson } from '../src/job-outbox.ts';
 import { currentJobIdentity, type RecordPlanContext } from '../src/job-publication.ts';
@@ -62,55 +62,37 @@ function ingestSetup() {
   const verdict = act('review-verdict', 2, 'rig-review', new Date(Date.parse(signedAt) + 60_000).toISOString());
   verdictReceipt(p, verdict, version); save(dir, p);
   const signature = act('signoff', 2, 'rig-review', signedAt);
-  const ingest = () => signoffCommand(['rig-review', realpathSync(dir), '--from-review', 'sign'], Date.parse('2026-11-20T00:00:00Z'), {
-    fetch: () => ({ bytes: JSON.stringify(signature) }),
-  });
+  const ingest = () => signoffCommand(['rig-review', realpathSync(dir), '--from-review', 'sign'], Date.parse('2026-11-20T00:00:00Z'));
   return { dir, signature, verdict, ingest };
 }
 
-test('same-publication human signoff before accepted verdict ingests with its receipt, then replays byte-identically', () => {
+test('signoff --from-review is retired, while same-publication stored receipts still pass pair and ledger checks', () => {
   const f = ingestSetup();
-  expect(f.ingest().exit).toBe(0);
-  const p = load(f.dir); const signature = obj(arr(p.signoffs).at(-1));
+  const before = readFileSync(join(f.dir, 'project.json'));
+  expect(f.ingest).toThrow(expect.objectContaining({ code: 'SIGNOFF_FROM_REVIEW_REMOVED', exitCode: 2 }));
+  expect(readFileSync(join(f.dir, 'project.json'))).toEqual(before);
+
+  const p = load(f.dir);
+  const version = obj(arr(p.versions)[1]);
+  const stored: JsonObject = { stage: 'rig-review', checkpoint: null, target: { version: 2, verdict: 'versions[1].verdicts[0]',
+    review_package: { path: 'versions[1].review_package', sha256: obj(version.review_package).config ? 'a'.repeat(64) : 'b'.repeat(64) } } };
+  signatureReceipt(p, f.signature, stored);
+  p.signoffs = [...arr(p.signoffs), stored];
   expect(reviewActFindings(p)).toEqual([]);
-  expect(samePublicationReviewPair(p, signature, obj(arr(p.versions)[1]), 0)).toBe(true);
-  expect(checkProject(f.dir).refusals.map(f => f.code)).not.toContain('SIGNOFF_PAIR_MISMATCH');
-  const before = readFileSync(join(f.dir, 'project.json'));
-  expect(f.ingest().exit).toBe(0);
-  expect(readFileSync(join(f.dir, 'project.json'))).toEqual(before);
+  expect(samePublicationReviewPair(p, stored, version, 0)).toBe(true);
+  expect(signoffPairFinding(p, stored, `signoffs[${arr(p.signoffs).length - 1}]`)).toBeUndefined();
 });
 
-test('different-publication earlier signoff refuses ingest by name and leaves the record byte-identical', () => {
-  const f = ingestSetup(); f.signature.publicationId = 'publication-two';
-  const before = readFileSync(join(f.dir, 'project.json'));
-  expect(f.ingest).toThrow(expect.objectContaining({ code: 'SIGNOFF_PAIR_MISMATCH' }));
-  expect(readFileSync(join(f.dir, 'project.json'))).toEqual(before);
-});
-
-test('a signoff cannot target a different version from its immutable displayed version', () => {
-  const f = ingestSetup(); obj(obj(f.signature.source).selector).version = 1;
-  const before = readFileSync(join(f.dir, 'project.json'));
-  expect(f.ingest).toThrow(expect.objectContaining({ code: 'SIGNOFF_TARGET_STALE' }));
-  expect(readFileSync(join(f.dir, 'project.json'))).toEqual(before);
-});
-
-test.each(['changes-requested', 'pending'])('a same-publication %s verdict never authorizes a signoff', verdict => {
-  const f = ingestSetup(); const p = load(f.dir); p.review_acts = [];
-  obj(f.verdict.value).verdict = verdict;
-  verdictReceipt(p, f.verdict, obj(arr(p.versions)[1])); save(f.dir, p);
-  const before = readFileSync(join(f.dir, 'project.json'));
-  expect(f.ingest).toThrow(expect.objectContaining({ code: 'SIGNOFF_TARGET_STALE' }));
-  expect(readFileSync(join(f.dir, 'project.json'))).toEqual(before);
-});
-
-test('unaffected chronological signoff writer preserves the existing serialized record exactly', () => {
-  const f = ingestSetup(); const p = load(f.dir); const version = obj(arr(p.versions)[1]);
-  const signedAt = String(f.signature.at); f.verdict.at = new Date(Date.parse(signedAt) - 60_000).toISOString();
-  p.review_acts = []; verdictReceipt(p, f.verdict, version); save(f.dir, p);
-  expect(f.ingest().exit).toBe(0);
-  const before = readFileSync(join(f.dir, 'project.json'));
-  expect(f.ingest().exit).toBe(0);
-  expect(readFileSync(join(f.dir, 'project.json'))).toEqual(before);
+test('different-publication earlier stored signoff fails pair check', () => {
+  const f = ingestSetup();
+  f.signature.publicationId = 'publication-two';
+  const p = load(f.dir);
+  const version = obj(arr(p.versions)[1]);
+  const stored: JsonObject = { stage: 'rig-review', checkpoint: null, target: { version: 2, verdict: 'versions[1].verdicts[0]' } };
+  signatureReceipt(p, f.signature, stored);
+  p.signoffs = [...arr(p.signoffs), stored];
+  expect(samePublicationReviewPair(p, stored, version, 0)).toBe(false);
+  expect(signoffPairFinding(p, stored, `signoffs[${arr(p.signoffs).length - 1}]`, true)?.code).toBe('SIGNOFF_PAIR_MISMATCH');
 });
 
 function scenePair() {
@@ -191,16 +173,17 @@ test.each(['rig-review', 'direction-review'])('shared %s check dates legacy mism
   expect(check()).toEqual({ errors: [], warnings: [] });
 });
 
-test('review ingest refuses completing a legacy cross-publication pair before writing the verdict', () => {
+test('ingestedVerdictPairFinding detects a legacy cross-publication pair and retired review exits 2', () => {
   const dir = fixture(); const p = load(dir); const version = obj(arr(p.versions)[1]);
   const signature = objects(p.signoffs).find(s => s.stage === 'rig-review')!;
   const index = arr(version.verdicts).length;
+  arr(version.verdicts).push({ review: 'rig-review', verdict: 'accepted', by: 'user',
+    at: new Date(Date.parse(String(signature.at)) + 60_000).toISOString(), verbatim: 'Accept', source: 'synthetic review', on_items: [] });
   obj(signature.target).verdict = `versions[1].verdicts[${index}]`;
+  expect(ingestedVerdictPairFinding(p, 2, index)?.code).toBe('SIGNOFF_PAIR_MISMATCH');
   save(dir, p);
   const before = readFileSync(join(dir, 'project.json'));
-  expect(() => recordVerdict(dir, { version: 2, review: 'rig-review', verdict: 'accepted', by: 'user',
-    at: new Date(Date.parse(String(signature.at)) + 60_000).toISOString(), verbatim: 'Accept', source: 'synthetic review',
-    items: [], quotes: {}, values: {} }, Date.parse('2026-11-20T00:00:00Z'))).toThrow(expect.objectContaining({ code: 'SIGNOFF_PAIR_MISMATCH' }));
+  expect(main(['review', '2', dir, '--review', 'rig-review', '--verdict', 'accepted', '--by', 'user', '--source', 'synthetic review', '--verbatim', 'Accept'])).toBe(2);
   expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
 });
 

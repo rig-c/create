@@ -206,7 +206,7 @@ test('a numbered historical move keeps its numbered evidence rules after current
   expect(findings({ ...load(dir), direction_contract: contract })).toEqual(numberedRefusals);
 });
 
-test('Review act ingest keeps the displayed numbered target on a project with current', () => {
+test('signoff --from-review is retired, while check still validates a stored numbered target alongside current', () => {
   const dir = realpathSync(fixture());
   recordFixtureOutput(dir, 'rig');
   const at = withdrawSignature(dir, 'rig-review');
@@ -218,17 +218,16 @@ test('Review act ingest keeps the displayed numbered target on a project with cu
   const project = load(dir);
   project.review_job = { jobId, origin };
   save(dir, project);
-  const act = { schema: 'rig-review/act@2', kind: 'signoff', jobId, actId: 'sign-rig', askId: 'ask-rig', publicationId: 'publication-one', at,
-    authority: { actor: 'human', channel: 'review-ui', reviewer },
-    source: { sourceHash: '1'.repeat(64), projectHash: '2'.repeat(64), package: { id: 'synthetic-package', revision: 'one' },
-      selector: { kind: 'rig', version: 2 }, model: null, direction: null, optionSet: null, appliedResult: null, plan: null,
-      parts: { enumeratorVersion: '2.34.0' } },
-    value: { stage: 'rig-review', decision: 'approved', words } };
-  const result = rawSignoff(['rig-review', dir, '--from-review', act.actId, '--json'], testClock.now(), {
-    fetch: () => ({ bytes: JSON.stringify(act) }),
-  });
-  expect(result.exit).toBe(0);
-  expect(JSON.parse(result.stdout).target).toMatchObject({ version: 2, verdict: 'versions[1].verdicts[0]' });
+  const before = readFileSync(join(dir, 'project.json'));
+  expect(() => rawSignoff(['rig-review', dir, '--from-review', 'sign-rig', '--json'], testClock.now()))
+    .toThrow(expect.objectContaining({ code: 'SIGNOFF_FROM_REVIEW_REMOVED', exitCode: 2 }));
+  expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
+
+  const original = JSON.parse(readFileSync(join(import.meta.dir, '../templates/example-numbered/example-project.json'), 'utf8')) as JsonObject;
+  const storedNumbered = arr(original.signoffs).map(obj).find(s => s.stage === 'rig-review')!;
+  const seeded = load(dir);
+  seeded.signoffs = [...arr(seeded.signoffs), { ...storedNumbered, at }];
+  save(dir, seeded);
   expect(checkProject(dir).refusals).toEqual([]);
   const after = load(dir);
   expect(after.current).toEqual(project.current);

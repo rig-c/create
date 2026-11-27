@@ -277,7 +277,7 @@ test.each(['record', 'draft'] as const)('#827 reconcile drains a pending plan an
     const revise = await cli(root, ['plan', 'revise', 'meshes', root, '--by', 'agent', '--bar', 'Synthetic changed bar']);
     expect(revise).toMatchObject({ exit: 1, stderr: expect.stringMatching(/^rig-create: JOB_PUBLISH_PENDING:/) });
     expect(readFileSync(file)).toEqual(before);
-    const close = await cli(root, ['job', 'close', root, '--retire-refused']);
+    const close = await cli(root, ['job', 'close', root]);
     expect(close).toMatchObject({ exit: 1, stderr: expect.stringMatching(/^JOB_PUBLISH_PENDING:/) });
     expect(pendingPublications(root)).toEqual(mixed);
     expect(readFileSync(file)).toEqual(before);

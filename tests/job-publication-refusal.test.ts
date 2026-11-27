@@ -173,17 +173,22 @@ test('#1119 next offers retirement of a refused current publication and camera_d
         message: expect.stringContaining('JOB_RECORD_INCOMPLETE') })]),
       commands: expect.arrayContaining([expect.stringMatching(/^rig-create job close\b.*--retire-refused\b/)]),
     });
+    expect(blocked.moves.some(move => move.command?.startsWith('rig-create interview-answer camera_depth '))).toBe(false);
 
     expect(await run('job', 'close', root, '--retire-refused')).toMatchObject({ exit: 0 });
     expect(pendingPublications(root)).toEqual([]);
     expect(readWriterBinding(root)).toBeNull();
     expect(record()).toEqual(initial);
+    const recovered = await run('next', root, '--json');
+    expect(recovered.exit).toBe(0);
+    expect((JSON.parse(recovered.stdout) as NextReport).moves).toContainEqual(expect.objectContaining({
+      command: expect.stringMatching(/^rig-create interview-answer camera_depth /),
+    }));
     const opened = await open('--question', 'camera_depth');
     published(opened);
     expect(opened.stdout).toContain('job: option-set camera_depth/current-camera-depth published ');
     expectJobLocatorOnly(initial, record(), opened.url);
     expect(await run('job', 'close', root)).toMatchObject({ exit: 0 });
-
   });
 }, 60_000);
 
@@ -208,22 +213,25 @@ test('#1119 mixed retirement keeps the unfailed parts publication in the same li
     expect(record()).toEqual(initial);
 
     const retired = await run('job', 'close', root, '--retire-refused');
-    expect(retired).toMatchObject({ exit: 0 });
+    expect(retired).toMatchObject({ exit: 0, stdout: expect.stringContaining('kept the job open with 1 pending publication(s)') });
     expect(pendingPublications(root)).toEqual([partsEntry]);
     expect(JSON.parse(readFileSync(join(jobPrivateRoot(root), 'retired-publications', `${rigEntry.id}.json`), 'utf8'))).toEqual(rigEntry);
     expect(readWriterBinding(root)).toEqual(binding);
     expect(record()).toEqual(initial);
 
+    // Review 4.24 also refuses parts while the camera options are pending.
+    // Reconcile must actually try it on the same job before it can be retired.
     const reconciled = await run('job', 'reconcile', root);
-    expect(reconciled).toMatchObject({ exit: 0, stdout: 'job: reconciled 1 publication(s)\n' });
-    expect(pendingPublications(root)).toEqual([]);
+    expect(reconciled).toMatchObject({ exit: 1, stderr: expect.stringMatching(/^JOB_PUBLISH_PENDING: .*JOB_RECORD_INCOMPLETE/m) });
+    expect(pendingPublications(root)).toEqual([expect.objectContaining({
+      id: partsEntry.id, jobId: binding?.jobId, failure: expect.objectContaining({ code: 'JOB_RECORD_INCOMPLETE' }),
+    })]);
     expect(readWriterBinding(root)).toEqual(binding);
-    const partsHead = await run(...openArgs(root, '--current', 'parts'));
-    const alreadyPublished = /^job: current parts already published \(publication ([^\s)]+)\)$/m.exec(partsHead.stdout);
-    expect(partsHead).toMatchObject({ exit: 0, stdout: expect.stringContaining('job: current parts already published ') });
-    await expectPublishedEvents(refused.url, [{ id: alreadyPublished![1]!, output: 'parts' }]);
     expect(record()).toEqual(initial);
-    expect(await run('job', 'close', root)).toMatchObject({ exit: 0 });
+    expect(await run('job', 'close', root, '--retire-refused')).toMatchObject({ exit: 0, stdout: 'job: closed\n' });
+    expect(pendingPublications(root)).toEqual([]);
+    expect(readWriterBinding(root)).toBeNull();
+    expect(record()).toEqual(initial);
   });
 }, 60_000);
 
@@ -250,7 +258,7 @@ test('#1119 current rig → parts → rig publishes a new rig live head without 
 
     const last = await run(...openArgs(root, '--current', 'rig'));
     expect(last).toMatchObject({ exit: 0, stdout: expect.stringContaining(`job: current rig already published (publication ${againId})`) });
-    const check = await run('check', root);
+    const check = await run('interview', '--check', root);
     expect(check).toMatchObject({ exit: 0 });
     expect(`${check.stdout}\n${check.stderr}`).not.toContain('JOB_PUBLISH_PENDING');
     expect(pendingPublications(root)).toEqual([]);

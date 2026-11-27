@@ -730,6 +730,36 @@ From the project root, render the recorded current rig into
 rig-create record motion --from outputs/motion.next
 ```
 
+For looping motion and direction exports, the project spec may declare a seam budget.
+Use this starting value in `specs/motion/loop-seam.json` and adjust it to suit the take.
+
+```json
+{
+  "channel_delta": 8,
+  "pixels_above": 0,
+  "warmup_cap": 12
+}
+```
+
+The budget allows at most `pixels_above` pixels whose largest absolute RGBA
+channel difference is strictly greater than `channel_delta`. Core searches from
+zero warm-up loops through `warmup_cap` inclusive. With a budget, `next` adds
+`--loop-seam-bar 8,0 --loop-seam-cap 12` (using the declared numbers) to
+Core's motion render and Parts' direction compose. Use Core 3.11.0 and Parts
+2.62.0 or newer. A successful producer exit can leave the seam unmeasured,
+so retain the producer report with the export.
+
+`record motion` binds each reported seam and its endpoint files by SHA-256 in
+`current.motion.files`. `record direction` binds Parts' `check/check.json`,
+which carries the Core verdict under `loop_seam`, and the retained composed
+idle endpoints. Both writers require a matching judged report when a budget
+is declared. From the contract date in [CHECKS.md](CHECKS.md), `check` refuses
+missing or unjudged evidence for recorded outputs with a declared budget.
+Earlier records get a warning. An invalid report or a verdict over its bar
+refuses at any date. Use Core's `--loop-seam` for an observation without a
+verdict when no budget is declared. The [current-path example](../templates/example-current/)
+includes the starting budget and both producer reports.
+
 Author `specs/direction/compose-scene.json` as a Parts `spine-parts-scene/1`
 with one character, named plates and an explicit idle animation. The
 character build and plate image paths are relative to the Parts scene.

@@ -9,11 +9,13 @@ const policyPath = 'specs/motion/loop-seam.json';
 const seamFile = 'loop-seam.json';
 const rerender = 'render again with a Core version that writes rigc-loop-seam/1 and record motion';
 
+export const LOOP_SEAM_REPORT_SINCE = '2026-11-27T00:00:00Z';
+
 function whole(value: Json | undefined): value is number {
   return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
 }
 
-interface MotionLoopSeamPolicy {
+export interface MotionLoopSeamPolicy {
   channel_delta: number;
   pixels_above: number;
   warmup_cap: number;

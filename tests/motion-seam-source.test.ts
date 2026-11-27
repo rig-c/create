@@ -56,6 +56,7 @@ function motionCommand(dir: string, role: 'producer' | 'agent'): string {
 sourceOnlyTest('#1073 records real Core loop seam evidence and refuses wrong endpoint identities and hashes', () => {
   const dir = postProject();
   const projectPath = join(dir, 'project.json');
+  rmSync(join(dir, 'specs/motion/loop-seam.json'), { force: true });
   const ordinary = motionCommand(dir, 'producer');
   expect(ordinary).not.toContain('--loop-seam');
 

@@ -7,6 +7,7 @@ import { checkProject } from '../src/check.ts';
 import { COMPOSE_CHECK_PATH, COMPOSE_RUN_PATH, CURRENT_DIRECTION_PATH } from '../src/current-direction.ts';
 import { CURRENT_MOTION_FRAMES, CURRENT_RIG_MODEL, currentShapeFindings, outputRoot, outputSetHash, sha256, treeFiles } from '../src/current.ts';
 import { directionCommand } from '../src/direction-writers.ts';
+import { LOOP_SEAM_REPORT_SINCE } from '../src/motion-loop-seam.ts';
 import { nextProject } from '../src/next.ts';
 import { recordCommand } from '../src/record.ts';
 import { CURRENT_SCENE_PATH } from '../src/scene.ts';
@@ -109,12 +110,19 @@ function seamReport(dir: string, status: 'met' | 'unjudged', pixelsAbove = 0): v
   });
 }
 
-test('#1073 opt-in seam budget warns for existing motion and refuses a fresh record without a verdict', () => {
+test('#1073 a missing requested motion verdict warns before the contract date and refuses from that date', () => {
   const f = sceneFixture();
   currentRig(f);
   render(f.dir, false);
   expect(recordMotion(f.dir).exit).toBe(0);
   write(f.dir, seamSpec, seamBudget);
+  const project = f.load();
+  const motion = (project.current as JsonObject).motion as JsonObject;
+  motion.at = new Date(LOOP_SEAM_REPORT_SINCE).toISOString();
+  f.save(project);
+  expect(check(f.dir).refusals.map(finding => finding.code)).toContain('MOTION_LOOP_SEAM_MISSING');
+  motion.at = new Date(Date.parse(LOOP_SEAM_REPORT_SINCE) - 1).toISOString();
+  f.save(project);
   expect(check(f.dir).warnings.map(finding => finding.code)).toContain('MOTION_LOOP_SEAM_MISSING');
   const original = raw(f.dir, 'project.json');
   render(f.dir, false);
@@ -151,6 +159,8 @@ test('#1073 motion can retain an unjudged measurement without a declared budget'
   seamReport(f.dir, 'unjudged');
   expect(recordMotion(f.dir).exit).toBe(0);
   expect(check(f.dir).warnings.map(finding => finding.code)).toContain('MOTION_LOOP_SEAM_UNJUDGED');
+  write(f.dir, seamSpec, seamBudget);
+  expect(check(f.dir).refusals.map(finding => finding.code)).toContain('MOTION_LOOP_SEAM_UNJUDGED');
 });
 
 test('#1029 first record motion migrates the legacy pattern without contaminating JSON stdout', () => {

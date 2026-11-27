@@ -4,6 +4,7 @@ import { isObject } from './check.ts';
 import { ComposeValueError, readComposeValue } from './compose-value.ts';
 import { CURRENT_RIG_MODEL, currentFileBinding, outputRoot, sha256 } from './current.ts';
 import { citedValues, readComposeRun, validateComposeCitations, validateComposeRunInputs } from './direction-compose.ts';
+import { COMPOSE_CHECK_PATH, COMPOSE_MODEL_PATH } from './direction-loop-seam.ts';
 import { closed, directionBytes, directionFail, directionJson, objects, validateDirectionCitations } from './direction.ts';
 import { CURRENT_SCENE_PATH, SceneError, plateRegistration, sceneBinding, sceneBytes, validateCurrentScene } from './scene.ts';
 import { validateAgentPlateRegistration } from './scene-authority.ts';
@@ -12,8 +13,7 @@ import type { JsonObject } from './templates.ts';
 export const CURRENT_DIRECTION_PATH = 'specs/direction/direction.json';
 export const CURRENT_DIRECTION_SPEC = 'rig-create/direction@4';
 export const COMPOSE_RUN_PATH = 'compose-run.json';
-export const COMPOSE_CHECK_PATH = 'check/check.json';
-const MODEL_PATH = 'check/build/skeleton.model.json';
+export { COMPOSE_CHECK_PATH } from './direction-loop-seam.ts';
 const REQUIRED_CHARACTER_FILES = ['check/check.json', 'parts.json', 'rig/rig.json', 'rig/motion.json'];
 type Binding = { path: string; sha256: string };
 
@@ -29,6 +29,7 @@ export function currentDirectionSource(dir: string, project: JsonObject, doc: Js
     || !closed(doc.rig, ['model']) || !sceneBinding(doc.rig.model) || !sceneBinding(doc.scene) || doc.scene.path !== CURRENT_SCENE_PATH
     || !closed(doc.take, ['duration', 'loop']) || typeof doc.take.duration !== 'number' || !Number.isFinite(doc.take.duration)
     || doc.take.duration <= 0 || doc.take.loop !== true) return bad('write a direction spec with the current rig, scene and a positive looping take');
+  const takeDuration = doc.take.duration;
   validateComposeCitations(doc, bad);
   const sceneBytesRaw = sceneBytes(dir, CURRENT_SCENE_PATH, 'DIRECTION_CURRENT_SPEC_INVALID', snapshots);
   if (sha256(sceneBytesRaw) !== doc.scene.sha256) bad('the scene changed; run direction write again');
@@ -72,7 +73,6 @@ export function currentDirectionSource(dir: string, project: JsonObject, doc: Js
   });
   validateAgentPlateRegistration(dir, project, registered, snapshots);
   validateDirectionCitations(dir, project, doc, true);
-  const take = doc.take;
   const composition = citedValues(dir, project, doc, 'post_composition', true, snapshots).filter(value => value.compose !== undefined)
     .map(value => readComposeValue(value.compose, 'direction.citations.composition.value.compose'));
   const plateValues = plates.map((plate, i) => ({ name: plate.name!, image: registered[i]!.path, at: plate.at!,
@@ -83,11 +83,11 @@ export function currentDirectionSource(dir: string, project: JsonObject, doc: Js
   if (!chosen) return directionFail('DIRECTION_COMPOSE_CHOICE_MISMATCH', source.path, 'copy canvas, plates, order, placement and idle tracks from the current cited compose choice');
   const timing = citedValues(dir, project, doc, 'post_timing', true, snapshots);
   if (!timing.some(value => value.loop === true)) directionFail('DIRECTION_COMPOSE_LOOP', 'direction.take.loop', 'cite the current looping post_timing value');
-  if (idle.duration !== take.duration || (chosen.end !== undefined && chosen.end !== take.duration)
-    || !timing.some(value => value.seconds === take.duration && value.loop === true)) {
+  if (idle.duration !== takeDuration || (chosen.end !== undefined && chosen.end !== takeDuration)
+    || !timing.some(value => value.seconds === takeDuration && value.loop === true)) {
     directionFail('DIRECTION_COMPOSE_DURATION', 'direction.take.duration', 'match the current cited timing, Parts scene idle and track end');
   }
-  return { authoredScene, source, scene, character, build, registered, chosen };
+  return { authoredScene, source, scene, character, build, registered, chosen, takeDuration };
 }
 
 export function prepareCurrentDirection(dir: string, project: JsonObject, intent: JsonObject, snapshots: Map<string, Buffer>): JsonObject {
@@ -166,15 +166,14 @@ export function readDirectionOutput(dir: string, project: JsonObject, from: stri
     }
     const check = output(COMPOSE_CHECK_PATH, 'DIRECTION_COMPOSE_GREEN');
     const report = directionJson(check.bytes, check.binding.path);
-    const model = output(MODEL_PATH, 'DIRECTION_COMPOSE_FILE');
+    const model = output(COMPOSE_MODEL_PATH, 'DIRECTION_COMPOSE_FILE');
     if (report.spec !== 'rig-parts-check/1' || report.PASS !== true || report.gate_spine_html_green !== true
       || !isObject(report.build) || report.build.model_sha256 !== model.binding.sha256) {
       directionFail('DIRECTION_COMPOSE_GREEN', check.binding.path, 'retain the green Parts compose check that binds this compiled model; compose again');
     }
     const composed = directionJson(model.bytes, model.binding.path);
-    const take = doc.take as JsonObject;
     const animations = objects(composed.animations).filter(value => value.name === 'idle');
-    if (animations.length !== 1 || animations[0]!.duration !== take.duration) {
+    if (animations.length !== 1 || animations[0]!.duration !== input.takeDuration) {
       directionFail('DIRECTION_COMPOSE_DURATION', model.binding.path, 'composed model idle duration must match the cited take; compose again');
     }
     const { width, height } = input.chosen.canvas;
@@ -185,6 +184,7 @@ export function readDirectionOutput(dir: string, project: JsonObject, from: stri
     const animation = (input.authoredScene.rig as { animation: { frames: Binding; motion: Binding } }).animation;
     const bindings = [{ path: spec, sha256: sha256(bytes) }, doc.scene as Binding, input.source, rig.model, animation.frames, animation.motion,
       ...rigFiles, ...input.registered.map(({ path, sha256 }) => ({ path, sha256 }))];
-    return { built_with: {}, built_from: [...new Map(bindings.map(binding => [binding.path, binding])).values()], run: run.binding, report: check.binding };
+    return { built_with: {}, built_from: [...new Map(bindings.map(binding => [binding.path, binding])).values()], run: run.binding,
+      report: check.binding, takeDuration: input.takeDuration };
   } catch (error) { return transitionError(error); }
 }

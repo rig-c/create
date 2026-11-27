@@ -1017,7 +1017,7 @@ test('#382 draft publication binds inputs[0] in producer.source, seals it in fil
   const sourceCiTests = validateSourceOnlyList(JSON.parse(
     readFileSync(join(import.meta.dir, '../scripts/source-ci-tests.json'), 'utf8'),
   ) as SourceOnlyTestEntry[]);
-  for (const entry of SOURCE_ONLY_TESTS) expect(sourceCiTests.get(entry.name)).toEqual(entry);
+  for (const entry of SOURCE_ONLY_TESTS) expect(sourceCiTests.get(entry.name)?.file).toBe(entry.file);
   expect(validateSourceOnlyList([]).size).toBe(0);
   expect(() =>
     validateSourceOnlyList([

@@ -1,5 +1,5 @@
 /** Read Review through its CLI and retain the exact response bytes owned by create.
- * Every Review read (feedback and parts) spawns through one path and is bound at check time by one stored-read validator. */
+ * Every Review CLI feedback read spawns through one path and is bound at check time by one stored-read validator. */
 import { createHash } from 'node:crypto';
 import { closeSync, fsyncSync, linkSync, mkdirSync, openSync, rmSync, writeFileSync } from 'node:fs';
 import { existsSync, lstatSync, readFileSync, realpathSync } from './check-reads.ts';
@@ -188,10 +188,6 @@ export function storedReviewRead(dir: string, stdout: unknown): Buffer {
             throw error;
         return invalid(message(error), 'unavailable');
     }
-}
-/** Parts read: `rig-review parts <args> --format json`. Decoding and the draft binding belong to the parts route. */
-export function readPartsReview(dir: string, args: string[], runner: ReviewReadRunner = runReview): ReviewReadResult {
-    return runReviewCli(dir, ['rig-review', 'parts', ...args, '--format', 'json'], runner);
 }
 export function readReview(dir: string, input: string, runner: ReviewReadRunner = runReview): {
     receipt: JsonObject;

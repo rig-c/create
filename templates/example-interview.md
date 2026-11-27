@@ -7,7 +7,7 @@ illustrates parts and meshes, the rigging interview, rig and animation, and
 direction in the historical stage order. It shows a user sentence, a full
 delegation, a sentence that delegates the rest, and feedback read every way it
 can be read. The complete record this walk-through
-produces is [example-project.json](example-project.json); the shapes are defined
+produces is the [frozen numbered record](example-numbered/example-project.json); the shapes are defined
 in [../docs/INTERVIEW.md](../docs/INTERVIEW.md) and
 [../docs/PROJECT.md](../docs/PROJECT.md).
 
@@ -174,7 +174,7 @@ v2. The user accepts v4: *"done, I like it"*, and the project is `accepted`.
 
 ## What the record shows afterwards
 
-Reading [example-project.json](example-project.json) cold, without this page:
+Reading the [numbered record](example-numbered/example-project.json) cold, without this page:
 
 - Two of the nine sign-offs are checkpoints (`assemble`, `constraints`); one
   re-signs two plan steps after a guide changed.

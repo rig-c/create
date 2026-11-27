@@ -2,9 +2,11 @@ import { expect, spyOn, test } from 'bun:test';
 import { cpSync, existsSync, mkdirSync, readFileSync, renameSync, symlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { EXAMPLE_ANCHOR } from '../scripts/example-time.ts';
-import { checkProject, type CheckReport } from '../src/check.ts';
+import { asArray, checkProject, isObject, type CheckReport } from '../src/check.ts';
 import { CURRENT_RIG_MODEL, currentFileBinding, currentShapeFindings, outputSetHash, sha256, treeFiles, type CurrentKind } from '../src/current.ts';
+import { reviewCommand, type OpenDirectionComment } from '../src/feedback.ts';
 import { interviewCommand } from '../src/interview.ts';
+import { nextCommand, type NextReport } from '../src/next.ts';
 import { OWNER_CHAT_SOURCE } from '../src/owner-chat.ts';
 import { resolveAdoptSource } from '../src/record-adopt.ts';
 import { recordCommand } from '../src/record.ts';
@@ -280,8 +282,7 @@ test('record motion --from clears adoption and leaves the original idle output a
   expect(treeFiles(f.dir, `${outputs}/idle`)).toEqual(idle);
 });
 
-test('adopts a numbered post with <id>:<pose> output directories and checks with 0 refusals', () => {
-  const checkNow = EXAMPLE_ANCHOR + 60 * 60_000;
+function numberedPostFixture(bounce = false): string {
   const composeFiles: Record<string, string> = {
     'outputs/v4/compose/compose-run.json': '{"spec":"rig-compose-run/1"}',
     'outputs/v4/compose/check/check.json': '{"spec":"rig-parts-check/1","PASS":true}',
@@ -290,7 +291,12 @@ test('adopts a numbered post with <id>:<pose> output directories and checks with
     'outputs/v4/compose/check/extremes/actor:body_turn/extremes.png': 'synthetic extreme pose',
     'outputs/v4/compose/check/extremes/actor:tilt/extremes.json': '{"extremes":[]}',
   };
-  const dir = exampleFixture(project => {
+  return exampleFixture(project => {
+    if (bounce) {
+      project.stage = 'direction-review';
+      project.signoffs = asArray(project.signoffs).filter(row => isObject(row) && row.stage !== 'direction-review');
+      project.advances = asArray(project.advances).filter(row => isObject(row) && row.stage !== 'accepted');
+    }
     const post = (project.versions as JsonObject[]).find(version => version.n === 4)!;
     post.outputs = [
       ...(post.outputs as JsonObject[]),
@@ -299,9 +305,14 @@ test('adopts a numbered post with <id>:<pose> output directories and checks with
       })),
     ];
   }, 'example-numbered/example-project.json', composeFiles);
+}
 
+test('adopts a numbered post with <id>:<pose> output directories and checks with 0 refusals', () => {
+  const checkNow = EXAMPLE_ANCHOR + 60 * 60_000;
+  const dir = numberedPostFixture();
   const adopted = recordCommand(['direction', dir, '--adopt', '--json'], checkNow);
   expect(adopted.exit).toBe(0);
+  expect(adopted.stderr).toBeUndefined();
   const node = JSON.parse(adopted.stdout) as JsonObject;
   expect(node.adopted).toEqual({ version: 4 });
   const paths = (node.files as { path: string }[]).map(file => file.path);
@@ -312,7 +323,54 @@ test('adopts a numbered post with <id>:<pose> output directories and checks with
   const checked = interviewCommand(['--check', dir, '--json'], checkNow);
   const report = JSON.parse(checked.stdout) as CheckReport;
   expect(report.refusals.map(finding => finding.code)).toEqual([]);
+  expect(report.feedback.some(feedback => feedback.open_direction_comment !== undefined)).toBe(false);
   expect(checked.exit).toBe(0);
+});
+
+test('adopts a bounced post in place and exposes its open comment through the legacy binding', () => {
+  const dir = numberedPostFixture(true);
+  const checkNow = EXAMPLE_ANCHOR + 60 * 60_000;
+  const file = join(dir, 'project.json');
+  const words = 'The beam still starts too early.\nKeep the last sweep.';
+  const wordsFile = join(dir, 'owner-words.txt');
+  writeFileSync(wordsFile, words);
+  expect(reviewCommand(['4', dir, '--review', 'direction-review', '--verdict', 'bounced', '--by', 'user',
+    '--verbatim-file', wordsFile, '--source', 'synthetic chat', '--item', 'post_timing:user'], checkNow).exit).toBe(0);
+  const before = readFileSync(file);
+  const composeRun = join(dir, 'outputs/v4/compose/compose-run.json');
+  renameSync(composeRun, `${composeRun}.kept`);
+  expect(() => recordCommand(['direction', dir, '--adopt'], checkNow + 1))
+    .toThrow(expect.objectContaining({ code: 'RECORD_ADOPT_SOURCE_INVALID' }));
+  expect(readFileSync(file)).toEqual(before);
+  renameSync(`${composeRun}.kept`, composeRun);
+
+  const adopted = recordCommand(['direction', dir, '--adopt', '--json'], checkNow + 1);
+  expect(adopted.exit).toBe(0);
+  expect(adopted.stderr).toContain('WARN [RECORD_ADOPT_DIRECTION_BOUNCED]');
+  expect(adopted.stderr).toContain('versions[v4].verdicts[1]');
+  const saved = readFileSync(file);
+  const project = JSON.parse(saved.toString()) as JsonObject;
+  expect(JSON.parse(adopted.stdout)).toMatchObject({ adopted: { version: 4 } });
+  // The 1.26.0 writer added only current.direction. The view reads those same bytes.
+  expect(project).toEqual({ ...JSON.parse(before.toString()), current: { direction: JSON.parse(adopted.stdout) } });
+
+  const comment: OpenDirectionComment = {
+    field: 'current.direction', verdict: 'versions[v4].verdicts[1]', by: 'user',
+    at: new Date(checkNow).toISOString(), source: 'synthetic chat', verbatim: words,
+    on_items: [{ id: 'post_timing', answer_was: 'user' }],
+  };
+  const check = interviewCommand(['--check', dir, '--json'], checkNow + 1);
+  expect(check.exit).toBe(0);
+  const report = JSON.parse(check.stdout) as CheckReport;
+  expect(report.refusals).toEqual([]);
+  expect(report.feedback.flatMap(feedback => feedback.open_direction_comment ?? [])).toEqual([comment]);
+  const next = JSON.parse(nextCommand([dir, '--json'], checkNow + 1).stdout) as NextReport;
+  expect(next.open_direction_comments).toEqual([comment]);
+  for (const result of [interviewCommand(['--check', dir], checkNow + 1), nextCommand([dir], checkNow + 1)]) {
+    expect(result.stdout).toContain('FEEDBACK_OPEN');
+    expect(result.stdout).toContain(`Open comment from user: ${JSON.stringify(words)}`);
+  }
+  expect(readFileSync(file)).toEqual(saved);
 });
 
 test.each([

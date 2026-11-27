@@ -14,7 +14,7 @@ import { readDirectionOutput } from './current-direction.ts';
 import { directionLoopSeamFindings } from './direction-loop-seam.ts';
 import { builtFromNameAllowed, CURRENT_KINDS, CURRENT_RIG_MODEL, currentFileBinding, currentHash, currentShapeFindings, isRunRecordFile, outputRoot, outputSetHash, RUN_RECORD_NAME, sha256, treeFiles, type CurrentKind, type RebuildRunSpec } from './current.ts';
 import { DirectionError } from './direction.ts';
-import { readProject } from './feedback.ts';
+import { directionFeedbackRefFinding, parseFeedbackPair, readProject } from './feedback.ts';
 import { recordCurrentPartsLedger } from './fix-ledger.ts';
 import { acquireBoundJobWrite } from './job-writer.ts';
 import type { CommandResult } from './interview.ts';
@@ -47,6 +47,7 @@ export const RECORD_HELP = `record:
                  record rigc frames.json and its render tree beside outputs/motion/, with render-run.json when present.
   rig-create record direction [<dir>] --from <compose out> --direction specs/direction/direction.json [--by <who>] [--json]
                  record green rig-parts compose output beside outputs/direction/, with compose-run.json and check/check.json.
+                 Repeat --answers-feedback <version>:<verdict> to answer open numbered direction-review bounces.
   rig-create record <kind> [<dir>] --adopt [--json]
                  record the latest live legacy version's bound output in place, when current.<kind> is absent.`;
 
@@ -481,6 +482,8 @@ function adoptedFileSize(dir: string, file: FileHash & { bytes?: number }, versi
   return bytes.length;
 }
 
+const ADOPT_DIRECTION_BOUNCED = 'RECORD_ADOPT_DIRECTION_BOUNCED';
+
 function recordAdoption(dir: string, file: string, original: Buffer, project: JsonObject, kind: RecordableKind, now: number, json: boolean): CommandResult {
   const source = resolveAdoptSource(project, kind);
   if (!source.ok) {
@@ -509,7 +512,9 @@ function recordAdoption(dir: string, file: string, original: Buffer, project: Js
     process.stderr.write('Adopting this output will stop numbered verdict moves from being offered for this project. To sign off on an adopted output, rebuild it and use rig-create record <kind> --from <producer out>.\n');
   }
   writeRecord(file, original, candidate, `record-${kind}-adopt`, 'RECORD_SOURCE_CHANGED');
-  return { stdout: json ? JSON.stringify(node, null, 2) : `record ${kind}: adopted v${source.version} in place (${files.length} files)`, exit: 0 };
+  const stderr = source.bouncedDirectionVerdict === undefined ? undefined
+    : `WARN [${ADOPT_DIRECTION_BOUNCED}]: current.direction adopted bounced v${source.version} in place (versions[v${source.version}].verdicts[${source.bouncedDirectionVerdict}]); run rig-create next to read the open direction feedback before rebuilding`;
+  return { stdout: json ? JSON.stringify(node, null, 2) : `record ${kind}: adopted v${source.version} in place (${files.length} files)`, exit: 0, ...(stderr ? { stderr } : {}) };
 }
 
 export function recordCommand(args: string[], now: number): CommandResult {
@@ -520,12 +525,18 @@ export function recordCommand(args: string[], now: number): CommandResult {
   const valueFlags = ['--from', '--by', sourceFlag, ...(kind === 'parts' ? ['--ledger-report'] : [])];
   const positional: string[] = [];
   const options: Record<string, string> = {};
+  const feedbackPairs: string[] = [];
   let adopt = false;
   let json = false;
   for (let i = 0; i < rest.length; i++) {
     const arg = rest[i]!;
     if (arg === '--json' && !json) json = true;
     else if (arg === '--adopt' && !adopt) adopt = true;
+    else if (arg === '--answers-feedback' && kind === 'direction') {
+      const value = rest[++i];
+      if (value === undefined || value.startsWith('--') || !value.trim()) usage(`${arg} needs one value`, kind);
+      feedbackPairs.push(value!);
+    }
     else if (valueFlags.includes(arg) && options[arg] === undefined) {
       const value = rest[++i];
       if (value === undefined || value.startsWith('--') || !value.trim()) usage(`${arg} needs one value`, kind);
@@ -533,7 +544,7 @@ export function recordCommand(args: string[], now: number): CommandResult {
     } else if (arg.startsWith('-')) usage(`unexpected or repeated option ${arg}`, kind);
     else positional.push(arg);
   }
-  if (adopt && (positional.length > 1 || Object.keys(options).length)) {
+  if (adopt && (positional.length > 1 || Object.keys(options).length || feedbackPairs.length)) {
     usage('pass --adopt with at most one project folder and optional --json', kind);
   }
   if (!adopt && (positional.length > 1 || !options['--from'] || (sourceFlag && !options[sourceFlag]))) {
@@ -562,6 +573,13 @@ export function recordCommand(args: string[], now: number): CommandResult {
     const project = JSON.parse(original.toString('utf8')) as JsonObject;
     if (project.schema !== PROJECT_SCHEMA) refuse('SCHEMA_UNKNOWN', `project.json.schema: record ${kind} reads ${PROJECT_SCHEMA}`);
     if (adopt) return recordAdoption(dir, file, original, project, kind, now, json);
+    const current = isObject(project.current) ? project.current : {};
+    const priorNode = isObject(current[kind]) ? current[kind] : undefined;
+    const priorAnswers = kind === 'direction' ? priorNode?.answers_feedback : undefined;
+    if (feedbackPairs.length > 0 && priorAnswers !== undefined && !Array.isArray(priorAnswers)) {
+      const finding = directionFeedbackRefFinding('current.direction.answers_feedback', 'restore the existing answer array before adding an answer');
+      refuse(finding.code, finding.message);
+    }
 
     // The producer's tree, read in place: every regular file, recorded at its path after the rename.
     let fromIsDir = false;
@@ -596,11 +614,10 @@ export function recordCommand(args: string[], now: number): CommandResult {
       ...(details.run ? { run: details.run } : {}),
       ...(details.report ? { report: details.report } : {}),
       ...(details.rebuild ? { rebuild: details.rebuild } : {}),
+      ...(priorAnswers === undefined ? {} : { answers_feedback: priorAnswers }),
     };
     const ledgerReport = options['--ledger-report'];
     const verifyLedger = kind === 'parts' ? recordCurrentPartsLedger(dir, project, node, ledgerReport, now) : undefined;
-    const current = isObject(project.current) ? project.current : {};
-    const priorNode = isObject(current[kind]) ? current[kind] : undefined;
     const previousBuiltFrom = priorNode && Array.isArray(priorNode.built_from)
       ? (priorNode.built_from as JsonObject[])
         .filter((entry): entry is FileHash => isObject(entry) && typeof entry.path === 'string' && typeof entry.sha256 === 'string')
@@ -610,6 +627,20 @@ export function recordCommand(args: string[], now: number): CommandResult {
     const shape = currentShapeFindings(kind, node, candidate)[0];
     if (shape) refuse(shape.code, shape.message);
     const before = checkProject(dir, undefined, { now });
+    if (feedbackPairs.length > 0) {
+      const refs = Array.isArray(priorAnswers) ? [...priorAnswers] : [];
+      const openPaths = new Set(before.warnings.filter(finding => finding.code === 'FEEDBACK_OPEN').map(finding => finding.path));
+      for (const pair of feedbackPairs) {
+        const ref = parseFeedbackPair(pair);
+        const verdict = ref && before.feedback.find(row => row.version === ref.version && row.index === ref.verdict);
+        if (!verdict || verdict.review !== 'direction-review' || !openPaths.has(verdict.verdict)) {
+          const finding = directionFeedbackRefFinding(`current.direction.answers_feedback[${refs.length}]`, `${JSON.stringify(pair)} does not identify an open direction-review bounce`);
+          refuse(finding.code, finding.message);
+        }
+        refs.push(ref);
+      }
+      node.answers_feedback = refs;
+    }
     const baseline = baselineOf(before);
     // Replacing a signed current output stales only its active signature; check keeps reporting it.
     const targetPath = kind === 'motion' ? undefined : activeCurrentSignoffTargetPath(project, kind);
@@ -680,6 +711,7 @@ export function recordCommand(args: string[], now: number): CommandResult {
       ...(sourceFlag ? [sourceFlag, config ?? options[sourceFlag]!] : []),
       ...(ledgerReport ? ['--ledger-report', ledgerReport] : []),
       ...(options['--by'] ? ['--by', options['--by']] : []),
+      ...feedbackPairs.flatMap(pair => ['--answers-feedback', pair]),
     ].map(value => /^[\w./@+-]+$/.test(value) ? value : JSON.stringify(value)).join(' ');
     const migrationWarning = migration.changed ? undefined : migration.warning;
     const commitWarning = !migration.changed && migration.failed ? undefined : commitProjectStep(dir, kind, writer, 'project.json', root, stale, {

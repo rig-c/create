@@ -38,7 +38,7 @@ import { guideSignoffMatcher } from './signoff-answers.ts';
 import { ingestedVerdictPairFinding } from './signoff-pair.ts';
 import { dirname, join, resolve } from 'node:path';
 
-import { asArray, asString, checkProject, collectItems, isObject, itemFor, loadCollection, type Ctx, type Item } from './check.ts';
+import { asArray, asString, checkProject, collectItems, isObject, itemFor, loadCollection, type Ctx, type Finding, type Item } from './check.ts';
 import { draftVersionFindings } from './drafts.ts';
 import { assembleOnlyDraftTarget, assertDraftHasRig, readAssembleOnlyDraftTarget } from './draft-layout.ts';
 import { answersOf, askAnswers } from './provenance.ts';
@@ -123,6 +123,16 @@ function feedbackAsk(item: Item, ctx: Pick<Ctx, 'collection'>, ask: Json | undef
 
 // -------------------------------------------------------- interview --check
 
+export interface OpenDirectionComment {
+  readonly field: 'current.direction';
+  readonly verdict: string;
+  readonly by: string | null;
+  readonly at: string | null;
+  readonly source: Json;
+  readonly verbatim: string;
+  readonly on_items: Json[];
+}
+
 export interface FeedbackSummary {
   /** `versions[v1].verdicts[0]` */
   readonly verdict: string;
@@ -135,8 +145,11 @@ export interface FeedbackSummary {
   readonly items: { user: number; delegated: number; not_asked: number };
   /** The versions whose `answers_feedback` lists this verdict. */
   readonly answered_by: number[];
+  readonly answered_by_current_direction?: true;
   /** `true` once a later human acceptance of the same review on the same version withdrew it. */
   readonly withdrawn: boolean;
+  /** Read through the adopted version binding while this bounce is open. */
+  readonly open_direction_comment?: OpenDirectionComment;
 }
 
 interface VersionRec {
@@ -188,8 +201,7 @@ export function parseFeedbackAnswers(project: JsonObject, n: number, values: str
   const refs: JsonObject[] = [];
   const seen = new Set<string>();
   for (const value of values) {
-    const match = /^(\d+):(\d+)$/.exec(value);
-    const ref = match ? { version: Number(match[1]), verdict: Number(match[2]) } : null;
+    const ref = parseFeedbackPair(value);
     const path = `versions[v${n}].answers_feedback[${refs.length}]`;
     const problem = feedbackReferenceFinding(project, n, ref, path, true);
     if (problem) refuse(problem.code, problem.message);
@@ -201,9 +213,52 @@ export function parseFeedbackAnswers(project: JsonObject, n: number, values: str
   return refs;
 }
 
+export function parseFeedbackPair(value: string): { version: number; verdict: number } | null {
+  const match = /^(\d+):(\d+)$/.exec(value);
+  return match ? { version: Number(match[1]), verdict: Number(match[2]) } : null;
+}
+
+const DIRECTION_FEEDBACK_PATH = 'current.direction.answers_feedback';
+const DIRECTION_FEEDBACK_REF_INVALID = 'DIRECTION_FEEDBACK_REF_INVALID';
+
+export function directionFeedbackRefFinding(path: string, why: string): Finding {
+  return { code: DIRECTION_FEEDBACK_REF_INVALID, path,
+    message: `${path}: ${why}; use record direction --from with --answers-feedback <version>:<verdict> for an open human direction-review bounce` };
+}
+
+function currentDirectionFeedbackRefs(direction: JsonObject | undefined, refusals: Finding[]): Map<string, string> {
+  const refs = new Map<string, string>();
+  if (direction?.answers_feedback === undefined) return refs;
+  if (direction.adopted !== undefined || !Array.isArray(direction.answers_feedback)) {
+    refusals.push(directionFeedbackRefFinding(DIRECTION_FEEDBACK_PATH, 'expected an array on a newly recorded direction output'));
+    return refs;
+  }
+  for (const [index, ref] of direction.answers_feedback.entries()) {
+    const path = `${DIRECTION_FEEDBACK_PATH}[${index}]`;
+    if (!isObject(ref) || Object.keys(ref).length !== 2
+      || typeof ref.version !== 'number' || !Number.isSafeInteger(ref.version) || ref.version < 1
+      || typeof ref.verdict !== 'number' || !Number.isSafeInteger(ref.verdict) || ref.verdict < 0) {
+      refusals.push(directionFeedbackRefFinding(path, 'expected { version, verdict } with a positive version and a zero-based verdict index'));
+      continue;
+    }
+    const key = `${ref.version}:${ref.verdict}`;
+    if (refs.has(key)) {
+      refusals.push({ code: 'FEEDBACK_REF_DUPLICATE', path, message: `${path}: duplicate ${key}; name each feedback verdict once` });
+      continue;
+    }
+    refs.set(key, path);
+  }
+  return refs;
+}
+
 /** Feedback refusals and warnings, appended to the context; returns one summary per human bounced verdict. */
 export function checkFeedback(ctx: Ctx): FeedbackSummary[] {
   const versions = versionsOf(ctx.project);
+  const directionNode = isObject(ctx.project.current) ? ctx.project.current.direction : undefined;
+  const direction = isObject(directionNode) ? directionNode : undefined;
+  const adopted = isObject(direction?.adopted) ? direction.adopted.version : undefined;
+  const currentRefs = currentDirectionFeedbackRefs(direction, ctx.refusals);
+  const directionAt = Date.parse(asString(direction?.at) ?? '');
   const summaries: FeedbackSummary[] = [];
   const push = (code: string, path: string, message: string): void => {
     ctx.refusals.push({ code, path, message });
@@ -309,7 +364,20 @@ export function checkFeedback(ctx: Ctx): FeedbackSummary[] {
       const withdrawn = verdicts
         .slice(index + 1)
         .some((later) => isObject(later) && later.review === d.review && later.verdict === 'accepted' && isHuman(asString(later.by)));
-      const by = answeredBy.get(`${v.n}:${index}`) ?? [];
+      const key = `${v.n}:${index}`;
+      const by = answeredBy.get(key) ?? [];
+      const unresolved = !withdrawn && by.length === 0;
+      const later = unresolved ? versions.filter((x) => x.n > v.n).map((x) => `v${x.n}`) : [];
+      const openDirection = unresolved && later.length === 0 && v.record.kind === 'post' && d.review === 'direction-review';
+      const answeredByCurrent = v.record.kind === 'post' && d.review === 'direction-review' && currentRefs.has(key)
+        && versions.filter(version => version.n === v.n).length === 1
+        && Date.parse(asString(d.at) ?? '') <= directionAt;
+      if (answeredByCurrent) currentRefs.delete(key);
+      const openDirectionComment: OpenDirectionComment | undefined =
+        openDirection && !answeredByCurrent && v.n === adopted && typeof d.verbatim === 'string'
+          ? { field: 'current.direction', verdict: path, by: asString(d.by), at: asString(d.at),
+            source: d.source ?? null, verbatim: d.verbatim, on_items: asArray(d.on_items) }
+          : undefined;
       summaries.push({
         verdict: path,
         version: v.n,
@@ -319,10 +387,11 @@ export function checkFeedback(ctx: Ctx): FeedbackSummary[] {
         at: asString(d.at),
         items: counts,
         answered_by: by,
+        ...(answeredByCurrent ? { answered_by_current_direction: true } as const : {}),
         withdrawn,
+        ...(openDirectionComment ? { open_direction_comment: openDirectionComment } : {}),
       });
-      if (withdrawn || by.length > 0) return;
-      const later = versions.filter((x) => x.n > v.n).map((x) => `v${x.n}`);
+      if (!unresolved || answeredByCurrent) return;
       if (later.length > 0) {
         push(
           'FEEDBACK_UNANSWERED',
@@ -330,9 +399,15 @@ export function checkFeedback(ctx: Ctx): FeedbackSummary[] {
           `${path}: v${v.n} was bounced, and ${later.join(', ')} ${later.length === 1 ? 'was' : 'were'} built since without listing it in answers_feedback ({ "version": ${v.n}, "verdict": ${index} }); the next version answers the feedback it was built from`,
         );
       } else {
-        ctx.warnings.push({ code: 'FEEDBACK_OPEN', path, message: `${path}: v${v.n} was bounced and no later version is built yet; the next version lists { "version": ${v.n}, "verdict": ${index} } in answers_feedback` });
+        const message = openDirectionComment
+          ? `${path}: current.direction uses bounced v${v.n}. Open comment from ${openDirectionComment.by}: ${JSON.stringify(openDirectionComment.verbatim)}. Use this feedback when rebuilding current.direction.`
+          : `${path}: v${v.n} was bounced and no later version is built yet; the next version lists { "version": ${v.n}, "verdict": ${index} } in answers_feedback`;
+        ctx.warnings.push({ code: 'FEEDBACK_OPEN', path, message });
       }
     });
+  }
+  for (const [key, path] of currentRefs) {
+    ctx.refusals.push(directionFeedbackRefFinding(path, `${key} does not identify a retained human direction-review bounce at or before the current output`));
   }
   return summaries;
 }
@@ -350,7 +425,8 @@ export function formatFeedback(summaries: readonly FeedbackSummary[]): string[] 
     `  feedback: ${summaries.length} bounce${summaries.length === 1 ? '' : 's'}; items ${total.user} user (agent error), ${total.delegated} delegated (the user's chosen cost), ${total.not_asked} not-asked (a guide gap)`,
   ];
   for (const s of summaries) {
-    const state = s.withdrawn ? 'withdrawn by a later acceptance' : s.answered_by.length > 0 ? `answered by ${s.answered_by.map((n) => `v${n}`).join(', ')}` : 'not answered';
+    const state = s.withdrawn ? 'withdrawn by a later acceptance' : s.answered_by_current_direction ? 'answered by current.direction'
+      : s.answered_by.length > 0 ? `answered by ${s.answered_by.map((n) => `v${n}`).join(', ')}` : 'not answered';
     lines.push(`    ${s.verdict} (${s.review ?? '?'}): ${s.items.user} user, ${s.items.delegated} delegated, ${s.items.not_asked} not-asked; ${state}`);
   }
   return lines;

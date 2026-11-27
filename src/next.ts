@@ -53,6 +53,7 @@ import { carriedRefusals, findingKey, newFindings } from './refusal-baseline.ts'
 import { Refusal, refuse, USAGE_EXIT } from './refusal.ts';
 import { reopenLapseWarnings } from './reopen-lapses.ts';
 import { collectReopens, liveSignoff, type Reopen } from './reopen.ts';
+import type { OpenDirectionComment } from './feedback.ts';
 import { resolveAdoptSource } from './record-adopt.ts';
 import { acceptedReviewVerdict, humanReviewVerdicts, latestAccepted, readVersions, type Versions } from './review.ts';
 import { commentChestAct, decodeReviewAct, SIGNOFF_TARGET_KINDS } from './review-act.ts';
@@ -186,6 +187,7 @@ export interface NextReport {
   answers?: { question_id: string; field: string; by: Json; at: Json; picks: { ask: Json; option_id: Json; label: Json }[]; command?: string }[];
   /** Current-output comments with live `current` / `earlier` status and closure state (#1064). */
   comments?: NextComment[];
+  open_direction_comments?: OpenDirectionComment[];
   awaits: string[];
   moves: NextMove[];
 }
@@ -1961,7 +1963,11 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
     awaits: [...revisionMoves.map(move => move.awaits), ...next.awaits, ...commentMoves.map(move => move.awaits)],
     moves: [...revisionMoves, ...next.moves, ...commentMoves],
   };
-  return withCurrentComments(dir, project, combined, shellWord, now, currentPath || isCurrentProject(project));
+  const directionComments = report.feedback.flatMap(feedback => feedback.open_direction_comment ?? []);
+  return withCurrentComments(dir, project, {
+    ...combined,
+    ...(directionComments.length ? { open_direction_comments: directionComments } : {}),
+  }, shellWord, now, currentPath || isCurrentProject(project));
 }
 
 function deriveNextProject(dir: string, project: JsonObject, report: CheckReport, now: number,

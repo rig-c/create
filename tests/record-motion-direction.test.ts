@@ -1,12 +1,13 @@
 import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test';
-import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { delimiter, dirname, join } from 'node:path';
 import { EXAMPLE_ANCHOR } from '../scripts/example-time.ts';
-import { checkProject } from '../src/check.ts';
+import { asArray, checkProject, isObject } from '../src/check.ts';
 import { COMPOSE_CHECK_PATH, COMPOSE_RUN_PATH, CURRENT_DIRECTION_PATH } from '../src/current-direction.ts';
 import { CURRENT_MOTION_FRAMES, CURRENT_RIG_MODEL, currentShapeFindings, outputRoot, outputSetHash, sha256, treeFiles } from '../src/current.ts';
 import { directionCommand } from '../src/direction-writers.ts';
+import { reviewCommand } from '../src/feedback.ts';
 import { LOOP_SEAM_REPORT_SINCE } from '../src/motion-loop-seam.ts';
 import { nextProject } from '../src/next.ts';
 import { recordCommand } from '../src/record.ts';
@@ -35,7 +36,8 @@ const raw = (dir: string, path: string): Buffer => readFileSync(join(dir, path))
 const json = (dir: string, path: string): JsonObject => JSON.parse(raw(dir, path).toString()) as JsonObject;
 const binding = (dir: string, path: string) => ({ path, sha256: sha256(raw(dir, path)) });
 const recordMotion = (dir: string) => recordCommand(['motion', dir, '--from', motionFrom, '--json'], testClock.now());
-const recordDirection = (dir: string) => recordCommand(['direction', dir, '--from', directionFrom, '--direction', CURRENT_DIRECTION_PATH, '--json'], testClock.now());
+const recordDirection = (dir: string, ...flags: string[]) =>
+  recordCommand(['direction', dir, '--from', directionFrom, '--direction', CURRENT_DIRECTION_PATH, '--json', ...flags], testClock.now());
 const check = (dir: string) => checkProject(dir, undefined, { now: testClock.now() });
 
 function currentRig(f: { dir: string; model: JsonObject; load: () => JsonObject; save: (value: JsonObject) => void }): void {
@@ -285,6 +287,89 @@ test('direction write seals current scene and record direction binds the real co
   expect(f.load().versions).toEqual(before.versions);
   expect(check(f.dir).refusals).toEqual(baseline);
   expect(check(f.dir).warnings.map(f => f.code)).not.toContain('OUTPUT_STALE');
+});
+
+function stagedDirectionAfterBounce() {
+  const legacyPath = 'outputs/v2/compose/compose-run.json';
+  const legacyBytes = '{"spec":"rig-compose-run/1"}';
+  const dir = fixture(project => {
+    delete (project.current as JsonObject).direction;
+    project.stage = 'direction-review';
+    project.signoffs = asArray(project.signoffs).filter(row => isObject(row) && row.stage !== 'direction-review');
+    project.advances = asArray(project.advances).filter(row => isObject(row) && row.stage !== 'accepted');
+    project.versions = [
+      { n: 1, kind: 'rig', at: '2024-01-01T00:00:00.000Z', outputs: [], provenance: { sections: {} }, verdicts: [
+        { review: 'rig-review', verdict: 'accepted', at: '2024-01-02T00:00:00.000Z',
+          by: 'user', verbatim: 'The rig is ready.', source: 'synthetic chat', on_items: [] },
+      ] },
+      { n: 2, kind: 'post', rig_version: 1, at: '2024-01-03T00:00:00.000Z', built_by: 'agent', built_with: {}, provenance: { sections: {} },
+        outputs: [{ path: legacyPath, sha256: sha256(legacyBytes), bytes: Buffer.byteLength(legacyBytes) }] },
+    ];
+  }, 'example-current/project.json', { [legacyPath]: legacyBytes });
+  renameSync(join(dir, 'outputs/direction'), join(dir, directionFrom));
+  for (const words of ['Keep the whole actor in frame.', 'Keep the background in view.']) {
+    expect(reviewCommand(['2', dir, '--review', 'direction-review', '--verdict', 'bounced',
+      '--by', 'user', '--verbatim', words, '--source', 'synthetic chat'], testClock.now()).exit).toBe(0);
+  }
+  expect(recordCommand(['direction', dir, '--adopt'], testClock.now()).exit).toBe(0);
+  expect(check(dir).refusals).toEqual([]);
+  return { dir, load: () => json(dir, 'project.json') };
+}
+
+test('a current direction explicitly answers both numbered bounces and carries the answers into later recordings', () => {
+  const f = stagedDirectionAfterBounce();
+  const versions = f.load().versions;
+  const result = recordDirection(f.dir, '--answers-feedback', '2:0', '--answers-feedback', '2:1');
+  expect(result.exit).toBe(0);
+  const answers = [{ version: 2, verdict: 0 }, { version: 2, verdict: 1 }];
+  expect(JSON.parse(result.stdout).answers_feedback).toEqual(answers);
+  expect(f.load().versions).toEqual(versions);
+  const checked = check(f.dir);
+  expect(checked.refusals).toEqual([]);
+  expect(checked.warnings.map(finding => finding.code)).not.toContain('FEEDBACK_OPEN');
+  expect(checked.feedback.map(row => row.answered_by_current_direction)).toEqual([true, true]);
+  expect(nextProject(f.dir, testClock.now()).open_direction_comments).toBeUndefined();
+
+  const original = raw(f.dir, 'project.json');
+  const recordInPlace = (...flags: string[]) => recordCommand(['direction', f.dir, '--from', 'outputs/direction',
+    '--direction', CURRENT_DIRECTION_PATH, '--json', ...flags], testClock.now());
+  expect(() => recordInPlace('--answers-feedback', '2:0')).toThrow(expect.objectContaining({ code: 'DIRECTION_FEEDBACK_REF_INVALID' }));
+  expect(raw(f.dir, 'project.json')).toEqual(original);
+  expect(JSON.parse(recordInPlace().stdout).answers_feedback).toEqual(answers);
+  expect(check(f.dir).warnings.map(finding => finding.code)).not.toContain('FEEDBACK_OPEN');
+
+  const laterAcceptance = f.load();
+  const post = (laterAcceptance.versions as JsonObject[]).find(version => version.n === 2)!;
+  post.verdicts = [...asArray(post.verdicts), {
+    review: 'direction-review', verdict: 'accepted', by: 'user', verbatim: 'The old take is accepted.',
+    source: 'synthetic chat', at: new Date(testClock.now() + 1000).toISOString(), on_items: [],
+  }];
+  const afterAcceptance = checkProject(f.dir, laterAcceptance, { now: testClock.now() + 1000 });
+  expect(afterAcceptance.refusals).toEqual([]);
+  expect(afterAcceptance.feedback.every(row => row.withdrawn && row.answered_by_current_direction)).toBe(true);
+});
+
+test('a current direction with no answer leaves numbered bounces open', () => {
+  const f = stagedDirectionAfterBounce();
+  const result = recordDirection(f.dir);
+  expect(result.exit).toBe(0);
+  expect(JSON.parse(result.stdout)).not.toHaveProperty('adopted');
+  expect(JSON.parse(result.stdout)).not.toHaveProperty('answers_feedback');
+  expect(check(f.dir).warnings.filter(finding => finding.code === 'FEEDBACK_OPEN').map(finding => finding.path))
+    .toEqual(['versions[v2].verdicts[0]', 'versions[v2].verdicts[1]']);
+});
+
+test('a malformed or non-open feedback pair refuses before changing the direction record or output', () => {
+  const f = stagedDirectionAfterBounce();
+  const original = raw(f.dir, 'project.json');
+  const staged = treeFiles(f.dir, directionFrom);
+  for (const pair of ['2:not-an-index', '99:0', '1:0', '2:9']) {
+    expect(() => recordDirection(f.dir, '--answers-feedback', pair))
+      .toThrow(expect.objectContaining({ code: 'DIRECTION_FEEDBACK_REF_INVALID' }));
+    expect(raw(f.dir, 'project.json')).toEqual(original);
+    expect(treeFiles(f.dir, directionFrom)).toEqual(staged);
+    expect(existsSync(join(f.dir, 'outputs/direction'))).toBe(false);
+  }
 });
 
 test('#1073 direction refuses missing staged evidence and dates the check of a recorded take', () => {

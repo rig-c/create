@@ -19,6 +19,7 @@ import {
   checkProject,
   collectItems,
   collectSignoffs,
+  isCurrentPathProject,
   isObject,
   loadCollection,
   postNotPassed,
@@ -77,6 +78,7 @@ import {
   PARTS_REVIEW_SINCE,
   PAUSED_STAGE,
   silentInterviewItems,
+  SKIPPED_WHEN_NO_POST,
   STAGE_VALUES,
   stageIndex,
   stageOfStep,
@@ -973,12 +975,17 @@ function candidateStepStatus(
   return `rig-create step-status ${shellWord(stepId)} ${nextStatus} ${shellWord(dir)} --by agent`;
 }
 
-function nextStageInOrder(project: JsonObject, currentStage: string): string | null {
+function nextStageInOrder(project: JsonObject, currentStage: string, noPost = false): string | null {
   const order = hasStageOrder(project) ? STAGE_VALUES : LEGACY_STAGE_VALUES;
   const idx = order.indexOf(currentStage);
-  if (idx < 0 || idx + 1 >= order.length) return null;
-  const candidate = order[idx + 1]!;
-  return candidate === PAUSED_STAGE ? null : candidate;
+  if (idx < 0) return null;
+  for (let i = idx + 1; i < order.length; i++) {
+    const candidate = order[i]!;
+    if (candidate === PAUSED_STAGE) return null;
+    if (noPost && SKIPPED_WHEN_NO_POST.includes(candidate)) continue;
+    return candidate;
+  }
+  return null;
 }
 
 /** The current stage is at or before the furthest live stage-level signoff in the project's order. */
@@ -1705,18 +1712,18 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
   });
   const collection = loadCollection(dir);
   const allItems = collectItems(project, { collection });
-  const usesLegacyRigInterview = allItems.some(item => item.kind !== 'post'
-    && (pendingInterviewOptions(item) !== undefined
-      || ((item.state.state === 'user' || item.state.state === 'delegated') && !stepPlanValue(project, item, item.state.answer))));
-  const hasNumberedOutputs = [project.drafts, project.versions, project.scenes].some(entries => asArray(entries).length > 0);
-  const currentPath = !hasNumberedOutputs && (isCurrentProject(project) || project.stage === 'parts' || !usesLegacyRigInterview);
+  const currentPath = isCurrentPathProject(project, allItems);
   const { blocksOutputMoves, ...derived } = deriveNextProject(dir, project, report, now, steps, staleSteps, currentPath, collection, allItems);
   let next = derived;
   if (!blocksOutputMoves && derived.stage !== PAUSED_STAGE) {
     const current = project.current === undefined && currentPath ? {} : project.current;
     if (isObject(current)) {
+      const reopens = collectReopens(project, []);
       const missing = new Map(CURRENT_KINDS.flatMap(kind => {
-        if (current[kind] !== undefined) return [];
+        const node = current[kind];
+        const preCutoffDirection = kind === 'direction' && currentPath && isObject(node)
+          && !liveSignoff(reopens, 'post', Date.parse(String(node.at)));
+        if (node !== undefined && !preCutoffDirection) return [];
         let producer: NextMove | undefined;
         if (!currentPath) {
           producer = currentOutputMove(dir, kind, shellWord);
@@ -2132,7 +2139,7 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
       && !report.warnings.some(w => w.code === 'OUTPUT_STALE' && w.path === `current.${currentReviewKind(effectiveStage)}`)
     );
     if (!reviewReady) return;
-    const nextStage = nextStageInOrder(project, stage);
+    const nextStage = nextStageInOrder(project, effectiveStage, postNotPassed({ items: allItems }));
     const advCmd = nextStage !== null ? candidateAdvance(dir, project, nextStage, now) : null;
     if (advCmd !== null && nextStage !== null) {
       const planMove = stagePlanMove(dir, project, effectiveStage, steps);
@@ -2143,7 +2150,7 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
         field: 'stage',
         awaits: 'project.stage',
         command: advCmd,
-        act: `advance stage from ${stage} to ${nextStage}`,
+        act: `advance stage from ${effectiveStage} to ${nextStage}`,
       });
     }
     const optionalSignoff = optionalCurrentSignoffMove(dir, project, targetStage, hasLiveStageSignoff(targetStage), now);
@@ -2593,13 +2600,21 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
 
       if (effectiveStage === 'parts') {
         addAwait('project.stage');
-        if (currentPath && stage === 'parts' && refusals.length === 0
+        if (currentPath && refusals.length === 0
           && isObject(project.current) && isObject(project.current.parts)
           && existsSync(join(dir, outputRoot('parts'), 'rig', 'parts.json'))) {
-          const command = candidateAdvance(dir, project, 'parts-review', now,
-            { report: `evidence/${PARTS_CHECK_FILE}`, root: `${outputRoot('parts')}/rig` });
-          moves.push(command ? { role: 'agent', field: 'stage', awaits: 'project.stage', command,
-            act: 'Advance to parts-review with the retained check of the recorded parts.' } : currentPartsAdvanceMove(dir));
+          if (stage === 'parts') {
+            const command = candidateAdvance(dir, project, 'parts-review', now,
+              { report: `evidence/${PARTS_CHECK_FILE}`, root: `${outputRoot('parts')}/rig` });
+            moves.push(command ? { role: 'agent', field: 'stage', awaits: 'project.stage', command,
+              act: 'Advance to parts-review with the retained check of the recorded parts.' } : currentPartsAdvanceMove(dir));
+          } else if (!report.warnings.some(w => w.code === 'OUTPUT_STALE' && w.path === 'current.parts')) {
+            const command = candidateAdvance(dir, project, 'parts-review', now);
+            if (command !== null) {
+              moves.push({ role: 'agent', field: 'stage', awaits: 'project.stage', command,
+                act: 'advance stage from parts to parts-review' });
+            }
+          }
         }
       } else if (currentPath) {
         const snapshotMove = currentPartsSnapshotMove(dir, project, now);

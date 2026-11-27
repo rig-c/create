@@ -2,11 +2,13 @@ import { expect, mock, test } from 'bun:test';
 import { cpSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { EXAMPLE_ANCHOR } from '../scripts/example-time.ts';
+import { amendCommand } from '../src/amend.ts';
 import { asArray, checkProject, isObject } from '../src/check.ts';
 import * as cli from '../src/cli.ts';
 import { nextCommand, nextProject, type NextReport } from '../src/next.ts';
 import { OWNER_CHAT_SOURCE } from '../src/owner-chat.ts';
-import { advanceCommand } from '../src/progress-writers.ts';
+import { advanceCommand, stepStatusCommand } from '../src/progress-writers.ts';
+import { recordCommand } from '../src/record.ts';
 import { Refusal } from '../src/refusal.ts';
 import { signoffCommand } from '../src/signoff.ts';
 import { stepPlanCommand } from '../src/step-plans.ts';
@@ -357,4 +359,131 @@ if (process.argv[2] === '--replay-current-example') {
       'no remaining move (project is accepted)',
     ]);
   });
+
+  test('#1062 an unsigned current project walked to accepted recovers from amendments without signoff stops', () => {
+    const root = tempDir();
+    const walkRoot = join(root, 'walk');
+    const walkResult = run([process.execPath, import.meta.path, '--replay-current-example', walkRoot, '--skip-signoffs'], root, gitEnv());
+    expect(walkResult.code, `${walkResult.stdout}\n${walkResult.stderr}`).toBe(0);
+    const walkedDir = join(walkRoot, 'example-current');
+    const walkedRecord = JSON.parse(readFileSync(join(walkedDir, 'project.json'), 'utf8')) as JsonObject;
+    expect(walkedRecord.stage).toBe('accepted');
+    expect(asArray(walkedRecord.signoffs)).toEqual([]);
+
+    let t = Date.parse('2026-11-26T00:05:00.000Z');
+    const recordAmend = (dir: string, stage: string) => {
+      mkdirSync(join(dir, 'scratch'), { recursive: true });
+      writeFileSync(join(dir, 'scratch/change.json'), `{"amended":"${stage}"}\n`);
+      const wordsFile = join(dir, 'scratch/amend-words.txt');
+      writeFileSync(wordsFile, `Owner requested adjustment at ${stage}.\n`);
+      const saidAt = new Date(t - 500).toISOString();
+      expect(amendCommand([
+        stage, dir,
+        '--kind', 'config-field',
+        '--target', 'motion',
+        '--change', 'scratch/change.json',
+        '--by', 'owner',
+        '--owner-chat', wordsFile,
+        '--said-at', saidAt,
+        '--relayed-by', 'example-agent',
+      ], t).exit).toBe(0);
+      t += 1000;
+    };
+
+    // 1) Amending rig-review resumes at rig-review, offers advance post-interview, and recovers all the way to accepted with 0 signoffs.
+    const rigDir = join(root, 'amend-rig-review');
+    cpSync(walkedDir, rigDir, { recursive: true });
+    recordAmend(rigDir, 'rig-review');
+
+    const rigCheck = checkProject(rigDir, undefined, { now: t, readOnly: true });
+    expect(rigCheck.refusals).toEqual([]);
+    expect(rigCheck.stage).toBe('accepted');
+    expect(rigCheck.effective_stage).toBe('rig-review');
+
+    const rigNext = nextProject(rigDir, t);
+    expect(rigNext.effective_stage).toBe('rig-review');
+    expect(rigNext.accepted).toBe(false);
+    expect(rigNext.awaits).toEqual(['project.stage']);
+    expect(rigNext.moves[0]).toMatchObject({
+      role: 'agent',
+      field: 'stage',
+      awaits: 'project.stage',
+      command: `rig-create advance post-interview ${rigDir}`,
+      act: 'advance stage from rig-review to post-interview',
+    });
+
+    expect(advanceCommand(['post-interview', rigDir], t += 1000).exit).toBe(0);
+    expect(nextProject(rigDir, t += 1000).moves.some(m => m.command === `rig-create advance post ${rigDir}`)).toBe(true);
+    expect(advanceCommand(['post', rigDir], t += 1000).exit).toBe(0);
+    expect(checkProject(rigDir, undefined, { now: t, readOnly: true }).effective_stage).toBe('post');
+
+    for (const id of ['camera', 'timing', 'composition']) {
+      expect(nextProject(rigDir, t).moves.some(m => m.command === `rig-create step-status ${id} in-progress ${rigDir} --by agent`)).toBe(true);
+      expect(stepStatusCommand([id, 'in-progress', rigDir, '--by', 'agent'], t += 1000).exit).toBe(0);
+      expect(nextProject(rigDir, t).moves.some(m => m.command === `rig-create step-status ${id} done ${rigDir} --by agent`)).toBe(true);
+      expect(stepStatusCommand([id, 'done', rigDir, '--by', 'agent'], t += 1000).exit).toBe(0);
+    }
+
+    expect(nextProject(rigDir, t += 1000).moves[0]?.command).toBe(
+      `(cd ${rigDir} && rig-parts compose --scene specs/direction/compose-scene.json --out outputs/direction.next)`,
+    );
+    cpSync(join(rigDir, 'outputs/direction'), join(rigDir, 'outputs/direction.next'), { recursive: true });
+    expect(nextProject(rigDir, t += 1000).moves[0]?.command).toBe(
+      `rig-create record direction ${rigDir} --from outputs/direction.next --direction specs/direction/direction.json`,
+    );
+    expect(recordCommand(['direction', rigDir, '--from', 'outputs/direction.next', '--direction', 'specs/direction/direction.json'], t += 1000).exit).toBe(0);
+
+    expect(nextProject(rigDir, t += 1000).moves[0]?.command).toBe(`rig-create advance direction-review ${rigDir}`);
+    expect(advanceCommand(['direction-review', rigDir], t += 1000).exit).toBe(0);
+    expect(nextProject(rigDir, t += 1000).moves[0]?.command).toBe(`rig-create advance accepted ${rigDir}`);
+    expect(advanceCommand(['accepted', rigDir], t += 1000).exit).toBe(0);
+
+    expect(checkProject(rigDir, undefined, { now: t += 1000, readOnly: true })).toMatchObject({
+      stage: 'accepted',
+      effective_stage: 'accepted',
+      refusals: [],
+      warnings: [],
+    });
+    expect(nextProject(rigDir, t)).toMatchObject({
+      stage: 'accepted',
+      effective_stage: 'accepted',
+      accepted: true,
+      awaits: [],
+      moves: [],
+    });
+    expect(asArray((JSON.parse(readFileSync(join(rigDir, 'project.json'), 'utf8')) as JsonObject).signoffs)).toEqual([]);
+
+    // 2) Amending post directly at accepted resumes at post (not interview), offers reset step-status + compose/record moves, and advances back to accepted.
+    const postDir = join(root, 'amend-post');
+    cpSync(walkedDir, postDir, { recursive: true });
+    recordAmend(postDir, 'post');
+
+    const postCheck = checkProject(postDir, undefined, { now: t, readOnly: true });
+    expect(postCheck.refusals).toEqual([]);
+    expect(postCheck.effective_stage).toBe('post');
+    const postNext = nextProject(postDir, t);
+    expect(postNext.effective_stage).toBe('post');
+    expect(postNext.moves.map(m => m.command)).toEqual([
+      `(cd ${postDir} && rig-parts compose --scene specs/direction/compose-scene.json --out outputs/direction.next)`,
+      `rig-create step-status camera in-progress ${postDir} --by agent`,
+      `rig-create step-status timing in-progress ${postDir} --by agent`,
+      `rig-create step-status composition in-progress ${postDir} --by agent`,
+    ]);
+    for (const id of ['camera', 'timing', 'composition']) {
+      expect(stepStatusCommand([id, 'in-progress', postDir, '--by', 'agent'], t += 1000).exit).toBe(0);
+      expect(stepStatusCommand([id, 'done', postDir, '--by', 'agent'], t += 1000).exit).toBe(0);
+    }
+    cpSync(join(postDir, 'outputs/direction'), join(postDir, 'outputs/direction.next'), { recursive: true });
+    expect(recordCommand(['direction', postDir, '--from', 'outputs/direction.next', '--direction', 'specs/direction/direction.json'], t += 1000).exit).toBe(0);
+    expect(nextProject(postDir, t += 1000).moves[0]?.command).toBe(`rig-create advance direction-review ${postDir}`);
+    expect(advanceCommand(['direction-review', postDir], t += 1000).exit).toBe(0);
+    expect(advanceCommand(['accepted', postDir], t += 1000).exit).toBe(0);
+    expect(nextProject(postDir, t += 1000)).toMatchObject({
+      stage: 'accepted',
+      effective_stage: 'accepted',
+      accepted: true,
+      awaits: [],
+      moves: [],
+    });
+  }, 120_000);
 }

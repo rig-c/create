@@ -112,23 +112,6 @@ export function feedbackReferenceFinding(project: JsonObject, n: number, ref: Js
   return null;
 }
 
-/** Repeatable writer input, validated before any outputs are retained. */
-export function parseFeedbackAnswers(project: JsonObject, n: number, values: string[]): JsonObject[] {
-  const refs: JsonObject[] = [];
-  const seen = new Set<string>();
-  for (const value of values) {
-    const ref = parseFeedbackPair(value);
-    const path = `versions[v${n}].answers_feedback[${refs.length}]`;
-    const problem = feedbackReferenceFinding(project, n, ref, path, true);
-    if (problem) refuse(problem.code, problem.message);
-    const key = `${String(ref!.version)}:${String(ref!.verdict)}`;
-    if (seen.has(key)) refuse('FEEDBACK_REF_DUPLICATE', `${path}: duplicate ${key}; name each feedback verdict once`);
-    seen.add(key);
-    refs.push(ref!);
-  }
-  return refs;
-}
-
 export function parseFeedbackPair(value: string): { version: number; verdict: number } | null {
   const match = /^(\d+):(\d+)$/.exec(value);
   return match ? { version: Number(match[1]), verdict: Number(match[2]) } : null;

@@ -1,4 +1,6 @@
 import { afterEach, expect, test } from 'bun:test';
+import { Database, constants as sqlite } from 'bun:sqlite';
+import { randomUUID } from 'node:crypto';
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -10,7 +12,7 @@ import {
   failClosedCloseInstallBinding,
   failClosedCloseReadPublished,
 } from '../src/job-close.ts';
-import { attachCreateJob, closeCreateJob, openCreateJob, publishPending, reconcileCreateJob } from '../src/job-host.ts';
+import { attachCreateJob, closeCreateJob, openCreateJob, openRecordPublication, publishPending, reconcileCreateJob } from '../src/job-host.ts';
 import { reportOwnerSubmitRefusal } from '../src/job-refusal.ts';
 import {
   enqueuePublication,
@@ -406,3 +408,281 @@ test('#535 explicit close recovery archives refused pending publications without
   expect(readWriterBinding(root)).toBeNull();
   expect(existsSync(join(jobPrivateRoot(root), 'acknowledged-publications'))).toBe(false);
 });
+
+function storedJobActive(stateDir: string, jobId: string): number | null {
+  const db = new Database(join(stateDir, 'jobs.sqlite'), sqlite.SQLITE_OPEN_READONLY | sqlite.SQLITE_OPEN_NOFOLLOW);
+  try {
+    return db.query<{ active: number }, [string]>('SELECT active FROM jobs WHERE job_id=?').get(jobId)?.active ?? null;
+  } finally {
+    db.close();
+  }
+}
+
+test('#1076 CLI job close retires a stopped host bound under an older Parts pin (store on disk and missing tmp stateDir), keeps project.json byte-identical, and reopens at the current pin', async () => {
+  // 1. Stopped host with SQLite store still on disk (reason=probe, phase=record).
+  const { root, project } = setupProject();
+  const { host, binding } = await openLegacyBoundHost(root, { enumeratorVersion: '2.44.0' });
+  const beforeBytes = readFileSync(join(root, 'project.json'));
+  host.stop();
+  expect(storedJobActive(binding.identity.stateDir, binding.jobId)).toBe(1);
+
+  const openRefused = Bun.spawnSync([
+    process.execPath, CLI, 'job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner',
+  ], { cwd: root, stdout: 'pipe', stderr: 'pipe' });
+  expect(openRefused.exitCode).toBe(1);
+  expect(openRefused.stderr.toString()).toContain('JOB_HOST_REUSE_MISMATCH');
+  expect(openRefused.stderr.toString()).toContain(`enumeratorVersion expected="2.44.0" found=${JSON.stringify(partsEnumerator.version)}`);
+
+  // Pending outbox still blocks close on a stopped older-pin job until cleared or --retire-refused.
+  const manifestPath = prepareLiveManifest(root, project, 1);
+  const pendingEntry = enqueuePublication(root, binding, { path: manifestPath, selector: { kind: 'rig', version: 1 } });
+  await expect(closeCreateJob(root)).rejects.toMatchObject({ code: 'JOB_PUBLISH_PENDING' });
+  expect(storedJobActive(binding.identity.stateDir, binding.jobId)).toBe(1);
+  failPublication(root, pendingEntry, { code: 'JOB_HOST_REUSE_MISMATCH', message: 'project.json: enumerator mismatch' });
+  await expect(closeCreateJob(root)).rejects.toMatchObject({ code: 'JOB_PUBLISH_PENDING' });
+  rmSync(join(jobPrivateRoot(root), 'outbox'), { recursive: true, force: true });
+
+  const closedWithStore = Bun.spawnSync([process.execPath, CLI, 'job', 'close', root], { cwd: root, stdout: 'pipe', stderr: 'pipe' });
+  expect({
+    exit: closedWithStore.exitCode,
+    stdout: closedWithStore.stdout.toString().trim(),
+    stderr: closedWithStore.stderr.toString(),
+  }).toEqual({ exit: 0, stdout: 'job: closed', stderr: '' });
+  expect(storedJobActive(binding.identity.stateDir, binding.jobId)).toBe(0);
+  expect(readWriterBinding(root)).toBeNull();
+  expect(readFileSync(join(root, 'project.json'))).toEqual(beforeBytes);
+
+  const reopened = await openCreateJob(root, { id: 'synthetic-owner', role: 'owner' }, now);
+  hosts.push(reopened);
+  const reopenedBinding = readWriterBinding(root)!;
+  expect(reopened.session.jobId).not.toBe(binding.jobId);
+  expect(reopenedBinding.identity.enumeratorVersion).toBe(partsEnumerator.version);
+  await closeCreateJob(root);
+
+  // 2. Stopped host after TMPDIR removed the canonical managed stateDir (reason=missing, phase=state).
+  const { host: secondHost, binding: secondBinding } = await openLegacyBoundHost(root, { enumeratorVersion: '2.44.0' });
+  const beforeMissingBytes = readFileSync(join(root, 'project.json'));
+  secondHost.stop();
+  rmSync(secondBinding.identity.stateDir, { recursive: true, force: true });
+
+  const closedMissingState = Bun.spawnSync([process.execPath, CLI, 'job', 'close', root], { cwd: root, stdout: 'pipe', stderr: 'pipe' });
+  expect({
+    exit: closedMissingState.exitCode,
+    stdout: closedMissingState.stdout.toString().trim(),
+    stderr: closedMissingState.stderr.toString(),
+  }).toEqual({ exit: 0, stdout: 'job: closed', stderr: '' });
+  expect(readWriterBinding(root)).toBeNull();
+  expect(readFileSync(join(root, 'project.json'))).toEqual(beforeMissingBytes);
+
+  const reopenedAfterMissing = await openCreateJob(root, { id: 'synthetic-owner', role: 'owner' }, now);
+  hosts.push(reopenedAfterMissing);
+  expect(reopenedAfterMissing.session.jobId).not.toBe(secondBinding.jobId);
+  expect(readWriterBinding(root)!.identity.enumeratorVersion).toBe(partsEnumerator.version);
+});
+
+async function publishLegacyPlan(root: string, binding: WriterBinding, planNow: number): Promise<void> {
+  const entry = enqueuePublication(root, binding, { kind: 'plan' });
+  await publishPending(
+    entry,
+    binding.identity,
+    undefined,
+    async (opts: JobHostOptions) => await startJobHost({
+      ...opts,
+      partsEnumerator: { version: binding.identity.enumeratorVersion, enumerate: partsEnumerator.enumerate },
+    }),
+    undefined,
+    planNow,
+  );
+  rmSync(join(jobPrivateRoot(root), 'outbox'), { recursive: true, force: true });
+}
+
+test('#1076 stopped older-pin retirement refuses JOB_ACTS_PENDING when finalized acts remain in jobs.sqlite, preserves descriptor for retry, and closes with --discard-acts', async () => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'create-job-close-stopped-acts-')));
+  roots.push(root);
+  cpSync(join(import.meta.dir, '../templates/example-current'), root, { recursive: true });
+  const currentProject = JSON.parse(readFileSync(join(root, 'project.json'), 'utf8')) as JsonObject;
+  currentProject.owner = { language: 'en' };
+  writeFileSync(join(root, 'project.json'), `${JSON.stringify(currentProject, null, 2)}\n`);
+
+  const { host, binding } = await openLegacyBoundHost(root, { enumeratorVersion: '2.44.0' });
+  await publishLegacyPlan(root, binding, Date.parse('2026-11-26T00:02:00.000Z'));
+  const head = host.session.status().publication!;
+  const uiCap = host.session.hostCredentials().ui;
+  const headers = { origin: host.origin, 'X-Review-Capability': uiCap, 'content-type': 'application/json' };
+  const pageId = randomUUID();
+  const displayed = await (await fetch(`${host.origin}/jobs/${binding.jobId}/ui/displayed`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ publicationId: head.publicationId, pageId, sourceHash: head.source.sourceHash }),
+  })).json() as { ok: boolean; value: { displayedNonce: string } };
+  expect(displayed.ok).toBe(true);
+  const submitted = await (await fetch(`${host.origin}/jobs/${binding.jobId}/ui/acts`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({
+      publicationId: head.publicationId,
+      pageId,
+      displayedNonce: displayed.value.displayedNonce,
+      expectedGeneration: host.session.status().generation,
+      submissionId: randomUUID(),
+      kind: 'comments',
+      value: { comments: [{ text: 'Synthetic unfetched note before stop.' }] },
+    }),
+  })).json() as { ok: boolean; value: { actId: string } };
+  expect(submitted.ok).toBe(true);
+
+  const descriptorPath = join(binding.identity.stateDir, 'job-ui', `${binding.jobId}.json`);
+  const beforeDescriptor = readFileSync(descriptorPath);
+  const beforeProject = readFileSync(join(root, 'project.json'));
+  host.stop();
+
+  await expect(closeCreateJob(root)).rejects.toMatchObject({
+    code: 'JOB_ACTS_PENDING',
+    message: expect.stringContaining(submitted.value.actId),
+  });
+  expect(storedJobActive(binding.identity.stateDir, binding.jobId)).toBe(1);
+  expect(readFileSync(descriptorPath)).toEqual(beforeDescriptor);
+  expect(readFileSync(join(root, 'project.json'))).toEqual(beforeProject);
+  expect(readWriterBinding(root)).toEqual(binding);
+
+  const discarded = Bun.spawnSync([
+    process.execPath, CLI, 'job', 'close', root, '--discard-acts', 'retiring stopped 2.44.0 host', '--by', 'agent',
+  ], { cwd: root, stdout: 'pipe', stderr: 'pipe' });
+  expect({
+    exit: discarded.exitCode,
+    stdout: discarded.stdout.toString().trim(),
+    stderr: discarded.stderr.toString(),
+  }).toEqual({ exit: 0, stdout: 'job: closed', stderr: '' });
+  expect(storedJobActive(binding.identity.stateDir, binding.jobId)).toBe(0);
+  expect(readWriterBinding(root)).toBeNull();
+  const updatedProject = JSON.parse(readFileSync(join(root, 'project.json'), 'utf8')) as { review_acts: JsonObject[] };
+  expect(updatedProject.review_acts.at(-1)).toMatchObject({
+    kind: 'discarded',
+    jobId: binding.jobId,
+    actId: submitted.value.actId,
+    reason: 'retiring stopped 2.44.0 host',
+  });
+});
+
+test('#1076 current-path project (project.current, record-and-package binding) retires a stopped older-pin binding and reopens --plan at the current pin', async () => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'create-job-close-current-')));
+  roots.push(root);
+  cpSync(join(import.meta.dir, '../templates/example-current'), root, { recursive: true });
+  const currentProject = JSON.parse(readFileSync(join(root, 'project.json'), 'utf8')) as JsonObject;
+  currentProject.owner = { language: 'en' };
+  writeFileSync(join(root, 'project.json'), `${JSON.stringify(currentProject, null, 2)}\n`);
+
+  const { host, binding } = await openLegacyBoundHost(root, { enumeratorVersion: '2.44.0' });
+  expect(binding.identity.publicationMode).toBe('record-and-package');
+  await publishLegacyPlan(root, binding, Date.parse('2026-11-26T00:02:00.000Z'));
+  const beforeBytes = readFileSync(join(root, 'project.json'));
+  host.stop();
+
+  const openRefused = Bun.spawnSync([
+    process.execPath, CLI, 'job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner', '--plan',
+  ], { cwd: root, stdout: 'pipe', stderr: 'pipe' });
+  expect(openRefused.exitCode).toBe(1);
+  expect(openRefused.stderr.toString()).toContain('JOB_HOST_REUSE_MISMATCH');
+
+  const closed = Bun.spawnSync([process.execPath, CLI, 'job', 'close', root], { cwd: root, stdout: 'pipe', stderr: 'pipe' });
+  expect({
+    exit: closed.exitCode,
+    stdout: closed.stdout.toString().trim(),
+    stderr: closed.stderr.toString(),
+  }).toEqual({ exit: 0, stdout: 'job: closed', stderr: '' });
+  expect(readFileSync(join(root, 'project.json'))).toEqual(beforeBytes);
+  expect(readWriterBinding(root)).toBeNull();
+
+  const next = await openCreateJob(root, { id: 'synthetic-owner', role: 'owner' }, Date.parse('2026-11-26T00:02:00.000Z'), undefined, true);
+  hosts.push(next);
+  expect(next.session.jobId).not.toBe(binding.jobId);
+  const lines = await openRecordPublication(root, next, undefined, true, Date.parse('2026-11-26T00:02:00.000Z'));
+  expect(lines[0]).toContain('job: plan published');
+});
+
+test('#1076 stopped older-pin close still refuses copied, replaced, tampered or unauthorized bindings', async () => {
+  const { root: originalRoot } = setupProject();
+  const { host: originalHost, binding: originalBinding } = await openLegacyBoundHost(originalRoot, {
+    enumeratorVersion: '2.44.0',
+  });
+  const descriptorPath = join(originalBinding.identity.stateDir, 'job-ui', `${originalBinding.jobId}.json`);
+  const originalDescriptor = readFileSync(descriptorPath);
+  const originalBytes = readFileSync(join(originalRoot, 'project.json'));
+  originalHost.stop();
+
+  // 1. Copied binding in another root (direct copy and tampered identity.root) refuses without retiring originalRoot's job.
+  const { root: copyRoot } = setupProject();
+  cpSync(join(originalRoot, 'project.json'), join(copyRoot, 'project.json'));
+  writePrivateJson(join(copyRoot, JOB_BINDING_FILE), originalBinding, true);
+  await expect(closeCreateJob(copyRoot)).rejects.toMatchObject({
+    code: 'JOB_HOST_REUSE_MISMATCH',
+    message: expect.stringContaining('root'),
+  });
+  writePrivateJson(join(copyRoot, JOB_BINDING_FILE), {
+    ...originalBinding,
+    identity: { ...originalBinding.identity, root: copyRoot },
+  }, true);
+  await expect(closeCreateJob(copyRoot)).rejects.toMatchObject({
+    code: 'JOB_HOST_REUSE_MISMATCH',
+    message: expect.stringContaining('root'),
+  });
+  expect(storedJobActive(originalBinding.identity.stateDir, originalBinding.jobId)).toBe(1);
+
+  // 2. Tampered fetchCapability, non-canonical missing stateDir, and mismatched binding/descriptor fields refuse and preserve state.
+  writePrivateJson(join(originalRoot, JOB_BINDING_FILE), {
+    ...originalBinding,
+    fetchCapability: '0'.repeat(64),
+  }, true);
+  await expect(closeCreateJob(originalRoot)).rejects.toMatchObject({ code: 'JOB_BINDING_INVALID' });
+  expect(storedJobActive(originalBinding.identity.stateDir, originalBinding.jobId)).toBe(1);
+  expect(readFileSync(descriptorPath)).toEqual(originalDescriptor);
+
+  for (const [label, mutated, expectedCode] of [
+    ['listenerIncarnation', { ...originalBinding, listenerIncarnation: '33333333-3333-4333-8333-333333333333' }, 'JOB_HOST_REUSE_MISMATCH'],
+    ['origin', { ...originalBinding, origin: 'http://127.0.0.1:43199' }, 'JOB_HOST_REUSE_MISMATCH'],
+    ['jobId', { ...originalBinding, jobId: 'job-unrelated-id' }, 'JOB_HOST_REUSE_MISMATCH'],
+    ['fingerprint', { ...originalBinding, identity: { ...originalBinding.identity, fingerprint: 'rig-create/other/1' } }, 'JOB_HOST_REUSE_MISMATCH'],
+    ['reviewer.id', { ...originalBinding, identity: { ...originalBinding.identity, reviewer: { id: 'other-user', role: 'owner' as const } } }, 'JOB_HOST_REUSE_MISMATCH'],
+    ['reviewer.role', { ...originalBinding, identity: { ...originalBinding.identity, reviewer: { id: 'synthetic-owner', role: 'delegate' as const } } }, 'JOB_HOST_REUSE_MISMATCH'],
+    ['state', { ...originalBinding, identity: { ...originalBinding.identity, stateDir: `${originalBinding.identity.stateDir}-missing` } }, 'JOB_HOST_ATTACH_REFUSED'],
+  ] as const) {
+    writePrivateJson(join(originalRoot, JOB_BINDING_FILE), mutated, true);
+    await expect(closeCreateJob(originalRoot)).rejects.toMatchObject({
+      code: expectedCode,
+      message: expect.stringContaining(label),
+    });
+    expect(storedJobActive(originalBinding.identity.stateDir, originalBinding.jobId)).toBe(1);
+    expect(existsSync(join(originalRoot, JOB_BINDING_FILE))).toBe(true);
+  }
+
+  // 3. Replaced root inode at the same path still refuses JOB_HOST_ATTACH_REFUSED (reason=replaced, phase=state).
+  writePrivateJson(join(originalRoot, JOB_BINDING_FILE), originalBinding, true);
+  const backupRoot = `${originalRoot}-backup`;
+  renameSync(originalRoot, backupRoot);
+  try {
+    mkdirSync(originalRoot, { mode: 0o700 });
+    cpSync(join(backupRoot, 'project.json'), join(originalRoot, 'project.json'));
+    writePrivateJson(join(originalRoot, JOB_BINDING_FILE), originalBinding, true);
+    await expect(closeCreateJob(originalRoot)).rejects.toMatchObject({
+      code: 'JOB_HOST_ATTACH_REFUSED',
+      message: expect.stringContaining('reason=replaced, phase=state'),
+    });
+    expect(storedJobActive(originalBinding.identity.stateDir, originalBinding.jobId)).toBe(1);
+  } finally {
+    rmSync(originalRoot, { recursive: true, force: true });
+    renameSync(backupRoot, originalRoot);
+  }
+
+  // 4. Copied binding pointing at another root's absent stateDir also refuses JOB_HOST_ATTACH_REFUSED.
+  expect(readFileSync(join(originalRoot, 'project.json'))).toEqual(originalBytes);
+  await closeCreateJob(originalRoot);
+  expect(storedJobActive(originalBinding.identity.stateDir, originalBinding.jobId)).toBe(0);
+  rmSync(originalBinding.identity.stateDir, { recursive: true, force: true });
+  writePrivateJson(join(copyRoot, JOB_BINDING_FILE), {
+    ...originalBinding,
+    identity: { ...originalBinding.identity, root: copyRoot },
+  }, true);
+  await expect(closeCreateJob(copyRoot)).rejects.toMatchObject({ code: 'JOB_HOST_ATTACH_REFUSED' });
+  expect(existsSync(join(copyRoot, JOB_BINDING_FILE))).toBe(true);
+});
+

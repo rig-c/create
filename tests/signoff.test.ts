@@ -116,7 +116,7 @@ test('step hash pinned vector, recursive ordering and status exclusion', () => {
 
 describe('parts-review evidence and execution checkpoints', () => {
   test('records the approved verdict hash and clears the check without hand edits', () => {
-    const dir = fixture(() => {}, 'example-project.json');
+    const dir = fixture(() => {}, 'example-numbered/example-project.json');
     testClock.set(new Date(withdrawSignature(dir, 'parts-review')));
     const result = cli(['signoff', 'parts-review', '--by', 'user', '--draft', 'example', '--structure-file', 'evidence/structure-example.json', '--verbatim-file', input(dir)], dir, gitEnv());
     expect(result).toMatchObject({ code: 0, stderr: '' });

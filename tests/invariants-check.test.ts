@@ -23,7 +23,7 @@ function expectExampleShape(report: CheckReport): void {
 }
 
 test('filled example check exposes 0 entries and 56 gaps with no findings', () => {
-  const dir = fixture(() => {}, 'example-project.json');
+  const dir = fixture(() => {}, 'example-numbered/example-project.json');
   const bytes = readFileSync(join(dir, 'project.json'));
   const report = checkProject(dir);
   expectExampleShape(report);
@@ -32,7 +32,7 @@ test('filled example check exposes 0 entries and 56 gaps with no findings', () =
 });
 
 test('spawned piped CLI drains the filled example JSON beyond 64 KiB', () => {
-  const dir = fixture(() => {}, 'example-project.json');
+  const dir = fixture(() => {}, 'example-numbered/example-project.json');
   const expected = Buffer.from(`${interviewCommand(['--check', dir, '--json']).stdout}\n`);
   expect(expected.byteLength).toBeGreaterThan(64 * 1024);
   // subprocess.PIPE exercises the OS pipe that exposed truncation; Bun's direct
@@ -70,7 +70,7 @@ test('missing project returns null invariants', () => {
 });
 
 test('JSON and text interview reports expose translation without calling it a rig check', () => {
-  const dir = fixture(() => {}, 'example-project.json');
+  const dir = fixture(() => {}, 'example-numbered/example-project.json');
   const json = interviewCommand(['--check', dir, '--json']);
   expect(json.exit).toBe(0);
   expectExampleShape(JSON.parse(json.stdout) as CheckReport);
@@ -83,7 +83,7 @@ test('JSON and text interview reports expose translation without calling it a ri
 });
 
 test('candidate translation uses the supplied record without rereading or writing the disk guide', () => {
-  const dir = fixture(() => {}, 'example-project.json');
+  const dir = fixture(() => {}, 'example-numbered/example-project.json');
   const bytes = readFileSync(join(dir, 'project.json'));
   const candidate: JsonObject = JSON.parse(bytes.toString());
   obj(waypoint(candidate, 'motion').guide).verbatim = 'A new exact candidate sentence.';
@@ -100,7 +100,7 @@ test('actual answer writer changes the next derived report, with the previous re
       retainSignoffs(p, s => stageIndex(String(obj(s).stage)) < stageIndex('rigging-interview'));
       for (const step of arr(obj(p.plan).steps).map(obj)) if (!['seethrough', 'assemble'].includes(String(step.id))) step.status = 'pending';
       for (const item of arr(obj(obj(p.interview).post).items).map(obj)) item.guide = null;
-    }, 'example-project.json');
+    }, 'example-numbered/example-project.json');
     const load = (): JsonObject => JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8'));
     const before = checkProject(dir);
     expect(before.ok).toBe(true);

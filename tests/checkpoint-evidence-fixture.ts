@@ -25,7 +25,7 @@ export function checkpointWorkspace(sourceFormat: 'png' | 'svg' = 'png') {
     for (const step of arr(obj(project.plan).steps).map(obj)) {
       step.status = step.id === 'assemble' ? 'at-checkpoint' : step.id === 'seethrough' ? 'done' : 'pending';
     }
-  }, 'example-project.json'));
+  }, 'example-numbered/example-project.json'));
   const png = readFileSync(join(import.meta.dir, 'fixtures/rig-registration/build/rectangle.png'));
   const tiles = Array.from({ length: 4 }, (_, index) => {
     const path = `evidence/checkpoint/pair-${index}.png`;

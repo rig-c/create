@@ -92,7 +92,7 @@ test('current parts snapshots bind the exact run config and leave the project re
 });
 
 test('mixed records keep historical numbered reads while fresh parts context waits for current approval', () => {
-  const dir = fixture(() => {}, 'example-project.json');
+  const dir = fixture(() => {}, 'example-numbered/example-project.json');
   const numbered = load(dir);
   const drafted = Date.parse(String(latestPartsApproval(numbered)?.at)) + 1000;
   const selected = drafted + 1000;
@@ -148,7 +148,7 @@ test('current parts refuses an ambiguous producer config or an output whose inpu
 });
 
 test('fresh parts choices require the latest live owner relay and its exact retained structure', () => {
-  const dir = fixture(() => {}, 'example-project.json');
+  const dir = fixture(() => {}, 'example-numbered/example-project.json');
   const { project, config } = recordParts(dir);
   const numbered = latestPartsApproval(project)!;
   const approval = ownerApproval(dir, project);
@@ -179,7 +179,7 @@ test('fresh parts choices require the latest live owner relay and its exact reta
 });
 
 test('answered current parts options use their historical authority and retained structure', () => {
-  const dir = fixture(() => {}, 'example-project.json');
+  const dir = fixture(() => {}, 'example-numbered/example-project.json');
   const { project, config } = recordParts(dir);
   const approval = ownerApproval(dir, project);
   const drafted = now + 2000;

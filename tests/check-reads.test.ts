@@ -46,17 +46,17 @@ test('no check module imports a read function from node:fs', () => {
 /** Each committed example as a fresh project folder: the example folders copied, the record templates materialized. */
 const EXAMPLES: [string, () => string][] = [
   ['legacy reopened record', () => {
-    const dir = realpathSync(fixture(() => {}, 'example-project.json'));
+    const dir = realpathSync(fixture(() => {}, 'example-numbered/example-project.json'));
     plantLegacyReopen(dir, 'parts-review');
     return dir;
   }],
-  ...['example-chain', ...readdirSync(join(TEMPLATES, 'example-chain', 'checkpoints'), { withFileTypes: true }).filter(entry => entry.isDirectory()).map(entry => `example-chain/checkpoints/${entry.name}`), 'example-direction', 'example-remesh']
+  ...['example-chain', ...readdirSync(join(TEMPLATES, 'example-chain', 'checkpoints'), { withFileTypes: true }).filter(entry => entry.isDirectory()).map(entry => `example-chain/checkpoints/${entry.name}`), 'example-current', 'example-numbered/example-direction', 'example-remesh']
     .map(name => [name, () => {
       const dir = join(tempDir(), 'project');
       cpSync(join(TEMPLATES, name), dir, { recursive: true });
       return realpathSync(dir);
     }] as [string, () => string]),
-  ...['example-project.json', 'legacy-example-project.json', 'project.json']
+  ...['example-numbered/example-project.json', 'legacy-example-project.json', 'project.json']
     .map(name => [name, () => realpathSync(fixture(() => {}, name))] as [string, () => string]),
 ];
 
@@ -82,7 +82,7 @@ test.each(EXAMPLES)('%s: strict check throws nothing, its findings are unchanged
 }, 30000);
 
 test('a planted direct read in a check module makes strict mode throw CHECK_READ_UNRECORDED', () => {
-  const dir = realpathSync(fixture(() => {}, 'example-project.json'));
+  const dir = realpathSync(fixture(() => {}, 'example-numbered/example-project.json'));
   const original = { ...intake };
   mock.module('../src/intake.ts', () => ({ ...original, intakeWarnings: (root: string, project: never) => {
     readFileSync(join(root, 'project.json'));

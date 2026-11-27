@@ -124,7 +124,7 @@ const POST = ['--phase', 'post', '--order', '1', '--does', 'Frame the approved r
 
 function seethroughReplacement(): { dir: string; flags: string[] } {
   testClock.set(EXAMPLE_NOW);
-  const dir = fixture(() => {}, 'example-project.json');
+  const dir = fixture(() => {}, 'example-numbered/example-project.json');
   const original = step(read(dir), 'seethrough');
   const words = join(dir, 'words.txt');
   writeFileSync(words, 'Reopen the plan for a new draft.');

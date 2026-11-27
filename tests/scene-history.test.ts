@@ -19,7 +19,7 @@ function scenes(dir: string, project: JsonObject): Finding[] {
 }
 
 test('legacy reopen of the filled example with a scene still passes check', () => {
-  const dir = fixture(() => {}, 'example-project.json');
+  const dir = fixture(() => {}, 'example-numbered/example-project.json');
   testClock.set(EXAMPLE_REOPEN_AT);
   expect(checkProject(dir).refusals).toEqual([]);
   expect(checkProject(dir).warnings).toEqual([]);
@@ -84,7 +84,7 @@ test('historical package identity and past human acceptance stay mandatory after
 });
 
 test('the scene model texture pages retain raw-byte seals in the same project package', () => {
-  const dir = fixture(() => {}, 'example-project.json');
+  const dir = fixture(() => {}, 'example-numbered/example-project.json');
   testClock.set(EXAMPLE_REOPEN_AT);
   const p = JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')) as JsonObject;
   const doc = readScene(dir, p, sceneReference(currentScene(p)!));
@@ -105,7 +105,7 @@ test('the scene model texture pages retain raw-byte seals in the same project pa
 
 test('legacy rig option contexts retain their exact identity after scene adoption', async () => {
   const { validateContext } = await import('../src/choices.ts');
-  const dir = fixture(() => {}, 'example-project.json');
+  const dir = fixture(() => {}, 'example-numbered/example-project.json');
   testClock.set(EXAMPLE_REOPEN_AT);
   const p = JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')) as JsonObject;
   const item = objects(((p.interview as JsonObject).post as JsonObject).items).find(value => value.id === 'camera_depth')!;
@@ -119,7 +119,7 @@ test('legacy rig option contexts retain their exact identity after scene adoptio
 
 for (const writer of ['scene', 'direction'] as const) {
   test(`${writer} writer freezes plate citation option evidence before its project commit`, () => {
-    const dir = fixture(() => {}, 'example-project.json');
+    const dir = fixture(() => {}, 'example-numbered/example-project.json');
     testClock.set(EXAMPLE_REOPEN_AT);
     writeFileSync(join(dir, 'reopen-words.txt'), 'Revise the synthetic composition.');
     plantLegacyReopen(dir, 'post', { by: 'user', wordsFile: join(dir, 'reopen-words.txt') });
@@ -148,7 +148,7 @@ for (const inherited of [false, true]) {
     const root = tempDir();
     const dir = join(root, 'members', 'synthetic-member');
     mkdirSync(dirname(dir), { recursive: true });
-    materializeFixture(dir);
+    materializeFixture(dir, () => {}, 'example-numbered/example-project.json');
     const project = JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')) as JsonObject;
     const item = collectItems(project, { collection: null }).find(value => value.id === 'post_composition')!;
     const answer = item.raw as JsonObject;

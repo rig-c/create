@@ -1419,7 +1419,7 @@ test('a historical rig with config_lost and a retained g2 still checks and inges
 async function publishedComposed(extraValue?: Parameters<typeof published>[8]) {
   const f = composeFixture();
   directories.push(f.dir);
-  const root = fixture(() => {}, 'example-project.json');
+  const root = fixture(() => {}, 'example-numbered/example-project.json');
   directories.push(root);
   testClock.set(EXAMPLE_REOPEN_AT);
   writeFileSync(join(root, 'words.txt'), 'Revise the synthetic composed take.');

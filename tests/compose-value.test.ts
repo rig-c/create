@@ -365,7 +365,7 @@ test('refuses each malformed compose rule with COMPOSE_VALUE_INVALID and the exa
 });
 
 test('check validates post_composition.value.compose and leaves records without value.compose byte-for-byte unchanged', () => {
-  const dir = fixture(() => {}, 'example-project.json');
+  const dir = fixture(() => {}, 'example-numbered/example-project.json');
   const projectPath = join(dir, 'project.json');
   const originalProject = JSON.parse(readFileSync(projectPath, 'utf8')) as JsonObject;
   const baselineReport = checkProject(dir);
@@ -437,7 +437,7 @@ test('writers can record 8s timing and compose, then sequentially revise post_ti
     for (const step of arr(obj(p.plan).steps).map(obj)) {
       if (step.phase === 'post') step.status = 'pending';
     }
-  }, 'example-project.json');
+  }, 'example-numbered/example-project.json');
 
   let clock = EXAMPLE_ANCHOR + 5 * 60_000;
   function writeQuestionAnswer(question: 'post_timing' | 'post_composition', setId: string, fragment: JsonObject): void {

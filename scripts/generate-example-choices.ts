@@ -1,9 +1,8 @@
 import { generatorArgs } from './generator-args.ts';
 import { exampleTime } from './example-time.ts';
 /** Reproduce review's wire fixtures and negative controls through public record writers. */
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
-import { generateExampleOrder } from './generate-example-order.ts';
 import { asArray, checkProject, collectItems, isObject } from '../src/check.ts';
 import { sha256 } from '../src/choices.ts';
 import { interviewAnswerCommand, interviewOptionsCommand } from '../src/choice-writers.ts';
@@ -14,11 +13,18 @@ const objects=(v:Json|undefined):JsonObject[]=>asArray(v).filter(isObject);
 const obj=(v:Json|undefined):JsonObject=>v as JsonObject;
 
 export function generateExampleChoices(dir:string): Record<string,string> {
-  const generated=generateExampleOrder(dir);const p=generated.project;
-  const entry:JsonObject={schema:'rig-create/interview-choice-fixture@1',project:'example-project.json',examples:collectItems(p,{collection:null}).map(i=>({question:i.id,answer:i.raw,options:obj(obj(i.raw).choice).set as Json})),scenarios:[]};
-  const files:Record<string,string>={};
-  for(const[path,bytes]of Object.entries(generated.files))if(path.startsWith('evidence/interview/') && typeof bytes === 'string')files[`example-interview-options/${path.slice('evidence/interview/'.length)}`]=bytes;
+  if (existsSync(dir)) throw new Error('choice generation needs a fresh directory');
+  cpSync(join(import.meta.dir, '../templates/example-numbered'), dir, { recursive: true });
+  renameSync(join(dir, 'example-project.json'), join(dir, 'project.json'));
   const load=():JsonObject=>JSON.parse(readFileSync(join(dir,'project.json'),'utf8'));
+  const p = load();
+  const anchor = Date.parse(String(obj(p.corrections_contract).adopted_at));
+  const time = (value: string): string => exampleTime(value, anchor);
+  const entry:JsonObject={schema:'rig-create/interview-choice-fixture@1',project:'example-numbered/example-project.json',examples:collectItems(p,{collection:null}).map(i=>({question:i.id,answer:i.raw,options:obj(obj(i.raw).choice).set as Json})),scenarios:[]};
+  const files:Record<string,string>={};
+  for (const name of readdirSync(join(dir, 'evidence/interview'))) {
+    files[`example-interview-options/${name}`] = readFileSync(join(dir, 'evidence/interview', name), 'utf8');
+  }
   const item=(project:JsonObject,q:string)=>collectItems(project,{collection:null}).find(i=>i.id===q)!;
   const save=(project:JsonObject):void=>writeFileSync(join(dir,'project.json'),JSON.stringify(project,null,2)+'\n');
   const source=structuredClone(p);source.stage='interview';source.signoffs=[];source.versions=[];source.advances=[];source.scenes=[];delete source.direction_contract;
@@ -29,18 +35,18 @@ export function generateExampleChoices(dir:string): Record<string,string> {
   let now=Number.NaN;
   const keep=(q:string,id:string,minute:string):{path:string;sha256:string;set:JsonObject}=>{
     const old=obj(obj(item(p,q).raw).choice).set as JsonObject;
-    const set=JSON.parse(readFileSync(join(dir,String(old.path)),'utf8')) as JsonObject;set.id=id;set.drafted_at=exampleTime(`2026-11-10T14:${minute}:00Z`);
+    const set=JSON.parse(readFileSync(join(dir,String(old.path)),'utf8')) as JsonObject;set.id=id;set.drafted_at=time(`2026-11-10T14:${minute}:00Z`);
     const path=`evidence/interview/${id}.json`;const bytes=JSON.stringify(set,null,2)+'\n';writeFileSync(join(dir,path),bytes);files[`example-interview-options/${id}.json`]=bytes;
-    now=Date.parse(exampleTime(`2026-11-10T14:${minute}:30Z`));interviewOptionsCommand([q,dir,'--file',path], now);return{path,sha256:sha256(Buffer.from(bytes)),set};
+    now=Date.parse(time(`2026-11-10T14:${minute}:30Z`));interviewOptionsCommand([q,dir,'--file',path], now);return{path,sha256:sha256(Buffer.from(bytes)),set};
   };
   const scenarios=entry.scenarios as Json[];
   try{
     const binding=keep('reference','other-pending','10');
-    const picks={schema:'rig-review/interview-picks@1',set:{path:binding.path,sha256:binding.sha256},picks:[{ask:'reference',option_id:'other',other_text:'다른 방향\nKeep the final spaces.  \ne\u0301'}],by:'user',at:exampleTime('2026-11-10T14:11:00.000Z')};
+    const picks={schema:'rig-review/interview-picks@1',set:{path:binding.path,sha256:binding.sha256},picks:[{ask:'reference',option_id:'other',other_text:'다른 방향\nKeep the final spaces.  \ne\u0301'}],by:'user',at:time('2026-11-10T14:11:00.000Z')};
     const picksPath='evidence/interview/other-picks.json';const picksBytes=JSON.stringify(picks,null,2)+'\n';writeFileSync(join(dir,picksPath),picksBytes);files['example-interview-options/other-picks.json']=picksBytes;
     writeFileSync(join(dir,'other.txt'),String(picks.picks[0]?.other_text));
     now=Date.parse(picks.at);const pending=JSON.parse(interviewAnswerCommand(['reference',dir,'--set',binding.path,'--sha256',binding.sha256,'--by','user','--pick','reference=other','--other',`reference=${join(dir,'other.txt')}`], now)) as JsonObject;
-    writeFileSync(join(dir,'approval.txt'),'Approve');now=Date.parse(exampleTime('2026-11-10T16:10:00Z'));
+    writeFileSync(join(dir,'approval.txt'),'Approve');now=Date.parse(time('2026-11-10T16:10:00Z'));
     const before=readFileSync(join(dir,'project.json'));let approval='';try{signoffCommand(['interview',dir,'--by','user','--verbatim-file',join(dir,'approval.txt')], now);}catch(e){if(!(e instanceof Refusal))throw e;approval=e.code;}
     if(approval!=='INTERVIEW_CHOICE_REQUIRED'||!before.equals(readFileSync(join(dir,'project.json'))))throw Error('pending Other approval control failed');
     scenarios.push({name:'other-pending-picks-file',picks_file:'example-interview-options/other-picks.json',answer:pending,approval_refusal:approval});

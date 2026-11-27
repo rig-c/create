@@ -4,7 +4,6 @@ import { createHash } from 'node:crypto';
 import { mkdirSync, readFileSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
-import { generateExampleDiff } from '../scripts/generate-example-diff.ts';
 import { deriveDiffClasses, expandDiffTriage, diffClassesCommand } from '../src/diff-classes.ts';
 import { DIFF_MAP_AGENT_SINCE, DIFF_MAP_SINCE } from '../src/diff-map.ts';
 import { diffStackCandidates } from '../src/diff-map.ts';
@@ -296,13 +295,29 @@ test('report symlinks cannot leave the project', () => {
   renameSync(path, target); symlinkSync(target, path);
   only(dir, 'DIFF_MAP_REPORT');
 });
-test('B5 example has no findings and generation reproduces all shipped bytes', () => {
-  const report = checkProject(fixture());
+test('B5 legacy findings and the numbered diff report binding are preserved', () => {
+  const report = checkProject(fixture(() => {}, 'legacy-example-project.json'));
   expect(report.refusals).toEqual([]); expect(report.warnings.map(f => f.code)).toEqual(['QUESTION_SET_STALE', 'PARTS_VERDICT_FILE_LEGACY', 'RIGGING_INTERVIEW_PAINTING_LEGACY', 'STAGE_ORDER_LEGACY', 'INPUT_WRITER_MISSING', 'CHOICE_ANSWERS_LEGACY', 'CORRECTION_PATH_LEGACY']);
-  const generated = generateExampleDiff(join(tempDir(), 'generated'));
-  expect(generated.report).toBe(reports.normal);
-  const p = JSON.parse(readFileSync(join(fixture(() => {}, 'example-project.json'), 'project.json'), 'utf8')) as JsonObject;
-  expect(generated.record).toEqual(obj(p.diff_map));
+  const dir = fixture(() => {}, 'example-numbered/example-project.json');
+  const p = JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')) as JsonObject;
+  const bytes = readFileSync(join(dir, EXAMPLE_DIFF_REPORT), 'utf8');
+  const shipped = join(import.meta.dir, '../templates/example-numbered/example-diff');
+  expect(bytes).toBe(readFileSync(join(shipped, 'diff-components.json'), 'utf8'));
+  const frozenReport = JSON.parse(bytes) as JsonObject;
+  expect(frozenReport).toMatchObject({ spec: 'rig-parts-diff-components/1', error_px: 6, uncovered_error_px: 0 });
+  const stack = readFileSync(join(shipped, 'recomposite_rig.png'));
+  expect(readFileSync(join(dir, SOURCE_PARTS_DIR, 'recomposite_rig.png'))).toEqual(stack);
+  expect(obj(frozenReport.stack).sha256).toBe(sha(stack));
+  const partsApproval = signoff(p);
+  expect(p.diff_map).toEqual({
+    by: 'agent',
+    at: partsApproval.at,
+    report: { path: EXAMPLE_DIFF_REPORT, sha256: sha(bytes) },
+    components: [
+      { id: 'p10-n3', status: 'in-painting', why: 'the synthetic painting deliberately differs here' },
+      { id: 'p1000-n3', status: 'in-painting', why: 'the synthetic painting deliberately differs here' },
+    ],
+  });
 });
 
 describe('writer usage and cutoff', () => {

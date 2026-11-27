@@ -147,7 +147,7 @@ test('#981 a currently done step can be revised and the history retains its stat
   expect(obj(obj(arr(obj(read(dir).plan).replaced)[0]).step).status).toBe('done');
 });
 
-test.each(['legacy-example-project.json', 'example-project.json'])('post re-plan after post-interview reopen preserves both plan dates in %s', template => {
+test.each(['legacy-example-project.json', 'example-numbered/example-project.json'])('post re-plan after post-interview reopen preserves both plan dates in %s', template => {
   testClock.set(EXAMPLE_NOW);
   const dir = fixture(project => {
     step(project, 'camera').status = 'pending';
@@ -236,7 +236,7 @@ test('#981 done work can be removed with checkpoint history and added again unde
 
 function rigReplacement(): { dir: string; original: JsonObject; removedStep: JsonObject; priorHistory: Json[]; flags: string[] } {
   testClock.set(EXAMPLE_NOW);
-  const dir = fixture(() => {}, 'example-project.json');
+  const dir = fixture(() => {}, 'example-numbered/example-project.json');
   const project = read(dir);
   const original = step(project, 'seethrough');
   const priorHistory = arr(obj(project.plan).replaced);
@@ -277,7 +277,7 @@ test('a removed done rig step accepts its waypoint id after a later plan-approve
 
 test('#674 a completed step is replaced under the same id after an amendment and retains its signed history', () => {
   testClock.set(EXAMPLE_NOW);
-  const dir = fixture(() => {}, 'example-project.json');
+  const dir = fixture(() => {}, 'example-numbered/example-project.json');
   const before = read(dir);
   const original = step(before, 'seethrough');
   expect(original.status).toBe('done');
@@ -306,7 +306,7 @@ test('#674 a completed step is replaced under the same id after an amendment and
 
 function postReplacement(stage = 'rig-review'): { dir: string; original: JsonObject; removedStep: JsonObject; priorHistory: Json[]; flags: string[] } {
   testClock.set(EXAMPLE_NOW);
-  const dir = fixture(() => {}, 'example-project.json');
+  const dir = fixture(() => {}, 'example-numbered/example-project.json');
   const project = read(dir);
   const original = step(project, 'camera');
   const priorHistory = arr(obj(project.plan).replaced);
@@ -547,7 +547,7 @@ function postInterviewDraft(): string {
     project.scenes = [];
     delete project.direction_contract;
     obj(project.plan).steps = arr(obj(project.plan).steps).filter(value => obj(value).phase === 'rig');
-  }, 'example-project.json'));
+  }, 'example-numbered/example-project.json'));
 }
 
 test('plan add and revise --order stable-sort plan.steps[] by order, keeping ties in array order, while revise without --order and remove do not re-sort', () => {
@@ -789,7 +789,7 @@ test.each(['checkpoint-withdraw', 'bar-amend'] as const)('a %s journal write on 
     // Place plan.steps[] out of order before the journal write.
     const steps = arr(obj(project.plan).steps);
     obj(project.plan).steps = [steps[2]!, steps[0]!, steps[1]!, ...steps.slice(3)];
-  }, 'example-project.json'));
+  }, 'example-numbered/example-project.json'));
   bindSyntheticReview(dir);
   const extractStepsBytes = (text: string): string => {
     const start = text.indexOf('"steps": [');

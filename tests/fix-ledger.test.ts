@@ -44,7 +44,7 @@ function commit(dir: string, root = dir): void {
 const restartArgs = (dir: string, reason = 'restart'): string[] => [dir, '--by', 'owner', ...ownerChatArgs(words(dir, reason))];
 
 /** The filled example: ledger row T1, the draft `example` (parts receipt, no report) and `lantern` (T1 pass). */
-const example = (): string => fixture(() => {}, 'example-project.json');
+const example = (): string => fixture(() => {}, 'example-numbered/example-project.json');
 const manifest = (dir: string, id: string): string => sha(readFileSync(join(dir, `derived/drafts/${id}/input/parts.json`)));
 
 /** A labelled draft with the example's producer bytes under derived/drafts/<id>/. */
@@ -146,7 +146,7 @@ function acceptedFailFixture(): string {
   const dir = fixture(project => {
     delete project.fix_ledger;
     project.drafts = arr(project.drafts).slice(0, 1);
-  }, 'example-project.json');
+  }, 'example-numbered/example-project.json');
   copyDraft(dir, 'reviewed');
   return dir;
 }

@@ -52,7 +52,7 @@ function expectExampleRetention(doc: InvariantsDocument): void {
 
 describe('current worked example, including words not in normalized values', () => {
   test('retains expected normalized leaves and whole sentences containing the named words', () => {
-    const doc = translateInvariants(readTemplate('example-project.json'));
+    const doc = translateInvariants(readTemplate('example-numbered/example-project.json'));
     expectExampleRetention(doc);
     expect(doc.entries).toEqual([]); // Current synthetic readings cannot justify structural assertions.
     expect(doc.gaps.filter(g => g.gap.startsWith('pending'))).toEqual([]);
@@ -60,7 +60,7 @@ describe('current worked example, including words not in normalized values', () 
     for (const historical of ['a little more than the coat tails', 'flame_flicker', 'coat_tail_l', 'swing on its own']) expect(bytes).not.toContain(historical);
   });
   test('disabled input controls: missing sentence or normalized leaf makes the same retention census red', () => {
-    const doc = translateInvariants(readTemplate('example-project.json'));
+    const doc = translateInvariants(readTemplate('example-numbered/example-project.json'));
     const disabled = { ...doc, gaps: doc.gaps.filter(g => g.from.question !== 'post_timing' || g.gap !== 'sentence_semantics') };
     expect(() => expectExampleRetention(disabled)).toThrow();
     const missingLeaf = { ...doc, gaps: doc.gaps.filter(g => g.from.question !== 'post_timing' || g.gap !== 'vocabulary' || g.value !== 8) };
@@ -121,7 +121,7 @@ function writtenMotion(otherPending = false): InvariantsDocument {
       retainSignoffs(p, s => stageIndex(String(obj(s).stage)) < stageIndex('rigging-interview'));
       for (const step of arr(obj(p.plan).steps).map(obj)) if (!['seethrough', 'assemble'].includes(String(step.id))) step.status = 'pending';
       for (const item of arr(obj(obj(p.interview).post).items).map(obj)) item.guide = null;
-    }, 'example-project.json');
+    }, 'example-numbered/example-project.json');
     const load = (): JsonObject => JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8'));
     const binding = obj(obj(obj(waypoint(load(), 'motion').guide).choice).set);
     const set: JsonObject = JSON.parse(readFileSync(join(dir, String(binding.path)), 'utf8'));

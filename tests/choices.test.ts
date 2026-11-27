@@ -39,7 +39,7 @@ function working(question='motion'): {dir:string;set:JsonObject;path:string;hash
     for(const s of arr(obj(p.plan).steps).map(obj))if(source||!['seethrough','assemble'].includes(String(s.id)))s.status='pending';
     for(const item of arr(obj(obj(p.interview).post).items).map(obj))item.guide=null;
     if(source)for(const id of ['bones','meshes','constraints','turn','motion'])waypoint(p,id).guide=null;
-  },'example-project.json');
+  },'example-numbered/example-project.json');
   return registerReask(dir, question, `test-${question}`, source ? sourceDraftAt : riggingDraftAt);
 }
 function registerReask(dir: string, question: string, id: string, draftedAt: number, encode = (set: JsonObject) => JSON.stringify(set, null, 2)) {
@@ -85,8 +85,8 @@ function reviewAnswer(w: {dir:string;path:string;hash:string}, payload: JsonObje
 }
 
 test('every framing id explicitly belongs to the source interview',()=>{for(const id of FRAMING_IDS)expect(GUIDE_INTERVIEW[id]).toBe('interview');});
-test('active writer-generated fixture is 0/0, and @1 still has split semantics',()=>{
-  const r=checkProject(fixture(()=>{},'example-project.json'));expect(r.refusals).toEqual([]);expect(r.warnings).toEqual([]);
+test('the frozen numbered example is 0/0, and @1 still has split semantics',()=>{
+  const r=checkProject(fixture(()=>{},'example-numbered/example-project.json'));expect(r.refusals).toEqual([]);expect(r.warnings).toEqual([]);
   expect(hasStageOrder({interview:{order:{spec:'rig-create/stage-order@1'}}})).toBe(true);
 });
 
@@ -495,7 +495,7 @@ test('changed context bytes, reopened context and unavailable viewed draft refus
   const missing=working();rmSync(join(missing.dir,'derived/drafts'),{recursive:true});expect(code(()=>answer(missing))).toBe('INTERVIEW_OPTIONS_STALE');
 });
 test('future-dated unadopted answers stay legacy; explicit adoption preserves answer bytes',()=>{
-  const dir=fixture(p=>{obj(obj(p.interview).order).spec='rig-create/stage-order@1';delete obj(obj(p.interview).order).choices_adopted_at;framing(p,'reference').answer={delegated:false,by:'user',at:'2026-11-22T00:00:00Z',verbatim:'None.',value:'none',source:'chat'};},'example-project.json');
+  const dir=fixture(p=>{obj(obj(p.interview).order).spec='rig-create/stage-order@1';delete obj(obj(p.interview).order).choices_adopted_at;framing(p,'reference').answer={delegated:false,by:'user',at:'2026-11-22T00:00:00Z',verbatim:'None.',value:'none',source:'chat'};},'example-numbered/example-project.json');
   const before=JSON.stringify(current(load(dir),'reference').raw);testClock.set(new Date('2026-12-01T00:00:00Z'));interviewOptionsCommand(['--adopt',dir]);
   expect(obj(obj(load(dir).interview).order).spec).toBe(CHOICE_ORDER_SPEC);expect(JSON.stringify(current(load(dir),'reference').raw)).toBe(before);resignAfterChange(dir);expect(checkProject(dir).refusals).toEqual([]);expect(checkProject(dir).warnings.map(f=>f.code)).toContain('CHOICE_ANSWERS_LEGACY');
 });

@@ -5,7 +5,7 @@ import { checkDirectionFixtureHashes } from '../scripts/check-direction-fixture-
 import { run, tempDir } from './helpers.ts';
 import { dirname, join } from 'node:path';
 
-const root = join(import.meta.dir, '../templates/example-direction');
+const root = join(import.meta.dir, '../templates/example-numbered/example-direction');
 const model = JSON.parse(readFileSync(join(root, 'derived/review/v1/out/check/build/skeleton.model.json'), 'utf8'));
 
 interface TurnDial {axis: string; min: number; max: number}

@@ -524,7 +524,7 @@ test('#789 job acts preserves checkpoint and signoff words and interview comment
 
 test('#760 a rig verdict ask and its un-ingested act on a rig the amendment superseded no longer hold a new ask', () => {
   testClock.set(EXAMPLE_NOW);
-  const dir = fixture(() => {}, 'example-project.json');
+  const dir = fixture(() => {}, 'example-numbered/example-project.json');
   const rig = { kind: 'rig', version: 2 } as const;
   const ask = { askId: 'ask-rig', publicationId: 'pub-rig', status: 'pending', subject: { kind: 'review-verdict', stage: 'rig-review' }, source: { selector: rig } } as unknown as PendingAskV3;
   const act = { jobId: 'job', actId: 'act-rig', askId: 'ask-rig', publicationId: 'pub-rig', kind: 'review-verdict', source: { selector: rig },
@@ -628,7 +628,7 @@ function riggingInterviewRoot(edit?: (project: JsonObject) => void): string {
     for (const item of arr(obj(obj(project.interview).post).items).map(obj)) item.guide = null;
     for (const step of arr(obj(project.plan).steps).map(obj)) if (!['seethrough', 'assemble'].includes(String(step.id))) step.status = 'pending';
     edit?.(project);
-  }, 'example-project.json'));
+  }, 'example-numbered/example-project.json'));
   roots.push(root);
   return root;
 }

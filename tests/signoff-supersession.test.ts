@@ -17,7 +17,7 @@ function sign(dir: string, stage: string, steps?: string): void {
 }
 
 test('review refuses newly stale approval hashes without changing project bytes', () => {
-  const dir = fixture(p => { delete p.direction_contract; }, 'example-project.json', {}, true);
+  const dir = fixture(p => { delete p.direction_contract; }, 'example-numbered/example-project.json', {}, true);
   testClock.set(TEST_NOW);
   directionCommand(['--adopt', dir]);
   const before = readFileSync(join(dir, 'project.json'));
@@ -35,7 +35,7 @@ test('preexisting feedback additions can be approved by partial rigging and post
     for (const guide of [motion, obj(post.guide)]) guide.additions = [...arr(guide.additions ?? []), {
       by: 'user', at: feedbackAt, verbatim: 'Add a slower pause and hold the camera.', value: null, source: 'polish feedback, v4',
     }];
-  }, 'example-project.json', {}, true);
+  }, 'example-numbered/example-project.json', {}, true);
   testClock.set(TEST_NOW);
   directionCommand(['--adopt', dir]);
   const original = arr(load(dir).signoffs);
@@ -49,7 +49,7 @@ test('preexisting feedback additions can be approved by partial rigging and post
 });
 
 test('interview re-sign supersedes an earlier framing answer binding', () => {
-  const dir = fixture(() => {}, 'example-project.json', {}, true), p = load(dir);
+  const dir = fixture(() => {}, 'example-numbered/example-project.json', {}, true), p = load(dir);
   obj(framing(p, 'reference').answer).additions = [{ by: 'user', at: feedbackAt, verbatim: 'A newly stated framing sentence.', value: 'none' }];
   const before = arr(structuredClone(p.signoffs)); save(dir, p);
   testClock.set(resignAt); sign(dir, 'interview');
@@ -58,15 +58,15 @@ test('interview re-sign supersedes an earlier framing answer binding', () => {
 });
 
 test('fixture mutation preserves the approval hashes that existed before the mutation', () => {
-  const baseline = load(fixture(() => {}, 'example-project.json', {}, true));
-  const dir = fixture(p => { obj(waypoint(p, 'motion').guide).verbatim = 'DISTINCT unapproved motion change'; }, 'example-project.json');
+  const baseline = load(fixture(() => {}, 'example-numbered/example-project.json', {}, true));
+  const dir = fixture(p => { obj(waypoint(p, 'motion').guide).verbatim = 'DISTINCT unapproved motion change'; }, 'example-numbered/example-project.json');
   const changed = load(dir);
   expect(changed.signoffs).toEqual(baseline.signoffs);
   expect(checkProject(dir, changed).refusals.map(f => f.code)).toContain('SIGNOFF_ANSWERS_STALE');
 });
 
 test.each(['2026-11-01T00:00:00Z', 'unparseable'])('later first answer with at %s is outside earlier interview coverage', at => {
-  const dir = fixture(() => {}, 'example-project.json', {}, true), p = load(dir);
+  const dir = fixture(() => {}, 'example-numbered/example-project.json', {}, true), p = load(dir);
   obj(p.interview).framing = [...arr(obj(p.interview).framing), { id: 'later', answer: { delegated: false, by: 'user', at, value: 'later', verbatim: 'Recorded after the interview.' } }];
   expect(checkProject(dir, p).refusals.filter(f => f.code.startsWith('SIGNOFF_ANSWERS_'))).toEqual([]);
 });

@@ -43,7 +43,7 @@ const corePackage = { name: '@rig-c/core', version: '3.8.1' };
 
 /** Reusable by the before/after `next --json` comparison against the base checkout. */
 export function staleFixture(mutate?: Mutate): string {
-  const dir = fixture(mutate, 'example-project.json');
+  const dir = fixture(mutate, 'example-numbered/example-project.json');
   const reasonFile = join(tempDir(), 'retire-t1.txt');
   writeFileSync(reasonFile, 'The signed example fix is outside this synthetic rebuild scenario.\n');
   ledgerCommand(['retire', 'T1', dir, '--by', 'user', '--reason-file', reasonFile], testClock.now());

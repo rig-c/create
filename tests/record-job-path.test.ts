@@ -208,6 +208,7 @@ async function page(root: string, url: URL, expectedAsks = 2) {
 
 
 function synthetic(stage: string, legacy = false, ownerLanguage?: string): string {
+  const template = legacy ? 'legacy-example-project.json' : 'example-numbered/example-project.json';
   const root = realpathSync(fixture(project => {
     project.stage = stage;
     if (ownerLanguage !== undefined) project.owner = { language: ownerLanguage };
@@ -228,9 +229,9 @@ function synthetic(stage: string, legacy = false, ownerLanguage?: string): strin
     if (stage === 'parts') for (const item of arr(obj(project.interview).waypoints).map(obj)) {
       if (['bones', 'meshes', 'constraints', 'turn', 'motion'].includes(String(item.id))) item.guide = null;
     }
-  }, legacy ? 'legacy-example-project.json' : 'example-project.json'));
+  }, template));
   roots.push(root);
-  receipt({ seed: 'fixture(example-project.json), synthetic stage prefix only; no pilot', stage, parts: loadedPartsIdentity(root, 'project'), review: reviewPackage.version, core: corePackage.version, bun: Bun.version, record: jobHash(bytes(root)) });
+  receipt({ seed: `fixture(${template}), synthetic stage prefix only; no pilot`, stage, parts: loadedPartsIdentity(root, 'project'), review: reviewPackage.version, core: corePackage.version, bun: Bun.version, record: jobHash(bytes(root)) });
   return root;
 }
 
@@ -609,7 +610,7 @@ test.each([true, false])('#969 post answer remedy with a live direction bounce =
     retainSignoffs(project, signature => signature.stage !== 'direction-review');
     project.advances = arr(project.advances).filter(value => obj(value).stage !== 'accepted');
     if (bounced) project.versions = arr(project.versions).filter(value => obj(value).n !== 4);
-  }, 'example-project.json'));
+  }, 'example-numbered/example-project.json'));
   roots.push(root);
   const path = /project\.json\.interview\.post\.items\[camera_depth\]\.pending_options/;
   const remedies = bounced ? [

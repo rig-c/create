@@ -6,8 +6,9 @@ the rig work always passes through — the sections of a `@rig-c/parts` config �
 and the user's decisions attach at each one. New work proposes one [plan per step](#step-plans); records already begun use [per-ask choices](#per-ask-choices-interview2), and the sentence format below remains historical. Camera framing and timing are
 **post-production**, asked separately after the rig is accepted. The plan the
 work follows is drafted from these answers ([PROJECT.md § The plan](PROJECT.md#the-plan));
-a worked example is in [../templates/example-interview.md](../templates/example-interview.md),
-with its record in [../templates/example-project.json](../templates/example-project.json).
+the [current worked example](../templates/example-current/project.json) records
+these decisions. The [historical interview](../templates/example-interview.md)
+has a [frozen numbered record](../templates/example-numbered/example-project.json).
 
 Write the questions and option copy in the [owner's language](PROJECT.md#owner-language).
 
@@ -1042,9 +1043,10 @@ the public flag writer. Flags use the writer's clock.
 Writers use the check's choice validators before writing. A partial interview
 may keep unrelated existing refusals, but a writer cannot introduce a new
 one. When ending the same pending auto transition, the decision writer permits each code/path up to the larger count in `refusal_baseline` and the current record, while refusing findings absent from both and refusing any excess count. A refused project write leaves its bytes identical; retained authored
-files are never rewritten. Regenerate all consumer examples with
-`scripts/generate-example-choices.ts <fresh scratch> [--check]`; the active full
-example also reproduces through `generate-example-order.ts` and stays 0/0.
+files are never rewritten. Regenerate the choice wire examples with
+`scripts/generate-example-choices.ts <fresh scratch> [--check]`. The full
+current example reproduces through `generate-example-current.ts` and checks
+with zero refusals and warnings.
 
 ## Optional intake choice in parts
 

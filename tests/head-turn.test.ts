@@ -63,7 +63,7 @@ test('#1000 head-and-body depth moves keep turn.body instead of stripping it', (
 
 test('#1000 TURN_BODY_VALUE_INVALID accepts only body: true with mode: "depth" and refuses invalid body before writing', () => {
   const dir = tempDir();
-  const base = readTemplate('example-project.json');
+  const base = readTemplate('example-numbered/example-project.json');
   const now = Date.parse('2026-11-25T00:00:00Z');
   const withGuide = (guide: JsonObject): JsonObject => {
     const candidate = structuredClone(base);
@@ -106,7 +106,7 @@ test('#1000 TURN_BODY_VALUE_INVALID accepts only body: true with mode: "depth" a
 
 test('#1003 TURN_BODY_VALUE_INVALID is dated by the agent decision: WARN before TURN_BODY_SINCE, refusal from it', () => {
   const dir = tempDir();
-  const base = readTemplate('example-project.json');
+  const base = readTemplate('example-numbered/example-project.json');
   const now = Date.parse(TURN_BODY_SINCE) + 24 * 60 * 60 * 1000;
   const path = 'interview.waypoints[turn].guide.agent_decision.value.body';
   const decided = (at: string): JsonObject => {

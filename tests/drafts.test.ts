@@ -142,7 +142,7 @@ function installedParts(dir: string): string { return (JSON.parse(readFileSync(j
 const stampAt = (build: boolean): string => `derived/drafts/sample/out/${build ? 'rig/' : ''}run.json`;
 
 function reviewedOutputCopy(): { dir: string; root: string; source: JsonObject; args: string[] } {
-  const dir = fixture(project => { project.fix_ledger = []; }, 'example-project.json');
+  const dir = fixture(project => { project.fix_ledger = []; }, 'example-numbered/example-project.json');
   const source = obj(arr(read(dir).drafts).find(d => obj(d).id === 'example'));
   const sourceRoot = 'derived/drafts/example';
   const root = 'derived/drafts/reused';

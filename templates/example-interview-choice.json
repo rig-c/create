@@ -1,6 +1,6 @@
 {
   "schema": "rig-create/interview-choice-fixture@1",
-  "project": "example-project.json",
+  "project": "example-numbered/example-project.json",
   "examples": [
     {
       "question": "rig_type",

@@ -197,7 +197,7 @@ test('scene-first drafting preserves the current-rig context already authored be
 });
 
 test('adoption keeps retained numbered options and their check findings while new options require current evidence', () => {
-  const dir = fixture(() => {}, 'example-project.json');
+  const dir = fixture(() => {}, 'example-numbered/example-project.json');
   const project = JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')) as JsonObject;
   const camera = collectItems(project, { collection: null }).find(item => item.id === 'camera_depth')!;
   const { set } = optionFile(dir, obj(obj(camera.raw).choice).set);
@@ -221,7 +221,7 @@ function postProject(): string {
     delete project.direction_contract;
     retainSignoffs(project, signature => stageIndex(String(signature.stage)) < stageIndex(stage));
     for (const step of arr(obj(project.plan).steps).map(obj)) if (step.phase === 'post') step.status = 'pending';
-  }, 'example-project.json');
+  }, 'example-numbered/example-project.json');
 }
 
 function load(dir: string): JsonObject {

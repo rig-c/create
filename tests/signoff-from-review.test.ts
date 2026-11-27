@@ -93,7 +93,7 @@ test('a plan-bound sign-off ingests with the displayed plan and refuses a stale 
 });
 
 test('#561 from-review cannot use its candidate approval to settle an unsigned stale step', () => {
-  const dir = fixture(() => {}, 'example-project.json');
+  const dir = fixture(() => {}, 'example-numbered/example-project.json');
   const stage = 'post-interview';
   testClock.set(TEST_NOW);
   plantLegacyReopen(dir, stage);

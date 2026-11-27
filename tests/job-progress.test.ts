@@ -107,6 +107,7 @@ test('#688 filled project CLI progress uses the live Review API and keeps its co
   const original = readFileSync(project);
   let stop: (() => void) | undefined;
   try {
+    expect(JSON.parse(original.toString('utf8'))).toHaveProperty('current.direction');
     const baseline = await check(root);
     expect(baseline.exit).toBe(0);
     expect(baseline.stderr.byteLength).toBe(0);
@@ -160,7 +161,7 @@ test('#688 filled project CLI progress uses the live Review API and keeps its co
 
 test('#688 a writer that sends a milestone and then refuses leaves the project byte-identical; the seq lives in host state', async () => {
   const scratch = realpathSync(tempDir());
-  const root = materializeFixture(join(scratch, 'project'));
+  const root = materializeFixture(join(scratch, 'project'), () => {}, 'example-numbered/example-project.json');
   const stateDir = join(scratch, 'review');
   mkdirSync(stateDir, { mode: 0o700 });
   const project = join(root, 'project.json');

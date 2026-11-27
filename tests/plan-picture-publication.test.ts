@@ -20,7 +20,7 @@ function directionRecord(mutate: (post: JsonObject) => void = () => {}, files: R
     retainSignoffs(project, signature => obj(signature).stage !== 'direction-review');
     project.advances = arr(project.advances).filter(value => obj(value).stage !== 'accepted');
     mutate(arr(project.versions).map(obj).find(version => version.n === 4)!);
-  }, 'example-project.json', files));
+  }, 'example-numbered/example-project.json', files));
 }
 
 function planRequest(root: string): RecordPublicationRequest & { result: { kind: 'plan' } } {
@@ -106,7 +106,7 @@ test.each(['rigging-interview', 'post-interview'])('#665 a pre-post %s plan publ
     for (const step of arr(obj(project.plan).steps).map(obj)) {
       if (stage === 'post-interview' ? step.phase === 'post' : !['seethrough', 'assemble'].includes(String(step.id))) step.status = 'pending';
     }
-  }, 'example-project.json'));
+  }, 'example-numbered/example-project.json'));
   const context = readRecordPublished(planRequest(root), TEST_NOW);
   expect(Object.keys(context)).toEqual(['label', 'parts', 'inputs', 'files', 'plan', 'subjects']);
 });

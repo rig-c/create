@@ -106,11 +106,11 @@ that comment exists. Codex's own review of it does not count.
    Dev-only bumps do not rewrite release templates. Release bumps use this checklist:
    - `src/pins.ts`;
    - `question_set` in `templates/project.json`, `templates/collection.json`
-     and `templates/example-project.json`;
+     and `templates/example-current/project.json`;
    - versioned links in `docs/`;
    - the transitive `@rig-c/core`, which matches the version parts pins;
-   - `templates/example-split/captions.json`, regenerated whenever
-     `example-project.json` changes.
+   - the current worked example, regenerated with its producer when the release
+     pins change. The numbered split captions stay bound to their frozen source.
 
    No old release version string remains in current pin declarations.
    `source-linked` runs typecheck, lint and the full suite with isolated
@@ -125,6 +125,8 @@ that comment exists. Codex's own review of it does not count.
      never written by hand.
    - JSON templates are edited in place; a whole-file reserialization is a
      defect.
+   - The frozen numbered fixture (`templates/example-numbered/`) has no writer:
+     it is verified by SHA-256 and never regenerated.
 6. **Writers refuse before they write.** A command that records into
    `project.json` validates with the same function the check uses, and a
    refused write leaves the file byte-identical.

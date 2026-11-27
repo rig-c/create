@@ -1,5 +1,5 @@
 import { generatorArgs } from './generator-args.ts';
-/** Reproduce the current worked example, never a historical answer. */
+/** Reproduce the worked guide translation from the frozen numbered narrative. */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { translateInvariants } from '../src/invariants.ts';
@@ -8,7 +8,7 @@ import { readTemplate } from '../src/templates.ts';
 export function generateInvariantsExample(dir: string): string {
   if (existsSync(dir)) throw new Error('invariants generation needs a fresh directory');
   mkdirSync(dir, { recursive: true });
-  const bytes = `${JSON.stringify(translateInvariants(readTemplate('example-project.json')), null, 2)}\n`;
+  const bytes = `${JSON.stringify(translateInvariants(readTemplate('example-numbered/example-project.json')), null, 2)}\n`;
   writeFileSync(join(dir, 'invariants.json'), bytes);
   return bytes;
 }
@@ -23,5 +23,5 @@ if (import.meta.main) {
     mkdirSync(root, { recursive: true });
     writeFileSync(file, bytes);
   }
-  console.log('current guide invariants reproduce byte for byte');
+  console.log('worked guide invariants reproduce byte for byte');
 }

@@ -14,10 +14,11 @@ The field set is **v0** — `"schema": "rig-create/project@0"` — and is expect
 to change while the structure is piloted by hand. The `@0` is there so a reader
 of a record can tell which shape it follows once the shape moves; a validator
 and a migration come with the first shape change, not before. The empty
-skeleton is [../templates/project.json](../templates/project.json); a filled
-record is [../templates/example-project.json](../templates/example-project.json).
-Its sign-offs are fixture sign-offs, not a person's approval; see
-[../templates/example-draft/README.md](../templates/example-draft/README.md).
+skeleton is [../templates/project.json](../templates/project.json). The
+[current worked example](../templates/example-current/project.json) reaches
+acceptance with synthetic sign-offs. The
+[frozen numbered record](../templates/example-numbered/example-project.json)
+illustrates the historical format.
 
 ## Layout
 
@@ -619,11 +620,9 @@ assembled parts before `rigging` starts.
   an earlier `parts-review` sign-off carrying `diff_map` emits a
   `DIFF_MAP_ON_SIGNOFF_LEGACY` warning and its map is still checked in full.
 
-  The filled example's report and stack are synthetic, with two listed
-  components. `bun scripts/generate-example-diff.ts <fresh scratch directory>`
-  regenerates them through the installed parts CLI and the `diff-classes` and
-  `signoff` writers. Add `--check` to reproduce the shipped report, stack and
-  inline record bytes.
+  The frozen numbered example retains a synthetic report and stack with two
+  listed components. Verify them and the bound record with
+  `bun scripts/check-example-numbered.ts <fresh directory> --check`.
 - **A project that passed `plan-approved` before these two stages existed**
   (its first `plan-approved` sign-off is dated before 2026-11-04, the
   `PARTS_REVIEW_SINCE` in `src/stages.ts`) is not given a sign-off nobody made.
@@ -842,15 +841,15 @@ require their own evidence. Exit 1 names an unreadable or malformed input,
 unknown project schema, malformed or duplicate split name, invalid label, or
 parts config refusal. Usage errors exit 2. Refusals produce no caption stdout.
 
-The worked list is [example-split/captions.json](../templates/example-split/captions.json),
-generated with the existing filled record and a synthetic config. Regenerate it
-from the repository root with
+The worked list is [example-split/captions.json](../templates/example-numbered/example-split/captions.json).
+It retains the captions produced from the frozen numbered record and a
+synthetic config. Read the captions with
 
 ```sh
-bun src/cli.ts split-captions templates/example-project.json --config example-split/config.json > templates/example-split/captions.json
+bun src/cli.ts split-captions templates/example-numbered/example-project.json --config example-split/config.json
 ```
 
-[example-split/config.json](../templates/example-split/config.json) supplies
+[example-split/config.json](../templates/example-numbered/example-split/config.json) supplies
 synthetic config bytes because the filled record's historical config paths
 have no corresponding files. Its scale, coordinates, source tags, bindings and
 empty motion tracks are test inputs. The painting, split layers and rig output
@@ -1649,16 +1648,11 @@ Post versions go to direction review, outside this package contract.
 Pre-interview versions retain their existing history and output checks and
 are exempt from review-package warnings.
 
-The filled example ships synthetic producer bytes under
-`templates/example-review/`. Its two `review_package` records are generated
-by `bun scripts/generate-example-review.ts <fresh scratch project>`. Add
-`--check` to verify that generation reproduces the shipped record bytes.
-The script runs the public `review-package` command for both rig versions.
-`reviewExampleFiles()` in `tests/review-fixture.ts` maps those bytes to the
-declared sources and package destinations, and both example fixture helpers
-materialize them. The regression test generates two fresh projects and
-compares every record and file byte before checking the filled example with
-zero refusals and zero warnings.
+The frozen numbered example retains both `review_package` records from the
+public writer and their package bytes. Verify the frozen files and reader
+results with `bun scripts/check-example-numbered.ts <fresh directory> --check`.
+The older synthetic producer inputs under `templates/example-review/` still
+support the legacy reader and writer fixtures.
 
 Apply results return in review feedback as `feedback[].context.applied`.
 Keep the JSON written by `rig-review feedback` in the project and record one
@@ -1730,7 +1724,7 @@ act, as for existing forward sign-offs. The filled legacy example is frozen in
 `QUESTION_SET_STALE`, because its frozen question set remains at 2.14.1, and it is refused by the build-identity gate
 (`REVIEW_PACKAGE_CONFIG_MISMATCH` on v1 and v2), because its versions, dated after
 `BUILD_IDENTITY_SINCE`, claim configs their review packages do not carry. Its rig-review and direction-review signatures also postdate `SIGNOFF_TARGET_SINCE` and lack targets, so each refuses `SIGNOFF_TARGET_MISSING`. Its interview, two plan-approved and post-interview signatures also lack answer bindings and each refuses `SIGNOFF_ANSWERS_MISSING`. Its bytes stay frozen.
-The new `example-project.json` is a synthetic new-order narrative at 0/0.
+The frozen numbered example is a synthetic new-order narrative with zero refusals and warnings.
 
 Framing and source (`seethrough`, `assemble`) are the first interview. A
 `plan-approved` signature covers only those parts steps in new-order records.
@@ -1880,9 +1874,8 @@ shipped-capability claim or mandatory gate. Review/producer owners validate the
 actual editors and mesh rendering. Create's synthetic tests prove record
 binding and refusals, not the physical correctness of a chest rebuild.
 
-The synthetic new-order record and draft declaration files reproduce with
-`bun scripts/generate-example-order.ts <fresh scratch dir> --check`. The frozen
-legacy record is byte-preserved; generated evidence is never hand-written.
+Verify the synthetic numbered record and its retained draft files with
+`bun scripts/check-example-numbered.ts <fresh scratch dir> --check`.
 
 The [synthetic bound chain](../templates/example-chain/README.md) carries one
 project from its labelled draft and approved parts through a packaged rig,
@@ -2249,11 +2242,11 @@ stays rig-only and cannot rebind a model already cited by a direction document.
 Approval cutoffs, historical evidence, human signoff and agent closure remain
 separate gates.
 
-The generated geometric example is `templates/example-direction/`, including a
+The frozen geometric example is `templates/example-numbered/example-direction/`, including a
 small staged project, exact input/result documents and a
 @2 described correction. It uses invented sentences shaped like a pilot interview, not
-pilot words or assets. Reproduce with
-`bun scripts/generate-direction-fixture.ts <fresh-dir> --check`. It demonstrates
+pilot words or assets. Verify the retained bytes with
+`bun scripts/check-example-numbered.ts <fresh-dir> --check`. It demonstrates
 writer/contract behavior with a real installed `rigc build` of a public rectangle
 probe. Its compiled local yaw slider is readable by review's `discoverTurnDials`
 (`src/turn-pad.ts`, revision `c3e571db1878093b183c282b56f5eb846c1d742b`),
@@ -2762,10 +2755,9 @@ when a row is live or the current parts being replaced have a ledger binding.
 refuses it from `CURRENT_PARTS_LEDGER_SINCE`. Adopted parts keep the numbered
 ledger contract.
 
-The filled example records the v1 bounce's lantern fix as row `T1` and a later
+The frozen numbered example records the v1 bounce's lantern fix as row `T1` and a later
 draft, `lantern`, with a synthetic passing report
-(`templates/example-draft/evidence/fix-ledger/lantern.json`, written by
-`scripts/example-ledger.ts` through `generate-example-order.ts`).
+(`templates/example-numbered/evidence/fix-ledger/lantern.json`).
 
 `rig-create restart [<dir>] --by <human> --owner-chat <words file> --said-at <ISO> --relayed-by <operator>`
 starts the record again at v1 when the owner orders it. Supply the owner's exact

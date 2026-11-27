@@ -2455,7 +2455,7 @@ describe('#812/#929 live rig feedback', () => {
     const partsPath = String(obj(draft.parts).path);
     const draftRig = 'derived/drafts/synthetic-frozen/rig';
     cpSync(join(dir, 'source/rig'), join(dir, draftRig), { recursive: true });
-    cpSync(join(import.meta.dir, '../templates/example-diff/recomposite_rig.png'), join(dir, partsPath, 'recomposite_rig.png'));
+    cpSync(join(import.meta.dir, '../templates/example-numbered/example-diff/recomposite_rig.png'), join(dir, partsPath, 'recomposite_rig.png'));
     const artifacts = [`${partsPath}/recomposite_rig.png`, ...['rig.json', 'motion.json', 'mesh_report.json'].map(name => `${draftRig}/${name}`)];
     Object.assign(draft, { kind: 'draft-rig', at: '2026-11-07T00:00:00Z', producer: { name: '@rig-c/parts', version: '2.52.0' },
       files: artifacts.map(path => ({ path, sha256: jobHash(readFileSync(join(dir, path))) })) });

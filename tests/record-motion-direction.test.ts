@@ -364,7 +364,7 @@ test('next offers preparation and recording for missing current direction before
     project.stage = 'post';
     project.advances = (project.advances as JsonObject[]).filter(move => !['direction-review', 'accepted'].includes(String(move.stage)));
     project.signoffs = (project.signoffs as JsonObject[]).filter(signoff => signoff.stage !== 'direction-review');
-  }, 'example-project.json');
+  }, 'example-numbered/example-project.json');
   const f = { dir, model: { stage: { x: -64, y: 0, width: 128, height: 128 }, animations: [{ name: 'idle' }] },
     load: () => json(dir, 'project.json'), save: (value: JsonObject) => write(dir, 'project.json', value) };
   currentRig(f);

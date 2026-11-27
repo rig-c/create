@@ -118,12 +118,12 @@ For every release dependency bump, check all of these:
 - `package.json` and `bun.lock` agree on published exact versions.
 - Update applicable entries in `src/pins.ts`.
 - Update `question_set` in `templates/project.json`,
-  `templates/collection.json` and `templates/example-project.json`.
+  `templates/collection.json` and `templates/example-current/project.json`.
 - Update versioned links in `docs/`.
 - Keep the transitive `@rig-c/core` equal to the version parts pins.
-- Regenerate `templates/example-split/captions.json` whenever
-  `templates/example-project.json` changes, using its producer script. Never
-  hand-edit producer bytes or reserialize entire JSON templates.
+- Regenerate the current worked example with `scripts/generate-example-current.ts`.
+  The numbered split captions stay bound to their frozen source.
+  Never hand-edit producer bytes or reserialize entire JSON templates.
 - Confirm no old release version string remains in current pin declarations.
 - Re-evaluate `scripts/source-only-tests.json` when the published dependencies
   gain a formerly source-only capability; remove the applicable exclusion and

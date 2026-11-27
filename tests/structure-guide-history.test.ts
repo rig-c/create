@@ -70,7 +70,7 @@ function retainedDelta(): string {
     for (const raw of arr(obj(p.plan).steps)) if (!['seethrough', 'assemble'].includes(String(obj(raw).id))) obj(raw).status = 'pending';
     step(p, 'assemble').rests_on = ['assemble']; rehashSignoffs(p);
   });
-  cpSync(join(import.meta.dir, '../templates/example-draft/inputs/painting.png'), join(dir, 'painting-source.png'));
+  cpSync(join(import.meta.dir, '../templates/example-numbered/inputs/painting.png'), join(dir, 'painting-source.png'));
   inputCommand(['add', 'painting-source.png', dir, '--painting', '--origin', 'synthetic source painting']);
   const image = readFileSync(join(import.meta.dir, 'fixtures/rig-registration/rig/images/rectangle.png'));
   const manifest = JSON.stringify({ rig_size: [8, 16], scale_rig_per_source: 1, ghost_px: {},

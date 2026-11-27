@@ -59,7 +59,7 @@ const SINCE = Date.parse(PROGRESS_HISTORY_SINCE);
 const POST_LAPSES = [['REOPEN_SIGNOFF_LAPSED', 'signoffs[10]'], ['REOPEN_VERDICT_LAPSED', 'versions[v4].verdicts[0]']];
 
 test('historical reopen snapshots and a step-status chain preserve the exact lapsed approvals', () => {
-  const dir = fixture(() => {}, 'example-project.json');
+  const dir = fixture(() => {}, 'example-numbered/example-project.json');
   expect(read(dir).stage).toBe('accepted');
   expect(findings(dir, 'refusals')).toEqual([]);
   expect(findings(dir, 'warnings')).toEqual([]);

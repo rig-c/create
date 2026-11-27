@@ -190,10 +190,10 @@ A scene puts a background, and optionally a foreground, around an accepted rig
 - [RELEASING.md](RELEASING.md):
   preparing and publishing a release.
 - [templates/](templates/): the empty `project.json` and `collection.json`
-  skeletons, and a worked example ([example-interview.md](templates/example-interview.md),
-  [example-project.json](templates/example-project.json)) on a made-up painting.
-  Its sign-offs are [synthetic fixture records](templates/example-draft/README.md).
-  The [current-path example](templates/example-current/project.json) takes a fresh synthetic project through all four steps.
+  skeletons and the [worked example](templates/example-current/project.json),
+  which takes a fresh synthetic project through all four steps.
+  The [frozen numbered example](templates/example-numbered/example-project.json)
+  retains the [historical interview](templates/example-interview.md) and its synthetic sign-offs.
   The remesh example records a request for a finer torso mesh as a forward
   amendment. [Remesh record](templates/example-remesh/project.json)
 

@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { closeSync, existsSync, lstatSync, mkdtempSync, openSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, join, resolve } from 'node:path';
+import { stripVTControlCharacters } from 'node:util';
 import { isObject, type CheckReport } from './check.ts';
 import { acquireBoundJobWrite, jobRuntimeExecArgv } from './job-writer.ts';
 import { PACKAGE_NAMES, compareVersions, exactVersion, packageUpgradeFindings } from './package-upgrades.ts';
@@ -75,7 +76,38 @@ function rehearsalTarballPath(spec: string): string | null {
   return tarball;
 }
 
-export function packagesCommand(args: string[], now: number): string {
+const DEFAULT_INSTALL_REFUSAL = 'package.json/bun.lock: staged bun install failed; check registry access and package versions before retrying packages upgrade';
+
+function unpublishedRunningCreate(stderr: string, runningVersion: string): { name: string; version: string } | null {
+  const text = stripVTControlCharacters(stderr).replace(/\r\n/g, '\n');
+  const resolution = text.split(/^warn:\s+Ignoring lockfile\s*$/m).pop()!;
+  const errors = [...resolution.matchAll(/^error:\s+(.+)$/gm)].map(match => match[1]!.trim());
+  if (errors.length === 0) return null;
+  let unresolved: { name: string; version: string } | null = null;
+  let missingOnRegistry = false;
+  for (const line of errors) {
+    const failed = /^(.+)@([^\s@]+)\s+failed to resolve$/.exec(line);
+    if (failed) {
+      if (unresolved !== null || failed[1] !== CREATE_PACKAGE || failed[2] !== runningVersion) return null;
+      unresolved = { name: failed[1], version: failed[2] };
+      continue;
+    }
+    const noMatch = /^No version matching "([^"]+)" found for specifier "([^"]+)"(?:\s+\(but package exists\))?$/.exec(line);
+    if (noMatch) {
+      if (noMatch[2] !== CREATE_PACKAGE || noMatch[1] !== runningVersion) return null;
+      missingOnRegistry = true;
+      continue;
+    }
+    if (/^GET\s+\S+@rig-c(?:\/|%2[fF])create\s+-\s+404\b/.test(line)) {
+      missingOnRegistry = true;
+      continue;
+    }
+    return null;
+  }
+  return unresolved !== null && missingOnRegistry ? unresolved : null;
+}
+
+export function packagesCommand(args: string[], now: number, options?: { runningCreateVersion?: string }): string {
   const usage = 'project.json: use packages upgrade [dir] --by <operator> [--rehearsal]';
   if (args[0] !== 'upgrade') refuse('PACKAGE_UPGRADE_USAGE', usage, USAGE_EXIT);
   let by = ''; let dirArg: string | undefined; let rehearsal = false;
@@ -110,9 +142,10 @@ export function packagesCommand(args: string[], now: number): string {
     if (malformed) refuse(malformed.code, malformed.message);
     const dependencies = pkg.dependencies as JsonObject;
     const reviewPin = (JSON.parse(readFileSync(join(import.meta.dir, '../package.json'), 'utf8')) as { dependencies: Record<string, string> }).dependencies['@rig-c/review']!;
+    const createVersion = options?.runningCreateVersion ?? runningCreateVersion();
     const pins: Record<(typeof PACKAGE_NAMES)[number], string> = {
       '@rig-c/core': PINNED_PACKAGES['@rig-c/core'],
-      [CREATE_PACKAGE]: runningCreateVersion(),
+      [CREATE_PACKAGE]: createVersion,
       '@rig-c/parts': PINNED_PACKAGES['@rig-c/parts'],
       '@rig-c/review': reviewPin,
     };
@@ -169,7 +202,16 @@ export function packagesCommand(args: string[], now: number): string {
     const oldLock = originals.get('bun.lock');
     if (oldLock) writeFileSync(join(scratch, 'bun.lock'), oldLock);
     const install = Bun.spawnSync([process.execPath, 'install', '--ignore-scripts'], { cwd: scratch, stdout: 'pipe', stderr: 'pipe' });
-    if (install.exitCode !== 0 || !existsSync(join(scratch, 'bun.lock'))) refuse('PACKAGE_UPGRADE_INSTALL', 'package.json/bun.lock: staged bun install failed; check registry access and package versions before retrying packages upgrade');
+    if (install.exitCode !== 0 || !existsSync(join(scratch, 'bun.lock'))) {
+      const unpublished = rehearsedDeps.has(CREATE_PACKAGE) ? null : unpublishedRunningCreate(install.stderr.toString(), createVersion);
+      if (unpublished) {
+        refuse(
+          'PACKAGE_UPGRADE_INSTALL',
+          `package.json/bun.lock: staged bun install failed because running ${unpublished.name}@${unpublished.version} is not published on the registry; run a published Create release, or use --rehearsal with ${unpublished.name} set to file:<absolute .tgz>`,
+        );
+      }
+      refuse('PACKAGE_UPGRADE_INSTALL', DEFAULT_INSTALL_REFUSAL);
+    }
     const nextLock = readFileSync(join(scratch, 'bun.lock'));
     const row: JsonObject = { by, at: new Date(now).toISOString(), packages, lock_sha256: createHash('sha256').update(nextLock).digest('hex') };
     if (rehearsal) {

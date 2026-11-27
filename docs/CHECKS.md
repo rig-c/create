@@ -1891,7 +1891,7 @@ and check.
 | `PACKAGE_UPGRADE_REHEARSAL` (WARN) | `project.json.package_upgrades[i]` was recorded with `--rehearsal` (`rehearsal: true` and `local_dependencies` tarball sha256 bindings). A rehearsal clone still checks green on refusals; a live project should rerun `rig-create packages upgrade` against the published release. |
 | `PACKAGE_UPGRADE_CURRENT` | All four manifest pins already equal Create's release pins, and `interview.question_set` and every waypoint `config[]` match the installed parts; no write is needed. |
 | `PACKAGE_UPGRADE_DOWNGRADE` | The named package is newer than Create's release pin; use a newer Create release. |
-| `PACKAGE_UPGRADE_INSTALL` | The staged install failed; repair registry access or the package versions and retry. |
+| `PACKAGE_UPGRADE_INSTALL` | The staged install failed; repair registry access or the package versions and retry. When the running `@rig-c/create` version is not published on the registry, run a published Create release or use `--rehearsal` with `@rig-c/create` set to `file:<absolute-path>.tgz`. |
 | `PACKAGE_UPGRADE_CHECK_FAILED` | The project check could not complete; repair the record or installed packages and retry. |
 | `PACKAGE_UPGRADE_REFUSAL` | The named package move adds or changes the named check finding; preserve the original pins and resolve that finding before retrying. |
 | `PACKAGE_UPGRADE_CONFLICT` | Another package writer holds the lock, or a source changed during staging; finish the other write and retry against current bytes. |

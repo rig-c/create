@@ -724,7 +724,7 @@ function mockedOwnerHost(
       jobId,
       publicationMode: 'record-and-package',
       apiSchema: JOB_API_V3_SCHEMA,
-      status: () => ({ jobId, generation: 0, status: 'active' as const, publication: null, pending: [], cursor: null, enabledActKinds: [] }),
+      status: () => ({ jobId, generation: 0, status: 'active' as const, publication: null, pending: [], cursor: null }),
       hostCredentials: () => ({ agent: 'a'.repeat(64), ui: 'b'.repeat(64) }),
       dispose: () => {},
     } as unknown as JobOwnerHost['session'],

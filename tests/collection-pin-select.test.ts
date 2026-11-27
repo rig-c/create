@@ -100,7 +100,7 @@ test('explicit source drift refuses before appending; default still emits no sel
   expect(arr(obj(arr(read(dir).versions)[1]).pins).map(p => obj(p).selection ?? null)).toEqual([null, null]);
 });
 
-test('#1075 collection pin refuses PIN_MEMBER_CURRENT on current-output members while collection --check keeps explicit pins', () => {
+test('collection --check keeps explicit numbered pins readable after a member moves to current', () => {
   const dir = fixture();
   const collection = read(dir);
   for (const pin of arr(obj(arr(collection.versions)[0]).pins).map(obj)) pin.selection = 'explicit';
@@ -119,14 +119,5 @@ test('#1075 collection pin refuses PIN_MEMBER_CURRENT on current-output members 
   const check = checkCollection(dir);
   expect(check.ok).toBe(true);
   expect(check.refusals).toEqual([]);
-
-  const before = readFileSync(join(dir, 'collection.json'));
-  for (const flags of [[], ['--member', 'first=1']]) {
-    const result = collectionCommand(['pin', dir, ...flags]);
-    expect(result.exit).toBe(1);
-    expect(pinCode(dir, flags)).toBe('PIN_MEMBER_CURRENT');
-    expect(result.stdout).toContain('members[first]');
-    expect(result.stdout).toContain('#990');
-    expect(readFileSync(join(dir, 'collection.json'))).toEqual(before);
-  }
+  expect(check.warnings).toEqual([]);
 });

@@ -47,7 +47,7 @@ import { isPartsCheckMove, PARTS_CHECK_FILE, partsCheckFindings, partsCheckRecor
 import { isPartsReviewReceipt, latestPartsVerdictStatus, latestRiggingDraftFeedback, recordedPartsVerdict } from './parts-verdict-record.ts';
 import { assertPartsActSource } from './parts-act.ts';
 import { pausedFrom } from './pause.ts';
-import { checkCollection, collectionDirOf } from './pins-check.ts';
+import { collectionDirOf, inspectCollection } from './pins-check.ts';
 import { carriedRefusals, findingKey, newFindings } from './refusal-baseline.ts';
 import { Refusal, refuse, USAGE_EXIT } from './refusal.ts';
 import { reopenLapseWarnings } from './reopen-lapses.ts';
@@ -137,6 +137,7 @@ export interface NextCollectionReport {
   effective_stage: string | null;
   refusals: NextCollectionRefusal[];
   members: NextCollectionMember[];
+  moves?: NextMove[];
 }
 
 export interface NextReviewAct {
@@ -1762,7 +1763,7 @@ function partsDraftEvidenceMoves(
 }
 
 export function nextCollection(collectionDirArg: string): NextCollectionReport {
-  const checked = checkCollection(collectionDirArg);
+  const { report: checked, hasCurrentMembers } = inspectCollection(collectionDirArg);
   return {
     kind: 'collection',
     collection_dir: checked.collection_dir,
@@ -1778,6 +1779,11 @@ export function nextCollection(collectionDirArg: string): NextCollectionReport {
       name,
       command: `rig-create next ${shellWord(join(checked.collection_dir, 'members', name))}`,
     })),
+    ...(hasCurrentMembers ? { moves: [{
+      role: 'agent' as const, field: 'versions[].pins', awaits: 'collection pin',
+      command: `rig-create collection pin ${shellWord(checked.collection_dir)}`,
+      act: 'Run after recording and committing the current member rigs and preparing the collection output.',
+    }] } : {}),
   };
 }
 
@@ -3186,6 +3192,10 @@ export function formatNext(report: NextReport | NextCollectionReport): string {
       for (const member of report.members) {
         lines.push(`  ${member.name}: ${member.command}`);
       }
+    }
+    for (const move of report.moves ?? []) {
+      lines.push(`  [${move.role}] (${move.field}) ${move.command ?? move.act}`);
+      if (move.command !== null) lines.push(`    ${move.act}`);
     }
     return lines.join('\n');
   }

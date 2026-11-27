@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { initCollection, initMember } from '../src/collection.ts';
 import { freshProjectRecord } from '../src/init.ts';
@@ -47,6 +47,7 @@ describe('next on a collection root (#657)', () => {
     expect(jsonRes.exit).toBe(0);
     const report = JSON.parse(jsonRes.stdout) as NextCollectionReport;
     expect(report.kind).toBe('collection');
+    expect(report.moves).toBeUndefined();
     expect(report.members).toEqual([
       {
         name: 'keeper',
@@ -58,6 +59,26 @@ describe('next on a collection root (#657)', () => {
     expect(textRes.exit).toBe(0);
     expect(textRes.stdout).toContain('members (1):');
     expect(textRes.stdout).toContain(`keeper: rig-create next ${member.dir}`);
+  });
+
+  test('next offers collection pin without a numbered selector for a current member with numbered history', () => {
+    const dir = join(tempDir(), 'harbour');
+    initCollection(dir, { install: false });
+    const member = initMember(dir, 'keeper', new Date(TEST_NOW));
+    const file = join(member.dir, 'project.json');
+    const project = JSON.parse(readFileSync(file, 'utf8'));
+    project.current = {};
+    project.versions = [{ n: 1, kind: 'rig', pre_interview: true }];
+    writeFileSync(file, `${JSON.stringify(project, null, 2)}\n`);
+
+    const json = nextCommand([dir, '--json'], TEST_NOW);
+    expect(json.exit).toBe(0);
+    const report = JSON.parse(json.stdout) as NextCollectionReport;
+    expect(report.moves?.map(move => move.command)).toEqual([`rig-create collection pin ${dir}`]);
+    const text = nextCommand([dir], TEST_NOW).stdout;
+    expect(text).toContain(`rig-create collection pin ${dir}`);
+    expect(text).not.toContain('--member');
+    expect(text).not.toContain('rig-version');
   });
 
   test('a folder with neither collection.json nor project.json refuses with PROJECT_JSON_MISSING', () => {

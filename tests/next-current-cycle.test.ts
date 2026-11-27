@@ -1,5 +1,5 @@
 import { expect, mock, test } from 'bun:test';
-import { cpSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { EXAMPLE_ANCHOR } from '../scripts/example-time.ts';
 import { amendCommand } from '../src/amend.ts';
@@ -134,7 +134,18 @@ async function replay(destination: string, skipSignoffs = false): Promise<void> 
     apply(target, receiver, args) {
       const [command, options] = args;
       if (options?.cwd === dir && Array.isArray(command) && typeof command[1] === 'string') {
-        if (command[1].endsWith('/rigc.cjs') && command[2] === 'render') assertOffered('rigc render', now);
+        if (command[1].endsWith('/rigc.cjs') && command[2] === 'render') {
+          const { offered } = assertOffered('rigc render', now);
+          expect(offered[0]).not.toContain('--loop-seam');
+          const spec = join(dir, 'specs/motion/loop-seam.json');
+          mkdirSync(join(dir, 'specs/motion'), { recursive: true });
+          writeFileSync(spec, JSON.stringify({ channel_delta: 9, pixels_above: 2, warmup_cap: 6 }));
+          try {
+            expect(commands(nextProject(dir, now), 'rigc render')).toEqual([
+              offered[0]!.replace(/\)$/, ' --loop-seam-bar 9,2 --loop-seam-cap 6)'),
+            ]);
+          } finally { unlinkSync(spec); }
+        }
         if (command[1].endsWith('/rig-parts.cjs') && typeof command[2] === 'string') {
           const prefix = `rig-parts ${command[2]}`;
           // The second check-parts call creates retained arrival evidence, outside staging.

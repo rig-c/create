@@ -730,6 +730,32 @@ From the project root, render the recorded current rig into
 rig-create record motion --from outputs/motion.next
 ```
 
+For a looping motion export, the project spec may declare a seam budget.
+Use this starting value in `specs/motion/loop-seam.json` and adjust it to suit the take.
+
+```json
+{
+  "channel_delta": 8,
+  "pixels_above": 0,
+  "warmup_cap": 12
+}
+```
+
+The budget allows at most `pixels_above` pixels whose largest absolute RGBA
+channel difference is strictly greater than `channel_delta`. Core searches from
+zero warm-up loops through `warmup_cap` inclusive. With a budget, `next` adds
+`--loop-seam-bar 8,0 --loop-seam-cap 12` (using the declared numbers) to the
+motion render. Use a Core version that writes `rigc-loop-seam/1`. Older Core can
+accept those flags and still produce no report.
+
+`record motion` binds each reported seam and its endpoint files by SHA-256 in
+`current.motion.files`. It reads Core's verdict and requires a matching judged
+report for every frame set when a budget is declared. `check` warns when an
+already-recorded motion is missing its requested report or the report is
+unjudged, and refuses a report that is invalid or over its bar. Without a
+budget, a render can still be recorded without a seam report. Use Core's
+`--loop-seam` for an observation without a verdict.
+
 Author `specs/direction/compose-scene.json` as a Parts `spine-parts-scene/1`
 with one character, named plates and an explicit idle animation. The
 character build and plate image paths are relative to the Parts scene.

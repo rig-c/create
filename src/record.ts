@@ -17,6 +17,7 @@ import { readProject } from './feedback.ts';
 import { recordCurrentPartsLedger } from './fix-ledger.ts';
 import { acquireBoundJobWrite } from './job-writer.ts';
 import type { CommandResult } from './interview.ts';
+import { hasMotionLoopSeam, motionLoopSeamFindings, readMotionLoopSeamPolicy } from './motion-loop-seam.ts';
 import { PARTS_CHECK_FILE, PARTS_CHECK_SPEC, partsCheckFindings, partsCheckRecord } from './parts-check.ts';
 import { commitProjectStep, GITIGNORE_MIGRATION_LINE, migrateProjectGitignore } from './project-step-commit.ts';
 import { resolveAdoptSource } from './record-adopt.ts';
@@ -418,6 +419,11 @@ function recordMotion(dir: string, project: JsonObject, from: string, byPath: Ma
   if (!isObject(frames) || frames.spec !== 'rigc-frames/1' || !Array.isArray(frames.sets) || !frames.sets.length) {
     refuse('RECORD_MOTION_FRAMES_INVALID', `${framesPath}: expected rigc-frames/1 with at least one frame set; render into ${from} and record again`);
   }
+  const { policy: seamPolicy, finding: policyProblem } = readMotionLoopSeamPolicy(dir);
+  if (policyProblem) refuse(policyProblem.code, policyProblem.message);
+  const seamProblem = motionLoopSeamFindings(dir, seamPolicy, byPath, root, from)
+    .find(finding => finding.code !== 'MOTION_LOOP_SEAM_UNJUDGED' || seamPolicy !== undefined);
+  if (seamProblem) refuse(seamProblem.code, seamProblem.message);
   const runPath = `${root}/${RENDER_RUN_FILE}`;
   const runHash = byPath.get(runPath);
   const builtFrom: FileHash[] = [model];
@@ -608,7 +614,10 @@ export function recordCommand(args: string[], now: number): CommandResult {
       if (fresh) refuse(fresh.code, [fresh.message, ...more.map(f => `${f.code}: ${f.message}`)].join('\n  '));
       return report;
     };
-    let after = checkCandidate();
+    // The staged report was checked against its staged files. The project-level
+    // check reads canonical bindings, so run it once those files are in place.
+    const stagedSeam = kind === 'motion' && from !== root && hasMotionLoopSeam(byPath);
+    let after = stagedSeam ? before : checkCandidate();
     if (kind === 'motion' || kind === 'direction') {
       const requireHash = (path: string, expected: string): void => {
         let actual: string | undefined;

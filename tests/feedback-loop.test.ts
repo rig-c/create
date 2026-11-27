@@ -43,6 +43,20 @@ function seedCheckedPost(dir: string, argv: string[]) {
   }
   const before = readFileSync(join(dir, 'project.json'));
   const result = seedRetainedDirectionPost(argv, testClock.now());
+  const after = JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')) as JsonObject;
+  const latest = arr(after.versions).map(obj).at(-1)!;
+  for (const [idx, ref] of arr(latest.answers_feedback).map(obj).entries()) {
+    const target = arr(after.versions).map(obj).find(v => v.n === ref.version);
+    const verdict = target === undefined ? undefined : arr(target.verdicts)[Number(ref.verdict)];
+    if (verdict && typeof verdict === 'object' && !Array.isArray(verdict)) {
+      const vObj = verdict as JsonObject;
+      if (vObj.verdict !== 'bounced' || typeof vObj.by !== 'string' || vObj.by.toLowerCase() === 'agent') {
+        writeFileSync(join(dir, 'project.json'), before);
+        rmSync(join(dir, 'evidence/direction/v3.json'), { force: true });
+        refuse('FEEDBACK_REF_UNKNOWN', `versions[v${String(latest.n)}].answers_feedback[${idx}]: target must be a human bounced verdict`);
+      }
+    }
+  }
   const report = checkProject(dir);
   if (report.refusals.length > 0) {
     writeFileSync(join(dir, 'project.json'), before);

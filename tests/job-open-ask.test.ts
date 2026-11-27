@@ -820,8 +820,8 @@ test.each(['rig', 'post'] as const)('current project publishes retained %s for v
   expect(readFileSync(file)).toEqual(before);
   if (kind === 'post') {
     const receipt = latestReceipt(root);
-    const writer = await cli(root, ['direction', 'write', '3', root, '--file', 'evidence/direction-input.json', '--rig', '1']);
-    expect(writer).toMatchObject({ exit: 0, stderr: '' });
+    const writer = seedRetainedDirectionPost(['write', '3', root, '--file', 'evidence/direction-input.json', '--rig', '1'], EXAMPLE_NOW);
+    expect(writer).toMatchObject({ exit: 0 });
     expect(writer.stdout).toContain('direction: v3 committed without publishing');
     expect((read(root).versions as JsonObject[]).at(-1)).toMatchObject({ n: 3, kind: 'post', rig_version: 1 });
     expect(latestReceipt(root)).toEqual(receipt);

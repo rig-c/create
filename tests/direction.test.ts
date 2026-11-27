@@ -285,7 +285,7 @@ test('live approval must still bind current step hashes', () => {
   const p = f.load();
   objects((p.plan as JsonObject).steps)[0]!.does = 'changed';
   f.save(p);
-  expect(checked(f.dir)).toContain('DIRECTION_CITATION');
+  refuses('DIRECTION_CITATION', () => assertDirectionApproval(f.dir, p, 'direction-review'));
 });
 
 test('pending described correction warns and blocks direct approval gate', () => {
@@ -531,6 +531,8 @@ test('seeded document integrates into filled project with no refusals and change
   expect(report.warnings.map(w => [w.code, w.path])).toEqual(POST_LAPSES);
   expect(seedRetainedReviewPackage(['2', dir, '--config', 'evidence/v2/review-config.json', '--from', 'outputs/v2/out']).exit).toBe(0);
   writeFileSync(join(dir, 'derived/review/v2/out/check/build/skeleton.model.json'), 'changed compiled input');
+  expect(checked(dir)).toContain('SCENE_MODEL_MISMATCH');
+  writeFileSync(join(dir, 'evidence/direction/v5.json'), 'changed direction bytes');
   expect(checked(dir)).toContain('DIRECTION_HASH');
 });
 
@@ -606,15 +608,15 @@ test('N/A fixed camera validates through checkProject; two keys refuse citation 
   refuses('DIRECTION_CITATION', () => validateDirectionCitations(dir, JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')) as JsonObject, doc, true));
 });
 
-test('the current direction writer is refused on a record whose stage check stopped early', () => {
+test('direction adoption is refused on a record whose stage check stopped early', () => {
   const f = setup();
   const p = f.load();
-  p.current = {};
+  delete p.direction_contract;
   p.stage = 'no-such-stage';
   f.save(p);
   expect(checkProject(f.dir).refusals.map(r => r.code)).toEqual(['STAGE_UNKNOWN']);
   const before = readFileSync(join(f.dir, 'project.json'));
-  refuses('STAGE_UNKNOWN', () => directionCommand(['write', f.dir, '--file', 'evidence/input.json']));
+  refuses('STAGE_UNKNOWN', () => directionCommand(['--adopt', f.dir]));
   expect(readFileSync(join(f.dir, 'project.json'))).toEqual(before);
 });
 

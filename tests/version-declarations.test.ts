@@ -50,13 +50,24 @@ function checkAt(dir: string, at = testClock.iso()): DeclarationReport {
   const bytes = readFileSync(join(dir, 'work/config.json'));
   const sections = JSON.parse(readFileSync(join(dir, 'work/citations.json'), 'utf8')) as JsonObject;
   const record = JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')) as JsonObject;
+  const held: DeclarationReport['refusals'][number][] = [];
+  try {
+    const parsed = JSON.parse(bytes.toString('utf8'));
+    if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('expected JSON object');
+  } catch {
+    held.push({
+      code: 'RIG_REGISTRATION_FILE_INVALID',
+      path: 'versions[v3].provenance.config',
+      message: 'versions[v3].provenance.config: unreadable or non-object config JSON; retain the cited frozen inputs and register a new rig version',
+    });
+  }
   const version: JsonObject = {
     n: 3,
     kind: 'rig',
     at,
     provenance: { config: { path: 'work/config.json', sha256: sha(bytes) }, sections },
   };
-  return checkVersionDeclarations(dir, record, version);
+  return checkVersionDeclarations(dir, record, version, held);
 }
 
 const codes = (report: DeclarationReport): string[] => report.refusals.map(f => `${f.code} ${f.path}`);

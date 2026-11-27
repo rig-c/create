@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test';
-import { cpSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { EXAMPLE_NOW } from '../scripts/example-time.ts';
@@ -42,7 +42,7 @@ export const STEP4_RETIRED_CODES = [
   'RIG_VERSION_ALREADY_REGISTERED',
 ] as const;
 
-function runMainCaptured(argv: string[], now = Date.UTC(2026, 10, 27)): { exit: number; stdout: string; stderr: string } {
+function runMainCaptured(argv: string[], now = EXAMPLE_NOW): { exit: number; stdout: string; stderr: string } {
   const stdoutChunks: string[] = [];
   const stderrChunks: string[] = [];
   const origStdout = process.stdout.write.bind(process.stdout);
@@ -175,7 +175,7 @@ test('removed build and seal commands and numbered flags refuse before reading o
   const numberedClone = mkdtempSync(join(tmpdir(), 'create-step4-numbered-'));
   try {
     cpSync(join(import.meta.dir, '../templates/example-numbered'), numberedClone, { recursive: true });
-    writeFileSync(join(numberedClone, 'project.json'), readFileSync(join(numberedClone, 'example-project.json')));
+    renameSync(join(numberedClone, 'example-project.json'), join(numberedClone, 'project.json'));
     repinNumberedCopy(numberedClone);
     const cloneProjectBefore = readFileSync(join(numberedClone, 'project.json'));
     const cloneFilesBefore = readdirSync(numberedClone, { recursive: true });

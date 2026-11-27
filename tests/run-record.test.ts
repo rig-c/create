@@ -4,7 +4,7 @@ import { dirname, join } from 'node:path';
 import type { Finding } from '../src/check.ts';
 import { rigRegistrationFindings } from '../src/rig-version.ts';
 import { checkProject, testClock } from './clock.ts';
-import { RUN_RECORD_SINCE, validateRunRecord } from '../src/run-record.ts';
+import { FROZEN_RUN_SPECS, RUN_RECORD_SINCE, validateRunRecord } from '../src/run-record.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { fixture, obj } from './fixtures.ts';
 import { seedRetainedRigVersion } from './numbered-seed.ts';
@@ -135,7 +135,7 @@ describe('producer run records (rig-run/1 and rigc-run/1)', () => {
 
   test('refuses a planted unknown spec in check', () => {
     const { dir, args, load } = setup();
-    expect(() => validateRunRecord(Buffer.from(JSON.stringify({ ...partsRunRecord(), spec: 'rig-run/2' })), 'runs[0]'))
+    expect(() => validateRunRecord(Buffer.from(JSON.stringify({ ...partsRunRecord(), spec: 'rig-run/2' })), 'runs[0]', { specs: FROZEN_RUN_SPECS }))
       .toThrow(expect.objectContaining({ code: 'RUN_RECORD_SPEC_UNKNOWN' }));
     seedRetainedRigVersion(args, testClock.now());
     const project = load();

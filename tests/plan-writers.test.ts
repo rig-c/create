@@ -389,7 +389,7 @@ test('after a cycle and rig-review reopen, replacing camera lets post-interview 
   testClock.set('2026-11-04T09:12:00Z');
   seedRetainedDirectionPost(['write', '3', dir, '--file', 'evidence/input.json', '--rig', '1'], testClock.now());
   const unapprovedCtx = { dir, project: f.load(), refusals: [] as import('../src/check.ts').Finding[], warnings: [] as import('../src/check.ts').Finding[] };
-  checkDirections(unapprovedCtx);
+  checkDirections(unapprovedCtx, undefined, true);
   expect(unapprovedCtx.refusals.map(r => r.code)).toContain('DIRECTION_CITATION');
   const signed = JSON.parse(signoffCommand(['post-interview', dir, '--by', 'user', '--steps', 'camera,timing', '--verbatim-file', join(dir, 'approval.txt'), '--json']).stdout) as JsonObject;
   expect(obj(signed.step_hashes).camera).toBe(stepHash(step(f.load(), 'camera')));

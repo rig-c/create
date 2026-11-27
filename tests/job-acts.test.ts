@@ -28,7 +28,7 @@ import { testClock } from './clock.ts';
 import { EXAMPLE_NOW } from '../scripts/example-time.ts';
 import { clockedCli } from './helpers.ts';
 import { directionPin, TIME_ONLY_BASIS } from './comment-anchor-shapes.ts';
-import { seedRetainedDraft } from './numbered-seed.ts';
+import { seedRetainedDraft, seedRetainedScene } from './numbered-seed.ts';
 const receipt = (row: object) => { if (process.env.JOB_ACTS_RECEIPT) appendFileSync(process.env.JOB_ACTS_RECEIPT, JSON.stringify(row) + '\n'); };
 const scrub = (text: string, root: string) => text.replaceAll(root, '<synthetic>').replaceAll(join(import.meta.dir, '..'), '<create-checkout>').replace(/http:\/\/127\.0\.0\.1:\d+[^\s]*/g, '<owner-url>');
 const WORDS = '  Synthetic owner review words.\r\n';
@@ -1704,16 +1704,16 @@ test('#633 post composition Other leads to a cited scene through two Review pick
   const composition = () => collectItems(read(root), { collection: null }).find(i => i.id === question)!;
   const otherAnswer = obj(composition().raw);
   expect(obj(arr(obj(otherAnswer.choice).picks)[0]).other_text).toBe(otherText);
-  const sceneArgs = ['scene', 'write', '--rig', '1', '--background', 'background.png', '--foreground', 'foreground.png', '--citations-file', 'citations.json', root];
+  const sceneArgs = ['write', '--rig', '1', '--background', 'background.png', '--foreground', 'foreground.png', '--citations-file', 'citations.json', root];
   const writeCitations = (quote: unknown) => {
     const citation = { guide: question, asks: [question], quote };
     writeFileSync(join(root, 'citations.json'), JSON.stringify({ background: citation, foreground: citation }));
   };
   writeCitations(otherAnswer.verbatim);
   const before = readFileSync(join(root, 'project.json'));
-  const refused = await cli(root, sceneArgs);
-  expect(refused.exit).toBe(1);
-  expect(refused.stderr).toContain('SCENE_CHOICE_MISSING');
+  let sceneRefusal: unknown;
+  try { seedRetainedScene(sceneArgs, testClock.now()); } catch (error) { sceneRefusal = error; }
+  expect(sceneRefusal).toMatchObject({ code: 'SCENE_CHOICE_MISSING' });
   expect(readFileSync(join(root, 'project.json'))).toEqual(before);
 
   const report = nextProject(root, testClock.now());
@@ -1766,7 +1766,7 @@ test('#633 post composition Other leads to a cited scene through two Review pick
   expect(replacement).toMatchObject({ does, status: 'pending', checkpoint: null, drafted_at: testClock.iso() });
   expect(replacement.status_history).toBeUndefined();
   writeCitations(ingested.verbatim);
-  expectExit0(await cli(root, sceneArgs));
+  expect(seedRetainedScene(sceneArgs, testClock.now()).exit).toBe(0);
   expect(obj((read(root).scenes as JsonObject[]).at(-1)).by).toBe('agent');
   expectExit0(await cli(root, ['interview', '--check', root]));
 }, 30_000);

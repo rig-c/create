@@ -268,11 +268,11 @@ test('historical human scene uniform scaling uses relative 1e-9 tolerance', () =
   expect(findings(f).map(value => value.code)).toEqual(['SCENE_PLACEMENT_INVALID']);
 });
 
-test('the current scene writer is refused on a record whose stage check stopped early', () => {
+test('removed numbered scene write refuses before reading a malformed stage record', () => {
   const f = sceneFixture();
-  f.save({ ...f.load(), current: {}, stage: 'no-such-stage' });
+  f.save({ ...f.load(), stage: 'no-such-stage' });
   expect(checkProject(f.dir).refusals.map(value => value.code)).toEqual(['STAGE_UNKNOWN']);
-  reject(f, 'STAGE_UNKNOWN', () => sceneCommand(['write', f.dir, '--background', 'background.png', '--citations-file', 'background-citation.json']));
+  reject(f, 'NUMBERED_WRITER_REMOVED', () => sceneCommand(['write', f.dir, '--rig', '1', '--background', 'background.png', '--citations-file', 'background-citation.json']));
 });
 
 test('scene validator refuses a derived candidate without producer receipt', () => {

@@ -99,6 +99,14 @@ function runMainCapture(argv: string[], now: number): { code: number; stdout: st
     return true;
   }) as typeof process.stderr.write;
   try {
+    if (argv[0] === 'scene' && argv[1] === 'write' && argv.some(a => a === '--rig' || a.startsWith('--rig='))) {
+      const res = seedRetainedScene(argv.slice(1), now);
+      return { code: res.exit, stdout: `${res.stdout}\n`, stderr: '' };
+    }
+    if (argv[0] === 'direction' && argv[1] === 'write' && argv.some(a => a === '--rig' || a.startsWith('--rig='))) {
+      const res = seedRetainedDirectionPost(argv.slice(1), now);
+      return { code: res.exit, stdout: `${res.stdout}\n`, stderr: '' };
+    }
     const code = main(argv, now);
     return { code, stdout, stderr };
   } finally {

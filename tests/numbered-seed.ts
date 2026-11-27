@@ -12,7 +12,7 @@ import { cpSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, re
 import { dirname, isAbsolute, join, posix, relative, resolve, sep } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import { readPartsManifest, FIGURE_MASK_FILE, PAINTING_IN_RIG_FILE, partsFileReferences } from '@rig-c/parts/src/parts.ts';
-import { asArray, isObject } from '../src/check.ts';
+import { asArray, isObject, type Finding } from '../src/check.ts';
 import { configInputBindings, configInputReferences, DIRECTORY_INPUT_RECEIPT, plateReceiptSpec, receiptSpec } from '../src/config-inputs.ts';
 import { closed, DIRECTION_SPEC, directionHash } from '../src/direction.ts';
 import { composeRoot, composeScenePath, DIRECTION_COMPOSE_SPEC, readComposeRun } from '../src/direction-compose.ts';
@@ -20,17 +20,20 @@ import { diffStackCandidates } from '../src/diff-map.ts';
 import { ASSEMBLE_ONLY } from '../src/draft-layout.ts';
 import { DRAFT_ID, relativeInventory } from '../src/draft-reuse.ts';
 import { parseFeedbackPair } from '../src/feedback.ts';
-import { draftLedgerFields } from '../src/fix-ledger.ts';
+import { checkFixLedger, draftLedgerFields } from '../src/fix-ledger.ts';
 import { jobHash } from '../src/job-outbox.ts';
 import { latestPartsReceipt } from '../src/parts-verdict-record.ts';
 import { locateParts } from '../src/parts-sections.ts';
 import { readOwnerChat } from '../src/owner-chat.ts';
+import { checkPlateRegistrations } from '../src/plate-receipt.ts';
 import { readVerbatim } from '../src/record-input.ts';
+import { refuse } from '../src/refusal.ts';
 import { decodeReviewAct, draftReviewStillEvidence, isDraftReviewVerdict, retainedActBy, reviewActVerdict } from '../src/review-act.ts';
+import { validCarriedRigDraftVerdict } from '../src/rig-draft-verdict.ts';
 import { parseRigCheckReport, RIG_CHECK_REPORT_FILE, SOURCE_EXPOSURE_ID } from '../src/rig-check-report.ts';
 import { FROZEN_RUN_SPECS, validateRunRecord } from '../src/run-record.ts';
 import { resolveAgentCitationSpec } from '../src/scene-authority.ts';
-import { plateRegistration, pngDimensions, SCENE_SPEC, sceneEntries, scenePath, sceneRig } from '../src/scene.ts';
+import { plateRegistration, pngDimensions, SCENE_SPEC, SceneError, sceneEntries, scenePath, sceneRig } from '../src/scene.ts';
 import { isScratchBindingPath } from '../src/scratch-bindings.ts';
 import { approvedStructureDelta, rigPartsApproval } from '../src/structure.ts';
 import type { Json, JsonObject } from '../src/templates.ts';
@@ -59,7 +62,7 @@ function walkFiles(root: string, prefix = ''): { path: string; sha256: string; b
       out.push({ path: rel, sha256: sha(content), bytes: content.length });
     }
   }
-  return out.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+  return out;
 }
 
 /** Seed a retained `versions[n].review_package` and `derived/review/v<n>/` copy. */
@@ -328,8 +331,11 @@ export function seedRetainedDraft(args: string[], now = Date.UTC(2026, 10, 7)): 
     ...(reuseObj ? { reuse: reuseObj } : {}),
   };
   project.drafts = [...asArray(project.drafts), record];
-  if (opts['--ledger-report']) {
+  if (opts['--ledger-report'] || known.length > 0 || accepted.length > 0) {
     Object.assign(record, draftLedgerFields(dir, project, asArray(project.drafts).length - 1, opts['--ledger-report'], { known, accepted }, now));
+    const ledgerRefusals: Finding[] = [];
+    checkFixLedger(dir, project, ledgerRefusals, [], now);
+    if (ledgerRefusals[0]) refuse(ledgerRefusals[0].code, ledgerRefusals[0].message);
   }
   writeProjectJson(dir, project);
   return { stdout: json ? JSON.stringify(record, null, 2) : `seeded-draft: ${id}`, exit: 0 };
@@ -337,60 +343,69 @@ export function seedRetainedDraft(args: string[], now = Date.UTC(2026, 10, 7)): 
 
 /** Seed a retained `scenes[]` entry and `evidence/scene/s<N>.json` file. */
 export function seedRetainedScene(args: string[], now = Date.UTC(2026, 10, 7)): { stdout: string; exit: number } {
-  const opts: Record<string, string> = {};
-  const positional: string[] = [];
-  for (let i = 1; i < args.length; i++) {
-    const arg = args[i]!;
-    if (['--rig', '--background', '--foreground', '--background-rect', '--foreground-rect', '--citations-file', '--animation'].includes(arg)) {
-      opts[arg] = args[++i]!;
-    } else {
-      positional.push(arg);
+  try {
+    const opts: Record<string, string> = {};
+    const positional: string[] = [];
+    for (let i = 1; i < args.length; i++) {
+      const arg = args[i]!;
+      if (['--rig', '--background', '--foreground', '--background-rect', '--foreground-rect', '--citations-file', '--animation'].includes(arg)) {
+        opts[arg] = args[++i]!;
+      } else {
+        positional.push(arg);
+      }
     }
-  }
-  const dir = resolve(positional[0] ?? process.cwd());
-  const { project } = readProjectJson(dir);
-  const entries = sceneEntries(project);
-  const n = entries.length + 1;
-  const binding = sceneRig(dir, project, Number(opts['--rig']!), undefined, opts['--animation']);
-  const citations = JSON.parse(readFileSync(join(dir, opts['--citations-file']!), 'utf8')) as JsonObject;
-  if (!closed(citations, ['background'], opts['--foreground'] ? ['foreground'] : [])) {
-    throw new Error('Invalid citations map in seedRetainedScene');
-  }
-  const plates: JsonObject[] = [];
-  for (const role of ['background', 'foreground'] as const) {
-    const p = opts[`--${role}`];
-    if (!p) continue;
-    const bytes = readFileSync(join(dir, p));
-    const size = pngDimensions(bytes, p);
-    const identity = { path: p, sha256: directionHash(bytes) };
-    const registered = plateRegistration(project, identity);
-    let rect = binding.stage;
-    const rectOpt = opts[`--${role}-rect`];
-    if (rectOpt !== undefined) {
-      const [x, y, width, height] = rectOpt.split(',').map(Number);
-      rect = { x: x!, y: y!, width: width!, height: height! };
-    } else {
-      const spec = resolveAgentCitationSpec(dir, project, citations[role]!);
-      rect = role === 'foreground' ? spec.foreground!.rect : spec.background.rect;
+    const dir = resolve(positional[0] ?? process.cwd());
+    const { project } = readProjectJson(dir);
+    const entries = sceneEntries(project);
+    const n = entries.length + 1;
+    const binding = sceneRig(dir, project, Number(opts['--rig']!), undefined, opts['--animation']);
+    const citations = JSON.parse(readFileSync(join(dir, opts['--citations-file']!), 'utf8')) as JsonObject;
+    if (!closed(citations, ['background'], opts['--foreground'] ? ['foreground'] : [])) {
+      throw new Error('Invalid citations map in seedRetainedScene');
     }
-    plates.push({ role, ...identity, ...size, rect, registered: registered!, citation: citations[role]! });
+    const plates: JsonObject[] = [];
+    for (const role of ['background', 'foreground'] as const) {
+      const p = opts[`--${role}`];
+      if (!p) continue;
+      const bytes = readFileSync(join(dir, p));
+      const size = pngDimensions(bytes, p);
+      const identity = { path: p, sha256: directionHash(bytes) };
+      const registered = plateRegistration(project, identity);
+      if (!registered) refuse('SCENE_PLATE_UNREGISTERED', `${p}: register this plate as an input or a receipted prepared-input chain`);
+      let rect = binding.stage;
+      const rectOpt = opts[`--${role}-rect`];
+      if (rectOpt !== undefined) {
+        const [x, y, width, height] = rectOpt.split(',').map(Number);
+        rect = { x: x!, y: y!, width: width!, height: height! };
+      } else {
+        const spec = resolveAgentCitationSpec(dir, project, citations[role]!);
+        rect = role === 'foreground' ? spec.foreground!.rect : spec.background.rect;
+      }
+      plates.push({ role, ...identity, ...size, rect, registered, citation: citations[role]! });
+    }
+    const plateRefusals: Finding[] = [];
+    checkPlateRegistrations({ dir, project, refusals: plateRefusals, warnings: [] });
+    if (plateRefusals[0]) refuse(plateRefusals[0].code, plateRefusals[0].message);
+    const doc: JsonObject = {
+      schema: SCENE_SPEC,
+      n,
+      rig: binding.rig,
+      frame: { space: 'rig-world-y-up', stage: binding.stage },
+      plates,
+      layers: opts['--foreground'] ? ['background', 'rig', 'foreground'] : ['background', 'rig'],
+    };
+    const docBytes = Buffer.from(`${JSON.stringify(doc, null, 2)}\n`);
+    const relPath = scenePath(n);
+    mkdirSync(dirname(join(dir, relPath)), { recursive: true });
+    writeFileSync(join(dir, relPath), docBytes);
+    const entry = { n, path: relPath, sha256: directionHash(docBytes), at: new Date(now).toISOString(), by: 'agent' };
+    project.scenes = [...entries, entry];
+    writeProjectJson(dir, project);
+    return { stdout: `scene: s${n} recorded; stage unchanged`, exit: 0 };
+  } catch (error) {
+    if (error instanceof SceneError) refuse(error.code, error.message);
+    throw error;
   }
-  const doc: JsonObject = {
-    schema: SCENE_SPEC,
-    n,
-    rig: binding.rig,
-    frame: { space: 'rig-world-y-up', stage: binding.stage },
-    plates,
-    layers: opts['--foreground'] ? ['background', 'rig', 'foreground'] : ['background', 'rig'],
-  };
-  const docBytes = Buffer.from(`${JSON.stringify(doc, null, 2)}\n`);
-  const relPath = scenePath(n);
-  mkdirSync(dirname(join(dir, relPath)), { recursive: true });
-  writeFileSync(join(dir, relPath), docBytes);
-  const entry = { n, path: relPath, sha256: directionHash(docBytes), at: new Date(now).toISOString(), by: 'agent' };
-  project.scenes = [...entries, entry];
-  writeProjectJson(dir, project);
-  return { stdout: `scene: s${n} recorded; stage unchanged`, exit: 0 };
 }
 
 /** Seed a retained `versions[]` post entry (`direction@1`, `direction@2`, or `direction@3`). */
@@ -677,7 +692,7 @@ export function seedRetainedRigVersion(args: string[], now = Date.UTC(2026, 10, 
   const checkAccepted = acceptedBars.length > 0 || acceptedLines.length > 0 || acceptExposure
     ? readOwnerChat(
         {
-          ...(options['--owner-chat'] !== undefined ? { '--owner-chat': options['--owner-chat'] } : {}),
+          ...(options['--owner-chat'] !== undefined ? { '--owner-chat': resolve(dir, options['--owner-chat']) } : {}),
           ...(options['--said-at'] !== undefined ? { '--said-at': options['--said-at'] } : {}),
           ...(options['--relayed-by'] !== undefined ? { '--relayed-by': options['--relayed-by'] } : {}),
         },
@@ -699,13 +714,15 @@ export function seedRetainedRigVersion(args: string[], now = Date.UTC(2026, 10, 
   }
 
   const evidenceFiles: JsonObject[] = [];
-  const retain = (targetRel: string, bytes: Buffer): JsonObject => {
+  const retain = (targetRel: string, bytes: Buffer, inInventory = true): JsonObject => {
     const full = join(dir, targetRel);
     mkdirSync(dirname(full), { recursive: true });
     writeFileSync(full, bytes);
-    const entry = { path: targetRel, sha256: sha(bytes), bytes: bytes.length };
-    if (!evidenceFiles.some(e => e.path === targetRel)) evidenceFiles.push(entry);
-    return { path: targetRel, sha256: entry.sha256 };
+    const digest = sha(bytes);
+    if (inInventory && !evidenceFiles.some(e => e.path === targetRel)) {
+      evidenceFiles.push({ path: targetRel, sha256: digest });
+    }
+    return { path: targetRel, sha256: digest, bytes: bytes.length };
   };
 
   cpSync(resolve(dir, options['--parts']!), join(dir, out, 'out'), { recursive: true });
@@ -783,10 +800,13 @@ export function seedRetainedRigVersion(args: string[], now = Date.UTC(2026, 10, 
   const configDir = dirname(realpathSync(configAbs));
   const configBytes = readFileSync(configAbs);
   const configObj = JSON.parse(configBytes.toString('utf8')) as JsonObject;
-  const adapterBytes = readFileSync(resolve(dir, options['--path-adapter']!));
-  const adapterRaw = JSON.parse(adapterBytes.toString('utf8')) as JsonObject[];
+  const adapterInputBytes = readFileSync(resolve(dir, options['--path-adapter']!));
+  const callerAdapter = JSON.parse(adapterInputBytes.toString('utf8')) as JsonObject[];
+  const effectiveAdapter: JsonObject[] = callerAdapter.map(r => structuredClone(r));
   const portable = structuredClone(configObj);
   const configInputSources = new Map<string, string>();
+  const isValidTarget = (p: string): boolean =>
+    p.length > 0 && !isAbsolute(p) && !p.startsWith('/') && !p.split('/').some(seg => seg === '' || seg === '.' || seg === '..');
   const copySourceIntoEvidence = (srcAbs: string, relTarget: string) => {
     const stat = lstatSync(srcAbs);
     if (stat.isDirectory()) {
@@ -794,54 +814,142 @@ export function seedRetainedRigVersion(args: string[], now = Date.UTC(2026, 10, 
         const fileAbs = join(srcAbs, f.path);
         const target = `${evidence}/${relTarget}/${f.path}`;
         retain(target, readFileSync(fileAbs));
-        configInputSources.set(target, fileAbs);
+        configInputSources.set(target, realpathSync(fileAbs));
       }
     } else {
       const target = `${evidence}/${relTarget}`;
       retain(target, readFileSync(srcAbs));
-      configInputSources.set(target, srcAbs);
+      configInputSources.set(target, realpathSync(srcAbs));
     }
   };
 
-  // Apply adapter rows to config and copy referenced assets.
-  const configRefs = configInputReferences(dir, portable);
+  interface SeedAssetRef {
+    pointer: string;
+    dotPath: string;
+    value: string;
+    autoRelocate: boolean;
+    set?: (next: string) => void;
+  }
+  const collectRefs = (cfg: JsonObject): SeedAssetRef[] => {
+    const map = new Map<string, SeedAssetRef>();
+    const add = (r: SeedAssetRef) => { if (!map.has(r.pointer)) map.set(r.pointer, r); };
+    for (const ref of configInputReferences(dir, cfg)) {
+      const dotPath = ref.at.replace(/\[(\d+)\]/g, '.$1');
+      const pointer = `/${dotPath.split('.').map(escapePointer).join('/')}`;
+      add({
+        pointer,
+        dotPath,
+        value: ref.value,
+        autoRelocate: isAbsolute(ref.value) || !isValidTarget(ref.value),
+        ...(ref.set ? { set: ref.set } : {}),
+      });
+    }
+    const asm = isObject(cfg.assemble) ? cfg.assemble : undefined;
+    if (isObject(asm)) {
+      if (Array.isArray(asm.take)) {
+        asm.take.forEach((entry, i) => {
+          if (!isObject(entry)) return;
+          if (typeof entry.run_dir === 'string' && entry.run_dir) add({ pointer: `/assemble/take/${i}/run_dir`, dotPath: `assemble.take.${i}.run_dir`, value: entry.run_dir, autoRelocate: true });
+          if (typeof entry.st_input === 'string' && entry.st_input) add({ pointer: `/assemble/take/${i}/st_input`, dotPath: `assemble.take.${i}.st_input`, value: entry.st_input, autoRelocate: true });
+          if (isObject(entry.reference) && typeof entry.reference.painting === 'string' && entry.reference.painting) {
+            add({ pointer: `/assemble/take/${i}/reference/painting`, dotPath: `assemble.take.${i}.reference.painting`, value: entry.reference.painting, autoRelocate: true });
+          }
+        });
+      }
+      if (isObject(asm.editor_receipts) && Array.isArray(asm.editor_receipts.receipts)) {
+        asm.editor_receipts.receipts.forEach((entry, i) => {
+          if (isObject(entry) && typeof entry.file === 'string' && entry.file) {
+            add({ pointer: `/assemble/editor_receipts/receipts/${i}/file`, dotPath: `assemble.editor_receipts.receipts.${i}.file`, value: entry.file, autoRelocate: true });
+          }
+        });
+      }
+      if (Array.isArray(asm.cuts)) {
+        asm.cuts.forEach((entry, i) => {
+          if (!isObject(entry)) return;
+          if (typeof entry.under === 'string' && entry.under) add({ pointer: `/assemble/cuts/${i}/under`, dotPath: `assemble.cuts.${i}.under`, value: entry.under, autoRelocate: true });
+          else if (isObject(entry.under) && typeof entry.under.plate === 'string' && entry.under.plate) add({ pointer: `/assemble/cuts/${i}/under/plate`, dotPath: `assemble.cuts.${i}.under.plate`, value: entry.under.plate, autoRelocate: true });
+        });
+      }
+    }
+    if (isObject(cfg.limbs)) {
+      for (const [limbName, limb] of Object.entries(cfg.limbs)) {
+        if (!isObject(limb) || !Array.isArray(limb.segments)) continue;
+        limb.segments.forEach((seg, i) => {
+          if (isObject(seg) && typeof seg.cap === 'string' && seg.cap) {
+            add({ pointer: `/limbs/${escapePointer(limbName)}/segments/${i}/cap`, dotPath: `limbs.${limbName}.segments.${i}.cap`, value: seg.cap, autoRelocate: true });
+          }
+        });
+      }
+    }
+    if (isObject(cfg.depth)) {
+      for (const run of ['full', 'head'] as const) {
+        const block = cfg.depth[run];
+        if (!isObject(block)) continue;
+        if (isObject(block.atlas) && typeof block.atlas.image === 'string' && block.atlas.image) {
+          add({ pointer: `/depth/${run}/atlas/image`, dotPath: `depth.${run}.atlas.image`, value: block.atlas.image, autoRelocate: true });
+        }
+        if (isObject(block.layers)) {
+          for (const [layer, spec] of Object.entries(block.layers)) {
+            if (isObject(spec) && typeof spec.image === 'string' && spec.image) {
+              add({ pointer: `/depth/${run}/layers/${escapePointer(layer)}/image`, dotPath: `depth.${run}.layers.${layer}.image`, value: spec.image, autoRelocate: true });
+            }
+          }
+        }
+      }
+    }
+    const scanAbs = (val: Json, ptr: string, dot: string) => {
+      if (typeof val === 'string' && isAbsolute(val)) {
+        add({ pointer: ptr, dotPath: dot, value: val, autoRelocate: true });
+        return;
+      }
+      if (Array.isArray(val)) val.forEach((v, idx) => scanAbs(v, `${ptr}/${idx}`, dot ? `${dot}.${idx}` : String(idx)));
+      else if (isObject(val)) {
+        for (const [k, v] of Object.entries(val)) scanAbs(v, `${ptr}/${escapePointer(k)}`, dot ? `${dot}.${k}` : k);
+      }
+    };
+    scanAbs(cfg, '', '');
+    return [...map.values()];
+  };
+
+  const configRefs = collectRefs(configObj);
+  const portableRefs = collectRefs(portable);
   let reqSourcePath: string | undefined;
   let portableReqRel: string | undefined;
-  for (const row of adapterRaw) {
-    if (typeof row.at === 'string' && typeof row.before === 'string' && typeof row.after === 'string') {
-      const parts = row.at.slice(1).split('.');
-      const pointer = `/${parts.map(escapePointer).join('/')}`;
-      const adapted = `inputs/${parts.join('/')}`;
-      const srcAbs = resolve(dir, row.before);
-      setJsonPointer(portable, pointer, adapted);
-      if (pointer === '/requirements') { reqSourcePath = srcAbs; portableReqRel = adapted; }
-      else copySourceIntoEvidence(srcAbs, adapted);
-    } else if (row.doc === 'config' && typeof row.pointer === 'string' && typeof row.before === 'string' && typeof row.after === 'string') {
-      const srcAbs = resolve(configDir, row.before);
-      const ref = configRefs.find(r => `/${r.at.replace(/\[(\d+)\]/g, '.$1').split('.').map(escapePointer).join('/')}` === row.pointer);
-      if (ref?.set) ref.set(row.after);
-      else setJsonPointer(portable, row.pointer, row.after);
-      if (row.pointer === '/requirements') { reqSourcePath = srcAbs; portableReqRel = row.after; }
-      else copySourceIntoEvidence(srcAbs, row.after);
+  for (const ref of configRefs) {
+    const legacyRow = callerAdapter.find(r => typeof r.at === 'string' && `/${r.at.slice(1).split('.').map(escapePointer).join('/')}` === ref.pointer);
+    const pointerRow = callerAdapter.find(r => r.doc === 'config' && r.pointer === ref.pointer);
+    const srcAbs = isAbsolute(ref.value) && legacyRow && typeof legacyRow.before === 'string'
+      ? resolve(dir, legacyRow.before)
+      : resolve(configDir, ref.value);
+    let adaptedValue = ref.value;
+    if (pointerRow && typeof pointerRow.after === 'string') {
+      adaptedValue = pointerRow.after;
+    } else if (legacyRow) {
+      adaptedValue = `inputs/${ref.dotPath.split('.').join('/')}`;
+    } else if (ref.autoRelocate) {
+      adaptedValue = `inputs/${ref.dotPath.split('.').join('/')}`;
+      effectiveAdapter.push({
+        doc: 'config',
+        pointer: ref.pointer,
+        before: String(getJsonPointer(configObj, ref.pointer)),
+        after: adaptedValue,
+      });
     }
-  }
-  // Any remaining unadapted relative config refs (e.g., requirements or named inputs already literal).
-  for (const ref of configInputReferences(dir, configObj)) {
-    const dotPath = ref.at.replace(/\[(\d+)\]/g, '.$1');
-    const pointer = `/${dotPath.split('.').map(escapePointer).join('/')}`;
-    if (adapterRaw.some(r => r.pointer === pointer || r.at === `.${dotPath}`)) continue;
-    const srcAbs = resolve(configDir, ref.value);
-    if (pointer === '/requirements') {
-      reqSourcePath = srcAbs;
-      portableReqRel = ref.value;
+    if (adaptedValue !== ref.value || pointerRow !== undefined || (!pointerRow && !legacyRow && ref.autoRelocate)) {
+      const pRef = portableRefs.find(r => r.pointer === ref.pointer);
+      if (pRef?.set) pRef.set(adaptedValue);
+      else setJsonPointer(portable, ref.pointer, adaptedValue);
+    }
+    if (ref.pointer === '/requirements') {
+      reqSourcePath = realpathSync(srcAbs);
+      portableReqRel = adaptedValue;
     } else if (existsSync(srcAbs)) {
-      copySourceIntoEvidence(srcAbs, ref.value);
+      copySourceIntoEvidence(srcAbs, adaptedValue);
     }
   }
 
   let requirementsSourceBinding: JsonObject | undefined;
   let requirementsRuntimeBinding: JsonObject | undefined;
-  const usesPointerFormat = adapterRaw.some(r => r.pointer !== undefined);
   if (typeof configObj.requirements === 'string' && reqSourcePath && portableReqRel) {
     const reqBytes = readFileSync(reqSourcePath);
     const reqObj = JSON.parse(reqBytes.toString('utf8')) as JsonObject;
@@ -851,16 +959,26 @@ export function seedRetainedRigVersion(args: string[], now = Date.UTC(2026, 10, 
     const setup = isObject(reqObj.setup_painting) ? reqObj.setup_painting : {};
     for (const key of ['figure_mask', 'backdrop'] as const) {
       const entry = setup[key];
-      if (!isObject(entry) || typeof entry.path !== 'string') continue;
+      if (!isObject(entry) || typeof entry.path !== 'string' || !entry.path.trim()) continue;
       const pointer = `/setup_painting/${key}/path`;
-      const row = adapterRaw.find(r => r.doc === 'requirements' && r.pointer === pointer);
+      const row = callerAdapter.find(r => r.doc === 'requirements' && r.pointer === pointer);
       const assetAbs = resolve(reqDir, entry.path);
-      const adaptedVal = row ? String(row.after) : (key === 'backdrop' ? `setup_painting/${key}/path` : entry.path);
+      const candidateRel = reqParent === '.' ? entry.path : `${reqParent}/${entry.path}`;
+      const autoRel = key === 'backdrop' || isAbsolute(entry.path) || !isValidTarget(entry.path) || !isValidTarget(candidateRel);
+      let adaptedVal = entry.path;
+      if (row && typeof row.after === 'string') {
+        adaptedVal = row.after;
+      } else if (autoRel) {
+        const fieldPath = `setup_painting/${key}/path`;
+        adaptedVal = reqParent === '.' ? `inputs/${fieldPath}` : fieldPath;
+        effectiveAdapter.push({ doc: 'requirements', pointer, before: entry.path, after: adaptedVal });
+      }
       const relInEv = reqParent === '.' ? adaptedVal : `${reqParent}/${adaptedVal}`;
       retain(`${evidence}/${relInEv}`, readFileSync(assetAbs));
       if (adaptedVal !== entry.path) setJsonPointer(portableReq, pointer, adaptedVal);
     }
-    if (usesPointerFormat || setup.backdrop !== undefined) {
+    const usesPointerFormat = effectiveAdapter.some(r => r.pointer !== undefined);
+    if (usesPointerFormat) {
       const reqSourceRel = relative(dir, reqSourcePath).split(sep).join('/');
       requirementsSourceBinding = {
         ...retain(`${evidence}/requirements-source.json`, reqBytes),
@@ -873,15 +991,20 @@ export function seedRetainedRigVersion(args: string[], now = Date.UTC(2026, 10, 
     } else {
       retain(`${evidence}/${portableReqRel}`, reqBytes);
     }
+    configInputSources.set(`${evidence}/${portableReqRel}`, reqSourcePath);
   }
 
+  const usesPointerFormat = effectiveAdapter.some(r => r.pointer !== undefined);
+  const serializedAdapterBytes = isDeepStrictEqual(callerAdapter, effectiveAdapter)
+    ? adapterInputBytes
+    : Buffer.from(`${JSON.stringify(effectiveAdapter, null, 2)}\n`);
   const configSourceRel = relative(dir, realpathSync(configAbs)).split(sep).join('/');
   const configSourceBinding: JsonObject = {
     ...retain(`${evidence}/config-source.json`, configBytes),
     ...(!configSourceRel.startsWith('..') && !isScratchBindingPath(configSourceRel) ? { source_path: configSourceRel } : {}),
   };
   const adapterBinding: JsonObject = {
-    ...retain(`${evidence}/path-adapter.json`, adapterBytes),
+    ...retain(`${evidence}/path-adapter.json`, serializedAdapterBytes),
     ...(usesPointerFormat ? { format: 'json-pointer/1' } : {}),
   };
   const runtimeConfigBytes = isDeepStrictEqual(configObj, portable)
@@ -945,7 +1068,7 @@ export function seedRetainedRigVersion(args: string[], now = Date.UTC(2026, 10, 
   if (options['--check-report']) {
     const crBytes = readFileSync(resolve(dir, options['--check-report']));
     const target = `${evidence}/${RIG_CHECK_REPORT_FILE}`;
-    const retained = retain(target, crBytes);
+    const retained = retain(target, crBytes, false);
     const parsed = parseRigCheckReport(crBytes);
     const acceptances: JsonObject[] = checkAccepted
       ? [
@@ -1034,8 +1157,9 @@ function findCarriedDraftVerdict(
   copiedInputs: ReadonlyMap<string, string>,
   now: number,
 ): { verdict: JsonObject; evidence?: JsonObject } | undefined {
-  const bySource = [...copiedInputs].map(([target, source]) => ({ target, relativePath: relative(dirname(configAbs), source) }));
-  for (const receipt of asArray(project.review_acts).filter(isObject)) {
+  const realConfigDir = dirname(realpathSync(configAbs));
+  const bySource = [...copiedInputs].map(([target, source]) => ({ target, relativePath: relative(realConfigDir, source) }));
+  for (const receipt of [...asArray(project.review_acts)].reverse().filter(isObject)) {
     if (receipt.kind !== 'review-verdict' || typeof receipt.bytes !== 'string' || typeof receipt.draft_id !== 'string') continue;
     let act;
     try { act = decodeReviewAct(receipt.bytes); } catch { continue; }
@@ -1043,8 +1167,8 @@ function findCarriedDraftVerdict(
     const draft = asArray(project.drafts).filter(isObject).find(d => d.id === receipt.draft_id);
     if (!draft || !isObject(draft.config)) continue;
     const configured = asArray(draft.config_inputs).filter(isObject);
-    const draftConfigDir = dirname(resolve(root, String(draft.config.path)));
-    const relIn = (p: unknown) => relative(draftConfigDir, resolve(root, String(p)));
+    const draftConfigDir = dirname(realpathSync(resolve(root, String(draft.config.path))));
+    const relIn = (p: unknown) => relative(draftConfigDir, realpathSync(resolve(root, String(p))));
     const mapped = configured.map(inp => bySource.find(r => r.relativePath === relIn(inp.path))?.target);
     if (mapped.some(m => m === undefined)) continue;
     const inputs = mapped as string[];
@@ -1055,8 +1179,8 @@ function findCarriedDraftVerdict(
       carried_from_draft: { draft_id: act.source.selector.id, job_id: act.jobId, act_id: act.actId, config_inputs: inputs },
     };
     const still = receipt.evidence !== undefined ? draftReviewStillEvidence(act) : undefined;
-    const actFile = join(root, `evidence/drafts/${act.source.selector.id}/${String(receipt.sha256)}.act.json`);
-    if (!existsSync(actFile) || jobHash(readFileSync(actFile)) !== receipt.sha256) continue;
+    const candidateVersion: JsonObject = { ...version, verdicts: [verdict], ...(still ? { evidence: [still] } : {}) };
+    if (!validCarriedRigDraftVerdict(root, project, candidateVersion, verdict)) continue;
     return { verdict, ...(still ? { evidence: still } : {}) };
   }
 }

@@ -209,7 +209,7 @@ function seedHistoricalPendingDraftAsk(root: string, publicationId: string, draf
 test.each([
   { mode: 'plain', flags: [] },
   { mode: '--json', flags: ['--json'] },
-])('#833 bound diff-classes ($mode) refuses JOB_ASK_PENDING before writing project.json', async ({ flags }) => {
+])('#833 bound check ($mode) refuses JOB_ASK_PENDING before writing project.json', async ({ flags }) => {
   const root = await preparedParts();
   const opening = await open(root);
   const head = publicationId(root);
@@ -217,7 +217,7 @@ test.each([
   seedHistoricalPendingDraftAsk(root, head, 'chain');
   const projectFile = join(root, 'project.json');
   const before = readFileSync(projectFile);
-  const refused = await cli(root, ['diff-classes', root, '--diff-report', 'evidence/diff-components.json', '--by', 'agent', ...flags]);
+  const refused = await cli(root, ['interview', '--check', root, ...flags]);
   expect(refused).toMatchObject({
     exit: 1,
     stdout: '',

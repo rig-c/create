@@ -726,8 +726,8 @@ test('DIRECTION_COMPOSE_HASH detects changed frozen model bytes at check', () =>
   expect(() => readDirection(f.dir, f.load(), 2)).toThrow(expect.objectContaining({ code: 'DIRECTION_COMPOSE_HASH' }));
 });
 
-test('DIRECTION_COMPOSE_FILE detects a missing compose producer record at check', () => {
-  const f = fixture(); f.publish(); rmSync(join(f.dir, 'outputs/v2/compose/compose-run.json'));
+test('DIRECTION_COMPOSE_FILE detects a missing compose scene input at check', () => {
+  const f = fixture(); f.publish(); rmSync(join(f.dir, 'evidence/direction/v2.compose.scene.json'));
   expect(() => readDirection(f.dir, f.load(), 2)).toThrow(expect.objectContaining({ code: 'DIRECTION_COMPOSE_FILE' }));
 });
 

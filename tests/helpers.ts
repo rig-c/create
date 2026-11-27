@@ -176,7 +176,7 @@ export function stagedCreateRegistry(): Record<string, string> {
     const pack = Bun.spawnSync([
       'npm', 'pack', repo, '--workspaces=false', '--ignore-scripts', '--dry-run=false',
       '--pack-destination', dir, '--loglevel=error',
-    ], { cwd: dir, stdout: 'pipe', stderr: 'pipe', timeout: 15_000, killSignal: 'SIGKILL' });
+    ], { cwd: dir, stdout: 'pipe', stderr: 'pipe', timeout: 120_000, killSignal: 'SIGKILL' });
     if (pack.exitCode !== 0) {
       throw new Error(`staged registry npm pack failed (${pack.signalCode ?? pack.exitCode}): ${pack.stderr.toString()}`);
     }

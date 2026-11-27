@@ -20,7 +20,7 @@ import { checkScenes } from './scene.ts';
 import { checkCorrections } from './corrections.ts';
 import { partEditHoles } from './part-edit-coverage.ts';
 import type { PartImageIdentity } from './edited-part-inputs.ts';
-import { amendmentSummaries, collectAmendments, stepLapseEvents, type AmendmentSummary } from './amend.ts';
+import { amendmentSummaries, collectAmendments, stepLapseEvents, type Amendment, type AmendmentSummary } from './amend.ts';
 /**
  * `interview --check`: reads a project's `project.json` and reports, by name,
  * every place the record breaks the contract in docs/INTERVIEW.md and
@@ -50,7 +50,7 @@ import { checkFixLedger, type LedgerSummary } from './fix-ledger.ts';
 import { checkCgGates } from './cg-gates.ts';
 import { checkFigureMask } from './figure-mask.ts';
 import { checkSetupPainting } from './setup-painting.ts';
-import { checkChoices, hasPendingOther } from './choices.ts';
+import { checkChoices, hasPendingOther, pendingInterviewOptions } from './choices.ts';
 import { translateInvariants, type InvariantsDocument } from './invariants.ts';
 import { checkAskCoverage } from './ask-coverage.ts';
 import { checkAgentBounces } from './agent-bounce.ts';
@@ -65,7 +65,7 @@ import { checkReviews, latestAccepted, readVersions } from './review.ts';
 import { checkAppliedReview } from './applied-review.ts';
 import { checkReviewPackages } from './review-package.ts';
 import { checkTurnValue, rigRegistrationFindings } from './rig-version.ts';
-import { currentFindings } from './current.ts';
+import { currentFindings, isCurrentProject } from './current.ts';
 import { checkPreInterview } from './pre-interview.ts';
 import { checkStepPlans } from './step-plans.ts';
 import {
@@ -84,6 +84,7 @@ import {
   STAGES,
   stageIndex,
   stageOfStep,
+  stepPlanValue,
 } from './stages.ts';
 import type { Json, JsonObject } from './templates.ts';
 import { collectReopens, liveSignoff } from './reopen.ts';
@@ -450,6 +451,60 @@ function firstUnsignedStage(signoffs: Signoff[], steps: Step[], predatesPartsRev
       continue;
     }
     if (s.closed_by === 'signoff' && !signoffs.some((x) => x.stage === s.id && x.checkpoint === null)) return s.id;
+  }
+  return STAGES[STAGES.length - 1]?.id ?? 'accepted';
+}
+
+export function isCurrentPathProject(project: JsonObject, items: readonly Item[]): boolean {
+  const hasNumberedOutputs = [project.drafts, project.versions, project.scenes].some(entries => asArray(entries).length > 0);
+  if (hasNumberedOutputs) return false;
+  if (isCurrentProject(project) || project.stage === 'parts') return true;
+  const usesLegacyRigInterview = items.some(item => item.kind !== 'post'
+    && (pendingInterviewOptions(item) !== undefined
+      || ((item.state.state === 'user' || item.state.state === 'delegated') && !stepPlanValue(project, item, item.state.answer))));
+  return !usesLegacyRigInterview;
+}
+
+function currentAmendmentResumeStage(
+  project: JsonObject,
+  amendments: readonly Amendment[],
+  steps: readonly Step[],
+  newOrder: boolean,
+  noPost: boolean,
+): string {
+  const amendedFrom = Math.min(...amendments.map(a => stageIndex(a.stage)));
+  const moves = [
+    ...asArray(project.advances).map((record, index) => ({ record, advance: true, index })),
+    ...asArray(project.reopens).map((record, index) => ({ record, advance: false, index })),
+  ].flatMap(({ record, advance, index }) => {
+    if (!isObject(record) || typeof record.stage !== 'string' || record.stage === PAUSED_STAGE) return [];
+    const at = Date.parse(String(record.at));
+    const toIdx = stageIndex(record.stage);
+    return Number.isFinite(at) && toIdx >= 0 ? [{ at, toIdx, advance, index }] : [];
+  }).sort((a, b) => a.at - b.at || Number(b.advance) - Number(a.advance) || a.index - b.index);
+
+  const progressFloor = Math.min(...amendments.map(amendment => {
+    let idx = stageIndex(amendment.stage);
+    for (const move of moves) {
+      if (move.at < amendment.at) continue;
+      if (move.advance) {
+        if (move.toIdx > idx) idx = move.toIdx;
+      } else if (move.toIdx < idx) {
+        idx = move.toIdx;
+      }
+    }
+    return idx;
+  }));
+
+  for (const s of newOrder ? STAGES : LEGACY_STAGES) {
+    if (noPost && SKIPPED_WHEN_NO_POST.includes(s.id)) continue;
+    const idx = stageIndex(s.id);
+    if (s.closed_by === 'bar' && idx >= amendedFrom) {
+      if (steps.some(x => stageOfStep(x.phase, x.id) === s.id && (asString(x.record.status) ?? 'pending') !== 'done')) {
+        return s.id;
+      }
+    }
+    if (idx >= progressFloor) return s.id;
   }
   return STAGES[STAGES.length - 1]?.id ?? 'accepted';
 }
@@ -929,7 +984,9 @@ function checkProjectOnce(projectDirArg: string, candidate: JsonObject | undefin
   const postItems = items.filter(i => i.kind === 'post');
   const noPost = postItems.length > 0 && postItems.every(i => i.state.state === 'not_applicable');
   const amendedFrom = Math.min(...amendments.map(a => stageIndex(a.stage)));
-  const resumeStage = firstUnsignedStage(signoffs, steps, planApprovedAt !== null, hasStageOrder(project), amendedFrom, noPost);
+  const resumeStage = stage !== PAUSED_STAGE && amendments.length > 0 && isCurrentPathProject(project, items)
+    ? currentAmendmentResumeStage(project, amendments, steps, hasStageOrder(project), noPost)
+    : firstUnsignedStage(signoffs, steps, planApprovedAt !== null, hasStageOrder(project), amendedFrom, noPost);
   const effectiveStage = stage === PAUSED_STAGE ? resumeStage
     : amendments.length > 0 && stageIndex(resumeStage) < stageIndex(stage) ? resumeStage : stage;
   // Only a project already past `parts-review` when the stage arrived is exempt; one still at or before it goes through it.

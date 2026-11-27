@@ -22,6 +22,13 @@ export function isCurrentProject(project: JsonObject): boolean {
   return project.current !== undefined;
 }
 
+/** A `versions[]` row with `pre_interview: true` is migrated history, not a numbered output (#1075). */
+export function hasNumberedOutputs(project: JsonObject): boolean {
+  return asArray(project.drafts).length > 0
+    || asArray(project.versions).some(entry => !isObject(entry) || entry.pre_interview !== true)
+    || asArray(project.scenes).length > 0;
+}
+
 export const RUN_RECORD_NAME = 'run.json';
 export const REBUILD_RUN_SPECS = ['rig-run/2', 'rig-run/3', 'rigc-run/2'] as const;
 export type RebuildRunSpec = (typeof REBUILD_RUN_SPECS)[number];

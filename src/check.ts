@@ -65,7 +65,7 @@ import { checkReviews, latestAccepted, readVersions } from './review.ts';
 import { checkAppliedReview } from './applied-review.ts';
 import { checkReviewPackages } from './review-package.ts';
 import { checkTurnValue, rigRegistrationFindings } from './rig-version.ts';
-import { currentFindings, isCurrentProject } from './current.ts';
+import { currentFindings, hasNumberedOutputs, isCurrentProject } from './current.ts';
 import { checkPreInterview } from './pre-interview.ts';
 import { checkStepPlans } from './step-plans.ts';
 import {
@@ -456,8 +456,7 @@ function firstUnsignedStage(signoffs: Signoff[], steps: Step[], predatesPartsRev
 }
 
 export function isCurrentPathProject(project: JsonObject, items: readonly Item[]): boolean {
-  const hasNumberedOutputs = [project.drafts, project.versions, project.scenes].some(entries => asArray(entries).length > 0);
-  if (hasNumberedOutputs) return false;
+  if (hasNumberedOutputs(project)) return false;
   if (isCurrentProject(project) || project.stage === 'parts') return true;
   const usesLegacyRigInterview = items.some(item => item.kind !== 'post'
     && (pendingInterviewOptions(item) !== undefined

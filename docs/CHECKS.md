@@ -705,6 +705,7 @@ collection's stages.
 | `PIN_NO_MEMBERS` | `members[]` is empty | add members |
 | `PIN_NO_BUILD` | a member has no rig version, its version lists no model or atlas, or a rig file has no sha256 and is not on disk | build and record the member version |
 | `PIN_SOURCE_DRIFT` | a rig file on disk does not hash to the member version that lists it (rebuilt in place) | record the rebuild as a new member version, then pin |
+| `PIN_MEMBER_CURRENT` | a member records `current` outputs (`project.json` `current`), which `collection pin` cannot pin by version number | keep existing explicit pins until hash-and-commit member pinning lands (`rig-c/create#990`), then run `collection pin` |
 
 | Warning | Fires when | Clear it by |
 | --- | --- | --- |

@@ -4,7 +4,7 @@ import { afterEach, expect, test } from 'bun:test';
 import { appendFileSync, existsSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { directionHash, directionPostIdentity, objects, readDirection, validateDirectionShape } from '../src/direction.ts';
-import { composeInventory, composeRunMatchesAcceptedRig, readComposeRun } from '../src/direction-compose.ts';
+import { composeInventory, composeRunMatchesAcceptedRig, composeScenePath, readComposeRun } from '../src/direction-compose.ts';
 import { prepareLiveManifest, readPublished, REVIEW_REFUSED_JOB_PATH } from '../src/job-publication.ts';
 import { composeFixture, composeRunFixture } from './direction-compose-fixture.ts';
 import { reviewPackageHash } from '../src/signoff-target.ts';
@@ -727,7 +727,7 @@ test('DIRECTION_COMPOSE_HASH detects changed frozen model bytes at check', () =>
 });
 
 test('DIRECTION_COMPOSE_FILE detects a missing compose scene input at check', () => {
-  const f = fixture(); f.publish(); rmSync(join(f.dir, 'evidence/direction/v2.compose.scene.json'));
+  const f = fixture(); f.publish(); rmSync(join(f.dir, composeScenePath(2)));
   expect(() => readDirection(f.dir, f.load(), 2)).toThrow(expect.objectContaining({ code: 'DIRECTION_COMPOSE_FILE' }));
 });
 

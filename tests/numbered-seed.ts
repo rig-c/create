@@ -32,7 +32,7 @@ import { decodeReviewAct, draftReviewStillEvidence, isDraftReviewVerdict, retain
 import { validCarriedRigDraftVerdict } from '../src/rig-draft-verdict.ts';
 import { parseRigCheckReport, RIG_CHECK_REPORT_FILE, SOURCE_EXPOSURE_ID } from '../src/rig-check-report.ts';
 import { FROZEN_RUN_SPECS, validateRunRecord } from '../src/run-record.ts';
-import { resolveAgentCitationSpec } from '../src/scene-authority.ts';
+import { resolveAgentCitationSpec, validateAgentPlateRegistration } from '../src/scene-authority.ts';
 import { plateRegistration, pngDimensions, SCENE_SPEC, SceneError, sceneEntries, scenePath, sceneRig } from '../src/scene.ts';
 import { isScratchBindingPath } from '../src/scratch-bindings.ts';
 import { approvedStructureDelta, rigPartsApproval } from '../src/structure.ts';
@@ -186,7 +186,9 @@ export function materializeReviewPackageOnVersion(
       writeFileSync(dst, readFileSync(src));
     }
   }
-  const files = walkFiles(pkgDir).map(({ path, sha256 }) => ({ path, sha256 }));
+  const files = walkFiles(pkgDir)
+    .map(({ path, sha256 }) => ({ path, sha256 }))
+    .sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
   const openWord = `'${`${pkgRel}/out`.replaceAll("'", "'\\''")}'`;
   const record: JsonObject = {
     config: { path: relative(dir, configAbs).split(sep).join('/'), sha256: sha(configBytes) },
@@ -383,6 +385,7 @@ export function seedRetainedScene(args: string[], now = Date.UTC(2026, 10, 7)): 
       }
       plates.push({ role, ...identity, ...size, rect, registered, citation: citations[role]! });
     }
+    validateAgentPlateRegistration(dir, project, plates);
     const plateRefusals: Finding[] = [];
     checkPlateRegistrations({ dir, project, refusals: plateRefusals, warnings: [] });
     if (plateRefusals[0]) refuse(plateRefusals[0].code, plateRefusals[0].message);
@@ -807,19 +810,19 @@ export function seedRetainedRigVersion(args: string[], now = Date.UTC(2026, 10, 
   const configInputSources = new Map<string, string>();
   const isValidTarget = (p: string): boolean =>
     p.length > 0 && !isAbsolute(p) && !p.startsWith('/') && !p.split('/').some(seg => seg === '' || seg === '.' || seg === '..');
-  const copySourceIntoEvidence = (srcAbs: string, relTarget: string) => {
+  const copySourceIntoEvidence = (srcAbs: string, relTarget: string, lexicalAbs = srcAbs) => {
     const stat = lstatSync(srcAbs);
     if (stat.isDirectory()) {
       for (const f of walkFiles(srcAbs)) {
         const fileAbs = join(srcAbs, f.path);
         const target = `${evidence}/${relTarget}/${f.path}`;
         retain(target, readFileSync(fileAbs));
-        configInputSources.set(target, realpathSync(fileAbs));
+        configInputSources.set(target, join(lexicalAbs, f.path));
       }
     } else {
       const target = `${evidence}/${relTarget}`;
       retain(target, readFileSync(srcAbs));
-      configInputSources.set(target, realpathSync(srcAbs));
+      configInputSources.set(target, lexicalAbs);
     }
   };
 
@@ -941,10 +944,10 @@ export function seedRetainedRigVersion(args: string[], now = Date.UTC(2026, 10, 
       else setJsonPointer(portable, ref.pointer, adaptedValue);
     }
     if (ref.pointer === '/requirements') {
-      reqSourcePath = realpathSync(srcAbs);
+      reqSourcePath = srcAbs;
       portableReqRel = adaptedValue;
     } else if (existsSync(srcAbs)) {
-      copySourceIntoEvidence(srcAbs, adaptedValue);
+      copySourceIntoEvidence(srcAbs, adaptedValue, resolve(dirname(configAbs), ref.value));
     }
   }
 
@@ -1157,8 +1160,7 @@ function findCarriedDraftVerdict(
   copiedInputs: ReadonlyMap<string, string>,
   now: number,
 ): { verdict: JsonObject; evidence?: JsonObject } | undefined {
-  const realConfigDir = dirname(realpathSync(configAbs));
-  const bySource = [...copiedInputs].map(([target, source]) => ({ target, relativePath: relative(realConfigDir, source) }));
+  const bySource = [...copiedInputs].map(([target, source]) => ({ target, relativePath: relative(dirname(configAbs), source) }));
   for (const receipt of [...asArray(project.review_acts)].reverse().filter(isObject)) {
     if (receipt.kind !== 'review-verdict' || typeof receipt.bytes !== 'string' || typeof receipt.draft_id !== 'string') continue;
     let act;
@@ -1167,8 +1169,8 @@ function findCarriedDraftVerdict(
     const draft = asArray(project.drafts).filter(isObject).find(d => d.id === receipt.draft_id);
     if (!draft || !isObject(draft.config)) continue;
     const configured = asArray(draft.config_inputs).filter(isObject);
-    const draftConfigDir = dirname(realpathSync(resolve(root, String(draft.config.path))));
-    const relIn = (p: unknown) => relative(draftConfigDir, realpathSync(resolve(root, String(p))));
+    const draftConfigDir = dirname(resolve(root, String(draft.config.path)));
+    const relIn = (p: unknown) => relative(draftConfigDir, resolve(root, String(p)));
     const mapped = configured.map(inp => bySource.find(r => r.relativePath === relIn(inp.path))?.target);
     if (mapped.some(m => m === undefined)) continue;
     const inputs = mapped as string[];

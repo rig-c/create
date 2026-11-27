@@ -10,6 +10,7 @@ import { selectAnswerHashes } from '../src/signoff-answers.ts';
 import { selectSignoffTarget } from '../src/signoff-target.ts';
 import { signoffCommand as rawSignoff } from '../src/signoff.ts';
 import { signoffIdentity } from '../src/stage-progress.ts';
+import { stepCoveredByApproval } from '../src/stages.ts';
 import { stepHash } from '../src/step-hash.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { advanceCommand, checkProject, diffClassesCommand, signoffCommand, testClock, TEST_NOW } from './clock.ts';
@@ -49,8 +50,8 @@ function seedStoredSignoffAct(dir: string, act: JsonObject, extraFields: JsonObj
   const decoded = decodeReviewAct(bytes, 'signoff');
   const p = read(dir);
   const stage = decoded.value.stage;
-  const phase = stage === 'post-interview' ? 'post' : ['plan-approved', 'rigging-interview'].includes(stage) ? 'rig' : undefined;
-  const steps = phase === undefined ? [] : arr(obj(p.plan).steps).map(obj).filter(s => s.phase === phase);
+  const coveredStage = ['plan-approved', 'rigging-interview', 'post-interview'].includes(stage);
+  const steps = coveredStage ? arr(obj(p.plan).steps).map(obj).filter(s => stepCoveredByApproval(p, s, stage)) : [];
   const hashes: JsonObject = {};
   for (const step of steps) {
     if (step.checkpoint === null || step.checkpoint === undefined) {
@@ -60,13 +61,13 @@ function seedStoredSignoffAct(dir: string, act: JsonObject, extraFields: JsonObj
   }
   const signed: JsonObject = {
     ...reviewActSignoff(decoded),
-    ...(phase === undefined ? {} : { steps: steps.map(s => s.id!), step_hashes: hashes }),
+    ...(coveredStage ? { steps: steps.map(s => s.id!), step_hashes: hashes } : {}),
     ...extraFields,
   };
   const answerHashes = selectAnswerHashes(dir, p, signed);
   if (answerHashes !== undefined) signed.answer_hashes = answerHashes;
   p.signoffs = [...arr(p.signoffs), signed];
-  p.review_acts = [...arr(p.review_acts), {
+  p.review_acts = [...(Array.isArray(p.review_acts) ? p.review_acts : []), {
     schema: 'rig-create/review-act@1',
     kind: 'signoff',
     jobId: decoded.jobId,

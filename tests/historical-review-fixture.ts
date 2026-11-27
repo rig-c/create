@@ -162,9 +162,9 @@ export function seedStoredPartsSignoff(
   const projectPath = join(dir, 'project.json');
   const project = JSON.parse(readFileSync(projectPath, 'utf8')) as JsonObject;
   const at = isoOf(options.at);
-  const verdict = recordedPartsVerdict(dir, project, draftId);
   const latestProblem = latestPartsVerdictFinding(project, draftId, 'signoffs.parts-review.evidence');
   if (latestProblem) refuse(latestProblem.code, latestProblem.message);
+  const verdict = recordedPartsVerdict(dir, project, draftId);
   const structurePath = options.structureFile ?? `evidence/structure-${draftId}.json`;
   const structureBytes = readFileSync(join(dir, structurePath));
   const structure = { path: structurePath, sha256: jobHash(structureBytes) };

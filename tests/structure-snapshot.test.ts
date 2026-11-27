@@ -283,7 +283,7 @@ test('a draft with no API receipt allows a snapshot but still refuses signoff wi
   draft(dir, 'other', { meshes: MESHES });
   const before = readFileSync(join(dir, 'project.json'));
   expect(structureSnapshotCommand([dir, '--draft', 'other']).exit).toBe(0);
-  refused(() => signoffCommand(['parts-review', dir, '--by', 'user', '--draft', 'other', '--structure-file', 'evidence/structure-other.json'], testClock.now()), 'NUMBERED_WRITER_REMOVED');
+  refused(() => signoffCommand(['parts-review', dir, '--by', 'user', '--draft', 'other', '--structure-file', 'evidence/structure-other.json']), 'NUMBERED_WRITER_REMOVED');
   refused(() => seedStoredPartsSignoff(dir, 'other', { by: 'user', at: testClock.now(), verbatim: 'Approve', structureFile: 'evidence/structure-other.json' }), 'PARTS_VERDICT_RECEIPT_REQUIRED');
   expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
   expect(existsSync(join(dir, 'evidence/structure-other.json'))).toBe(true);

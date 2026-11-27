@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from 'bun:test';
-import { appendFileSync, cpSync, existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { appendFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { EXAMPLE_NOW } from '../scripts/example-time.ts';
@@ -199,7 +199,7 @@ test('a historical acknowledgment on changed parts still ingests as mesh feedbac
       evidence: { path: evidencePath, sha256: jobHash(actBytes) },
     }],
   }, null, 2) + '\n');
-  writePrivateJson(join(root, evidencePath), act);
+  mkdirSync(join(root, 'evidence/review-acts'), { recursive: true });
   writeFileSync(join(root, evidencePath), actBytes);
   expect(partsActFindings(root, readProject(root))).toEqual([]);
 });

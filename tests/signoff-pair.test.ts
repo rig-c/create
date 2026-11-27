@@ -183,7 +183,7 @@ test('ingestedVerdictPairFinding detects a legacy cross-publication pair and ret
   expect(ingestedVerdictPairFinding(p, 2, index)?.code).toBe('SIGNOFF_PAIR_MISMATCH');
   save(dir, p);
   const before = readFileSync(join(dir, 'project.json'));
-  expect(main(['review', '2', dir, '--review', 'rig-review', '--verdict', 'accepted', '--by', 'user', '--source', 'synthetic review', '--verbatim', 'Accept'])).toBe(2);
+  expect(main(['review', '2', dir, '--review', 'rig-review', '--verdict', 'accepted', '--by', 'user', '--source', 'synthetic review', '--verbatim', 'Accept'], testClock.now())).toBe(2);
   expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
 });
 

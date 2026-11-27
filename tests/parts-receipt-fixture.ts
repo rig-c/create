@@ -1,6 +1,6 @@
 import { jobHash } from '../src/job-outbox.ts';
 import { draftRigCommand } from '../src/drafts.ts';
-import { PARTS_CLI_RECEIPT, decodePartsRead } from '../src/parts-verdict-record.ts';
+import { PARTS_CLI_RECEIPT, decodePartsRead, partsVerdictNames } from '../src/parts-verdict-record.ts';
 import { storeReviewRead } from '../src/review-read.ts';
 import { structureSnapshotCommand } from '../src/structure-snapshot.ts';
 /** Synthetic stored CLI receipts for check-time receipt consumers. Review-owned paths are opaque. */
@@ -19,6 +19,7 @@ export function seedPartsCliReceipt(
 ): JsonObject {
   const raw = Buffer.from(JSON.stringify(response));
   const decoded = decodePartsRead(raw);
+  const names = partsVerdictNames(decoded);
   const { file } = storeReviewRead(root, raw);
   const tool = response.tool as JsonObject;
   const receipt: JsonObject = {
@@ -26,12 +27,12 @@ export function seedPartsCliReceipt(
     kind: 'parts-verdict',
     route: 'cli',
     draft_id: draftId,
-    argv: ['rig-review', 'parts', ...extraArgv, '--format', 'json'],
+    argv: [...extraArgv],
     evidence: { path: file.path, sha256: file.sha256 },
     tool: { name: tool.name ?? '@rig-c/review', version: tool.version ?? '0.0.0-synthetic' },
-    status: decoded.status,
-    flagged: decoded.flagged,
-    noted: decoded.noted,
+    status: decoded.status!,
+    flagged: names.flagged,
+    noted: names.noted,
     by,
     at: new Date(now).toISOString(),
   };

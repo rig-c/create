@@ -234,8 +234,9 @@ test('an act for a subject create did not declare refuses by name and leaves the
   const planted = seedHistoricalCheckpointAct(host, askId, 'pass', {
     comments: [{ text: WORDS, anchor: { checkpointId: 'assemble', planStepId: 'assemble' } }],
   });
+  const decodedPlanted = decodeReviewAct(JSON.stringify(planted), 'checkpoint');
   const bytes = readFileSync(join(root, 'project.json'));
-  expect(() => assertActSubjectDeclared(root, planted, 'signoffs.checkpoint assemble'))
+  expect(() => assertActSubjectDeclared(root, decodedPlanted, 'signoffs.checkpoint assemble'))
     .toThrow(expect.objectContaining({ code: 'REVIEW_ACT_SUBJECT_UNDECLARED' }));
   const retired = await cli(root, ['signoff', 'parts', root, '--checkpoint', 'assemble', '--from-review', planted.actId]);
   expect(retired.exit).toBe(2);
@@ -243,7 +244,7 @@ test('an act for a subject create did not declare refuses by name and leaves the
   expect(readFileSync(join(root, 'project.json'))).toEqual(bytes);
   // Control: without the acknowledged receipt (a clone) assertActSubjectDeclared allows the historical act.
   rmSync(join(root, '.rig-create-review/acknowledged-publications'), { recursive: true });
-  expect(() => assertActSubjectDeclared(root, planted, 'signoffs.checkpoint assemble')).not.toThrow();
+  expect(() => assertActSubjectDeclared(root, decodedPlanted, 'signoffs.checkpoint assemble')).not.toThrow();
 });
 
 test('bar: draft publications at parts-review declare no parts-verdict asks before or after new drafts', async () => {

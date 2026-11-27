@@ -55,7 +55,7 @@ function record(root: string, value: JsonObject) {
     kind: 'parts-verdict',
     route: 'cli',
     draft_id: 'chain',
-    argv: ['rig-review', 'parts', ...extra, '--format', 'json'],
+    argv: extra,
     evidence: { path: stored.file.path, sha256: stored.file.sha256 },
     tool: decoded.tool!,
     status: decoded.status!,
@@ -87,7 +87,7 @@ for (const status of ['approved', 'changes-requested', 'pending']) {
     expect(receipt.status).toBe(status);
     expect(receipt.flagged).toEqual(status === 'changes-requested' ? ['synthetic part'] : []);
     expect(receipt.noted).toEqual(['synthetic part']);
-    expect(receipt.argv).toEqual(['rig-review', 'parts', ...args(root).slice(args(root).indexOf('--') + 1), '--format', 'json']);
+    expect(receipt.argv).toEqual(args(root).slice(args(root).indexOf('--') + 1));
     const evidence = receipt.evidence as JsonObject;
     expect(evidence.sha256).toBe(jobHash(bytes));
     expect(readFileSync(join(root, String(evidence.path))).equals(bytes)).toBe(true);

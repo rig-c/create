@@ -2494,7 +2494,7 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
   }
 
   // 2. If accepted and no lapses remain, there are no remaining moves.
-  if (effectiveStage === 'accepted' && moves.length === 0) {
+  if (stage !== PAUSED_STAGE && effectiveStage === 'accepted' && moves.length === 0) {
     return {
       schema: NEXT_SCHEMA,
       project_id: String(project.name ?? ''),
@@ -2518,13 +2518,8 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
       role: 'human',
       field: 'pauses',
       awaits: 'project.stage',
-      command: null,
-      act: `resume paused project to ${resumeTarget} via human pause/resume act`,
-      review_act: {
-        kind: 'signoff',
-        stage: resumeTarget,
-        ...(jobId ? { job_id: jobId } : {}),
-      },
+      command: `rig-create resume ${shellWord(resumeTarget)} --by '<who>' --verbatim-file '<file>' ${shellWord(dir)}`,
+      act: `resume paused project to ${resumeTarget}`,
     });
   } else if (isOpenInterviewStage(effectiveStage)) {
     const stepPlans = stepPlanQuestions(dir, project, stageItems, allowPostOptions);

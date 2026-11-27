@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from 'bun:test';
-import { cpSync, readFileSync } from 'node:fs';
+import { cpSync, readFileSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
 import type { CheckReport } from '../src/check.ts';
 import type { NextReport } from '../src/next.ts';
@@ -34,9 +34,14 @@ test.each([
   const pausedCheck: CheckReport = JSON.parse(run(['interview', '--check', '--json']));
   expect(pausedCheck).toMatchObject({ stage: 'paused', effective_stage: 'parts', refusals: [] });
   const pausedNext: NextReport = JSON.parse(run(['next', '--json']));
-  expect(pausedNext.moves).toContainEqual(expect.objectContaining({
-    role: 'human', field: 'pauses', review_act: { kind: 'signoff', stage: 'plan-approved' },
-  }));
+  const pausedMove = pausedNext.moves.find(move => move.field === 'pauses');
+  expect(pausedMove).toMatchObject({
+    role: 'human',
+    field: 'pauses',
+    awaits: 'project.stage',
+    command: `rig-create resume plan-approved --by '<who>' --verbatim-file '<file>' ${realpathSync(dir)}`,
+  });
+  expect(pausedMove?.review_act).toBeUndefined();
 
   const before = read();
   run(['resume', 'plan-approved', '--by', 'owner', '--verbatim-file', words]);
@@ -56,4 +61,4 @@ test.each([
   run(['advance', 'parts']);
   const advancedCheck: CheckReport = JSON.parse(run(['interview', '--check', '--json']));
   expect(advancedCheck).toMatchObject({ stage: 'parts', effective_stage: 'parts', refusals: [] });
-});
+}, 30_000);

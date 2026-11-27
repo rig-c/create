@@ -3,7 +3,7 @@ import { readFileSync } from './check-reads.ts';
 import { isDeepStrictEqual as equal } from 'node:util';
 import { asArray, collectItems, collectSignoffs, isObject, loadCollection, type Ctx, type Finding } from './check.ts';
 import { literalFile } from './choices.ts';
-import { CURRENT_MOTION_FRAMES, CURRENT_RIG_MODEL, currentFileBinding, currentHash, outputRoot } from './current.ts';
+import { CURRENT_MOTION_FRAMES, currentFileBinding, currentHash, currentMotionSetBinding, currentRigFileBinding, outputRoot, verifiedLegacyMotionProvenance } from './current.ts';
 import { closed, directionHash, hex, objects } from './direction.ts';
 import { assembleOnlyDraftPath, assembleOnlyDraftTarget, assembleOnlyVersionFinding, draftRigRequired } from './draft-layout.ts';
 import { answersOf, checkEntry } from './provenance.ts';
@@ -18,6 +18,7 @@ export { SCENE_CHOICE_MISMATCH, SCENE_CHOICE_MISSING, sceneAuthor };
 export const SCENE_SPEC = 'rig-create/scene@1';
 export const CURRENT_SCENE_SPEC = 'rig-create/scene@2';
 export const CURRENT_SCENE_PATH = 'specs/direction/scene.json';
+const RIG_MODEL = 'check/build/skeleton.model.json';
 export const scenePath = (n: number): string => `evidence/scene/s${n}.json`;
 const positive = (value: unknown): value is number => Number.isSafeInteger(value) && Number(value) > 0;
 const text = (value: unknown): value is string => typeof value === 'string' && value.trim().length > 0;
@@ -277,23 +278,31 @@ function sceneStage(model: JsonObject, path: string): JsonObject {
 }
 
 export function currentSceneRig(dir: string, project: JsonObject, snapshots?: Map<string, Buffer>, animation = 'idle'): { rig: JsonObject; stage: JsonObject } {
-  const model = currentFileBinding(project, 'rig', CURRENT_RIG_MODEL);
+  const model = currentRigFileBinding(project, RIG_MODEL);
   if (!model) sceneFail('SCENE_CURRENT_RIG_REQUIRED', 'current.rig.files', 'record the rig with its compiled model before scene write');
   const source = json(boundBytes(dir, model, 'SCENE_MODEL_MISMATCH', snapshots), model.path);
   if (!objects(source.animations).some(value => value.name === animation)) {
     sceneFail('SCENE_ANIMATION_MISSING', 'scene.rig.animation.name', 'choose an animation named by the current model', 'pass --animation with a name from the current model and run scene write');
   }
   const motion = isObject(project.current) && isObject(project.current.motion) ? project.current.motion : undefined;
-  const frames = currentFileBinding(project, 'motion', CURRENT_MOTION_FRAMES);
-  if (!frames || typeof motion?.files_sha256 !== 'string' || !objects(motion.built_from).some(input => equal(input, model))) {
+  const adopted = motion?.adopted !== undefined;
+  const provenance = adopted ? verifiedLegacyMotionProvenance(dir, project) : undefined;
+  const adoptedOutput = provenance && model.path === `outputs/v${String(provenance.version)}/out/${RIG_MODEL}`
+    && model.sha256 === provenance.model_sha256 ? currentMotionSetBinding(dir, project) : undefined;
+  if (adopted && !adoptedOutput) {
+    sceneFail('SCENE_CURRENT_MOTION_REQUIRED', 'current.motion', 'restore the accepted numbered co-registration for the current rig and its verified frame tree');
+  }
+  const framesPath = adoptedOutput ? `${adoptedOutput.path}/frames.json` : CURRENT_MOTION_FRAMES;
+  const frames = currentFileBinding(project, 'motion', framesPath);
+  if (!frames || typeof motion?.files_sha256 !== 'string' || (!adopted && !objects(motion.built_from).some(input => equal(input, model)))) {
     sceneFail('SCENE_CURRENT_MOTION_REQUIRED', 'current.motion', 'render and record motion for the current rig before scene write');
   }
   const sidecar = json(boundBytes(dir, frames, 'SCENE_FILE_CHANGED', snapshots), frames.path);
   if (sidecar.spec !== 'rigc-frames/1' || !objects(sidecar.sets).some(set => set.animation === animation)) {
     sceneFail('SCENE_CURRENT_MOTION_REQUIRED', frames.path, `render and record frames for the scene animation "${animation}"`);
   }
-  const motionOutput = { path: outputRoot('motion'), sha256: motion.files_sha256 };
-  if (currentHash(dir, motionOutput.path) !== motionOutput.sha256) {
+  const motionOutput = adoptedOutput ?? { path: outputRoot('motion'), sha256: motion.files_sha256 };
+  if (!adoptedOutput && currentHash(dir, motionOutput.path) !== motionOutput.sha256) {
     sceneFail('SCENE_CURRENT_MOTION_REQUIRED', 'current.motion.files_sha256', 'motion output bytes differ from the recorded set; restore the recorded frame tree or render and record it again');
   }
   return { rig: { model, animation: { name: animation, frames, motion: motionOutput } }, stage: sceneStage(source, model.path) };
@@ -304,9 +313,10 @@ export function validateCurrentScene(dir: string, project: JsonObject, doc: Json
   const composed = doc.compose !== undefined;
   if (!closed(doc, ['schema', 'rig', 'frame', ...(composed ? ['compose'] : ['plates', 'layers'])]) || doc.schema !== CURRENT_SCENE_SPEC) bad('expected closed scene@2');
   const rig = doc.rig;
+  const adopted = isObject(project.current) && isObject(project.current.motion) && project.current.motion.adopted !== undefined;
   if (!closed(rig, ['model', 'animation']) || !sceneBinding(rig.model)
     || !closed(rig.animation, ['name', 'frames', 'motion']) || !text(rig.animation.name)
-    || !sceneBinding(rig.animation.frames) || !sceneBinding(rig.animation.motion) || rig.animation.motion.path !== outputRoot('motion')) {
+    || !sceneBinding(rig.animation.frames) || !sceneBinding(rig.animation.motion) || (!adopted && rig.animation.motion.path !== outputRoot('motion'))) {
     return bad('rig needs a model binding and an animation with frames and motion output-set bindings');
   }
   const current = currentSceneRig(dir, project, snapshots, String(rig.animation.name));

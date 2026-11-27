@@ -8,11 +8,11 @@ import { closeSync, mkdirSync, openSync, renameSync, rmSync } from 'node:fs';
 import { isAbsolute, join, posix, relative, resolve, sep } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import { existsSync, lstatSync, readFileSync, realpathSync } from './check-reads.ts';
-import { activeCurrentSignoffTargetPath, checkProject, isObject, PROJECT_SCHEMA } from './check.ts';
+import { activeCurrentSignoffTargetPath, asArray, checkProject, isObject, PROJECT_SCHEMA } from './check.ts';
 import { literalFile } from './choices.ts';
 import { readDirectionOutput } from './current-direction.ts';
 import { directionLoopSeamFindings } from './direction-loop-seam.ts';
-import { builtFromNameAllowed, CURRENT_KINDS, CURRENT_RIG_MODEL, currentFileBinding, currentHash, currentShapeFindings, isRunRecordFile, outputRoot, outputSetHash, RUN_RECORD_NAME, sha256, treeFiles, type CurrentKind, type RebuildRunSpec } from './current.ts';
+import { builtFromNameAllowed, CURRENT_KINDS, currentHash, currentRigFileBinding, currentShapeFindings, isRunRecordFile, outputRoot, outputSetHash, rigModelAtlasRelatives, RUN_RECORD_NAME, sha256, treeFiles, verifiedLegacyMotionProvenance, type CurrentKind, type RebuildRunSpec } from './current.ts';
 import { DirectionError } from './direction.ts';
 import { directionFeedbackRefFinding, parseFeedbackPair, readProject } from './feedback.ts';
 import { recordCurrentPartsLedger } from './fix-ledger.ts';
@@ -21,7 +21,7 @@ import type { CommandResult } from './interview.ts';
 import { hasMotionLoopSeam, motionLoopSeamFindings, readMotionLoopSeamPolicy } from './motion-loop-seam.ts';
 import { PARTS_CHECK_FILE, PARTS_CHECK_SPEC, partsCheckFindings, partsCheckRecord } from './parts-check.ts';
 import { commitProjectStep, GITIGNORE_MIGRATION_LINE, migrateProjectGitignore } from './project-step-commit.ts';
-import { resolveAdoptSource } from './record-adopt.ts';
+import { adoptedOutputBindings, adoptedRigConfigBinding, resolveAdoptSource, wasNumberedRigAccepted } from './record-adopt.ts';
 import { writeRecord } from './record-input.ts';
 import { Refusal, refuse, USAGE_EXIT } from './refusal.ts';
 import { baselineOf, newFindings } from './refusal-baseline.ts';
@@ -49,7 +49,8 @@ export const RECORD_HELP = `record:
                  record green rig-parts compose output beside outputs/direction/, with compose-run.json and check/check.json.
                  Repeat --answers-feedback <version>:<verdict> to answer open numbered direction-review bounces.
   rig-create record <kind> [<dir>] --adopt [--json]
-                 record the latest live legacy version's bound output in place, when current.<kind> is absent.`;
+                 record the latest live legacy version's bound output in place, when current.<kind> is absent.
+                 For eligible adopted motion, also backfill its verified numbered provenance in place.`;
 
 type RecordableKind = CurrentKind;
 type FileHash = { path: string; sha256: string };
@@ -405,7 +406,7 @@ function recordPartsOrRig(
 
 function recordMotion(dir: string, project: JsonObject, from: string, byPath: Map<string, string>): RecordDetails {
   const root = outputRoot('motion');
-  const model = currentFileBinding(project, 'rig', CURRENT_RIG_MODEL);
+  const model = currentRigFileBinding(project, MODEL_FILE);
   if (!model) refuse('RECORD_MOTION_RIG_INVALID', 'current.rig.files: record the rig with its compiled model before recording motion');
   let modelBytes: Buffer;
   try { modelBytes = readFileSync(literalFile(dir, model.path)); }
@@ -437,16 +438,16 @@ function recordMotion(dir: string, project: JsonObject, from: string, byPath: Ma
   }
   const inputs = rendered.record.inputs as JsonObject[];
   const skeleton = inputs.find(input => input.role === 'skeleton')!;
-  const expectedSkeleton = `${outputRoot('rig')}/${BUILD_DIR}/skeleton.json`;
-  const binding = currentFileBinding(project, 'rig', expectedSkeleton);
+  const skeletonRelative = `${BUILD_DIR}/skeleton.json`;
+  const binding = currentRigFileBinding(project, skeletonRelative);
   if (!binding || posix.normalize(posix.join(from, String(skeleton.path))) !== binding.path || skeleton.sha256 !== binding.sha256) {
-    refuse('RECORD_MOTION_RIG_INVALID', `${from}/${RENDER_RUN_FILE}.inputs: render the skeleton bound in current.rig at ${expectedSkeleton} and record again`);
+    refuse('RECORD_MOTION_RIG_INVALID', `${from}/${RENDER_RUN_FILE}.inputs: render the skeleton bound in current.rig at ${binding?.path ?? `${outputRoot('rig')}/${skeletonRelative}`} and record again`);
   }
   for (const input of inputs.filter(input => input.role === 'atlas' || input.role === 'model')) {
-    const expectedPath = input.role === 'model' ? model.path : `${outputRoot('rig')}/${BUILD_DIR}/skeleton.atlas`;
-    const expected = currentFileBinding(project, 'rig', expectedPath);
+    const relative = input.role === 'model' ? MODEL_FILE : `${BUILD_DIR}/skeleton.atlas`;
+    const expected = currentRigFileBinding(project, relative);
     if (!expected || posix.normalize(posix.join(from, String(input.path))) !== expected.path || input.sha256 !== expected.sha256) {
-      refuse('RECORD_MOTION_RIG_INVALID', `${from}/${RENDER_RUN_FILE}.inputs: use the ${String(input.role)} bound in current.rig at ${expectedPath} and record again`);
+      refuse('RECORD_MOTION_RIG_INVALID', `${from}/${RENDER_RUN_FILE}.inputs: use the ${String(input.role)} bound in current.rig at ${expected?.path ?? `${outputRoot('rig')}/${relative}`} and record again`);
     }
   }
   bindRunInputs(dir, from, root, RENDER_RUN_FILE, inputs, byPath, builtFrom, `re-render into a clean ${from} and record again`);
@@ -484,7 +485,28 @@ function adoptedFileSize(dir: string, file: FileHash & { bytes?: number }, versi
 
 const ADOPT_DIRECTION_BOUNCED = 'RECORD_ADOPT_DIRECTION_BOUNCED';
 
+function backfillMotionProvenance(dir: string, file: string, original: Buffer, project: JsonObject, now: number, json: boolean): CommandResult | undefined {
+  const motion = isObject(project.current) ? project.current.motion : undefined;
+  if (!isObject(motion)) return undefined;
+  const provenance = verifiedLegacyMotionProvenance(dir, project);
+  if (!provenance) return undefined;
+  const node = { ...motion, provenance };
+  const existing = Object.hasOwn(motion, 'provenance');
+  if (!existing) {
+    const candidate = validateCandidate(dir, project, 'motion', node, now);
+    if (!verifiedLegacyMotionProvenance(dir, candidate)) {
+      refuse('RECORD_SOURCE_CHANGED', 'current.motion.provenance: the numbered model or motion bytes changed while recording; restore them and retry --adopt');
+    }
+    writeRecord(file, original, candidate, 'record-motion-adopt', 'RECORD_SOURCE_CHANGED');
+  }
+  return { stdout: json ? JSON.stringify(node, null, 2) : `record motion: v${String(provenance.version)} provenance ${existing ? 'already recorded' : 'recorded in place'}`, exit: 0 };
+}
+
 function recordAdoption(dir: string, file: string, original: Buffer, project: JsonObject, kind: RecordableKind, now: number, json: boolean): CommandResult {
+  if (kind === 'motion') {
+    const backfill = backfillMotionProvenance(dir, file, original, project, now, json);
+    if (backfill) return backfill;
+  }
   const source = resolveAdoptSource(project, kind);
   if (!source.ok) {
     const remedy = source.code === 'RECORD_ADOPT_CURRENT_EXISTS' ? 'use record --from to replace the current output'
@@ -506,8 +528,16 @@ function recordAdoption(dir: string, file: string, original: Buffer, project: Js
       rebuild: { recorded: false, note: `Adoption of legacy v${source.version} preserves the bound outputs without verifying rebuild arguments.` },
     } : {}),
   };
+  if (kind === 'motion') {
+    const current = isObject(project.current) ? project.current : {};
+    const provenance = verifiedLegacyMotionProvenance(dir, { ...project, current: { ...current, motion: node } });
+    if (provenance) node.provenance = provenance;
+  }
   const candidate = validateCandidate(dir, project, kind, node, now);
   for (const binding of files) adoptedFileSize(dir, binding, source.version, 'RECORD_SOURCE_CHANGED');
+  if (node.provenance !== undefined && !verifiedLegacyMotionProvenance(dir, candidate)) {
+    refuse('RECORD_SOURCE_CHANGED', 'current.motion.provenance: the numbered model or motion bytes changed while recording; restore them and retry --adopt');
+  }
   if (project.current === undefined) {
     process.stderr.write('Adopting this output will stop numbered verdict moves from being offered for this project. To sign off on an adopted output, rebuild it and use rig-create record <kind> --from <producer out>.\n');
   }
@@ -515,6 +545,37 @@ function recordAdoption(dir: string, file: string, original: Buffer, project: Js
   const stderr = source.bouncedDirectionVerdict === undefined ? undefined
     : `WARN [${ADOPT_DIRECTION_BOUNCED}]: current.direction adopted bounced v${source.version} in place (versions[v${source.version}].verdicts[${source.bouncedDirectionVerdict}]); run rig-create next to read the open direction feedback before rebuilding`;
   return { stdout: json ? JSON.stringify(node, null, 2) : `record ${kind}: adopted v${source.version} in place (${files.length} files)`, exit: 0, ...(stderr ? { stderr } : {}) };
+}
+
+function adoptedRigReplacementWarning(dir: string, project: JsonObject, config: string, details: RecordDetails, byPath: Map<string, string>): string | undefined {
+  const rig = isObject(project.current) ? project.current.rig : undefined;
+  if (!isObject(rig) || !isObject(rig.adopted) || typeof rig.adopted.version !== 'number'
+    || currentShapeFindings('rig', rig, project).length || !wasNumberedRigAccepted(project, rig.adopted.version)) return undefined;
+  const model = currentRigFileBinding(project, MODEL_FILE);
+  const differences = rigModelAtlasRelatives(dir, model).filter(relative => {
+    const old = currentRigFileBinding(project, relative);
+    return old !== undefined && old.sha256 !== byPath.get(`${outputRoot('rig')}/${relative}`);
+  });
+  if (!differences.length) return undefined;
+  const oldInputs = asArray(rig.built_from).filter(isObject);
+  const newInputs = new Map(details.built_from.map(input => [input.path, input.sha256]));
+  const changedInputs = new Set<string>();
+  for (const old of oldInputs) {
+    if (typeof old.path === 'string' && newInputs.has(old.path) && newInputs.get(old.path) !== old.sha256) changedInputs.add(old.path);
+  }
+  // An adopted config may have moved from its retained numbered path to specs/rig/.
+  const legacy = adoptedOutputBindings(project, 'rig', rig.adopted.version);
+  const oldConfig = legacy.ok ? adoptedRigConfigBinding(legacy.source) : undefined;
+  const newConfig = details.built_from.find(input => input.path === config);
+  if (oldConfig && newConfig && oldConfig.sha256 !== newConfig.sha256
+    && oldInputs.some(input => input.path === oldConfig.path && input.sha256 === oldConfig.sha256)) {
+    changedInputs.add(oldConfig.path === newConfig.path ? oldConfig.path : `${oldConfig.path} -> ${newConfig.path}`);
+  }
+  const message = `current.rig.files: replacement of accepted v${rig.adopted.version} changes ${differences.join(', ')}`;
+  if (!changedInputs.size) {
+    refuse('RECORD_ADOPTED_RIG_OUTPUT_CHANGED', `${message} with no changed recorded input; keep the adopted rig or rebuild from the intended changed inputs`);
+  }
+  return `rig-create: WARN RECORD_ADOPTED_RIG_INPUT_CHANGED: ${message} after recorded inputs changed at ${[...changedInputs].sort().join(', ')}; rebuild any stale downstream outputs`;
 }
 
 export function recordCommand(args: string[], now: number): CommandResult {
@@ -604,6 +665,7 @@ export function recordCommand(args: string[], now: number): CommandResult {
     } else {
       details = kind === 'motion' ? recordMotion(dir, project, from, byPath) : recordPartsOrRig(dir, kind, from, config!, at, files, byPath);
     }
+    const replacementWarning = kind === 'rig' ? adoptedRigReplacementWarning(dir, project, config!, details, byPath) : undefined;
     const node: JsonObject = {
       at,
       built_by: options['--by'] ?? 'agent',
@@ -661,9 +723,10 @@ export function recordCommand(args: string[], now: number): CommandResult {
       const requireHash = (path: string, expected: string): void => {
         let actual: string | undefined;
         try {
-          actual = CURRENT_KINDS.some(kind => outputRoot(kind) === path)
-            ? currentHash(dir, path)
-            : sha256(readFileSync(literalFile(dir, path)));
+          const absolute = join(dir, path);
+          if (lstatSync(absolute).isDirectory() && realpathSync(absolute) === join(realpathSync(dir), path)) {
+            actual = currentHash(dir, path);
+          } else actual = sha256(readFileSync(literalFile(dir, path)));
         } catch { /* Refuse below. */ }
         if (actual !== expected) refuse('RECORD_SOURCE_CHANGED', `${path}: changed while record ${kind} was validating; restore the source and record again`);
       };
@@ -724,7 +787,7 @@ export function recordCommand(args: string[], now: number): CommandResult {
     });
     // Keep machine-readable stdout a single JSON value.
     const notice = migration.changed ? GITIGNORE_MIGRATION_LINE : undefined;
-    const stderr = [json ? notice : undefined, migrationWarning, commitWarning].filter(Boolean).join('\n');
+    const stderr = [json ? notice : undefined, replacementWarning, migrationWarning, commitWarning].filter(Boolean).join('\n');
     const bytes = files.reduce((total, f) => total + f.bytes, 0);
     const summary = `record ${kind}: ${root} recorded (${files.length} files, ${bytes} bytes); built from ${details.built_from.map(b => b.path).join(', ')}`;
     return { stdout: json ? JSON.stringify(node, null, 2) : [summary, notice].filter(Boolean).join('\n'),

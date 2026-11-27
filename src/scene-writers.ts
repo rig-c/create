@@ -2,6 +2,7 @@
 import { closeSync, existsSync, lstatSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, rmdirSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
 import { checkProject, isObject, type Finding } from './check.ts';
+import { stageAdoptedCompose } from './adopted-compose.ts';
 import { writeDirectionSpec } from './direction-spec-write.ts';
 import { closed, directionHash } from './direction.ts';
 import { checkPlateRegistrations } from './plate-receipt.ts';
@@ -26,10 +27,13 @@ export const SCENE_HELP = `scene write --rig <R> --background <path> [--foregrou
   Appends evidence/scene/s<N>.json and scenes[]; stage stays unchanged.
 scene write --background <path> [--foreground <path>] [--animation <name>] --citations-file <file> [<dir>]
 scene write --compose-scene <Parts scene file> [--animation <name>] [<dir>]
-  Write specs/direction/scene.json binding current.rig and current.motion by hash.`;
+  Write specs/direction/scene.json binding current.rig and current.motion by hash.
+scene stage-adopted [<dir>]
+  Copy and verify the retained adopted rig inputs under derived/direction-adopted-build.`;
 export interface SceneWriteHooks { beforeCommit?: () => void; }
 export function sceneCommand(args: string[], now: number, hooks: SceneWriteHooks = {}): CommandResult {
   try {
+    if (args[0] === 'stage-adopted') return stageAdoptedCompose(args.slice(1));
     return args.includes('--rig') ? writeScene(args, now, hooks) : writeCurrentScene(args, hooks);
   }
   catch (error) { if (error instanceof SceneError) refuse(error.code, error.message); throw error; }

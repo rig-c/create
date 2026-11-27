@@ -161,6 +161,8 @@ export interface CheckReport {
   readonly invariants: InvariantsDocument | null;
   /** Per version built from a config: whether the config file was read to list its sections (docs/CHECKS.md § Provenance). */
   readonly provenance: ProvenanceSummary[];
+  /** Verified numbered co-registration for adopted current motion, including eligible records without a stored marker. */
+  readonly current_motion_provenance?: JsonObject;
   /** Per human bounced verdict: its items counted by cause, and the versions that answer it (docs/CHECKS.md § Polish feedback). */
   readonly feedback: FeedbackSummary[];
   /** Present only on amended records, preserving the report shape of older projects. */
@@ -1042,7 +1044,8 @@ function checkProjectOnce(projectDirArg: string, candidate: JsonObject | undefin
   if (!options.recordPublication) checkPublicationGenerations(dir, project, refusals);
   if (!options.recordPublication) checkReviewPackages(ctx);
   if (!options.recordPublication) refusals.push(...rigRegistrationFindings(dir, project, warnings, collection));
-  if (!options.recordPublication) refusals.push(...currentFindings(dir, project, warnings));
+  const currentInfo: { motionProvenance?: JsonObject } = {};
+  if (!options.recordPublication) refusals.push(...currentFindings(dir, project, warnings, currentInfo));
   if (!options.recordPublication) checkAppliedReview(ctx);
   const provenance = options.recordPublication ? [] : checkProvenance(ctx, parts);
   const feedback = options.recordPublication ? [] : checkFeedback(ctx);
@@ -1120,6 +1123,7 @@ function checkProjectOnce(projectDirArg: string, candidate: JsonObject | undefin
     derived: derived === null ? null : { waypoints: derived.waypoints.map((w) => w.id), post_items: derived.post_items.map((p) => p.id) },
     invariants,
     provenance,
+    ...(currentInfo.motionProvenance ? { current_motion_provenance: currentInfo.motionProvenance } : {}),
     feedback,
     ...(amendments.length === 0 ? {} : { amendments: amendmentSummaries(project, amendments, reopens) }),
     ...(ledger.length === 0 ? {} : { ledger }),
@@ -1144,6 +1148,10 @@ export function formatReport(report: CheckReport): string {
     lines.push(`  stage ${report.stage}${report.effective_stage !== report.stage ? ` (checked as ${report.effective_stage})` : ''}`);
   }
   lines.push(...formatProvenance(report.provenance));
+  if (report.current_motion_provenance) {
+    const code = 'CURRENT_MOTION_PROVENANCE_VERIFIED';
+    lines.push(`  INFO ${code}: current.motion.provenance is verified against ${String(report.current_motion_provenance.registration)} and its bound idle frames`);
+  }
   lines.push(...formatFeedback(report.feedback));
   for (const amendment of report.amendments ?? []) {
     lines.push(`  ${amendment.path} ${String(amendment.target.stage)} ${String(amendment.target.kind)} ${String(amendment.target.id)}`);

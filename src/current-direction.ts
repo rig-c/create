@@ -1,11 +1,14 @@
+import { PAINTING_IN_RIG_FILE } from '@rig-c/parts/src/parts.ts';
 import { resolve, posix } from 'node:path';
 import { isDeepStrictEqual as equal } from 'node:util';
 import { isObject } from './check.ts';
 import { ComposeValueError, readComposeValue } from './compose-value.ts';
-import { CURRENT_RIG_MODEL, currentFileBinding, outputRoot, sha256 } from './current.ts';
+import { currentFileBinding, currentRigFileBinding, outputRoot, sha256 } from './current.ts';
 import { citedValues, COMPOSE_CAMERA_REPORT_SPEC, readComposeRun, validateComposeCameraModel, validateComposeCitations, validateComposeRunInputs } from './direction-compose.ts';
 import { COMPOSE_CHECK_PATH, COMPOSE_MODEL_PATH } from './direction-loop-seam.ts';
 import { closed, directionBytes, directionFail, directionJson, objects, validateDirectionCitations } from './direction.ts';
+import { adoptedOutputBindings } from './record-adopt.ts';
+import { RIG_CHECK_REPORT_FILE } from './rig-check-report.ts';
 import { CURRENT_SCENE_PATH, SceneError, plateRegistration, sceneBinding, sceneBytes, validateCurrentScene } from './scene.ts';
 import { validateAgentPlateRegistration } from './scene-authority.ts';
 import type { JsonObject } from './templates.ts';
@@ -20,6 +23,34 @@ type Binding = { path: string; sha256: string };
 function transitionError(error: unknown): never {
   if (error instanceof SceneError || error instanceof ComposeValueError) directionFail(error.code, error.path, error.message);
   throw error;
+}
+
+/** Compose-relative paths map to the same numbered rig and parts inventory. */
+function adoptedComposeBindings(project: JsonObject, version: number): Map<string, Binding> {
+  const rig = adoptedOutputBindings(project, 'rig', version);
+  const parts = adoptedOutputBindings(project, 'parts', version);
+  const bad = (path: string): never => directionFail('DIRECTION_COMPOSE_RUN_RIG', path,
+    'restore the uniquely bound numbered rig and parts inventory and stage its exact files before composing');
+  if (!rig.ok) return bad(rig.path);
+  if (!parts.ok) return bad(parts.path);
+  const root = `outputs/v${version}/out/`;
+  const bindings = new Map<string, Binding>();
+  for (const { path, sha256 } of [...rig.files, ...parts.files]) {
+    if (!path.startsWith(root)) continue;
+    const relative = path.slice(root.length);
+    if (bindings.has(relative)) return bad(path);
+    bindings.set(relative, { path, sha256 });
+  }
+  // Numbered registration can retain the check independently of the frozen output tree.
+  const registration = rig.source.registration;
+  if (!bindings.has(COMPOSE_CHECK_PATH) && isObject(registration) && registration.kind === 'frozen-rig/1' && isObject(registration.check_report)) {
+    const { path, sha256 } = registration.check_report;
+    const binding = { path, sha256 };
+    if (path === `evidence/v${version}/registration/${RIG_CHECK_REPORT_FILE}` && sceneBinding(binding)) {
+      bindings.set(COMPOSE_CHECK_PATH, { path, sha256: String(sha256) });
+    }
+  }
+  return bindings;
 }
 
 /** Validate the spec and producer input against current bindings and the existing owner answers. */
@@ -94,7 +125,7 @@ export function prepareCurrentDirection(dir: string, project: JsonObject, intent
   try {
     if (!closed(intent, ['take', 'citations'])) directionFail('DIRECTION_CURRENT_SPEC_INVALID', 'direction --file', 'supply a JSON object containing the take and citations');
     const raw = sceneBytes(dir, CURRENT_SCENE_PATH, 'DIRECTION_CURRENT_SPEC_INVALID', snapshots);
-    const binding = currentFileBinding(project, 'rig', CURRENT_RIG_MODEL);
+    const binding = currentRigFileBinding(project, COMPOSE_MODEL_PATH);
     if (!binding) directionFail('SCENE_CURRENT_RIG_REQUIRED', 'current.rig.files', 'record the rig before direction write');
     const doc: JsonObject = { schema: CURRENT_DIRECTION_SPEC, rig: { model: binding }, scene: { path: CURRENT_SCENE_PATH, sha256: sha256(raw) },
       take: intent.take!, citations: intent.citations! };
@@ -109,6 +140,7 @@ export function readDirectionOutput(dir: string, project: JsonObject, from: stri
     const bytes = sceneBytes(dir, spec, 'DIRECTION_CURRENT_SPEC_INVALID', snapshots);
     const doc = directionJson(bytes, spec);
     const input = currentDirectionSource(dir, project, doc, snapshots);
+    const rig = doc.rig as { model: Binding };
     const output = (rel: string, code: string): { bytes: Buffer; binding: Binding } => {
       const path = `${outputRoot('direction')}/${rel}`;
       const raw = sceneBytes(dir, `${from}/${rel}`, code, snapshots);
@@ -128,25 +160,51 @@ export function readDirectionOutput(dir: string, project: JsonObject, from: stri
       || !REQUIRED_CHARACTER_FILES.every(path => entry.files.some(file => file.path === path))) {
       return directionFail('DIRECTION_COMPOSE_RUN_RIG', `${from}/${COMPOSE_RUN_PATH}.characters`, 'compose from the current rig build with its check, parts, rig and motion files');
     }
+    const currentRig = isObject(project.current) && isObject(project.current.rig) ? project.current.rig : undefined;
+    const adopted = isObject(currentRig?.adopted) && typeof currentRig.adopted.version === 'number'
+      ? adoptedComposeBindings(project, currentRig.adopted.version) : undefined;
     const rigFiles: Binding[] = [];
-    for (const file of entry.files) {
+    const consumedFile = (file: Binding) => {
       const readPath = `${input.build}/${file.path}`;
-      if (sha256(sceneBytes(dir, readPath, 'DIRECTION_COMPOSE_RUN_RIG', snapshots)) !== file.sha256) {
+      const raw = sceneBytes(dir, readPath, 'DIRECTION_COMPOSE_RUN_RIG', snapshots);
+      if (sha256(raw) !== file.sha256) {
         directionFail('DIRECTION_COMPOSE_RUN_RIG', readPath, 'restore the exact consumed bytes or recompose from the current rig');
       }
       const root = outputRoot('rig');
-      const canonical = currentFileBinding(project, 'rig', `${root}/${file.path}`)
-        ?? (file.path.startsWith('rig/') ? currentFileBinding(project, 'rig', `${root}/${file.path.slice('rig/'.length)}`) : undefined);
       // A standalone rig does not own parts.json. Prefer the current parts manifest when recorded,
       // otherwise retain the hash of the manifest the compose producer actually read.
-      const binding = canonical ?? (file.path === 'parts.json'
-        ? currentFileBinding(project, 'parts', 'outputs/parts/rig/parts.json') ?? { path: readPath, sha256: file.sha256 }
-        : undefined);
+      const binding = adopted ? adopted.get(file.path) : currentFileBinding(project, 'rig', `${root}/${file.path}`)
+        ?? (file.path.startsWith('rig/') ? currentFileBinding(project, 'rig', `${root}/${file.path.slice('rig/'.length)}`) : undefined)
+        ?? (file.path === 'parts.json'
+          ? currentFileBinding(project, 'parts', 'outputs/parts/rig/parts.json') ?? { path: readPath, sha256: file.sha256 }
+          : undefined);
       if (!binding || binding.sha256 !== file.sha256
         || sha256(sceneBytes(dir, binding.path, 'DIRECTION_COMPOSE_RUN_RIG', snapshots)) !== file.sha256) {
         directionFail('DIRECTION_COMPOSE_RUN_RIG', readPath, 'the consumed file differs from the recorded current build; stage the exact current producer files and recompose');
       }
-      if (file.path !== COMPOSE_CHECK_PATH) rigFiles.push(binding!);
+      if (file.path !== COMPOSE_CHECK_PATH) rigFiles.push(binding);
+      return raw;
+    };
+    for (const file of entry.files) {
+      const raw = consumedFile(file);
+      if (!adopted) continue;
+      if (file.path === COMPOSE_CHECK_PATH) {
+        const report = directionJson(raw, `${input.build}/${file.path}`);
+        if (report.spec !== 'rig-parts-check/1' || !isObject(report.build) || report.build.model_sha256 !== rig.model.sha256) {
+          directionFail('DIRECTION_COMPOSE_RUN_RIG', `${input.build}/${file.path}`, 'restore the numbered check report that binds the adopted compiled model before composing');
+        }
+      }
+      if (file.path === 'parts.json') {
+        // Parts reads the declared raster through readParts without a separate run row.
+        const painting = directionJson(raw, `${input.build}/${file.path}`).painting_in_rig;
+        if (painting !== undefined) {
+          const binding = isObject(painting) ? { path: painting.path, sha256: painting.sha256 } : undefined;
+          if (!sceneBinding(binding) || binding.path !== PAINTING_IN_RIG_FILE) {
+            directionFail('DIRECTION_COMPOSE_RUN_RIG', `${input.build}/parts.json.painting_in_rig`, 'restore the numbered parts manifest and its bound painting raster before composing');
+          }
+          consumedFile({ path: PAINTING_IN_RIG_FILE, sha256: String(binding.sha256) });
+        }
+      }
     }
     const sceneReportPath = 'scene.json';
     const sceneReport = directionJson(output(sceneReportPath, 'DIRECTION_COMPOSE_FILE').bytes, `${from}/${sceneReportPath}`);
@@ -181,7 +239,6 @@ export function readDirectionOutput(dir: string, project: JsonObject, from: stri
     if (!equal(composed.stage, { x: -width / 2, y: 0, width, height })) {
       directionFail('DIRECTION_COMPOSE_PLACEMENT', model.binding.path, 'composed model stage must match the cited canvas; compose again');
     }
-    const rig = doc.rig as { model: Binding };
     const animation = (input.authoredScene.rig as { animation: { frames: Binding; motion: Binding } }).animation;
     const bindings = [{ path: spec, sha256: sha256(bytes) }, doc.scene as Binding, input.source, rig.model, animation.frames, animation.motion,
       ...rigFiles, ...input.registered.map(({ path, sha256 }) => ({ path, sha256 }))];

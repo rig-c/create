@@ -13,12 +13,13 @@ import { existsSync, lstatSync, readdirSync, readFileSync, realpathSync, withExt
 import { asArray, isObject, type Finding } from './check.ts';
 import { LOOP_SEAM_REPORT_SINCE, motionLoopSeamFindings, readMotionLoopSeamPolicy } from './motion-loop-seam.ts';
 import { directionLoopSeamFindings } from './direction-loop-seam.ts';
-import { adoptedOutputBindings } from './record-adopt.ts';
+import { adoptedOutputBindings, legacyMotionRegistration } from './record-adopt.ts';
 import { runArgvProblem } from './run-record.ts';
 import type { Json, JsonObject } from './templates.ts';
 
 export const CURRENT_KINDS = ['parts', 'rig', 'motion', 'direction'] as const;
 export type CurrentKind = (typeof CURRENT_KINDS)[number];
+type FileBinding = { path: string; sha256: string };
 
 export function isCurrentProject(project: JsonObject): boolean {
   return project.current !== undefined;
@@ -93,6 +94,26 @@ function upstreamKind(path: string): CurrentKind | undefined {
 const malformed = (path: string, why: string): Finding => ({ code: 'CURRENT_MALFORMED', path,
   message: `${path}: ${why}; restore the record written by rig-create record, or record the output again with rig-create record <kind>` });
 
+const PROVENANCE_PATH = 'current.motion.provenance';
+const invalidMotionProvenance = (why: string): Finding => ({ code: 'CURRENT_MOTION_PROVENANCE_INVALID', path: PROVENANCE_PATH,
+  message: `${PROVENANCE_PATH}: ${why}; restore the accepted numbered registration and its bound render, or render and record motion again with --from` });
+
+function adoptedVersion(node: JsonObject): number | undefined {
+  const marker = node.adopted;
+  if (isObject(marker) && Object.keys(marker).length === 1 && typeof marker.version === 'number'
+    && Number.isSafeInteger(marker.version) && marker.version > 0) return marker.version;
+}
+
+const legacyMotionRoot = (version: number): string => `outputs/v${version}/idle`;
+const isLegacyMotionRoot = (path: string): boolean => /^outputs\/v[1-9]\d*\/idle$/.test(path);
+
+function deriveMotionProvenance(project: JsonObject, version: number, files: readonly FileBinding[]): JsonObject | undefined {
+  const legacy = legacyMotionRegistration(project, version);
+  if (!legacy) return undefined;
+  return { kind: 'legacy-co-registration', version, registration: `versions[v${version}].registration`,
+    model_sha256: legacy.model.sha256, frames_sha256: legacy.frames.sha256, files_sha256: motionSetHash(files, legacyMotionRoot(version)) };
+}
+
 function bindingProblem(value: Json | undefined): string | undefined {
   if (!isObject(value) || !literal(value.path) || !hex64(value.sha256)) return 'expected { path, sha256 } with a literal project-relative path and a 64-hex sha256';
 }
@@ -107,8 +128,7 @@ export function currentShapeFindings(kind: CurrentKind, node: Json | undefined, 
   if (!isObject(node.built_with) || Object.values(node.built_with).some(v => typeof v !== 'string' || !v)) findings.push(malformed(`${path}.built_with`, 'expected { package: version }'));
   const root = outputRoot(kind);
   const marker = node.adopted;
-  const version = isObject(marker) && Object.keys(marker).length === 1 && typeof marker.version === 'number'
-    && Number.isSafeInteger(marker.version) && marker.version > 0 ? marker.version : undefined;
+  const version = adoptedVersion(node);
   if (marker !== undefined && version === undefined) findings.push(malformed(`${path}.adopted`, 'expected { version } with a positive legacy version number'));
   const adopted = version === undefined ? undefined : adoptedOutputBindings(project ?? {}, kind, version);
   if (adopted && !adopted.ok) findings.push(malformed(`${path}.adopted`, `versions[v${version}].outputs: ${adopted.why}`));
@@ -137,6 +157,12 @@ export function currentShapeFindings(kind: CurrentKind, node: Json | undefined, 
   }
   if (sourceFiles?.size) findings.push(malformed(`${path}.files`, `missing ${kind} bindings from versions[v${version}].outputs: ${[...sourceFiles.keys()].join(', ')}`));
   if (node.files_sha256 !== outputSetHash(pairs)) findings.push(malformed(`${path}.files_sha256`, 'differs from the output-set hash of files[] (every file that is not a run record)'));
+  if (kind === 'motion' && Object.hasOwn(node, 'provenance')) {
+    const expected = version !== undefined && project !== undefined ? deriveMotionProvenance(project, version, pairs) : undefined;
+    if (expected === undefined || !isDeepStrictEqual(node.provenance, expected)) {
+      findings.push(invalidMotionProvenance('expected the matching accepted numbered co-registration and its model, frames and file-set hashes'));
+    }
+  }
   const rebuild = node.rebuild;
   for (const key of ['run', 'report'] as const) {
     const binding = node[key];
@@ -222,12 +248,103 @@ export function currentFileBinding(project: JsonObject, kind: CurrentKind, path:
 
 export const CURRENT_RIG_MODEL = 'outputs/rig/check/build/skeleton.model.json';
 export const CURRENT_MOTION_FRAMES = 'outputs/motion/frames.json';
+const RIG_MODEL_RELATIVE = 'check/build/skeleton.model.json';
+
+/** Historical rig product names compared across output roots, including any declared atlas pages. */
+export function rigModelAtlasRelatives(dir: string, model: FileBinding | undefined): string[] {
+  const paths = new Set([RIG_MODEL_RELATIVE, 'check/build/skeleton.atlas']);
+  const file = model && regularProjectFile(dir, model.path);
+  if (file) {
+    try {
+      const bytes = readFileSync(file);
+      const compiled = sha256(bytes) === model.sha256 ? JSON.parse(bytes.toString('utf8')) as Json : undefined;
+      if (isObject(compiled)) {
+        for (const page of asArray(compiled.pages).filter(isObject)) {
+          if (literal(page.name)) paths.add(`check/build/${page.name}`);
+        }
+      }
+    } catch { /* The producer's recorded model and atlas hashes still apply. */ }
+  }
+  return [...paths];
+}
+
+/** The rig's literal file binding, using a path relative to the rig output root. */
+export function currentRigFileBinding(project: JsonObject, relative: string): FileBinding | undefined {
+  const rig = isObject(project.current) ? project.current.rig : undefined;
+  if (!isObject(rig) || !literal(relative)) return undefined;
+  const version = adoptedVersion(rig);
+  const root = version === undefined ? outputRoot('rig') : `outputs/v${version}/out`;
+  return currentFileBinding(project, 'rig', `${root}/${relative}`);
+}
+
+/** Record-only view. File verification belongs to verifiedLegacyMotionProvenance. */
+export function legacyMotionProvenance(project: JsonObject): JsonObject | undefined {
+  const motion = isObject(project.current) ? project.current.motion : undefined;
+  if (!isObject(motion) || currentShapeFindings('motion', motion, project).length) return undefined;
+  const version = adoptedVersion(motion);
+  if (version !== undefined) return deriveMotionProvenance(project, version, asArray(motion.files) as FileBinding[]);
+}
+
+function motionSetHash(files: readonly FileBinding[], root: string): string {
+  return outputSetHash(files.map(file => ({ path: `${outputRoot('motion')}${file.path.slice(root.length)}`, sha256: file.sha256 })));
+}
+
+function verifiedMotionInventory(dir: string, project: JsonObject): { binding: FileBinding; files: ReturnType<typeof treeFiles> } | undefined {
+  const motion = isObject(project.current) ? project.current.motion : undefined;
+  if (!isObject(motion) || currentShapeFindings('motion', motion, project).length) return undefined;
+  const version = adoptedVersion(motion);
+  const root = version === undefined ? outputRoot('motion') : legacyMotionRoot(version);
+  try {
+    if (realpathSync(join(dir, root)) !== join(realpathSync(dir), root) || !lstatSync(join(dir, root)).isDirectory()) return undefined;
+    const files = treeFiles(dir, root);
+    const expected = asArray(motion.files);
+    if (files.length !== expected.length || !files.every((file, index) => {
+      const entry = expected[index] as JsonObject;
+      return entry.path === file.path && entry.sha256 === file.sha256 && entry.bytes === file.bytes;
+    })) return undefined;
+    return { binding: { path: root, sha256: motionSetHash(files, root) }, files };
+  } catch { return undefined; }
+}
+
+/** Verify every bound byte, then attest the motion set with canonical-relative names. */
+export function currentMotionSetBinding(dir: string, project: JsonObject): FileBinding | undefined {
+  return verifiedMotionInventory(dir, project)?.binding;
+}
+
+/** The co-registration plus its frozen model and rigc frames sidecar, independently checked on disk. */
+export function verifiedLegacyMotionProvenance(dir: string, project: JsonObject): JsonObject | undefined {
+  const provenance = legacyMotionProvenance(project);
+  if (!provenance) return undefined;
+  const version = Number(provenance.version);
+  const legacy = legacyMotionRegistration(project, version)!;
+  const model = regularProjectFile(dir, legacy.model.path);
+  const frames = regularProjectFile(dir, legacy.frames.path);
+  const inventory = model && frames ? verifiedMotionInventory(dir, project) : undefined;
+  if (!model || !frames || !inventory) return undefined;
+  try {
+    if (sha256(readFileSync(model)) !== legacy.model.sha256) return undefined;
+    const bytes = readFileSync(frames);
+    if (sha256(bytes) !== legacy.frames.sha256) return undefined;
+    const sidecar = JSON.parse(bytes.toString('utf8')) as Json;
+    if (!isObject(sidecar) || sidecar.spec !== 'rigc-frames/1' || !Array.isArray(sidecar.sets)) return undefined;
+    if (!sidecar.sets.some(set => isObject(set) && set.animation === 'idle') || !sidecar.sets.every(set => isObject(set)
+      && typeof set.animation === 'string' && set.animation.length > 0 && typeof set.fps === 'number' && Number.isFinite(set.fps) && set.fps > 0
+      && literal(set.dir) && typeof set.written === 'number' && Number.isSafeInteger(set.written)
+      && set.written > 0 && inventory.files.filter(file => posix.dirname(file.path) === `${inventory.binding.path}/${String(set.dir)}`
+        && /^f\d+\.png$/.test(posix.basename(file.path))).length === set.written)) return undefined;
+    return provenance;
+  } catch { return undefined; }
+}
 
 /** The hash a `built_from` path has now: a file's sha256, or an output root's output-set hash; undefined when absent. */
 export function currentHash(dir: string, path: string): string | undefined {
   try {
     if (!existsSync(join(dir, path))) return undefined;
     if (KIND_OF_ROOT.has(path) && lstatSync(join(dir, path)).isDirectory()) return outputSetHash(treeFiles(dir, path));
+    if (isLegacyMotionRoot(path)) {
+      if (realpathSync(join(dir, path)) !== join(realpathSync(dir), path) || !lstatSync(join(dir, path)).isDirectory()) return undefined;
+      return motionSetHash(treeFiles(dir, path), path);
+    }
     if (!lstatSync(join(dir, path)).isFile()) return undefined;
     return sha256(readFileSync(join(dir, path)));
   } catch { return undefined; }
@@ -320,11 +437,31 @@ function requiredAdoptedRigVersion(project: JsonObject, kind: CurrentKind, node:
   if (typeof rigVersion === 'number' && Number.isInteger(rigVersion)) return rigVersion;
 }
 
+/** Paths through adopted outputs keep their literal location, even if a later writer replaces the current node. */
+function numberedUpstream(path: string): { kind: 'rig' | 'motion'; relative: string } | undefined {
+  const motion = /^outputs\/v[1-9]\d*\/idle(?:\/(.+))?$/.exec(path);
+  if (motion) return { kind: 'motion', relative: motion[1] ?? '' };
+  const rig = /^outputs\/v[1-9]\d*\/out\/((?:rig|check)\/.+)$/.exec(path);
+  if (rig) return { kind: 'rig', relative: rig[1]! };
+}
+
+function numberedInputStaleWhy(path: string, binding: JsonObject, nodes: Map<CurrentKind, JsonObject>): string | undefined {
+  const upstream = numberedUpstream(path);
+  const node = upstream && nodes.get(upstream.kind);
+  if (!upstream || !node) return undefined;
+  const version = adoptedVersion(node);
+  const root = version === undefined ? outputRoot(upstream.kind)
+    : upstream.kind === 'motion' ? legacyMotionRoot(version) : `outputs/v${version}/out`;
+  const files = asArray(node.files) as FileBinding[];
+  const hash = upstream.relative ? files.find(file => file.path === `${root}/${upstream.relative}`)?.sha256 : motionSetHash(files, root);
+  if (hash !== binding.sha256) return `${path} differs from the active current.${upstream.kind} binding`;
+}
+
 /**
  * Check `current`: refusals for a malformed entry, WARN `OUTPUT_STALE` for a stale one (never a refusal, §2.2).
  * A record without `current` (an old-process project) gets nothing from here.
  */
-export function currentFindings(dir: string, project: JsonObject, warnings: Finding[]): Finding[] {
+export function currentFindings(dir: string, project: JsonObject, warnings: Finding[], info?: { motionProvenance?: JsonObject }): Finding[] {
   if (project.current === undefined) return [];
   if (!isObject(project.current)) return [malformed('current', 'expected an object of current outputs by kind')];
   const { policy, finding: policyProblem } = readMotionLoopSeamPolicy(dir);
@@ -337,6 +474,14 @@ export function currentFindings(dir: string, project: JsonObject, warnings: Find
     if (!shape.length) nodes.set(key as CurrentKind, node as JsonObject);
   }
   const motion = nodes.get('motion');
+  if (motion && (info || Object.hasOwn(motion, 'provenance'))) {
+    const provenance = verifiedLegacyMotionProvenance(dir, project);
+    if (provenance) {
+      if (info) info.motionProvenance = provenance;
+    } else if (Object.hasOwn(motion, 'provenance')) {
+      refusals.push(invalidMotionProvenance('the retained model, frames sidecar or complete adopted motion inventory could not be verified'));
+    }
+  }
   if (motion && motion.adopted === undefined) {
     const inventory = new Map(asArray(motion.files).filter(isObject).map(file => [String(file.path), String(file.sha256)]));
     const root = outputRoot('motion');
@@ -376,9 +521,10 @@ export function currentFindings(dir: string, project: JsonObject, warnings: Find
     const manifest = configPath === undefined ? undefined : partsAssemblyManifest(dir, node);
     for (const entry of asArray(node.built_from)) {
       const binding = entry as JsonObject;
-      const why = configPath !== undefined && String(binding.path) === configPath
+      const path = String(binding.path);
+      const why = configPath !== undefined && path === configPath
         ? partsConfigStaleWhy(dir, binding, manifest)
-        : hashStaleWhy(dir, binding);
+        : hashStaleWhy(dir, binding) ?? numberedInputStaleWhy(path, binding, nodes);
       if (why !== undefined) {
         changed.set(kind, why);
         break;
@@ -391,7 +537,10 @@ export function currentFindings(dir: string, project: JsonObject, warnings: Find
     grew = false;
     for (const [kind, node] of nodes) {
       if (stale.has(kind)) continue;
-      const upstream = asArray(node.built_from).map(entry => upstreamKind(String((entry as JsonObject).path))).find(up => up !== undefined && stale.has(up))
+      const upstream = asArray(node.built_from).map(entry => {
+        const path = String((entry as JsonObject).path);
+        return upstreamKind(path) ?? numberedUpstream(path)?.kind;
+      }).find(up => up !== undefined && stale.has(up))
         ?? (adoptedRigDependents.has(kind) && stale.has('rig') ? 'rig' : undefined);
       if (upstream) { stale.set(kind, `upstream ${upstream} is stale`); grew = true; }
     }

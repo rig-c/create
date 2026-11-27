@@ -369,7 +369,7 @@ export function checkFeedback(ctx: Ctx): FeedbackSummary[] {
       const unresolved = !withdrawn && by.length === 0;
       const later = unresolved ? versions.filter((x) => x.n > v.n).map((x) => `v${x.n}`) : [];
       const openDirection = unresolved && later.length === 0 && v.record.kind === 'post' && d.review === 'direction-review';
-      const answeredByCurrent = openDirection && currentRefs.has(key)
+      const answeredByCurrent = v.record.kind === 'post' && d.review === 'direction-review' && currentRefs.has(key)
         && versions.filter(version => version.n === v.n).length === 1
         && Date.parse(asString(d.at) ?? '') <= directionAt;
       if (answeredByCurrent) currentRefs.delete(key);
@@ -407,7 +407,7 @@ export function checkFeedback(ctx: Ctx): FeedbackSummary[] {
     });
   }
   for (const [key, path] of currentRefs) {
-    ctx.refusals.push(directionFeedbackRefFinding(path, `${key} does not identify an open human direction-review bounce at the time of the new output`));
+    ctx.refusals.push(directionFeedbackRefFinding(path, `${key} does not identify a retained human direction-review bounce at or before the current output`));
   }
   return summaries;
 }

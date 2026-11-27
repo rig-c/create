@@ -333,10 +333,20 @@ test('a current direction explicitly answers both numbered bounces and carries t
   const original = raw(f.dir, 'project.json');
   const recordInPlace = (...flags: string[]) => recordCommand(['direction', f.dir, '--from', 'outputs/direction',
     '--direction', CURRENT_DIRECTION_PATH, '--json', ...flags], testClock.now());
-  expect(() => recordInPlace('--answers-feedback', '2:0')).toThrow(expect.objectContaining({ code: 'FEEDBACK_REF_DUPLICATE' }));
+  expect(() => recordInPlace('--answers-feedback', '2:0')).toThrow(expect.objectContaining({ code: 'DIRECTION_FEEDBACK_REF_INVALID' }));
   expect(raw(f.dir, 'project.json')).toEqual(original);
   expect(JSON.parse(recordInPlace().stdout).answers_feedback).toEqual(answers);
   expect(check(f.dir).warnings.map(finding => finding.code)).not.toContain('FEEDBACK_OPEN');
+
+  const laterAcceptance = f.load();
+  const post = (laterAcceptance.versions as JsonObject[]).find(version => version.n === 2)!;
+  post.verdicts = [...asArray(post.verdicts), {
+    review: 'direction-review', verdict: 'accepted', by: 'user', verbatim: 'The old take is accepted.',
+    source: 'synthetic chat', at: new Date(testClock.now() + 1000).toISOString(), on_items: [],
+  }];
+  const afterAcceptance = checkProject(f.dir, laterAcceptance, { now: testClock.now() + 1000 });
+  expect(afterAcceptance.refusals).toEqual([]);
+  expect(afterAcceptance.feedback.every(row => row.withdrawn && row.answered_by_current_direction)).toBe(true);
 });
 
 test('a current direction with no answer leaves numbered bounces open', () => {

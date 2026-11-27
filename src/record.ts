@@ -580,8 +580,6 @@ export function recordCommand(args: string[], now: number): CommandResult {
       const finding = directionFeedbackRefFinding('current.direction.answers_feedback', 'restore the existing answer array before adding an answer');
       refuse(finding.code, finding.message);
     }
-    const answers = feedbackPairs.length === 0 ? priorAnswers
-      : [...(Array.isArray(priorAnswers) ? priorAnswers : []), ...feedbackPairs.map(parseFeedbackPair)];
 
     // The producer's tree, read in place: every regular file, recorded at its path after the rename.
     let fromIsDir = false;
@@ -616,7 +614,7 @@ export function recordCommand(args: string[], now: number): CommandResult {
       ...(details.run ? { run: details.run } : {}),
       ...(details.report ? { report: details.report } : {}),
       ...(details.rebuild ? { rebuild: details.rebuild } : {}),
-      ...(answers === undefined ? {} : { answers_feedback: answers }),
+      ...(priorAnswers === undefined ? {} : { answers_feedback: priorAnswers }),
     };
     const ledgerReport = options['--ledger-report'];
     const verifyLedger = kind === 'parts' ? recordCurrentPartsLedger(dir, project, node, ledgerReport, now) : undefined;
@@ -629,6 +627,20 @@ export function recordCommand(args: string[], now: number): CommandResult {
     const shape = currentShapeFindings(kind, node, candidate)[0];
     if (shape) refuse(shape.code, shape.message);
     const before = checkProject(dir, undefined, { now });
+    if (feedbackPairs.length > 0) {
+      const refs = Array.isArray(priorAnswers) ? [...priorAnswers] : [];
+      const openPaths = new Set(before.warnings.filter(finding => finding.code === 'FEEDBACK_OPEN').map(finding => finding.path));
+      for (const pair of feedbackPairs) {
+        const ref = parseFeedbackPair(pair);
+        const verdict = ref && before.feedback.find(row => row.version === ref.version && row.index === ref.verdict);
+        if (!verdict || verdict.review !== 'direction-review' || !openPaths.has(verdict.verdict)) {
+          const finding = directionFeedbackRefFinding(`current.direction.answers_feedback[${refs.length}]`, `${JSON.stringify(pair)} does not identify an open direction-review bounce`);
+          refuse(finding.code, finding.message);
+        }
+        refs.push(ref);
+      }
+      node.answers_feedback = refs;
+    }
     const baseline = baselineOf(before);
     // Replacing a signed current output stales only its active signature; check keeps reporting it.
     const targetPath = kind === 'motion' ? undefined : activeCurrentSignoffTargetPath(project, kind);

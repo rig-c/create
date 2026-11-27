@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 import { createHash, randomUUID } from 'node:crypto';
-import { appendFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { appendFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
-import { dirname, join, relative } from 'node:path';
+import { dirname, join } from 'node:path';
 import { JOB_COMMENTS_ACT_SCHEMA, startJobHost, type ActV3, type JobOwnerHost } from '@rig-c/review/job-host';
 import { main } from '../src/cli.ts';
 import { checkProject, PLAN_STEP_ANSWER_SINCE } from '../src/check.ts';
@@ -11,7 +11,7 @@ import { outputSetHash } from '../src/current.ts';
 import { openCreateJob } from '../src/job-host.ts';
 import { prepareDraftManifest, readPublished, readRecordPublished } from '../src/job-publication.ts';
 import { stageIndex } from '../src/stages.ts';
-import { acknowledgePublication, enqueuePublication, jobHash, jobHostStateRoot, readWriterBinding, reconcilePublication } from '../src/job-outbox.ts';
+import { acknowledgePublication, enqueuePublication, jobHostStateRoot, readWriterBinding, reconcilePublication } from '../src/job-outbox.ts';
 import { jobRuntimeExecArgv } from '../src/job-writer.ts';
 import { baselineOf, newFindings } from '../src/refusal-baseline.ts';
 import { agentCall, partsStructureSnapshot, pendingJobActs } from '../src/job-acts.ts';
@@ -41,7 +41,7 @@ const CHAIN_NOW = EXAMPLE_NOW;
 
 afterEach(() => testClock.reset());
 
-test('#467 next keeps direction signoff pending until a live verdict is recorded', () => {
+test('#467 next keeps numbered direction review read-only with or without a live verdict', () => {
   const dir = join(tempDir(), 'direction-pages');
   cpSync(CHAIN_DIR, dir, { recursive: true });
   const file = join(dir, 'project.json');
@@ -55,8 +55,7 @@ test('#467 next keeps direction signoff pending until a live verdict is recorded
   writeFileSync(file, `${JSON.stringify(project, null, 2)}\n`);
   const before = nextProject(dir, CHAIN_NOW);
   expect(before.refusals).toEqual([]);
-  expectRetiredVerdict(before, 'versions[n=2].verdicts[review=direction-review]');
-  expect(before.awaits).toContain('signoffs[stage=direction-review]');
+  expectNumberedPostReadOnly(before);
   expect(before.moves.some(move => move.awaits === 'signoffs[stage=direction-review]')).toBe(false);
 
   post.verdicts = accepted!;
@@ -65,7 +64,8 @@ test('#467 next keeps direction signoff pending until a live verdict is recorded
   expect(after.refusals).toEqual([]);
   expect(after.moves.some(move => move.review_act?.kind === 'review-verdict' && move.review_act.stage === 'direction-review')).toBe(false);
   expect(after.moves.some(move => move.command?.includes('--plan'))).toBe(false);
-  expectRetiredVerdict(after, 'signoffs[stage=direction-review]');
+  expectNumberedPostReadOnly(after);
+  expect(after.moves.some(move => move.awaits === 'signoffs[stage=direction-review]')).toBe(false);
 });
 
 interface CheckpointSpec {
@@ -99,14 +99,6 @@ function runMainCapture(argv: string[], now: number): { code: number; stdout: st
     return true;
   }) as typeof process.stderr.write;
   try {
-    if (argv[0] === 'scene' && argv[1] === 'write' && argv.some(a => a === '--rig' || a.startsWith('--rig='))) {
-      const res = seedRetainedScene(argv.slice(1), now);
-      return { code: res.exit, stdout: `${res.stdout}\n`, stderr: '' };
-    }
-    if (argv[0] === 'direction' && argv[1] === 'write' && argv.some(a => a === '--rig' || a.startsWith('--rig='))) {
-      const res = seedRetainedDirectionPost(argv.slice(1), now);
-      return { code: res.exit, stdout: `${res.stdout}\n`, stderr: '' };
-    }
     const code = main(argv, now);
     return { code, stdout, stderr };
   } finally {
@@ -146,6 +138,15 @@ function expectRetiredVerdict(report: NextReport, awaits: string): void {
   expect(moves[0]?.act).toContain(`Create ${LAST_NUMBERED_CREATE_RELEASE}`);
 }
 
+function expectNumberedPostReadOnly(report: NextReport): void {
+  expect(report.moves).toContainEqual(expect.objectContaining({
+    role: 'agent', field: 'versions', awaits: 'versions', command: null,
+    act: expect.stringContaining('NUMBERED_ACT_RETIRED: Numbered scenes and posts are read-only.'),
+  }));
+  expect(report.moves.some(move => move.field.startsWith('current.') || move.review_act?.stage === 'direction-review'
+    || /^rig-create (?:direction (?:--adopt|write)|scene write|advance direction-review|signoff direction-review)\b/.test(move.command ?? ''))).toBe(false);
+}
+
 function moveTuples(moves: NextMove[]) {
   return moves.map(move => [move.role, move.command === null ? null : printedArgs(move.command).slice(0, 3).join(' '),
     move.review_act?.kind ?? null]);
@@ -162,29 +163,6 @@ function expectOwnerChatSignoff(moves: NextMove[], stage: string, dir: string, s
 
 function preparePrintedOptions(dir: string, command: string, now: number): string[] {
   const argv = printedArgs(command).slice(1);
-  if (argv[0] === 'scene') {
-    const project = JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')) as JsonObject;
-    const item = arr(obj(obj(project.interview).post).items).map(obj).find(item => item.id === 'post_composition')!;
-    const guide = obj(item.guide);
-    const background = String(obj(obj(obj(guide.value).scene).background).path);
-    if (!existsSync(join(dir, background))) {
-      cpSync(join(CHAIN_DIR, 'inputs/background.png'), join(dir, background));
-      expect(runMainCapture(['input', 'add', background, dir, '--origin', 'synthetic prepared scene plate'], now)).toMatchObject({ code: 0, stderr: '' });
-    }
-    writeFileSync(join(dir, 'evidence/printed-scene-citations.json'), JSON.stringify({ background: {
-      guide: 'post_composition', asks: ['post_composition'], quote: guide.verbatim,
-    } }));
-    return argv.map(arg => arg === '<background.png>' ? background
-      : arg === '<scene-citations.json>' ? 'evidence/printed-scene-citations.json' : arg);
-  }
-  if (argv[0] === 'direction' && argv[1] === 'write') {
-    const project = JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')) as JsonObject;
-    const doc = JSON.parse(readFileSync(join(CHAIN_DIR, 'evidence/direction/v2.json'), 'utf8')) as JsonObject;
-    const scene = obj(arr(project.scenes).at(-1));
-    doc.scene = { n: scene.n!, path: scene.path!, sha256: scene.sha256! };
-    writeFileSync(join(dir, 'evidence/printed-direction.json'), JSON.stringify(doc));
-    return argv.map(arg => arg === '<direction.json>' ? 'evidence/printed-direction.json' : arg);
-  }
   if (argv[0] !== 'interview-options') return argv;
   const project = JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')) as JsonObject;
   const question = argv[1]!;
@@ -314,14 +292,9 @@ describe('Frozen Bar 1 — The chain is the answer key (example-chain checkpoint
       } else if (spec.name === '4-direction-post') {
         expect(project.current).toBeUndefined();
         expect(allMoves.some(move => isRecordAdoption(move.command))).toBe(false);
-        // The legacy authoring path stays available while the project has no current output.
-        const agentMove = report.moves.find(m => m.command?.startsWith('rig-create scene write '));
-        expect(agentMove?.command).toBe(`rig-create scene write ${cpDir} --rig 1 --background '<background.png>' --citations-file '<scene-citations.json>'`);
-        expect(report.moves.some(move => move.command?.includes('advance direction-review'))).toBe(false);
+        expect(report.refusals).toEqual([]);
+        expectNumberedPostReadOnly({ ...report, moves: allMoves });
         expect(project.scenes).toBeUndefined();
-        expectRetiredVerdict({ ...report, moves: allMoves }, 'versions[n=2].verdicts[review=direction-review]');
-        expect(report.awaits).toContain('signoffs[stage=direction-review]');
-        expect(report.moves.some(move => move.awaits === 'signoffs[stage=direction-review]')).toBe(false);
       }
     });
   }
@@ -366,6 +339,10 @@ describe('Frozen Bar 2 — No suggested agent move refuses on a scratch copy', (
         if (move.command?.startsWith('rig-create job ') || move.command?.includes('--from-review')) continue;
         // Adoption is offered as an explicit migration and verified by its own read-only next tests.
         if (isRecordAdoption(move.command)) continue;
+        if (move.act.startsWith('NUMBERED_ACT_RETIRED:')) {
+          expect(move.command).toBeNull();
+          continue;
+        }
         expect(typeof move.command).toBe('string');
         expect(move.command!.startsWith('rig-create ')).toBe(true);
         const scratch = join(tempDir(), 'scratch');
@@ -495,6 +472,7 @@ describe('Frozen Bar 5 — Plants (lapsed approval, changed bound input DRAFT_RI
       expect(move.act).toContain('reopens[0]');
       expect(move.act).toContain(move.lapse!.code);
     }
+    expectRetiredVerdict(report, 'signoffs[stage=parts-review]');
 
     // The remesh example retains its accepted stage while resuming at parts-review.
     const remeshReport = nextProject(REMESH_DIR, CHAIN_NOW);
@@ -981,7 +959,7 @@ describe('Frozen Bar 5 — Plants (lapsed approval, changed bound input DRAFT_RI
     }
   }, 30_000);
 
-  test('#674 bounced accepted post routes through amend before the rebuild, and a rig bounce still routes to the agent', () => {
+  test('#674 numbered rig and direction feedback remain visible without authoring moves', () => {
     // rig-review: accepted followed by changes-requested
     const rigDir = join(tempDir(), 'rig-withdrawn');
     cpSync(join(CHECKPOINTS_DIR, '3-rig-review'), rigDir, { recursive: true });
@@ -1013,13 +991,9 @@ describe('Frozen Bar 5 — Plants (lapsed approval, changed bound input DRAFT_RI
       on_items: [{ id: 'bones', answer_was: 'user' }],
     });
     const rigReport = nextProject(rigDir, CHAIN_NOW + 1000);
-    expect(rigReport.moves.map(move => move.field)).toEqual(['versions']);
-    expect(rigReport.moves[0]).toMatchObject({ role: 'agent', field: 'versions', awaits: 'versions[n=2]' });
-    expect(rigReport.moves[0]!.command).toContain('rig-version 2');
-    expect(rigReport.moves[0]!.command).toContain("--check-report '<check.json>'");
-    expect(rigReport.moves[0]!.command).toContain('--answers 1:1');
-    expect(printedArgs(rigReport.moves[0]!.command!).slice(1, 4)).toEqual(['rig-version', '2', rigDir]);
-    expect(rigReport.moves[0]!.act).toContain('answers_feedback');
+    expect(rigReport.refusals).toEqual([]);
+    expectRetiredVerdict(rigReport, 'versions[n=1].verdicts[review=rig-review]');
+    expect(rigReport.moves.some(move => move.field.startsWith('current.') || /\brig-version\b/.test(move.command ?? ''))).toBe(false);
     // Reuse the existing synthetic registration cohort, with no producer run.
     cpSync(join(REPO, 'tests/fixtures/rig-registration'), join(rigDir, 'rebuild-source'), { recursive: true });
     const putRebuild = (path: string, value: unknown): void => writeFileSync(join(rigDir, 'rebuild-source', path),
@@ -1037,13 +1011,11 @@ describe('Frozen Bar 5 — Plants (lapsed approval, changed bound input DRAFT_RI
     const bindings: Record<string, string> = { '--parts': 'parts', '--rig': 'rig', '--build': 'build', '--idle': 'idle',
       '--config': 'config.json', '--path-adapter': 'adapter.json', '--compile-report': 'compile-report.json', '--check-report': 'check.json',
       '--toolchain-lock': 'package-lock.json', '--run-record': 'run.json', '--at-source': 'at-source.json' };
-    const rigArgs = printedArgs(rigReport.moves[0]!.command!).slice(1);
-    for (const [index, arg] of rigArgs.entries()) {
-      if (arg.startsWith('<')) rigArgs[index] = bindings[rigArgs[index - 1]!] ? `rebuild-source/${bindings[rigArgs[index - 1]!]}`
-        : arg === '<pointer>' ? '/finished_at' : 'registrant';
-    }
+    const rigArgs = ['2', rigDir,
+      ...Object.entries(bindings).flatMap(([flag, file]) => [flag, `rebuild-source/${file}`]),
+      '--at-pointer', '/finished_at', '--by', 'registrant', '--answers', '1:1'];
     const beforeRigRebuild = checkProject(rigDir, undefined, { now: CHAIN_NOW + 1000, readOnly: true });
-    expect(seedRetainedRigVersion(rigArgs.slice(1), CHAIN_NOW + 1000).exit).toBe(0);
+    expect(seedRetainedRigVersion(rigArgs, CHAIN_NOW + 1000).exit).toBe(0);
     const afterRigRebuild = checkProject(rigDir, undefined, { now: CHAIN_NOW + 1000, readOnly: true });
     expect(newFindings(baselineOf(beforeRigRebuild), afterRigRebuild.refusals)).toEqual([]);
     expect(afterRigRebuild.refusals).toEqual([]);
@@ -1105,7 +1077,8 @@ describe('Frozen Bar 5 — Plants (lapsed approval, changed bound input DRAFT_RI
       verbatim: readFileSync(join(postDir, 'evidence/approval.txt'), 'utf8'),
       source: 'synthetic example',
     });
-    expect(nextProject(postDir, CHAIN_NOW).awaits).toEqual(['signoffs[stage=direction-review]']);
+    const acceptedPost = nextProject(postDir, CHAIN_NOW);
+    expectNumberedPostReadOnly(acceptedPost);
 
     const postBounceWords = join(postDir, 'bounce-post.txt');
     writeFileSync(postBounceWords, 'Tighten the final camera hold.\n');
@@ -1120,26 +1093,22 @@ describe('Frozen Bar 5 — Plants (lapsed approval, changed bound input DRAFT_RI
       on_items: [{ id: 'camera_depth', answer_was: 'user' }],
     });
 
-    // #981: an accepted post does not close authoring; the rebuild answering the bounce is offered with no amendment.
+    // The numbered bounce remains recorded and next leaves the retained outputs in place.
     const beforeRebuildBytes = readFileSync(join(postDir, 'project.json'));
     const closedReport = nextProject(postDir, CHAIN_NOW + 2000);
     expect(closedReport.moves.some(move => move.command?.startsWith('rig-create amend '))).toBe(false);
     expect(closedReport.moves.some(move => move.command?.startsWith('rig-create reopen '))).toBe(false);
     expect(readFileSync(join(postDir, 'project.json'))).toEqual(beforeRebuildBytes);
     const postReport = nextProject(postDir, CHAIN_NOW + 3000);
-    expect(postReport.moves.map(move => move.field)).toEqual(['versions']);
-    expect(postReport.moves[0]).toMatchObject({ role: 'agent', field: 'versions', awaits: 'versions[n=3]' });
-    expect(postReport.moves[0]!.command).toContain('direction write 3');
-    expect(postReport.moves[0]!.command).toContain('--answers 2:1');
-    const rebuiltArgs = printedArgs(postReport.moves[0]!.command!).slice(1).map(arg =>
-      arg === '<direction.json>' ? 'evidence/direction-input.json' : arg === '<rig-version>' ? '1' : arg);
-    expect(rebuiltArgs.slice(0, 4)).toEqual(['direction', 'write', '3', postDir]);
+    expect(postReport.refusals).toEqual([]);
+    expectNumberedPostReadOnly(postReport);
+    const rebuiltArgs = ['write', '3', postDir, '--file', 'evidence/direction-input.json',
+      '--rig', '1', '--answers', '2:1'];
     const beforeRebuild = checkProject(postDir, undefined, { now: CHAIN_NOW + 3000, readOnly: true });
-    expect(seedRetainedDirectionPost(rebuiltArgs.slice(1), CHAIN_NOW + 3000).exit).toBe(0);
+    expect(seedRetainedDirectionPost(rebuiltArgs, CHAIN_NOW + 3000).exit).toBe(0);
     const afterRebuild = checkProject(postDir, undefined, { now: CHAIN_NOW + 3000, readOnly: true });
     expect(newFindings(baselineOf(beforeRebuild), afterRebuild.refusals)).toEqual([]);
     expect(afterRebuild.refusals).toEqual([]);
-    expect(postReport.moves[0]!.act).toContain('answers_feedback');
   });
 
   test('plant 7 (build/rig + build/render draft layout with inside figure mask): reuses draft diff-components report when sha matches and carries stack + --figure when re-run is required', () => {
@@ -1528,22 +1497,18 @@ test('#490 post plan additions name the post phase and run before signoff', () =
   expect(nextProject(dir, CHAIN_NOW).moves.some(move => move.command?.startsWith('rig-create plan add'))).toBe(false);
 });
 
-test('#490 post moves run in adoption, scene, direction, advance order', () => {
+test('#490 numbered post stays read-only even before a direction contract exists', () => {
   const dir = join(tempDir(), 'post-writers');
   cpSync(join(CHECKPOINTS_DIR, '4-direction-post'), dir, { recursive: true });
   const file = join(dir, 'project.json');
   const project = JSON.parse(readFileSync(file, 'utf8')) as JsonObject;
   delete project.direction_contract;
   writeFileSync(file, JSON.stringify(project));
-  for (const prefix of ['rig-create direction --adopt', 'rig-create scene write', 'rig-create direction write 2', 'rig-create advance direction-review']) {
-    const report = nextProject(dir, CHAIN_NOW);
-    expect(report.refusals).toEqual([]);
-    const move = report.moves.find(move => move.role === 'agent')!;
-    expect(move.command).toStartWith(prefix);
-    if (!prefix.includes('advance')) expect(report.moves.some(move => move.command?.includes('advance direction-review'))).toBe(false);
-    expect(runMainCapture(preparePrintedOptions(dir, move.command!, CHAIN_NOW), CHAIN_NOW)).toMatchObject({ code: 0, stderr: '' });
-  }
-  expect(JSON.parse(readFileSync(file, 'utf8')).stage).toBe('direction-review');
+  const before = treeDigest(dir);
+  const report = nextProject(dir, CHAIN_NOW);
+  expect(report.refusals).toEqual([]);
+  expectNumberedPostReadOnly(report);
+  expect(treeDigest(dir)).toEqual(before);
 });
 
 test('#490 row56a parts checkpoint precedes the executable done move and prints owner-chat relay instead of a Review act', () => {
@@ -1643,7 +1608,7 @@ test.each(['generic', 'per-draft'])('#490 legacy approved %s snapshot for anothe
 
 
 
-test.each([{ foreground: false, custom: false }, { foreground: true, custom: false }, { foreground: false, custom: true }, { foreground: true, custom: true }])('#502 printed scene form executes with exact roles and rects %j', ({ foreground, custom }) => {
+test.each([{ foreground: false, custom: false }, { foreground: true, custom: false }, { foreground: false, custom: true }, { foreground: true, custom: true }])('#502 retained numbered scene form writes exact roles and rects %j', ({ foreground, custom }) => {
   const dir = join(tempDir(), "synthetic scene's folder");
   cpSync(join(CHECKPOINTS_DIR, '4-direction-post'), dir, { recursive: true });
   const file = join(dir, 'project.json');
@@ -1678,23 +1643,15 @@ test.each([{ foreground: false, custom: false }, { foreground: true, custom: fal
   const beforePlan = structuredClone(project.plan);
   const report = nextProject(dir, CHAIN_NOW);
   expect(report.refusals).toEqual([]);
-  const command = report.moves.find(move => move.command?.startsWith('rig-create scene write'))!.command!;
-  expect(command.includes('--foreground ')).toBe(foreground);
-  expect(command.includes('--background-rect')).toBe(custom);
-  expect(command.includes('--foreground-rect')).toBe(custom && foreground);
-  if (custom) expect(command).toContain("--background-rect '-48,10,96,96'");
-  if (custom && foreground) expect(command).toContain("--foreground-rect '-40,12,80,80'");
-  const argv = printedArgs(command).slice(1).map(arg => arg === '<background.png>' ? background
-    : arg === '<foreground.png>' ? 'inputs/foreground.png'
-    : arg === '<scene-citations.json>' ? 'evidence/printed-scene-citations.json' : arg);
-  const result = runMainCapture(argv, CHAIN_NOW);
-  expect(result).toMatchObject({ code: 0, stderr: '' });
-  if (process.env.JOB_ACTS_RECEIPT) appendFileSync(process.env.JOB_ACTS_RECEIPT, JSON.stringify({
-    command, argv: ['rig-create', ...argv], exit: result.code, foreground, custom,
-    rendered: nextCommand([dir], CHAIN_NOW).stdout, plan_unchanged: true,
-  }) + '\n');
+  expectNumberedPostReadOnly(report);
+  const sceneArgs = ['write', dir, '--rig', '1', '--background', background,
+    '--citations-file', 'evidence/printed-scene-citations.json'];
+  if (foreground) sceneArgs.push('--foreground', 'inputs/foreground.png');
+  if (custom) sceneArgs.push('--background-rect', '-48,10,96,96');
+  if (custom && foreground) sceneArgs.push('--foreground-rect', '-40,12,80,80');
+  expect(seedRetainedScene(sceneArgs, CHAIN_NOW).exit).toBe(0);
   const after = JSON.parse(readFileSync(file, 'utf8')) as JsonObject;
-  expect(after.plan).toEqual(beforePlan); // scene write appends a scene, never a composition plan step.
+  expect(after.plan).toEqual(beforePlan);
   const doc = JSON.parse(readFileSync(join(dir, String(obj(arr(after.scenes).at(-1)).path)), 'utf8')) as JsonObject;
   expect(arr(doc.plates).map(row => obj(row).role)).toEqual(foreground ? ['background', 'foreground'] : ['background']);
   expect(obj(arr(doc.plates)[0]).rect).toEqual(backgroundRect);
@@ -1904,18 +1861,6 @@ test('owner chat is offered beside Review for pending interview picks, including
   expect(result.moves.some(move=>move.command?.includes('job open'))).toBe(true);
 });
 
-test('owner chat signoff is absent before the direction verdict and present after acceptance',()=>{
-  const dir=join(tempDir(),'chat-direction');cpSync(CHAIN_DIR,dir,{recursive:true});
-  const file=join(dir,'project.json');const p=JSON.parse(readFileSync(file,'utf8')) as JsonObject;
-  p.stage='direction-review';p.signoffs=arr(p.signoffs).filter(s=>obj(s).stage!=='direction-review');
-  p.advances=arr(p.advances).filter(a=>obj(a).stage!=='accepted');
-  const version=arr(p.versions).map(obj).find(v=>v.kind==='post')!;const verdicts=version.verdicts;
-  version.verdicts=[];writeFileSync(file,JSON.stringify(p,null,2)+'\n');
-  expect(nextProject(dir,CHAIN_NOW).moves.some(m=>m.awaits==='signoffs[stage=direction-review]')).toBe(false);
-  version.verdicts=verdicts;writeFileSync(file,JSON.stringify(p,null,2)+'\n');
-  expectRetiredVerdict(nextProject(dir,CHAIN_NOW),'signoffs[stage=direction-review]');
-});
-
 function bouncedPartsFixture(): string {
   const dir = join(tempDir(), 'parts-retouch-loop');
   cpSync(join(CHECKPOINTS_DIR, '1-parts-verdict'), dir, { recursive: true });
@@ -1927,7 +1872,7 @@ function bouncedPartsFixture(): string {
   return dir;
 }
 
-test('#557 bounced parts verdict prints the ordered NEW edited_parts scaffold without reasking the rejected draft', () => {
+test('#557 bounced parts verdict preserves the rejected draft and its feedback without authoring a new draft', () => {
   const dir = bouncedPartsFixture();
   const file = join(dir, 'project.json');
   const before = readFileSync(file);
@@ -1937,30 +1882,11 @@ test('#557 bounced parts verdict prints the ordered NEW edited_parts scaffold wi
   expect(next.refusals).toEqual([]);
   expect(next.stage).toBe('parts-review');
   expect(next.effective_stage).toBe('parts-review');
-  expect(next.moves.slice(0, -1).every(move => move.role !== 'human')).toBe(true);
-  expectRetiredVerdict(next, 'review_acts[kind=parts-verdict,draft_id=chain-retouch-1]');
-  expect(next.moves[0]!.act).toContain('assemble.edited_parts');
-  expect(next.moves[0]!.act).toContain('only then take edited-part baselines');
-  expect(next.moves[0]!.act).toContain('from_sha256');
-  expect(next.moves[0]!.act).toContain('docs/SOURCE.md#handing-a-retouch-to-an-image-editor');
-  const commands = next.moves.flatMap(move => move.command === null ? [] : [move.command]);
-  expect(commands.map(command => printedArgs(command).slice(0, 2).join(' '))).toEqual([
-    'rig-parts build', 'rig-create draft-rig', 'rig-parts check-parts', 'rig-create structure-snapshot',
-    'rig-parts diff-components', 'rig-create diff-classes',
-  ]);
-  expect(commands[1]).toContain('chain-retouch-1');
-  expect(commands[2]).toContain('evidence/parts-chain-retouch-1');
-  expect(commands[3]).toContain('--draft chain-retouch-1');
-  expect(commands[4]).toContain('evidence/parts-chain-retouch-1/diff-components.json');
-  expect(commands.some(command => command.includes('advance ') || command.includes('reopen '))).toBe(false);
+  expect(next.moves).toEqual([expect.objectContaining({
+    role: 'agent', field: 'drafts[chain]', awaits: 'drafts[chain]', command: null,
+    act: expect.stringContaining('preserve the draft and its evidence'),
+  })]);
   expect(readFileSync(file)).toEqual(before);
-  mkdirSync(join(dir, 'derived/drafts/chain-retouch-1'));
-  expect(nextProject(dir, CHAIN_NOW).moves.find(move => move.command?.startsWith('rig-create draft-rig'))!.command).toContain('chain-retouch-2');
-  const unrelated = join(dir, 'derived/drafts/chain-retouch-1/config.json');
-  writeFileSync(unrelated, `${JSON.stringify({ key: 'unrelated', assemble: {} })}\n`);
-  const unrelatedBytes = readFileSync(unrelated);
-  expect(nextProject(dir, CHAIN_NOW).moves.find(move => move.command?.startsWith('rig-create draft-rig'))!.command).toContain('chain-retouch-2');
-  expect(readFileSync(unrelated)).toEqual(unrelatedBytes);
 });
 
 test('#1030 a current parts-review project keeps rejected draft feedback without offering a replacement draft', () => {
@@ -1977,7 +1903,7 @@ test('#1030 a current parts-review project keeps rejected draft feedback without
   expect(next.moves.some(move => /draft-rig|chain-retouch-|rig-create advance /.test(move.command ?? move.act))).toBe(false);
 });
 
-test('#557 registered retouch discovers fresh evidence despite old files and reaches one verdict while retaining parts-review', () => {
+test('#557 a retained replacement draft discovers fresh evidence and reports the retired verdict gate', () => {
   const dir = bouncedPartsFixture();
   const retained = ['evidence/parts-check.json', 'evidence/diff-components.json', 'evidence/structure-chain.json'];
   const bytes = retained.map(path => readFileSync(join(dir, path)));
@@ -2057,58 +1983,6 @@ test('#557 initial parts-review with many historical drafts reuses global eviden
   expect(existsSync(join(dir, `evidence/parts-${id}`))).toBe(false);
   expect(readFileSync(file)).toEqual(before);
   for (const [index, path] of paths.entries()) expect(readFileSync(join(dir, path))).toEqual(retained[index]);
-});
-
-test('#557 prepared unregistered retouch resumes the same target before and after build without replacing retained files', () => {
-  const dir = bouncedPartsFixture();
-  const file = join(dir, 'project.json');
-  const record = readFileSync(file);
-  const id = 'chain-retouch-1';
-  const root = join(dir, 'derived/drafts', id);
-  const initial = nextProject(dir, CHAIN_NOW);
-  const registration = initial.moves.find(move => move.command?.startsWith('rig-create draft-rig'))!.command;
-  mkdirSync(root);
-  const config = readFileSync(join(dir, 'derived/drafts/chain/config.json'));
-  writeFileSync(join(root, 'config.json'), config);
-  const prepared = nextProject(dir, CHAIN_NOW);
-  expect(prepared.moves[0]!.act).toContain(`Resume derived/drafts/${id}/config.json`);
-  expect(prepared.moves.find(move => move.command?.startsWith('rig-create draft-rig'))!.command).toBe(registration);
-  expect(prepared.moves.find(move => move.command?.startsWith('rig-parts build'))!.command).toContain(`/derived/drafts/${id}/config.json`);
-  expect(readFileSync(join(root, 'config.json'))).toEqual(config);
-  // Preparing the allowed retouch declaration must not switch the generated target either.
-  const changed = JSON.parse(config.toString()) as JsonObject;
-  obj(changed.assemble).edited_parts = { dir: 'edits', receipts: [{ part: 'torso', file: 'torso.png',
-    from_sha256: 'a'.repeat(64), sha256: 'b'.repeat(64), editor: 'synthetic editor' }] };
-  const edited = `${JSON.stringify(changed, null, 2)}\n`;
-  writeFileSync(join(root, 'config.json'), edited);
-  const editedNext = nextProject(dir, CHAIN_NOW);
-  expect(editedNext.moves.find(move => move.command?.startsWith('rig-create draft-rig'))!.command).toBe(registration);
-  expect(readFileSync(join(root, 'config.json'), 'utf8')).toBe(edited);
-  expect(editedNext.moves.slice(0, -1).every(move => move.role !== 'human')).toBe(true);
-  // Existence is not proof of a valid build: leave it to the existing registration validator.
-  mkdirSync(join(root, 'build'));
-  const sentinel = Buffer.from('preserve unrelated or incomplete output\n');
-  writeFileSync(join(root, 'build/retained.txt'), sentinel);
-  const built = nextProject(dir, CHAIN_NOW);
-  expect(built.moves.find(move => move.command?.startsWith('rig-create draft-rig'))!.command).toBe(registration);
-  expect(built.moves.some(move => move.command?.startsWith('rig-parts build'))).toBe(false);
-  expect(built.moves.some(move => move.command === null && move.act.includes('do not rerun build over it'))).toBe(true);
-  expect(readFileSync(join(root, 'build/retained.txt'))).toEqual(sentinel);
-  expect(readFileSync(join(root, 'config.json'), 'utf8')).toBe(edited);
-  expect(readFileSync(file)).toEqual(record);
-});
-
-test.each(['linked-config', 'dangling-target'])('#557 retouch preserves %s collisions instead of treating them as prepared targets', kind => {
-  const dir = bouncedPartsFixture();
-  const root = join(dir, 'derived/drafts/chain-retouch-1');
-  if (kind === 'linked-config') {
-    mkdirSync(root);
-    symlinkSync(join(dir, 'derived/drafts/chain/config.json'), join(root, 'config.json'));
-  } else symlinkSync(join(dir, 'absent-target'), root);
-  const before = readFileSync(join(dir, 'project.json'));
-  const next = nextProject(dir, CHAIN_NOW);
-  expect(next.moves.find(move => move.command?.startsWith('rig-create draft-rig'))!.command).toContain('chain-retouch-2');
-  expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
 });
 
 test('#596 undecided delegation emits an agent interview-decision move and clears DELEGATION_UNDECIDED', () => {
@@ -2236,7 +2110,7 @@ test('#596 pending Other flags INTERVIEW_CHOICE_REQUIRED and offers the agent op
   });
 });
 
-test('#596 post stage with in-progress step offers direction --adopt then direction write with the first legal version N', () => {
+test('#596 numbered post with an open step stays read-only until there is a current record', () => {
   const dir = realpathSync(fixture(project => {
     project.stage = 'post';
     project.versions = arr(project.versions).filter(v => obj(v).kind === 'rig');
@@ -2251,13 +2125,7 @@ test('#596 post stage with in-progress step offers direction --adopt then direct
 
   const beforeAdopt = nextProject(dir, CHAIN_NOW);
   expect(beforeAdopt.refusals).toEqual([]);
-  const adoptMove = beforeAdopt.moves.find(move => move.field === 'direction_contract');
-  expect(adoptMove).toMatchObject({
-    role: 'agent',
-    field: 'direction_contract',
-    awaits: 'direction_contract',
-    command: `rig-create direction --adopt ${dir}`,
-  });
+  expectNumberedPostReadOnly(beforeAdopt);
   const file = join(dir, 'project.json');
   const beforeContract = readFileSync(file);
   writeFileSync(file, JSON.stringify({ ...JSON.parse(beforeContract.toString()), current: {} }));
@@ -2271,17 +2139,11 @@ test('#596 post stage with in-progress step offers direction --adopt then direct
   expect(currentBeforeContract.moves.some(move => move.command?.startsWith('rig-create direction --adopt '))).toBe(false);
   expect(currentBeforeContract.moves.some(move => move.command?.startsWith('rig-create advance direction-review '))).toBe(false);
   writeFileSync(file, beforeContract);
-  expect(runMainCapture(printedArgs(adoptMove!.command!).slice(1), CHAIN_NOW)).toMatchObject({ code: 0, stderr: '' });
+  expect(runMainCapture(['direction', '--adopt', dir], CHAIN_NOW)).toMatchObject({ code: 0, stderr: '' });
 
   const afterAdopt = nextProject(dir, CHAIN_NOW);
   expect(afterAdopt.refusals).toEqual([]);
-  const writeMove = afterAdopt.moves.find(move => move.field === 'versions');
-  expect(writeMove).toMatchObject({
-    role: 'agent',
-    field: 'versions',
-    awaits: 'versions[n=3]',
-    command: `rig-create direction write 3 ${dir} --file '<direction.json>' --rig 2`,
-  });
+  expectNumberedPostReadOnly(afterAdopt);
 
   const current = JSON.parse(readFileSync(file, 'utf8')) as JsonObject;
   current.current = {};
@@ -2582,183 +2444,7 @@ test('#1030 canonical rig replacement surfaces stale adopted motion then stale a
   expect(treeDigest(dir)).toEqual(original);
 });
 
-const isObjectWith = (value: unknown, key: string): boolean => typeof value === 'object' && value !== null && Object.hasOwn(value, key);
-
-describe('#720 next offers the frozen checked build', () => {
-  function checkedBuild(dir: string, root: string, finished: number, configValue: JsonObject = { key: 'synthetic' }) {
-    const config = 'evidence/frozen config.json';
-    const check = `${root}/check/check.json`;
-    const build = `${root}/check/build`;
-    const run = `${build}/run.json`;
-    const model = `${build}/skeleton.model.json`;
-    const put = (path: string, value: JsonObject): string => {
-      mkdirSync(dirname(join(dir, path)), { recursive: true });
-      const bytes = JSON.stringify(value);
-      writeFileSync(join(dir, path), bytes);
-      return sha256(bytes);
-    };
-    const at = new Date(finished).toISOString();
-    const modelHash = put(model, { spec: 'rigc-compiled/3' });
-    const report: JsonObject = {
-      spec: 'rig-parts-check/1', PASS: true, bar_outcomes: { gate: { status: 'PASS' } },
-      build: { model_sha256: modelHash }, config: { path: config, sha256: put(config, configValue) },
-    };
-    const runRecord: JsonObject = {
-      spec: 'rigc-run/1', package: { name: '@rig-c/core', version: '3.8.0' }, command: 'build', started_at: at, finished_at: at,
-      inputs: [
-        { role: 'rig', path: '../../rig/rig.json', sha256: put(`${root}/rig/rig.json`, { spec: 'rigc-rig/1' }) },
-        { role: 'motion', path: '../../rig/motion.json', sha256: put(`${root}/rig/motion.json`, { spec: 'rigc-motion/1' }) },
-      ],
-      outputs: [{ path: 'skeleton.model.json', sha256: modelHash }],
-    };
-    put(`${root}/check/idle_frames/frames.json`, { spec: 'rigc-frames/1', sets: [{ animation: 'idle', fps: 12 }] });
-    const store = (): void => { put(check, report); put(run, runRecord); };
-    store();
-    return { config, check, build, run, model, report, runRecord, store };
-  }
-
-  test('names producer inputs and a free number alongside open steps, with a registered control', () => {
-    const dir = join(tempDir(), 'checked-rig');
-    cpSync(join(CHECKPOINTS_DIR, '3-rig-review'), dir, { recursive: true });
-    const file = join(dir, 'project.json');
-    const registered = readFileSync(file);
-    const project = JSON.parse(registered.toString()) as JsonObject;
-    project.stage = 'rigging';
-    project.advances = arr(project.advances).filter(entry => obj(entry).stage !== 'rig-review');
-    project.versions = [];
-    for (const step of arr(obj(project.plan).steps).map(obj)) {
-      if (['bones', 'meshes', 'constraints', 'motion'].includes(String(step.id))) step.status = 'at-checkpoint';
-    }
-    writeFileSync(file, JSON.stringify(project));
-    const before = nextProject(dir, CHAIN_NOW);
-    expect(before.refusals).toEqual([]);
-    expect(before.moves.filter(move => move.field.startsWith('plan.steps['))).toHaveLength(4);
-    expect(before.moves.some(move => move.command?.startsWith('rig-create rig-version '))).toBe(false);
-
-    const source = 'outputs/v2';
-    const approvedAt = Date.parse(String(arr(project.signoffs).map(obj).find(signoff => signoff.stage === 'parts-review')?.at));
-    checkedBuild(dir, source, approvedAt - 1);
-    expect(nextProject(dir, CHAIN_NOW).moves).toEqual(before.moves);
-    const { check, run, build, config } = checkedBuild(dir, source, approvedAt);
-    // Existing v1 is an unregistered destination in this state. v3 and v4 are occupied by other writer destinations.
-    mkdirSync(join(dir, 'evidence/v3/registration'), { recursive: true });
-    mkdirSync(join(dir, 'derived/review/v4'), { recursive: true });
-    mkdirSync(join(dir, 'evidence/v5'), { recursive: true });
-    const tree = treeDigest(dir);
-    const after = nextProject(dir, CHAIN_NOW);
-    expect(treeDigest(dir)).toEqual(tree);
-    expect(after.refusals).toEqual([]);
-    expect(after.moves.slice(0, -1)).toEqual(before.moves);
-    expect(after.awaits).toEqual([...before.awaits, 'versions[n=5]']);
-    const move = after.moves.at(-1)!;
-    expect(move).toMatchObject({ role: 'agent', field: 'versions', awaits: 'versions[n=5]' });
-    const argv = printedArgs(move.command!);
-    expect(argv.slice(0, 4)).toEqual(['rig-create', 'rig-version', '5', dir]);
-    for (const [flag, value] of Object.entries({
-      '--parts': '<checked parts dir>', '--rig': `${source}/rig`, '--idle': `${source}/check/idle_frames`, '--config': config,
-      '--path-adapter': '<path-adapter.json>', '--compile-report': '<build-report.json>', '--toolchain-lock': '<build toolchain lock>',
-      '--build': build, '--check-report': check, '--run-record': run, '--at-source': run, '--at-pointer': '/finished_at', '--by': '<agent>',
-    })) expect(argv[argv.indexOf(flag) + 1]).toBe(value);
-    expect(move.act).toContain(`from ${source} as v5`);
-    expect(move.act).toContain(`rig-create rig-version adapter ${dir} --config '${config}' --out '<path-adapter.json>'`);
-    for (const producer of ['rig-parts assemble', 'rig-parts rig', 'rig-parts check', 'rigc render', `${source}/check/build-report.json`, 'bun install', 'npm install']) {
-      expect(move.act).toContain(producer);
-    }
-
-    writeFileSync(file, JSON.stringify({ ...project, current: {} }));
-    const withCurrent = nextProject(dir, CHAIN_NOW);
-    expect(withCurrent.moves.find(move => move.field === 'current.rig')?.command).toStartWith(`rig-create record rig ${dir} `);
-    expect(withCurrent.moves.some(move => move.command?.startsWith('rig-create rig-version '))).toBe(false);
-    expect(withCurrent.moves.filter(move => move.field.startsWith('plan.steps[')))
-      .toEqual(after.moves.filter(move => move.field.startsWith('plan.steps[')));
-
-    writeFileSync(file, registered);
-    const control = nextProject(dir, CHAIN_NOW);
-    expect(control.refusals).toEqual([]);
-    expect(control.moves.some(move => move.command?.startsWith('rig-create rig-version '))).toBe(false);
-    expect(control.awaits).toEqual(['versions[n=1].verdicts[review=rig-review]']);
-  });
-
-  test('#750 lists the declarations registration reads from the checked config, carried and missing, in one move', () => {
-    const dir = join(tempDir(), 'checked-declarations');
-    cpSync(join(CHECKPOINTS_DIR, '3-rig-review'), dir, { recursive: true });
-    const file = join(dir, 'project.json');
-    const project = JSON.parse(readFileSync(file, 'utf8')) as JsonObject;
-    project.stage = 'rigging';
-    project.advances = arr(project.advances).filter(entry => obj(entry).stage !== 'rig-review');
-    project.versions = [];
-    // The same project as a full-screen (CG) scene: the synthetic choice set offers that value, and the signature re-binds it.
-    const setFile = join(dir, 'evidence/interview/rig_type.json');
-    const set = JSON.parse(readFileSync(setFile, 'utf8')) as JsonObject;
-    for (const option of arr(obj(arr(set.asks)[0]).options).map(obj)) if (option.kind === 'value') option.fragment = 'fullscreen.minimal';
-    writeFileSync(setFile, `${JSON.stringify(set, null, 2)}\n`);
-    const answer = obj(arr(obj(project.interview).framing).map(obj).find(q => q.id === 'rig_type')?.answer);
-    answer.value = 'fullscreen.minimal';
-    obj(obj(answer.choice).set).sha256 = sha256(readFileSync(setFile));
-    for (const signoff of arr(project.signoffs).map(obj)) {
-      if (isObjectWith(signoff.answer_hashes, 'rig_type')) signoff.answer_hashes = selectAnswerHashes(dir, project, signoff)!;
-    }
-    writeFileSync(file, JSON.stringify(project));
-    const approvedAt = Date.parse(String(arr(project.signoffs).map(obj).find(signoff => signoff.stage === 'parts-review')?.at));
-    const requirements = { spec: 'spine-parts-requirements/1', fps: 12, requirements: [], seam_over_motion: { required: true }, boundary_colour: { max_step_excess: 12 } };
-    mkdirSync(join(dir, 'evidence'), { recursive: true });
-    writeFileSync(join(dir, 'evidence/requirements.json'), JSON.stringify(requirements));
-    const { config } = checkedBuild(dir, 'outputs/v2', approvedAt, {
-      key: 'synthetic', assemble: { editor_receipts: { trace_parts: true, receipts: [] } }, limbs: { cut: 'joints' }, requirements: 'requirements.json',
-    });
-    const tree = treeDigest(dir);
-    const report = nextProject(dir, CHAIN_NOW);
-    expect(treeDigest(dir)).toEqual(tree);
-    expect(report.refusals).toEqual([]);
-    const move = report.moves.find(m => m.command?.startsWith('rig-create rig-version '))!;
-    expect(move.act).toContain(' Registration reads these declarations: cite assemble, limbs in --citations;');
-    expect(move.act).toContain(`${config} with its requirements carries assemble.editor_receipts.trace_parts, requirements, requirements seam_over_motion.required, requirements boundary_colour.max_step_excess;`);
-    expect(move.act).toContain('missing requirements behind_seams.threshold (CG_GATE_UNDECLARED), requirements setup_painting.required (SETUP_PAINTING_REQUIRED_MISSING); unread none.');
-    expect(move.act).toContain(`rig-create rig-version 3 ${dir} --preflight --config '${config}' --citations '<sections JSON>'`);
-  });
-
-  test('keeps the legacy reopen move until the producer claims identify a passing post-reopen build', () => {
-    const dir = join(tempDir(), 'checked-reopen');
-    cpSync(join(CHECKPOINTS_DIR, '3-rig-review'), dir, { recursive: true });
-    plantLegacyReopen(dir, 'rig-review', { at: new Date(CHAIN_NOW).toISOString() });
-    const now = CHAIN_NOW + 2000;
-    const before = nextProject(dir, now);
-    expect(before.refusals).toEqual([]);
-    expect(before.moves[0]?.command).toContain("--check-report '<check.json>'");
-
-    checkedBuild(dir, 'scratch/v4', CHAIN_NOW + 1000);
-    checkedBuild(dir, 'outputs/v3/out', CHAIN_NOW + 1000);
-    const candidate = checkedBuild(dir, 'outputs/v2', CHAIN_NOW);
-    const moves = () => nextProject(dir, now).moves;
-    expect(moves()).toEqual(before.moves);
-    candidate.runRecord.finished_at = new Date(CHAIN_NOW + 1000).toISOString();
-    candidate.report.PASS = false;
-    candidate.store();
-    expect(moves()).toEqual(before.moves);
-    candidate.report.PASS = true;
-    obj(obj(candidate.report.bar_outcomes).gate).status = 'FAIL';
-    candidate.store();
-    expect(moves()).toEqual(before.moves);
-    obj(obj(candidate.report.bar_outcomes).gate).status = 'PASS';
-    obj(candidate.report.build).model_sha256 = 'a'.repeat(64);
-    candidate.store();
-    expect(moves()).toEqual(before.moves);
-    obj(candidate.report.build).model_sha256 = sha256(readFileSync(join(dir, candidate.model)));
-    obj(candidate.report.config).sha256 = 'b'.repeat(64);
-    candidate.store();
-    expect(moves()).toEqual(before.moves);
-    obj(candidate.report.config).sha256 = sha256(readFileSync(join(dir, candidate.config)));
-    obj(arr(candidate.runRecord.outputs)[0]).sha256 = 'c'.repeat(64);
-    candidate.store();
-    expect(moves()).toEqual(before.moves);
-    obj(arr(candidate.runRecord.outputs)[0]).sha256 = obj(candidate.report.build).model_sha256;
-    candidate.store();
-    expect(moves().map(move => move.command)).toEqual([expect.stringContaining(`rig-create rig-version 4 ${dir} `)]);
-    expect(moves()[0]?.command).toContain(`--check-report ${candidate.check}`);
-  });
-});
-
-test('#579 after a rig-review reopen, next omits history rig versions and lapsed rig-review signoff, keeps post-reopen rig registration available, and keeps post stages free of history rigs', () => {
+test('#579 after a rig-review reopen, next omits history rig versions and lapsed rig-review signoff, keeps numbered registrations read-only, and keeps post stages free of history rigs', () => {
   const dir = join(tempDir(), 'reopen-rig-review');
   cpSync(join(CHECKPOINTS_DIR, '3-rig-review'), dir, { recursive: true });
   const file = join(dir, 'project.json');
@@ -2876,42 +2562,28 @@ test('#579 after a rig-review reopen, next omits history rig versions and lapsed
   expect(() => optionContext(staleProject, 'post-interview', reopenAt, dir))
     .toThrow(expect.objectContaining({ code: 'INTERVIEW_OPTIONS_STALE' }));
 
-  // Before registering a post-reopen rig version: next names only the new rig-version registration route.
   const beforePostReopenRig = nextProject(dir, reopenAt);
   expect(beforePostReopenRig.refusals).toEqual([]);
-  expect(beforePostReopenRig.awaits).toEqual(['versions[n=3]']);
-  expect(beforePostReopenRig.moves).toHaveLength(1);
-  expect(beforePostReopenRig.moves[0]).toMatchObject({
-    role: 'agent',
-    field: 'versions',
-    awaits: 'versions[n=3]',
-  });
-  expect(beforePostReopenRig.moves[0]!.command).toContain(`rig-create rig-version 3 ${dir}`);
-  expect(beforePostReopenRig.moves[0]!.command).toContain("--check-report '<check.json>'");
+  expect(beforePostReopenRig.moves).toContainEqual(expect.objectContaining({
+    role: 'agent', field: 'versions', awaits: 'versions', command: null,
+    act: expect.stringContaining('Numbered rig registrations are read-only.'),
+  }));
+  expect(beforePostReopenRig.moves.some(move => move.field.startsWith('current.') || /\brig-version\b/.test(move.command ?? ''))).toBe(false);
   expect(checkProject(dir, undefined, { now: reopenAt, readOnly: true }).warnings).toContainEqual({
     code: 'RIG_CHECK_REPORT_MISSING', path: 'versions[v2].registration.check_report',
     message: expect.stringContaining('rig-parts check --rig <rig dir> --parts <parts dir> --source <painting> --requirements <requirements file> --out <check dir>'),
   });
-  expect(beforePostReopenRig.moves[0]!.act).toContain('built after the reopen');
   expect(beforePostReopenRig.moves.some(m => m.lapse !== undefined)).toBe(false);
   expect(beforePostReopenRig.moves.some(m => m.review_act?.version_id === 'v1' || m.review_act?.version_id === 'v2')).toBe(false);
   expect(beforePostReopenRig.moves.some(m => m.review_act?.kind === 'signoff')).toBe(false);
 
-  // Execute the printed rig-version 3 command with a build timestamp after the reopen.
   const v3At = reopenAt + 1000;
   setBuildTime(new Date(v3At).toISOString());
-  const postReopenBindings: Record<string, string> = { ...bindings, '--check-report': 'check.json' };
-  const printedRigArgs = printedArgs(beforePostReopenRig.moves[0]!.command!).slice(1);
-  for (const [index, arg] of printedRigArgs.entries()) {
-    if (arg.startsWith('<')) {
-      printedRigArgs[index] = postReopenBindings[printedRigArgs[index - 1]!]
-        ? `rebuild-source/${postReopenBindings[printedRigArgs[index - 1]!]}`
-        : arg === '<pointer>'
-          ? '/finished_at'
-          : 'registrant';
-    }
-  }
-  expect(seedRetainedRigVersion(printedRigArgs.slice(1), v3At).exit).toBe(0);
+  const postReopenBindings = { ...bindings, '--check-report': 'check.json' };
+  expect(seedRetainedRigVersion([
+    '3', dir, ...Object.entries(postReopenBindings).flatMap(([flag, path]) => [flag, `rebuild-source/${path}`]),
+    '--at-pointer', '/finished_at', '--by', 'registrant',
+  ], v3At).exit).toBe(0);
   const reboundProject = JSON.parse(readFileSync(file, 'utf8')) as JsonObject;
   // #981: rig-version no longer binds a parts approval.
   expect(arr(reboundProject.versions).map(obj).find(v => v.n === 3)?.accepted_parts).toBeUndefined();
@@ -2977,23 +2649,32 @@ test('#579 after a rig-review reopen, next omits history rig versions and lapsed
     stepStatusCommand([id, 'at-checkpoint', dir, '--by', 'agent']);
     stepStatusCommand([id, 'done', dir, '--by', 'agent']);
   }
-  const adoptMove = nextProject(dir, acceptAt + 3000).moves.find(m => m.field === 'direction_contract')!;
-  expect(runMainCapture(printedArgs(adoptMove.command!).slice(1), acceptAt + 3000)).toMatchObject({ code: 0, stderr: '' });
+  expect(runMainCapture(['direction', '--adopt', dir], acceptAt + 3000)).toMatchObject({ code: 0, stderr: '' });
 
-  // At post stage after the rig-review reopen: next binds the live accepted rig v3, never history v1 or v2.
+  // At post stage after the rig-review reopen, next omits both the live and historical numbered writers.
   const atPost = nextProject(dir, acceptAt + 3000);
   expect(atPost.refusals).toEqual([]);
   expect(atPost.moves.some(m => m.lapse !== undefined)).toBe(false);
   expect(atPost.moves.some(m => m.review_act?.version_id === 'v1' || m.review_act?.version_id === 'v2')).toBe(false);
-  const sceneMove = atPost.moves.find(m => m.role === 'agent')!;
-  expect(sceneMove.command).toContain('--rig 3');
+  expectNumberedPostReadOnly(atPost);
 
-  // Author scene and post v4 on rig v3, advance to direction-review, and verify no history rig versions appear.
-  expect(seedRetainedScene(preparePrintedOptions(dir, sceneMove.command!, acceptAt + 3000).slice(1), acceptAt + 3000).exit).toBe(0);
-  const afterSceneNext = nextProject(dir, acceptAt + 3000);
-  const dirWriteMove = afterSceneNext.moves.find(m => m.role === 'agent')!;
-  expect(dirWriteMove.command).toContain('direction write 4');
-  expect(dirWriteMove.command).toContain('--rig 3');
+  // Seed the retained scene on rig v3 to exercise the historical post reader.
+  const composition = arr(obj(obj(JSON.parse(readFileSync(file, 'utf8')).interview).post).items).map(obj)
+    .find(item => item.id === 'post_composition')!;
+  const guide = obj(composition.guide);
+  const background = String(obj(obj(obj(guide.value).scene).background).path);
+  if (!existsSync(join(dir, background))) {
+    cpSync(join(CHAIN_DIR, 'inputs/background.png'), join(dir, background));
+    expect(runMainCapture(['input', 'add', background, dir, '--origin', 'synthetic prepared scene plate'], acceptAt + 3000))
+      .toMatchObject({ code: 0, stderr: '' });
+  }
+  const citationsPath = 'evidence/printed-scene-citations.json';
+  writeFileSync(join(dir, citationsPath), JSON.stringify({ background: {
+    guide: 'post_composition', asks: ['post_composition'], quote: guide.verbatim,
+  } }));
+  const sceneArgs = ['write', dir, '--rig', '3', '--background', background, '--citations-file', citationsPath];
+  expect(seedRetainedScene(sceneArgs, acceptAt + 3000).exit).toBe(0);
+  expectNumberedPostReadOnly(nextProject(dir, acceptAt + 3000));
   const afterSceneProject = JSON.parse(readFileSync(file, 'utf8')) as JsonObject;
   const latestScene = obj(arr(afterSceneProject.scenes).at(-1));
   const v3ModelPath = 'derived/review/v3/out/check/build/skeleton.model.json';
@@ -3019,7 +2700,7 @@ test('#579 after a rig-review reopen, next omits history rig versions and lapsed
   expect(atDirectionReview.moves.some(m => m.lapse !== undefined)).toBe(false);
   expect(atDirectionReview.moves.some(m => m.review_act?.version_id === 'v1' || m.review_act?.version_id === 'v2' || m.review_act?.version_id === 'v3')).toBe(false);
   expect(atDirectionReview.moves.some(m => m.command?.includes('--rig 1') || m.command?.includes('--rig 2') || m.command?.includes('--rig 3'))).toBe(false);
-  expectRetiredVerdict(atDirectionReview, 'versions[n=4].verdicts[review=direction-review]');
+  expectNumberedPostReadOnly(atDirectionReview);
 
   // Consumer-clone shape: post v4 is reviewed and signed at direction-review, then rig-review is reopened,
   // a new rig v5 is registered, accepted and signed, and a new unreviewed post v6 reaches direction-review.
@@ -3090,16 +2771,11 @@ test('#579 after a rig-review reopen, next omits history rig versions and lapsed
 
   const afterSignedPostReopen = nextProject(dir, acceptV5At + 5000);
   expect(afterSignedPostReopen.refusals).toEqual([]);
-  expect(afterSignedPostReopen.awaits.filter(field => !field.startsWith('current.'))).toEqual([
-    'versions[n=6].verdicts[review=direction-review]',
-    'signoffs[stage=direction-review]',
-  ]);
-  expect(afterSignedPostReopen.moves.some(move => move.awaits === 'signoffs[stage=direction-review]')).toBe(false);
+  expectNumberedPostReadOnly(afterSignedPostReopen);
   expect(afterSignedPostReopen.moves.some(m => m.lapse !== undefined)).toBe(false);
-  expectRetiredVerdict(afterSignedPostReopen, 'versions[n=6].verdicts[review=direction-review]');
 }, 30_000);
 
-test('#587 after a parts-review reopen and a new prepared draft, next awaits the draft parts verdict via job open --draft ahead of any rig-version move', () => {
+test('#587 after a parts-review reopen, next reports the retired verdict gate on a retained draft', () => {
   const dir = join(realpathSync(tempDir()), 'reopen-parts-review-draft-verdict');
   cpSync(join(CHECKPOINTS_DIR, '3-rig-review'), dir, { recursive: true });
   const file = join(dir, 'project.json');
@@ -3197,7 +2873,7 @@ test('#587 after a parts-review reopen and a new prepared draft, next awaits the
     on_items: [{ id: 'rig_type', answer_was: 'user' }],
   });
 
-  // Reopen parts-review, then draft-rig <id>, structure-snapshot --draft <id>, and diff-classes with a triage file.
+  // Reopen parts-review, seed the retained draft, then record its structure and diff evidence.
   const reopenAt = CHAIN_NOW + 3000;
   testClock.set(new Date(reopenAt));
   plantLegacyReopen(dir, 'parts-review', { by: 'user', wordsFile: words });
@@ -3323,7 +2999,7 @@ test.each([
   if (!advance) expect(report.moves.map(move => move.command)).toContain(`rig-create step-status motion done ${dir} --by agent`);
 });
 
-test('#773 a reopened rigging with an unreviewed compiled draft names both the draft review and the plain registration', () => {
+test('#773 a reopened rigging reports retired draft review and registration without suggesting current writes', () => {
   const dir = join(tempDir(), 'reopen-draft');
   cpSync(join(CHECKPOINTS_DIR, '3-rig-review'), dir, { recursive: true });
   const approvalWords = readFileSync(join(dir, 'evidence/approval.txt'), 'utf8');
@@ -3361,7 +3037,8 @@ test('#773 a reopened rigging with an unreviewed compiled draft names both the d
   expect(report.refusals).toEqual([]);
   expectRetiredVerdict(report, `drafts[${draftId}]`);
   expect(report.moves).toContainEqual(expect.objectContaining({
-    role: 'agent', field: 'versions', awaits: 'versions[n=2]', command: expect.stringContaining(`rig-create rig-version 2 ${dir}`),
+    role: 'agent', field: 'versions', awaits: 'versions', command: null,
+    act: expect.stringContaining('Numbered rig registrations are read-only.'),
   }));
   const project = JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')) as JsonObject;
   writeFileSync(join(dir, 'project.json'), JSON.stringify({ ...project, current: {} }));

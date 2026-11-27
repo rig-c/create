@@ -482,7 +482,7 @@ test('#712A model-less rigging changes-requested feeds the next draft', async ()
   const { root, opening, act, evidence } = await reviewedMeshPreview('changes-requested');
   const next = nextProject(root, testClock.now());
   const feedback = next.moves.find(move => move.field === `drafts[${MESH_DRAFT}]` && move.role === 'agent');
-  expect(feedback?.command).toMatch(/^rig-create draft-rig /);
+  expect(feedback?.command).toBeNull();
   expect(feedback?.act).toContain(String(evidence.path));
   expect(feedback?.act).toContain(String(evidence.sha256));
 

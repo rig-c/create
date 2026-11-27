@@ -78,9 +78,9 @@ test('#1106 next routes a live numbered direction bounce through current outputs
     expect(checked.warnings).toContainEqual(expect.objectContaining({ code: 'FEEDBACK_OPEN', path: feedbackPath }));
 
     const numbered = readNext();
-    expect(numbered).toMatchObject({ accepted: false, refusals: [], awaits: ['versions[n=4]'] });
-    expect(numbered.moves).toEqual([expect.objectContaining({ role: 'agent', field: 'versions',
-      command: expect.stringMatching(/^rig-create direction write 4 .* --answers 3:0$/) })]);
+    expect(numbered).toMatchObject({ accepted: false, refusals: [], awaits: ['versions'] });
+    expect(numbered.moves).toEqual([expect.objectContaining({ role: 'agent', field: 'versions', command: null,
+      act: expect.stringContaining('Numbered scenes and posts are read-only.') })]);
 
     // The chain binds a rig model, but never registered adoptable parts, motion, or compose output trees.
     // Adopting the rig alone switches next away from numbered verdict moves.

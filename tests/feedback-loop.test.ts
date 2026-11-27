@@ -75,16 +75,16 @@ function refused(dir: string, code: string, fn: () => unknown) {
   expect(existsSync(join(dir, 'evidence/direction/v3.json'))).toBe(false);
 }
 
-function expectRetiredPostVerdict(report: NextReport) {
-  const field = 'versions[v3].verdicts';
-  const awaits = 'versions[n=3].verdicts[review=direction-review]';
-  expect(report.awaits).toContain(awaits);
-  const moves = report.moves.filter(move => move.field === field || move.awaits === awaits || move.review_act?.kind === 'review-verdict');
-  expect(moves).toEqual([{
-    role: 'human', field, awaits, command: null,
-    act: 'NUMBERED_ACT_RETIRED: Post v3 needs an accepted live direction-review verdict. To continue on the current path, follow the adoption or rebuild instructions in docs/PROJECT.md#adopting-existing-numbered-outputs. To complete the numbered verdict gate, use Create 1.27.0.',
-  }]);
-  return moves[0]!;
+function expectReadOnlyPost(report: NextReport) {
+  expect(report.awaits).toContain('versions');
+  const migration = report.moves.find(move => move.field === 'versions');
+  expect(migration).toMatchObject({
+    role: 'agent', field: 'versions', awaits: 'versions', command: null,
+    act: expect.stringContaining('NUMBERED_ACT_RETIRED: Numbered scenes and posts are read-only.'),
+  });
+  expect(report.moves.some(move => move.field.startsWith('current.') || move.review_act?.stage === 'direction-review'
+    || /^rig-create (?:direction write|scene write)\b/.test(move.command ?? ''))).toBe(false);
+  return migration!;
 }
 
 test('#454 direction write -> human bounce -> next -> repeatable answers -> check -> new verdict', () => {
@@ -98,11 +98,8 @@ test('#454 direction write -> human bounce -> next -> repeatable answers -> chec
   writeFileSync(join(dir, 'project.json'), `${JSON.stringify(seeded, null, 2)}\n`);
   const before = readFileSync(join(dir, 'project.json'));
   const report = nextProject(dir, testClock.now());
-  expect(report.moves[0]).toMatchObject({ role: 'agent', field: 'versions' });
-  expect(report.moves[0]!.command).toContain('direction write 3');
-  expect(report.moves[0]!.command).toContain('--answers 2:0 --answers 2:1');
-  expect(report.moves).toHaveLength(1);
-  expect(report.awaits).toEqual(['versions[n=3]']);
+  expect(report.refusals).toEqual([]);
+  expectReadOnlyPost(report);
   expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
   refused(dir, 'FEEDBACK_UNANSWERED', () => seedCheckedPost(dir, args(dir)));
   expect(seedCheckedPost(dir, [...args(dir), '--answers', '2:0', '--answers', '2:1']).exit).toBe(0);
@@ -111,7 +108,7 @@ test('#454 direction write -> human bounce -> next -> repeatable answers -> chec
   expect(checked.refusals).toEqual([]);
   expect(checked.warnings.filter(w => w.code === 'FEEDBACK_OPEN')).toEqual([]);
   const next = nextProject(dir, testClock.now());
-  expectRetiredPostVerdict(next);
+  expectReadOnlyPost(next);
   expect(next.moves.some(m => m.command?.includes('--answers'))).toBe(false);
 });
 test.each(['missing', 'accepted', 'agent', 'later', 'malformed', 'duplicate'])('#454 retained post answers_feedback refuses %s', kind => {
@@ -151,8 +148,8 @@ test('#454 no-bounce direction write and next preserve previous bytes and output
     schema: 'rig-create/next@1', project_id: projectId, stage: 'direction-review', effective_stage: 'direction-review',
     accepted: false, refusals: [],
   });
-  const migration = expectRetiredPostVerdict(report);
+  const migration = expectReadOnlyPost(report);
   expect(text.stdout.split('\n')[0]).toBe(`next: ${projectId || '(unnamed)'} — stage: direction-review`);
-  expect(text.stdout).toContain(`  [human] (${migration.field} -> ${migration.awaits}) ${migration.act}`);
+  expect(text.stdout).toContain(`  [agent] (${migration.field} -> ${migration.awaits}) ${migration.act}`);
   expect(readFileSync(recordPath)).toEqual(record);
 });

@@ -546,7 +546,11 @@ describe('pre-interview classification (#1075)', () => {
     expect(checkProject(withRealVersionDir).refusals).toEqual([]);
     const nextWithVersion = nextProject(withRealVersionDir, testClock.now());
     expect(nextWithVersion.refusals).toEqual([]);
-    expect(nextWithVersion.awaits).toContain('versions[n=4].verdicts[review=direction-review]');
+    expect(nextWithVersion.awaits).toContain('versions');
+    expect(nextWithVersion.moves).toContainEqual(expect.objectContaining({
+      field: 'versions', command: null, act: expect.stringContaining('Numbered scenes and posts are read-only.'),
+    }));
+    expect(nextWithVersion.moves.some(move => move.field.startsWith('current.'))).toBe(false);
     expect(nextWithVersion.moves.some(move => move.field === 'stage' && move.command?.includes('advance accepted'))).toBe(false);
 
     const withDraft = partsCheckpoint((p) => {

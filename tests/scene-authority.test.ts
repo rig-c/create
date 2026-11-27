@@ -144,17 +144,10 @@ test('a post_composition set without value.scene names interview-options registr
   const beforeSceneReport = nextProject(dir, EXAMPLE_NOW);
   expect(beforeSceneReport.refusals).toEqual([]);
   expect(beforeSceneReport.moves.some(move => move.command?.startsWith('rig-create scene write '))).toBe(false);
-  const registerMove = beforeSceneReport.moves.find(move => move.role === 'agent')!;
-  expect(registerMove).toMatchObject({
-    role: 'agent',
-    field: 'interview.post.items[post_composition].guide',
-    awaits: 'interview.post.items[post_composition].guide',
-    command: `rig-create interview-options post_composition ${dir} --file '<option-set.json>'`,
-    act: expect.stringContaining('value.scene'),
-  });
-  const renderedNext = nextCommand([dir], EXAMPLE_NOW).stdout;
-  expect(renderedNext).toContain(`rig-create interview-options post_composition ${dir} --file '<option-set.json>'`);
-  expect(renderedNext).toContain('value.scene');
+  expect(beforeSceneReport.moves).toContainEqual(expect.objectContaining({
+    role: 'agent', field: 'versions', command: null, act: expect.stringContaining('Numbered scenes and posts are read-only.'),
+  }));
+  expect(nextCommand([dir], EXAMPLE_NOW).stdout).toContain('NUMBERED_ACT_RETIRED: Numbered scenes and posts are read-only.');
 
   // Also verify when a committed agent scene triggers SCENE_CHOICE_MISSING in checkProject / next refusals.
   const withSceneDir = join(tempDir(), 'stored-scene-without-option-scene');
@@ -190,7 +183,7 @@ test('a post_composition set without value.scene names interview-options registr
     command: `rig-create interview-options post_composition ${withSceneDir} --file '<option-set.json>'`,
   }));
 
-  // Follow the repair move end-to-end on the post project: register a scene-bearing set, answer it, and verify next advances to the follow-up.
+  // The shared interview writers still record the repaired choice.
   const now = EXAMPLE_NOW + 1_000;
   const replacementRel = 'evidence/interview/post_composition-with-scene.json';
   const replacementSet: JsonObject = {
@@ -211,8 +204,7 @@ test('a post_composition set without value.scene names interview-options registr
   expect(main(['interview-options', 'post_composition', dir, '--file', replacementRel], now)).toBe(0);
 
   const afterRegister = nextProject(dir, now);
-  const pickMove = afterRegister.moves.find(move => move.command?.startsWith(`rig-create interview-answer post_composition ${dir} `))!;
-  expect(pickMove).toBeDefined();
+  expect(afterRegister.moves.some(move => move.command?.startsWith('rig-create scene write '))).toBe(false);
   const wordsRel = 'evidence/interview/owner-scene-words.txt';
   writeFileSync(join(dir, wordsRel), 'Use the registered background scene.\n');
   const answerNow = now + 1_000;

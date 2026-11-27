@@ -75,7 +75,7 @@ function registerRig(dir: string, n: number, revision: string, at: number, answe
     '--rig', revision, '--at-pointer', '/finished_at', '--by', 'synthetic-agent', ...answers], at);
 }
 
-test('next guides the final chained mesh revision until a later rig retains its bytes', () => {
+test('next keeps numbered rigs read-only and check requires the final chained mesh revision', () => {
   const dir = realpathSync(tempDir());
   try {
     cpSync(join(import.meta.dir, '../templates/example-chain/checkpoints/3-rig-review'), dir, { recursive: true });
@@ -103,19 +103,16 @@ test('next guides the final chained mesh revision until a later rig retains its 
     const seeded = JSON.stringify(project);
     writeFileSync(file, seeded);
 
-    const assertPending = (at: number, answersFeedback: boolean) => {
+    const assertReadOnly = (at: number) => {
       const next = nextProject(dir, at);
       expect(next.refusals).toEqual([]);
-      expect(next.awaits).toEqual(['versions[n=2]']);
-      expect(next.moves).toEqual([
-        expect.objectContaining({ role: 'agent', field: 'versions', awaits: 'versions[n=2]' }),
-      ]);
-      expect(next.moves[0]!.command).toStartWith(`rig-create rig-version 2 ${dir} `);
-      expect(next.moves[0]!.command).toContain(` --rig ${final} `);
-      expect(next.moves[0]!.command?.endsWith(' --answers 1:0')).toBe(answersFeedback);
-      expect(next.moves[0]!.act).toContain("pass that build's run.json to --run-record");
+      expect(next.awaits).toEqual(['versions[n=1].verdicts[review=rig-review]']);
+      expect(next.moves).toEqual([expect.objectContaining({
+        role: 'human', field: 'versions[v1].verdicts', command: null, act: expect.stringContaining('NUMBERED_ACT_RETIRED'),
+      })]);
+      expect(next.moves.some(move => move.field.startsWith('current.'))).toBe(false);
     };
-    assertPending(EXAMPLE_NOW + 1000, true);
+    assertReadOnly(EXAMPLE_NOW + 1000);
     expect(readFileSync(file, 'utf8')).toBe(seeded);
 
     writeFileSync(file, JSON.stringify({ ...project, current: {} }));
@@ -128,17 +125,17 @@ test('next guides the final chained mesh revision until a later rig retains its 
 
     project.versions[0].verdicts = [];
     writeFileSync(file, JSON.stringify(project));
-    assertPending(EXAMPLE_NOW + 1000, false);
+    assertReadOnly(EXAMPLE_NOW + 1000);
     writeFileSync(file, seeded);
 
-    registerRig(dir, 2, first, EXAMPLE_NOW + 2000, ['--answers', '1:0']);
+    expect(registerRig(dir, 2, first, EXAMPLE_NOW + 2000, ['--answers', '1:0']).exit).toBe(0);
     expect(checkProject(dir, undefined, { now: EXAMPLE_NOW + 2000, readOnly: true }).refusals.map(f => f.code))
       .toContain('CORRECTION_MESH_DELTA_REVISION');
     rmSync(join(dir, 'outputs/v2'), { recursive: true, force: true });
     rmSync(join(dir, 'evidence/v2'), { recursive: true, force: true });
     rmSync(join(dir, 'derived/review/v2'), { recursive: true, force: true });
     writeFileSync(file, seeded);
-    assertPending(EXAMPLE_NOW + 2000, true);
+    assertReadOnly(EXAMPLE_NOW + 2000);
 
     expect(registerRig(dir, 2, final, EXAMPLE_NOW + 3000, ['--answers', '1:0']).exit).toBe(0);
     const registered = nextProject(dir, EXAMPLE_NOW + 3000);

@@ -177,6 +177,15 @@ test('#988 recorded bindings into scratch/ refuse from SCRATCH_BINDING_SINCE and
         evidence: { kind: 'parts-verdict', path: 'scratch/verdict.json', sha256: 'a'.repeat(64) },
       }];
     }],
+    ['split.proposal_image dated by proposed_at', 'split.proposal_image', (p, at) => {
+      p.split = {
+        label_values: [],
+        proposal_image: 'scratch/proposal.png',
+        proposed_by: 'agent',
+        proposed_at: at,
+        parts: [],
+      };
+    }],
     ['registration requirements_source.source_path', 'versions[0].registration.requirements_source.source_path', (p, at) => {
       p.versions = [{
         n: 1,

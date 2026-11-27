@@ -106,6 +106,7 @@ function nodeDate(node: JsonObject): string | undefined {
     ?? readableDate(node.drafted_at)
     ?? readableDate(node.adopted_at)
     ?? readableDate(node.updatedAt)
+    ?? readableDate(node.proposed_at)
     ?? actBytesDate(node);
 }
 

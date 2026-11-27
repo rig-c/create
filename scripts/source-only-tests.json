@@ -1,1 +1,12 @@
-[]
+[
+  {
+    "file": "tests/job-open-current.test.ts",
+    "name": "#1065 job open --current parts and --current rig publish review-live.json, bind git commits, and ingest act@10 comments with commit verified",
+    "reason": "Requires @rig-c/review v4.23.0 current selector support (cc546791) ahead of the registry release pin"
+  },
+  {
+    "file": "tests/job-open-current.test.ts",
+    "name": "Bar (#1065 §5a): agent writes to project.json do not republish an open current output, while output file changes do republish",
+    "reason": "Requires @rig-c/review v4.23.0 current selector and §5a send-check support (cc546791) ahead of the registry release pin"
+  }
+]

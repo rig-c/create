@@ -66,7 +66,13 @@ jobs:
             import { writeFileSync } from "node:fs";
             writeFileSync("package.json", JSON.stringify({
               private: true,
-              workspaces: ["core", "parts", "play", "review", "create"]
+              workspaces: ["core", "parts", "play", "review", "create"],
+              overrides: {
+                "@rig-c/core": "workspace:*",
+                "@rig-c/parts": "workspace:*",
+                "@rig-c/play": "workspace:*",
+                "@rig-c/review": "workspace:*"
+              }
             }, null, 2) + "\n");
           '
           bun install --linker=isolated

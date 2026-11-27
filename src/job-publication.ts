@@ -34,8 +34,10 @@ import { humanReviewVerdicts, readVersions } from './review.ts';
 import { isAssembleOnlyDraft } from './draft-layout.ts';
 import { hasCurrentParts, latestPartsApproval, previousPartsApproval, retainedJson } from './structure.ts';
 import { partsStructureSnapshot, shellWord } from './job-acts.ts';
-import { jobHash, pendingPublications, isRecordResult, type JobIdentity } from './job-outbox.ts';
-import { isCurrentProject } from './current.ts';
+import { jobHash, pendingPublications, isRecordResult, type CurrentPublicationOutput, type CurrentPublicationSelector, type JobIdentity, type NumberedPublicationSelector, type PackagePublicationResult } from './job-outbox.ts';
+import { CURRENT_DIRECTION_PATH } from './current-direction.ts';
+import { CURRENT_RIG_MODEL, currentShapeFindings, isCurrentProject } from './current.ts';
+import { resolvePublishedRecordCommit } from './project-step-commit.ts';
 import { decodeReviewAct, PLAN_BOUND_SIGNOFF_STAGES, retainedActBy, reviewActVerdict } from './review-act.ts';
 import { Refusal, refuse } from './refusal.ts';
 import { lockedPackage } from './toolchain-lock.ts';
@@ -45,6 +47,17 @@ export const JOB_READER_ID = 'rig-create/publication-reader/2';
 export const JOB_BINDING_ID = 'rig-create/writer-binding/1';
 export const JOB_ENUMERATOR_ID = 'rig-create/parts-file-references/1';
 export const partsEnumerator = { version: partsPackage.version, enumerate: partsFileReferences };
+export const CURRENT_LIVE_MANIFEST = 'review-live.json';
+export const SUPPORTED_CURRENT_PUBLICATION_OUTPUTS: ReadonlySet<CurrentPublicationOutput> = new Set(['parts', 'rig']);
+
+export function assertSupportedCurrentPublicationOutput(output: CurrentPublicationOutput): void {
+  if (!SUPPORTED_CURRENT_PUBLICATION_OUTPUTS.has(output)) {
+    refuse(
+      'JOB_CURRENT_OUTPUT_UNSUPPORTED',
+      `project.json.current.${output}: Review does not yet inspect rig-create/direction@4 (rig-c/review#1280); publish --current parts or --current rig until Review supports current ${output} specs`,
+    );
+  }
+}
 
 const DRAFT_PACKAGE_ID_PREFIX = 'create-draft-';
 const RIGGING_DRAFT_PACKAGE_ID_PREFIX = 'create-rigging-draft-';
@@ -617,7 +630,7 @@ export function composedPublishedBuildFiles(root: string, project: JsonObject, n
   return { doc, files };
 }
 
-export function publicationSelector(project: JsonObject, n: number): Exclude<JobSelector, { kind: 'draft' }> {
+export function publicationSelector(project: JsonObject, n: number): NumberedPublicationSelector {
   const version = (project.versions as JsonObject[]).find(version => version.n === n);
   if (!version) refuse('JOB_PUBLICATION_INVALID', `versions[v${n}]: result version is missing; restore the recorded version`);
   return version.kind === 'post'
@@ -790,16 +803,252 @@ function answeredDirectionFeedbackContext(project: JsonObject, postVersion: numb
   return answeredDirectionFeedback.length ? { answeredDirectionFeedback } : {};
 }
 
+function currentPaintingReference(
+  root: string,
+  project: JsonObject,
+  label: string,
+  warnings: Finding[] = [],
+): { reference: { id: string; label: string; type: 'image'; path: string; width?: number; height?: number }; file: { path: string; sha256: string } } | undefined {
+  if (project.inputs === undefined || (Array.isArray(project.inputs) && project.inputs.length === 0)) return undefined;
+  let painting: { path: string; sha256: string };
+  try {
+    painting = publishedSourcePainting(root, project, label);
+  } catch (error) {
+    const findings = { dir: root, project, refusals: [] as Finding[], warnings: [] as Finding[] };
+    checkInputs(findings);
+    const legacy = findings.warnings.find(finding => finding.code === 'INPUT_WRITER_MISSING' && finding.path === `inputs[${sourcePaintingIndex(project, label)}]`);
+    if (!legacy) throw error;
+    warnings.push(legacy);
+    return undefined;
+  }
+  let size: { width?: number; height?: number } = {};
+  if (/\.png$/i.test(painting.path)) {
+    try { size = pngDimensions(publicationFile(root, painting.path), painting.path); }
+    catch { refuse('JOB_PUBLICATION_INVALID', `${label}: ${painting.path} needs a valid PNG header; restore the recorded original painting before publishing`); }
+  }
+  return {
+    reference: { id: 'original-painting', label: 'Original painting', type: 'image', path: painting.path, ...size },
+    file: painting,
+  };
+}
+
+export interface CurrentPublicationInspection {
+  readonly manifestBytes: Buffer;
+  readonly parts: JobPublishedContext['parts'];
+  readonly partIds: readonly string[];
+  readonly closureFiles: { path: string; sha256: string }[];
+}
+
+export function inspectCurrentPublication(
+  root: string,
+  project: JsonObject,
+  output: CurrentPublicationOutput,
+  recordHash: string,
+  warnings: Finding[] = [],
+): CurrentPublicationInspection {
+  assertSupportedCurrentPublicationOutput(output);
+  root = realpathSync(root);
+  const label = `current.${output}`;
+  const node = isObject(project.current) ? project.current[output] : undefined;
+  if (!isObject(node)) {
+    refuse('JOB_PUBLICATION_INVALID', `project.json.${label}: no current ${output} output is recorded; run rig-create record ${output} before job open --current ${output}`);
+  }
+  const shape = currentShapeFindings(output, node, project)[0];
+  if (shape) refuse(shape.code, shape.message);
+
+  const seals = new Map<string, string>();
+  const addSeal = (path: string, sha256: string, expectedBytes?: number): void => {
+    const bytes = publicationFile(root, path);
+    if (jobHash(bytes) !== sha256 || (expectedBytes !== undefined && bytes.length !== expectedBytes)) {
+      refuse('JOB_PUBLICATION_INVALID', `project.json.${label}: ${path} differs from its recorded hash; restore the recorded output or rerun rig-create record ${output}`);
+    }
+    const prior = seals.get(path);
+    if (prior !== undefined && prior !== sha256) {
+      refuse('JOB_PUBLICATION_INVALID', `project.json.${label}: ${path} has conflicting publication hashes; restore a single immutable identity`);
+    }
+    seals.set(path, sha256);
+  };
+
+  for (const raw of asArray(node.files).filter(isObject)) {
+    addSeal(String(raw.path), String(raw.sha256), typeof raw.bytes === 'number' ? raw.bytes : undefined);
+  }
+
+  const revision = recordHash.slice(0, 12);
+  const painting = currentPaintingReference(root, project, label, warnings);
+  if (painting) addSeal(painting.file.path, painting.file.sha256);
+
+  if (output === 'parts') {
+    const manifests = [...seals.keys()].filter(path => path === 'outputs/parts/rig/parts.json' || /\/(?:rig|out)\/parts\.json$/.test(path));
+    if (manifests.length !== 1) {
+      refuse('JOB_PUBLICATION_INVALID', `project.json.${label}: expected one recorded parts manifest in ${label}.files; rerun rig-create record parts`);
+    }
+    const manifestPath = manifests[0]!;
+    const manifestBuf = publicationFile(root, manifestPath);
+    const directory = dirname(join(root, manifestPath));
+    let enumerated: ReturnType<typeof partsFileReferences>;
+    try { enumerated = partsEnumerator.enumerate(directory); }
+    catch { refuse('JOB_PUBLICATION_INVALID', `project.json.${label}: official Parts enumeration refused ${manifestPath}; restore the recorded parts output before publishing`); }
+    const images = enumerated.map(row => {
+      const rel = relative(root, resolve(directory, row.path)).split(sep).join('/');
+      const sha256 = jobHash(publicationFile(root, rel));
+      addSeal(rel, sha256);
+      return { ...row, sha256, projectPath: rel };
+    });
+    let parsedParts: unknown;
+    try { parsedParts = (JSON.parse(manifestBuf.toString('utf8')) as { parts?: unknown }).parts; }
+    catch { parsedParts = undefined; }
+    if (!Array.isArray(parsedParts) || parsedParts.length === 0
+      || parsedParts.some(part => !isObject(part as Json) || typeof (part as JsonObject).name !== 'string' || !(part as JsonObject).name)) {
+      refuse('JOB_PUBLICATION_INVALID', `project.json.${label}: ${manifestPath} must declare a non-empty parts list; rerun rig-create record parts`);
+    }
+    const partIds = (parsedParts as { name: string }[]).map(part => part.name);
+    const references: JsonObject[] = images.map((image, index) => ({
+      id: `image-${index}`,
+      label: `${image.role} ${image.path}`,
+      type: 'image',
+      path: image.projectPath,
+    }));
+    if (painting && !images.some(image => image.role === 'painting')) {
+      references.unshift(painting.reference);
+    }
+    const manifest = {
+      schema: 'rig-review/1',
+      id: 'create',
+      revision,
+      title: 'current parts',
+      references,
+      animations: [],
+      checkpoints: [],
+      authoring: [],
+      panels: {
+        schema: 'rig-review/panels@1',
+        left: ['parts.list'],
+        stage: ['parts.canvas'],
+        toolbar: ['parts.layers'],
+        side: ['parts.issues', 'act.submit'],
+      },
+    };
+    const closureFiles = [...seals].sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0).map(([path, sha256]) => ({ path, sha256 }));
+    return {
+      manifestBytes: Buffer.from(`${JSON.stringify(manifest, null, 2)}\n`),
+      parts: {
+        enumeratorVersion: partsEnumerator.version,
+        manifest: { path: manifestPath, sha256: jobHash(manifestBuf) },
+        images: images.map(({ role, path, sha256 }) => ({ role, path, sha256 })),
+      },
+      partIds,
+      closureFiles,
+    };
+  }
+
+  const canonicalModel = output === 'rig' ? CURRENT_RIG_MODEL : 'outputs/direction/check/build/skeleton.model.json';
+  const models = [...seals.keys()].filter(path => path === canonicalModel || path.endsWith('/check/build/skeleton.model.json'));
+  if (models.length !== 1) {
+    refuse('JOB_PUBLICATION_INVALID', `project.json.${label}: expected one compiled skeleton.model.json in ${label}.files; rerun rig-create record ${output}`);
+  }
+  const modelPath = models[0]!;
+  let directionField: { direction?: string } = {};
+  if (output === 'direction') {
+    const builtFrom = asArray(node.built_from).filter(isObject).find(entry => entry.path === CURRENT_DIRECTION_PATH);
+    if (!builtFrom || typeof builtFrom.sha256 !== 'string') {
+      refuse('JOB_PUBLICATION_INVALID', `project.json.${label}: ${CURRENT_DIRECTION_PATH} binding is missing from ${label}.built_from; rerun rig-create record direction`);
+    }
+    addSeal(CURRENT_DIRECTION_PATH, builtFrom.sha256);
+    directionField = { direction: CURRENT_DIRECTION_PATH };
+  }
+  const manifest = {
+    schema: 'rig-review/1',
+    id: 'create',
+    revision,
+    title: `current ${output}`,
+    model: modelPath,
+    ...directionField,
+    references: painting ? [painting.reference] : [],
+    animations: [],
+    checkpoints: [],
+    authoring: [],
+  };
+  const closureFiles = [...seals].sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0).map(([path, sha256]) => ({ path, sha256 }));
+  return {
+    manifestBytes: Buffer.from(`${JSON.stringify(manifest, null, 2)}\n`),
+    parts: null,
+    partIds: [],
+    closureFiles,
+  };
+}
+
+export function prepareCurrentManifest(
+  root: string,
+  project: JsonObject,
+  output: CurrentPublicationOutput,
+  recordHash: string,
+  warnings: Finding[] = [],
+): { path: string; closurePaths: string[] } {
+  root = realpathSync(root);
+  const { manifestBytes, closureFiles } = inspectCurrentPublication(root, project, output, recordHash, warnings);
+  const target = join(root, CURRENT_LIVE_MANIFEST);
+  const existing = existsSync(target) ? publicationFile(root, CURRENT_LIVE_MANIFEST) : undefined;
+  if (!existing || !existing.equals(manifestBytes)) {
+    const tmp = `${target}.${process.pid}-${crypto.randomUUID()}.tmp`;
+    try {
+      writeFileSync(tmp, manifestBytes, { flag: 'wx' });
+      renameSync(tmp, target);
+    } finally {
+      rmSync(tmp, { force: true });
+    }
+  }
+  return {
+    path: CURRENT_LIVE_MANIFEST,
+    closurePaths: [...closureFiles.map(file => file.path), CURRENT_LIVE_MANIFEST],
+  };
+}
+
+function readCurrentPublished(
+  root: string,
+  project: JsonObject,
+  recordHash: string,
+  selector: CurrentPublicationSelector,
+  path: string,
+): JobPublishedContext {
+  if (selector.record !== recordHash || path !== CURRENT_LIVE_MANIFEST) {
+    refuse('JOB_PUBLICATION_INVALID', 'project.json: current publication result differs from its committed record or manifest path; rerun rig-create job open --current');
+  }
+  const { manifestBytes, parts, partIds, closureFiles } = inspectCurrentPublication(root, project, selector.output, recordHash);
+  const manifestDisk = publicationFile(root, CURRENT_LIVE_MANIFEST);
+  if (!manifestDisk.equals(manifestBytes)) {
+    refuse('JOB_PUBLICATION_INVALID', `project.json.current.${selector.output}: ${CURRENT_LIVE_MANIFEST} differs from the expected current manifest; rerun rig-create job open --current ${selector.output}`);
+  }
+  const files = [...closureFiles, { path: CURRENT_LIVE_MANIFEST, sha256: jobHash(manifestDisk) }]
+    .sort((a, b) => a.path < b.path ? -1 : a.path > b.path ? 1 : 0);
+  let pendingCommit: string | undefined;
+  try {
+    pendingCommit = pendingPublications(root).find(entry => !isRecordResult(entry.result)
+      && entry.recordHash === recordHash && isDeepStrictEqual(entry.result.selector, selector))?.commit;
+  } catch { /* Read-only publication contexts without private outbox access fall back to HEAD below. */ }
+  const commit = resolvePublishedRecordCommit(root, recordHash, pendingCommit) ?? resolvePublishedRecordCommit(root, recordHash);
+  return {
+    selector: selector as unknown as JobSelector,
+    plan: null,
+    parts,
+    subjects: [],
+    partIds: [...partIds],
+    files,
+    ...(commit ? { commit } : {}),
+  };
+}
+
 /** Actual public create read contract, called only under the writer's freeze. */
 export const readPublished: JobPublicationReader = async ({ root, record, result }): Promise<JobPublishedContext> => {
   const bytes = publicationFile(root, record.path);
-  if (record.path !== 'project.json' || jobHash(bytes) !== record.sha256 || !result.selector) {
+  const typedResult = result as PackagePublicationResult;
+  if (record.path !== 'project.json' || jobHash(bytes) !== record.sha256 || !typedResult.selector) {
     refuse('JOB_PUBLICATION_INVALID', 'project.json: publication requires the exact committed rig/post record; restore its bound bytes');
   }
   const project = JSON.parse(bytes.toString('utf8')) as JsonObject;
-  if (result.selector.kind === 'draft') return readDraftPublished(root, project, result.selector.id, result.path);
-  const selector = publicationSelector(project, result.selector.version);
-  if (!isDeepStrictEqual(selector, result.selector) || result.path !== liveManifestPath(root, project, selector.version)) {
+  if (typedResult.selector.kind === 'draft') return readDraftPublished(root, project, typedResult.selector.id, typedResult.path);
+  if (typedResult.selector.kind === 'current') return readCurrentPublished(root, project, record.sha256, typedResult.selector, typedResult.path);
+  const selector = publicationSelector(project, typedResult.selector.version);
+  if (!isDeepStrictEqual(selector, typedResult.selector) || typedResult.path !== liveManifestPath(root, project, selector.version)) {
     refuse('JOB_PUBLICATION_INVALID', 'project.json: publication result differs from its recorded version; restore the writer result');
   }
   const answered = selector.kind === 'post' ? answeredDirectionFeedbackContext(project, selector.version) : {};
@@ -918,9 +1167,9 @@ function rigChestLandmarks(root: string, rig: number, packageFiles: Json[]): { c
 
 /** The same rig/post verdict asks are used for writer preflight and the sealed publication. */
 export function livePublicationSubjects(
-  root: string, project: JsonObject, selector: Exclude<JobSelector, { kind: 'draft' }>,
+  root: string, project: JsonObject, selector: NumberedPublicationSelector | CurrentPublicationSelector,
 ): JobPublishedContext['subjects'] {
-  if (isCurrentProject(project)) return [];
+  if (selector.kind === 'current' || isCurrentProject(project)) return [];
   if (selector.kind === 'post') {
     return reviewVerdictSignable(project, selector.version, 'direction-review') ? [{ kind: 'review-verdict', stage: 'direction-review' }] : [];
   }

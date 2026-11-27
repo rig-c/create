@@ -3,7 +3,9 @@ import { createHash, randomUUID } from 'node:crypto';
 import { chmodSync, closeSync, constants, fstatSync, openSync, renameSync, rmSync, writeFileSync, type Stats } from 'node:fs';
 import { basename, dirname, join, posix } from 'node:path';
 import { existsSync, lstatSync, readFileSync } from './check-reads.ts';
+import type { Finding } from './check.ts';
 import type { CurrentKind } from './current.ts';
+import type { CurrentPublicationOutput } from './job-outbox.ts';
 
 type Step = 'scene' | CurrentKind;
 export const OUTPUTS_IGNORE = ['/outputs/*', '!/outputs/parts/'] as const;
@@ -298,4 +300,90 @@ export function commitProjectStep(
   const commit = git(args);
   if (commit.status !== 0) return retry(args, commit.error?.message ?? commit.stderr ?? commit.stdout);
   git(['gc', '--auto']);
+}
+
+function findProjectRepo(dir: string): string | undefined {
+  const collection = basename(dirname(dir)) === 'members' ? dirname(dirname(dir)) : undefined;
+  return existsSync(join(dir, '.git')) ? dir
+    : collection && existsSync(join(collection, 'collection.json')) && existsSync(join(collection, '.git')) ? collection : undefined;
+}
+
+/** Verify that `commit` in the project or collection Git repository holds `project.json` with `recordHash`. */
+export function resolvePublishedRecordCommit(dir: string, recordHash: string, candidate?: string): string | undefined {
+  if (!findProjectRepo(dir)) return undefined;
+  const git = (args: string[], encoding?: BufferEncoding) =>
+    spawnSync('git', ['--literal-pathspecs', ...args], { cwd: dir, ...(encoding ? { encoding } : {}) });
+  let sha = candidate;
+  if (!sha) {
+    const rev = git(['rev-parse', '--verify', '--quiet', 'HEAD^{commit}'], 'utf8');
+    if (rev.status !== 0 || typeof rev.stdout !== 'string') return undefined;
+    sha = rev.stdout.trim();
+  }
+  if (!/^[a-f0-9]{40}$/.test(sha)) return undefined;
+  const shown = git(['show', `${sha}:./project.json`]);
+  if (shown.status !== 0 || !Buffer.isBuffer(shown.stdout)) return undefined;
+  return createHash('sha256').update(shown.stdout).digest('hex') === recordHash ? sha : undefined;
+}
+
+/**
+ * Commit `project.json` and every non-ignored file in the publication closure before publishing a `current` output
+ * (docs/CURRENT-DATA.md §4.2). A missing work tree or failed Git command emits a warning and never blocks publication.
+ */
+export function commitCurrentPublication(
+  dir: string,
+  output: CurrentPublicationOutput,
+  recordHash: string,
+  closurePaths: readonly string[],
+): { commit?: string; warning?: Finding } {
+  if (!findProjectRepo(dir)) {
+    return {
+      warning: {
+        code: 'PROJECT_NOT_IN_GIT',
+        path: 'project.json',
+        message: 'project.json: the project and its collection have no Git work tree; published without a commit',
+      },
+    };
+  }
+  const git = (args: string[]) => spawnSync('git', ['--literal-pathspecs', ...args], { cwd: dir, encoding: 'utf8' });
+  const failed = (args: string[], why: string): { warning: Finding } => ({
+    warning: {
+      code: 'PROJECT_COMMIT_FAILED',
+      path: 'project.json',
+      message: `project.json: ${why.trim() || 'Git exited unsuccessfully'}; retry: cd ${quote(dir)} && git --literal-pathspecs ${args.map(quote).join(' ')}`,
+    },
+  });
+  const candidates = [...new Set(['project.json', ...closurePaths])];
+  const trackedArgs = ['ls-files', '-z', '--', ...candidates];
+  const tracked = git(trackedArgs);
+  if (tracked.status !== 0) return failed(trackedArgs, tracked.error?.message ?? tracked.stderr);
+  const untrackedArgs = ['ls-files', '--others', '--exclude-standard', '-z', '--', ...candidates];
+  const untracked = git(untrackedArgs);
+  if (untracked.status !== 0) return failed(untrackedArgs, untracked.error?.message ?? untracked.stderr);
+  const untrackedPaths = pathsFrom(untracked.stdout);
+  const trackable = [...new Set([...pathsFrom(tracked.stdout), ...untrackedPaths])];
+  if (untrackedPaths.length > 0) {
+    const addArgs = ['add', '--intent-to-add', '--', ...untrackedPaths];
+    const staged = git(addArgs);
+    if (staged.status !== 0) return failed(addArgs, staged.error?.message ?? staged.stderr);
+  }
+  const head = git(['rev-parse', '--verify', '--quiet', 'HEAD^{commit}']);
+  let changedPaths: string[];
+  if (head.status === 0) {
+    if (trackable.length === 0) return {};
+    const diffArgs = ['diff', '--name-status', '--no-renames', '--no-ext-diff', '--relative', '-z', 'HEAD', '--', ...trackable];
+    const diff = git(diffArgs);
+    if (diff.status !== 0) return failed(diffArgs, diff.error?.message ?? diff.stderr);
+    changedPaths = changedPathsFromStatus(diff.stdout).map(entry => entry.path);
+  } else {
+    changedPaths = trackable;
+  }
+  if (changedPaths.length > 0) {
+    const subject = clampSubject(`publish: current ${output} ${recordHash.slice(0, 12)}`);
+    const commitArgs = ['commit', '--only', '-m', subject, '--', ...changedPaths];
+    const committed = git(commitArgs);
+    if (committed.status !== 0) return failed(commitArgs, committed.error?.message ?? committed.stderr ?? committed.stdout);
+    git(['gc', '--auto']);
+  }
+  const commit = resolvePublishedRecordCommit(dir, recordHash);
+  return commit ? { commit } : {};
 }

@@ -1014,7 +1014,16 @@ test('#382 draft publication binds inputs[0] in producer.source, seals it in fil
   });
 
   expect(validateSourceOnlyList(SOURCE_ONLY_TESTS).size).toBe(SOURCE_ONLY_TESTS.length);
-  expect(SOURCE_ONLY_TESTS).toEqual([]);
+  expect(SOURCE_ONLY_TESTS.map(entry => [entry.file, entry.name])).toEqual([
+    [
+      'tests/job-open-current.test.ts',
+      '#1065 job open --current parts and --current rig publish review-live.json, bind git commits, and ingest act@10 comments with commit verified',
+    ],
+    [
+      'tests/job-open-current.test.ts',
+      'Bar (#1065 §5a): agent writes to project.json do not republish an open current output, while output file changes do republish',
+    ],
+  ]);
   expect(validateSourceOnlyList([]).size).toBe(0);
   expect(() =>
     validateSourceOnlyList([

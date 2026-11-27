@@ -66,6 +66,7 @@ import {
 } from './stage-progress.ts';
 import {
   coveredByStepPlan,
+  currentStepPlan,
   hasStageOrder,
   interviewStageOfGuide,
   PLAN_STEPS,
@@ -82,6 +83,7 @@ import {
   stepCoveredByApproval,
   stepPlanValue,
   VALUE_QUESTIONS,
+  type PlanStep,
 } from './stages.ts';
 import type { Json, JsonObject } from './templates.ts';
 import { CURRENT_SCENE_PATH, currentScene, plateRegistration, sceneBinding, sceneBytes, sceneRig, SceneError, validateCurrentScene } from './scene.ts';
@@ -1209,7 +1211,7 @@ function currentPartsAdvanceMove(dir: string): NextMove {
     act: 'Retain a parts-stage check of the recorded current parts in evidence and advance to parts-review.' };
 }
 
-function currentPartsReviewMove(dir: string, project: JsonObject, now: number): NextMove | undefined {
+function currentPartsSnapshotMove(dir: string, project: JsonObject, now: number): NextMove | undefined {
   let target: JsonObject | undefined;
   try {
     target = selectSignoffTarget(dir, project, 'parts-review');
@@ -1218,9 +1220,10 @@ function currentPartsReviewMove(dir: string, project: JsonObject, now: number): 
     return;
   }
   if (!target) return;
-  const awaits = 'signoffs[stage=parts-review]';
+  const awaits = 'current.parts.structure';
   try {
     currentPartsStructureBinding(dir, project, target, undefined, now);
+    return;
   } catch (error) {
     if (!(error instanceof Refusal)) throw error;
     if (error.code !== 'STRUCTURE_DECISIONS_MISSING') {
@@ -1228,11 +1231,86 @@ function currentPartsReviewMove(dir: string, project: JsonObject, now: number): 
         act: `${error.code}: ${error.message}` };
     }
     return { role: 'agent', field: 'current.parts.structure', awaits, command: `rig-create structure-snapshot ${shellWord(dir)}`,
-      act: 'Retain the structure snapshot of the recorded parts before asking for approval.' };
+      act: 'Retain the structure snapshot of the recorded parts.' };
   }
-  return { role: 'human', field: 'signoffs', awaits,
-    command: `rig-create signoff parts-review ${shellWord(dir)} ${OWNER_CHAT_COMMAND_FLAGS}`,
-    act: "Relay the owner's approval of the recorded parts with their exact words, date and relay identity." };
+}
+
+const PLAN_STAGES: Readonly<Record<string, readonly PlanStep[]>> = {
+  'plan-approved': ['parts'],
+  'rigging-interview': ['rigging', 'motion'],
+  'post-interview': ['direction'],
+};
+const OPTIONAL_SIGNOFF_PREFIX = 'optional: if the owner said something about ';
+
+function stagePlanMove(dir: string, project: JsonObject, effectiveStage: string, steps: JsonObject[]): NextMove | undefined {
+  const planSteps = PLAN_STAGES[effectiveStage];
+  if (!planSteps) return;
+  const proposed = planSteps.flatMap(step => {
+    const entry = currentStepPlan(project, step);
+    if (!entry || typeof entry.path !== 'string') return [];
+    try {
+      const text = readFileSync(literalFile(dir, entry.path), 'utf8').trim();
+      return text ? [{ path: entry.path, text }] : [];
+    } catch { return []; }
+  });
+  if (proposed.length > 0) {
+    const source = proposed.map(entry => entry.path).join(', ');
+    const quoted = proposed.length === 1
+      ? JSON.stringify(proposed[0]!.text)
+      : proposed.map(entry => `${entry.path}: ${JSON.stringify(entry.text)}`).join('; ');
+    return {
+      role: 'agent',
+      field: 'interview.step_plans',
+      awaits: 'project.stage',
+      command: null,
+      act: `Tell the owner the plan in chat before advancing (no reply required; from ${source}): ${quoted}`,
+    };
+  }
+  const covered = steps.filter(step => stepCoveredByApproval(project, step, effectiveStage)
+    && typeof step.id === 'string' && typeof step.does === 'string' && step.does.trim() !== '');
+  if (covered.length === 0) return;
+  const ids = covered.map(step => String(step.id)).join(', ');
+  const summary = covered.map(step => `${String(step.id)}: ${String(step.does).trim()}`).join(' ');
+  return {
+    role: 'agent',
+    field: 'plan.steps',
+    awaits: 'project.stage',
+    command: null,
+    act: `Tell the owner the plan in chat before advancing (no reply required; from plan.steps ${ids}): ${JSON.stringify(summary)}`,
+  };
+}
+
+function optionalCurrentSignoffMove(
+  dir: string,
+  project: JsonObject,
+  targetStage: string,
+  hasLiveSignoff: boolean,
+  now: number,
+): NextMove | undefined {
+  if (hasLiveSignoff) return;
+  let command: string | undefined;
+  if (targetStage === 'parts-review') {
+    let target: JsonObject | undefined;
+    try {
+      target = selectSignoffTarget(dir, project, 'parts-review');
+      if (!target) return;
+      currentPartsStructureBinding(dir, project, target, undefined, now);
+    } catch (error) {
+      if (!(error instanceof Refusal)) throw error;
+      return;
+    }
+    command = `rig-create signoff parts-review ${shellWord(dir)} ${OWNER_CHAT_COMMAND_FLAGS}`;
+  } else {
+    command = ownerChatSignoffCommand(dir, project, { kind: 'signoff', stage: targetStage }, `signoff ${targetStage}`);
+  }
+  if (!command) return;
+  return {
+    role: 'human',
+    field: 'signoffs',
+    awaits: `signoffs[stage=${targetStage}]`,
+    command,
+    act: `${OPTIONAL_SIGNOFF_PREFIX}${targetStage}, record it by relay with exact words, owner date and relay identity`,
+  };
 }
 
 function stagedBuild(dir: string, kind: 'parts' | 'rig', from: string): { config: string; packed: boolean } | undefined {
@@ -1625,10 +1703,14 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
     const step = steps.find(step => finding.path === `plan.steps[${String(step.id)}]`);
     return step ? [{ finding, step }] : [];
   });
+  const collection = loadCollection(dir);
+  const allItems = collectItems(project, { collection });
+  const usesLegacyRigInterview = allItems.some(item => item.kind !== 'post'
+    && (pendingInterviewOptions(item) !== undefined
+      || ((item.state.state === 'user' || item.state.state === 'delegated') && !stepPlanValue(project, item, item.state.answer))));
   const hasNumberedOutputs = [project.drafts, project.versions, project.scenes].some(entries => asArray(entries).length > 0);
-  // Start offering outputs when the project reaches parts, after interview and plan approval.
-  const currentPath = !hasNumberedOutputs && (project.stage === 'parts' || isCurrentProject(project));
-  const { blocksOutputMoves, ...derived } = deriveNextProject(dir, project, report, now, steps, staleSteps, currentPath);
+  const currentPath = !hasNumberedOutputs && (isCurrentProject(project) || project.stage === 'parts' || !usesLegacyRigInterview);
+  const { blocksOutputMoves, ...derived } = deriveNextProject(dir, project, report, now, steps, staleSteps, currentPath, collection, allItems);
   let next = derived;
   if (!blocksOutputMoves && derived.stage !== PAUSED_STAGE) {
     const current = project.current === undefined && currentPath ? {} : project.current;
@@ -1690,14 +1772,13 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
 }
 
 function deriveNextProject(dir: string, project: JsonObject, report: CheckReport, now: number,
-  steps: JsonObject[], staleSteps: { finding: Finding; step: JsonObject }[], currentPath: boolean): NextReport & { blocksOutputMoves?: true } {
+  steps: JsonObject[], staleSteps: { finding: Finding; step: JsonObject }[], currentPath: boolean,
+  collection: ReturnType<typeof loadCollection>, allItems: Item[]): NextReport & { blocksOutputMoves?: true } {
   const stage = String(project.stage ?? '');
   const effectiveStage = String(report.effective_stage ?? stage);
   const legacyWrites = !currentPath && !isCurrentProject(project);
   const warnings = report.warnings.filter(w => w.code === 'STRUCTURE_DELTA_REVIEW' || w.code === 'REVIEW_ANSWER_COMMENT_ROUTED'
     || w.code === 'OUTPUT_STALE' || (!legacyWrites && ['FEEDBACK_OPEN', 'REOPEN_SIGNOFF_LAPSED', 'REOPEN_VERDICT_LAPSED'].includes(w.code)));
-  const collection = loadCollection(dir);
-  const allItems = collectItems(project, { collection });
   const splitOrder = hasStageOrder(project);
   const stageItems = allItems.filter(item => interviewStageOfGuide(item.id, item.kind === 'post', splitOrder) === effectiveStage);
   const answers = allItems.flatMap(item => {
@@ -1793,7 +1874,7 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
 
   // A signed current stage is not refused (#981); next still offers the move to the stage after it.
   const currentStageKind = !legacyWrites && isPublishAdvanceStage(stage) ? currentReviewKind(stage) : undefined;
-  const laggingAdvance = stageSignedThrough(project, stage)
+  const laggingAdvance = !currentPath && stageSignedThrough(project, stage)
     && (!currentStageKind || activeCurrentSignoffTargetPath(project, currentStageKind) !== undefined)
     ? resolveLaggingAdvance(dir, project, stage, now)
     : null;
@@ -2003,15 +2084,17 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
             continue;
           }
         }
-        const missingApprovals = missingDirectionStepApprovals(project, allItems);
-        if (missingApprovals.length > 0) {
-          const target = 'signoffs[stage=post-interview]';
-          const ids = missingApprovals.join(',');
-          addAwait(target);
-          moves.push({ role: 'human', field: 'signoffs', awaits: target,
-            command: `rig-create signoff post-interview ${shellWord(dir)} --steps ${ids} ${OWNER_CHAT_COMMAND_FLAGS}`,
-            act: `Re-approve the post-interview steps ${missingApprovals.join(', ')} before writing the replacement post.` });
-          continue;
+        if (!currentPath) {
+          const missingApprovals = missingDirectionStepApprovals(project, allItems);
+          if (missingApprovals.length > 0) {
+            const target = 'signoffs[stage=post-interview]';
+            const ids = missingApprovals.join(',');
+            addAwait(target);
+            moves.push({ role: 'human', field: 'signoffs', awaits: target,
+              command: `rig-create signoff post-interview ${shellWord(dir)} --steps ${ids} ${OWNER_CHAT_COMMAND_FLAGS}`,
+              act: `Re-approve the post-interview steps ${missingApprovals.join(', ')} before writing the replacement post.` });
+            continue;
+          }
         }
       }
       if (!legacyWrites) continue;
@@ -2038,7 +2121,33 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
     if (!legacyWrites && isPublishAdvanceStage(targetStage)) {
       return activeCurrentSignoffTargetPath(project, currentReviewKind(targetStage)) !== undefined;
     }
+    if (currentPath && targetStage === 'parts-review') {
+      return activeCurrentSignoffTargetPath(project, 'parts') !== undefined;
+    }
     return signoffs.some(s => s.stage === targetStage && s.checkpoint === null && liveSignoff(reopens, s.stage, s.at));
+  };
+  const pushCurrentStageProgression = (targetStage: string): void => {
+    const reviewReady = !isPublishAdvanceStage(effectiveStage) || (
+      currentReviewOutput(dir, project, effectiveStage)
+      && !report.warnings.some(w => w.code === 'OUTPUT_STALE' && w.path === `current.${currentReviewKind(effectiveStage)}`)
+    );
+    if (!reviewReady) return;
+    const nextStage = nextStageInOrder(project, stage);
+    const advCmd = nextStage !== null ? candidateAdvance(dir, project, nextStage, now) : null;
+    if (advCmd !== null && nextStage !== null) {
+      const planMove = stagePlanMove(dir, project, effectiveStage, steps);
+      if (planMove) moves.push(planMove);
+      addAwait('project.stage');
+      moves.push({
+        role: 'agent',
+        field: 'stage',
+        awaits: 'project.stage',
+        command: advCmd,
+        act: `advance stage from ${stage} to ${nextStage}`,
+      });
+    }
+    const optionalSignoff = optionalCurrentSignoffMove(dir, project, targetStage, hasLiveStageSignoff(targetStage), now);
+    if (optionalSignoff) moves.push(optionalSignoff);
   };
   const addCurrentReviewSignoff = (targetStage: string, field = 'signoffs', lapse?: NextLapse): void => {
     if (stage === PAUSED_STAGE || stageIndex(effectiveStage) < stageIndex(targetStage)) return;
@@ -2087,6 +2196,7 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
       const signoffEntry = signoffMatch ? rawSignoffs[Number(signoffMatch[1])] : undefined;
       const lapsedStage = typeof signoffEntry?.stage === 'string' ? signoffEntry.stage : effectiveStage;
       const checkpoint = typeof signoffEntry?.checkpoint === 'string' ? signoffEntry.checkpoint : null;
+      if (currentPath && checkpoint === null) continue;
       if (hasStaleApprovalStep(lapsedStage, checkpoint)) continue;
       if (checkpoint !== null && withdrawnCheckpoint(checkpoint)) continue;
       if (checkpoint === null && lapsedStage === effectiveStage && stageHasPendingOptions) continue;
@@ -2173,6 +2283,7 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
     for (const lapsedApproval of amendment.lapsed) {
       const targetStage = lapsedApproval.stage;
       const checkpoint = lapsedApproval.checkpoint ?? null;
+      if (currentPath && checkpoint === null) continue;
       if (hasStaleApprovalStep(targetStage, checkpoint)) continue;
       if (checkpoint !== null && withdrawnCheckpoint(checkpoint)) continue;
       if (checkpoint !== null ? hasLiveCheckpointSignoff(targetStage, checkpoint) : hasLiveStageSignoff(targetStage)) continue;
@@ -2278,7 +2389,8 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
     });
   } else if (isOpenInterviewStage(effectiveStage)) {
     const stepPlans = stepPlanQuestions(dir, project, stageItems, allowPostOptions);
-    for (const move of [...stepPlans.moves, ...interviewQuestionMoves(dir, stepPlans.questionItems, effectiveStage)]) {
+    const questionMoves = [...stepPlans.moves, ...interviewQuestionMoves(dir, stepPlans.questionItems, effectiveStage)];
+    for (const move of questionMoves) {
       addAwait(move.awaits);
       moves.push(move);
     }
@@ -2296,99 +2408,110 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
     const pendingOtherFields = stageItems.filter(hasPendingOther).map(item => item.path);
     const undecidedFields = stageItems.filter(isUndecidedDelegation).map(item => `${item.path}.agent_decision`);
 
-    const signoffAwait = `signoffs[stage=${effectiveStage}]`;
-    if (!stageHasPendingOptions && !hasLiveStageSignoff(effectiveStage) && !recordedLapseTargets.has(signoffAwait)) {
-      addAwait(signoffAwait);
-      const unansweredSignoff = needsPlanSteps
-        ? 'plan.steps'
-        : pendingOtherFields.length > 0
-          ? pendingOtherFields.join(', ')
-          : undecidedFields.length > 0
-            ? undecidedFields.join(', ')
-            : undefined;
-      const fromPicks = pickSignoffEvidence(dir, project, effectiveStage, now);
-      if (fromPicks && !unansweredSignoff && !currentPath) moves.push({
-        role: 'agent', field: 'signoffs', awaits: signoffAwait,
-        command: `rig-create signoff ${effectiveStage} ${shellWord(dir)} --from-picks`,
-        act: `record ${effectiveStage} approval from the ingested owner picks`,
-      });
-      else moves.push({
-        role: 'human',
-        field: 'signoffs',
-        awaits: signoffAwait,
-        command: null,
-        act: needsPlanSteps
-          ? effectiveStage === 'rigging-interview'
-            ? `review-tool act signoff for stage rigging-interview (unanswered by record: ${missingPlanReason} approved at rigging-interview)`
-            : `review-tool act signoff for stage ${effectiveStage} (unanswered by record: ${effectiveStage === 'post-interview' ? missingPlanReason : steps.length === 0 ? 'plan.steps is empty' : 'plan.steps has uncovered parts guides'} in project.json)`
+    if (currentPath) {
+      if (questionMoves.length === 0 && !needsPlanSteps && !stageHasPendingOptions
+        && pendingOtherFields.length === 0 && undecidedFields.length === 0) {
+        pushCurrentStageProgression(effectiveStage);
+      }
+    } else {
+      const signoffAwait = `signoffs[stage=${effectiveStage}]`;
+      if (!stageHasPendingOptions && !hasLiveStageSignoff(effectiveStage) && !recordedLapseTargets.has(signoffAwait)) {
+        addAwait(signoffAwait);
+        const unansweredSignoff = needsPlanSteps
+          ? 'plan.steps'
           : pendingOtherFields.length > 0
-            ? `review-tool act signoff for stage ${effectiveStage} (unanswered by record: ${pendingOtherFields.join(', ')} has pending Other; resolve INTERVIEW_CHOICE_REQUIRED before approval)`
+            ? pendingOtherFields.join(', ')
             : undecidedFields.length > 0
-              ? `review-tool act signoff for stage ${effectiveStage} (unanswered by record: ${undecidedFields.join(', ')} requires agent decision before approval)`
-              : `review-tool act signoff for stage ${effectiveStage}`,
-        review_act: {
-          kind: 'signoff',
-          stage: effectiveStage,
-          ...(jobId ? { job_id: jobId } : {}),
-        },
-        ...(unansweredSignoff !== undefined ? { unanswered_by_record: unansweredSignoff } : {}),
-      });
-    } else if (hasLiveStageSignoff(effectiveStage)) {
-      const nextStage = nextStageInOrder(project, stage);
-      if (nextStage !== null) {
-        const cmd = candidateAdvance(dir, project, nextStage, now);
-        if (cmd !== null) {
-          addAwait('project.stage');
-          moves.push({
-            role: 'agent',
-            field: 'stage',
-            awaits: 'project.stage',
-            command: cmd,
-            act: `advance stage from ${stage} to ${nextStage}`,
-          });
+              ? undecidedFields.join(', ')
+              : undefined;
+        const fromPicks = pickSignoffEvidence(dir, project, effectiveStage, now);
+        if (fromPicks && !unansweredSignoff) moves.push({
+          role: 'agent', field: 'signoffs', awaits: signoffAwait,
+          command: `rig-create signoff ${effectiveStage} ${shellWord(dir)} --from-picks`,
+          act: `record ${effectiveStage} approval from the ingested owner picks`,
+        });
+        else moves.push({
+          role: 'human',
+          field: 'signoffs',
+          awaits: signoffAwait,
+          command: null,
+          act: needsPlanSteps
+            ? effectiveStage === 'rigging-interview'
+              ? `review-tool act signoff for stage rigging-interview (unanswered by record: ${missingPlanReason} approved at rigging-interview)`
+              : `review-tool act signoff for stage ${effectiveStage} (unanswered by record: ${effectiveStage === 'post-interview' ? missingPlanReason : steps.length === 0 ? 'plan.steps is empty' : 'plan.steps has uncovered parts guides'} in project.json)`
+            : pendingOtherFields.length > 0
+              ? `review-tool act signoff for stage ${effectiveStage} (unanswered by record: ${pendingOtherFields.join(', ')} has pending Other; resolve INTERVIEW_CHOICE_REQUIRED before approval)`
+              : undecidedFields.length > 0
+                ? `review-tool act signoff for stage ${effectiveStage} (unanswered by record: ${undecidedFields.join(', ')} requires agent decision before approval)`
+                : `review-tool act signoff for stage ${effectiveStage}`,
+          review_act: {
+            kind: 'signoff',
+            stage: effectiveStage,
+            ...(jobId ? { job_id: jobId } : {}),
+          },
+          ...(unansweredSignoff !== undefined ? { unanswered_by_record: unansweredSignoff } : {}),
+        });
+      } else if (hasLiveStageSignoff(effectiveStage)) {
+        const nextStage = nextStageInOrder(project, stage);
+        if (nextStage !== null) {
+          const cmd = candidateAdvance(dir, project, nextStage, now);
+          if (cmd !== null) {
+            addAwait('project.stage');
+            moves.push({
+              role: 'agent',
+              field: 'stage',
+              awaits: 'project.stage',
+              command: cmd,
+              act: `advance stage from ${stage} to ${nextStage}`,
+            });
+          }
         }
       }
     }
   } else if (effectiveStage === 'plan-approved') {
-    const signoffAwait = 'signoffs[stage=plan-approved]';
-    if (!hasLiveStageSignoff('plan-approved') && !recordedLapseTargets.has(signoffAwait)) {
-      addAwait(signoffAwait);
-      const fromPicks = pickSignoffEvidence(dir, project, effectiveStage, now);
-      const missing = fromPicks ? missingPickSignoffSteps(project, effectiveStage) : [];
-      if (missing.length) {
-        addAwait('plan.steps');
-        moves.push({ role: 'agent', field: 'plan.steps', awaits: 'plan.steps', command: null,
-          act: `add the missing plan steps with plan add: ${missing.join(', ')}`, unanswered_by_record: 'plan.steps' });
-      } else if (fromPicks) moves.push({
-        role: 'agent', field: 'signoffs', awaits: signoffAwait,
-        command: `rig-create signoff ${effectiveStage} ${shellWord(dir)} --from-picks`,
-        act: `record ${effectiveStage} approval from the ingested owner picks`,
-      });
-      else moves.push({
-        role: 'human',
-        field: 'signoffs',
-        awaits: signoffAwait,
-        command: null,
-        act: 'review-tool act signoff for stage plan-approved',
-        review_act: {
-          kind: 'signoff',
-          stage: 'plan-approved',
-          ...(jobId ? { job_id: jobId } : {}),
-        },
-      });
-    } else if (hasLiveStageSignoff('plan-approved')) {
-      const nextStage = nextStageInOrder(project, stage);
-      if (nextStage !== null) {
-        const cmd = candidateAdvance(dir, project, nextStage, now);
-        if (cmd !== null) {
-          addAwait('project.stage');
-          moves.push({
-            role: 'agent',
-            field: 'stage',
-            awaits: 'project.stage',
-            command: cmd,
-            act: `advance stage from ${stage} to ${nextStage}`,
-          });
+    if (currentPath) {
+      pushCurrentStageProgression('plan-approved');
+    } else {
+      const signoffAwait = 'signoffs[stage=plan-approved]';
+      if (!hasLiveStageSignoff('plan-approved') && !recordedLapseTargets.has(signoffAwait)) {
+        addAwait(signoffAwait);
+        const fromPicks = pickSignoffEvidence(dir, project, effectiveStage, now);
+        const missing = fromPicks ? missingPickSignoffSteps(project, effectiveStage) : [];
+        if (missing.length) {
+          addAwait('plan.steps');
+          moves.push({ role: 'agent', field: 'plan.steps', awaits: 'plan.steps', command: null,
+            act: `add the missing plan steps with plan add: ${missing.join(', ')}`, unanswered_by_record: 'plan.steps' });
+        } else if (fromPicks) moves.push({
+          role: 'agent', field: 'signoffs', awaits: signoffAwait,
+          command: `rig-create signoff ${effectiveStage} ${shellWord(dir)} --from-picks`,
+          act: `record ${effectiveStage} approval from the ingested owner picks`,
+        });
+        else moves.push({
+          role: 'human',
+          field: 'signoffs',
+          awaits: signoffAwait,
+          command: null,
+          act: 'review-tool act signoff for stage plan-approved',
+          review_act: {
+            kind: 'signoff',
+            stage: 'plan-approved',
+            ...(jobId ? { job_id: jobId } : {}),
+          },
+        });
+      } else if (hasLiveStageSignoff('plan-approved')) {
+        const nextStage = nextStageInOrder(project, stage);
+        if (nextStage !== null) {
+          const cmd = candidateAdvance(dir, project, nextStage, now);
+          if (cmd !== null) {
+            addAwait('project.stage');
+            moves.push({
+              role: 'agent',
+              field: 'stage',
+              awaits: 'project.stage',
+              command: cmd,
+              act: `advance stage from ${stage} to ${nextStage}`,
+            });
+          }
         }
       }
     }
@@ -2478,6 +2601,14 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
           moves.push(command ? { role: 'agent', field: 'stage', awaits: 'project.stage', command,
             act: 'Advance to parts-review with the retained check of the recorded parts.' } : currentPartsAdvanceMove(dir));
         }
+      } else if (currentPath) {
+        const snapshotMove = currentPartsSnapshotMove(dir, project, now);
+        if (snapshotMove) {
+          addAwait(snapshotMove.awaits);
+          moves.push(snapshotMove);
+        } else {
+          pushCurrentStageProgression('parts-review');
+        }
       } else if (hasLiveStageSignoff('parts-review')) {
         const nextStage = nextStageInOrder(project, stage);
         if (nextStage !== null) {
@@ -2492,12 +2623,6 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
               act: `advance stage from ${stage} to ${nextStage}`,
             });
           }
-        }
-      } else if (currentPath && !recordedLapseTargets.has(signoffAwait)) {
-        const move = currentPartsReviewMove(dir, project, now);
-        if (move) {
-          addAwait(move.awaits);
-          moves.push(move);
         }
       }
     }
@@ -2578,7 +2703,9 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
         }
       }
 
-      if (!legacyWrites) {
+      if (currentPath) {
+        if (effectiveStage === 'rig-review') pushCurrentStageProgression('rig-review');
+      } else if (!legacyWrites) {
         if (effectiveStage === 'rig-review') addCurrentReviewSignoff('rig-review');
       } else if (rigN === null && compiledDraftId !== undefined && compiledVerdict?.value.verdict === 'approved') {
         const move = rigRegistrationMove(dir, nextRigN);
@@ -2630,7 +2757,7 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
       }
 
       const signoffAwait = 'signoffs[stage=rig-review]';
-      if (legacyWrites && !hasLiveStageSignoff('rig-review') && !recordedLapseTargets.has(signoffAwait)
+      if (!currentPath && legacyWrites && !hasLiveStageSignoff('rig-review') && !recordedLapseTargets.has(signoffAwait)
         && !((effectiveStage === 'rig-review' || hasHistoryRig) && (rigN === null || reviewVerdictSignable(project, rigN, 'rig-review')))) {
         addAwait(signoffAwait);
         moves.push({
@@ -2647,7 +2774,7 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
           },
           ...(rigN === null ? { unanswered_by_record: 'versions[kind=rig]' } : {}),
         });
-      } else if (effectiveStage === 'rig-review' && hasLiveStageSignoff('rig-review')) {
+      } else if (!currentPath && effectiveStage === 'rig-review' && hasLiveStageSignoff('rig-review')) {
         const nextStage = nextStageInOrder(project, stage);
         if (nextStage !== null) {
           const cmd = candidateAdvance(dir, project, nextStage, now);
@@ -2743,7 +2870,9 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
         }
       }
 
-      if (!postState) {
+      if (currentPath) {
+        if (effectiveStage === 'direction-review') pushCurrentStageProgression('direction-review');
+      } else if (!postState) {
         if (effectiveStage === 'direction-review') addCurrentReviewSignoff('direction-review');
       } else {
         const { latestPost, postN, nextPostN, missingScene } = postState;
@@ -2824,7 +2953,7 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
 
       if (effectiveStage === 'post') {
         if (legacyWrites || moves.some(move => move.field === 'stage')) addAwait('project.stage');
-      } else if (hasLiveStageSignoff('direction-review')) {
+      } else if (!currentPath && hasLiveStageSignoff('direction-review')) {
         const nextStage = nextStageInOrder(project, stage);
         if (nextStage !== null) {
           const cmd = candidateAdvance(dir, project, nextStage, now);
@@ -2927,7 +3056,8 @@ export function formatNext(report: NextReport | NextCollectionReport): string {
     const label = move.command ?? move.act;
     lines.push(`  [${move.role}] (${move.field} -> ${move.awaits}) ${label}`);
     if (move.command !== null && (ROUTED_ANSWER_COMMENT_PATH.test(move.field) || move.field.startsWith('current.')
-      || move.field === CURRENT_SCENE_PATH || move.field === CURRENT_DIRECTION_PATH)) {
+      || move.field === CURRENT_SCENE_PATH || move.field === CURRENT_DIRECTION_PATH
+      || move.act.startsWith(OPTIONAL_SIGNOFF_PREFIX))) {
       lines.push(`    ${move.act}`);
     }
     if (move.unanswered_by_record) {

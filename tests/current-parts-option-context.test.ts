@@ -76,6 +76,7 @@ test('current parts snapshots bind the exact run config and leave the project re
   const before = readFileSync(join(dir, 'project.json'));
   const out = `evidence/structure/current-parts/${target.record_sha256}.json`;
 
+  expect(() => optionContext(project, stage, now, dir)).toThrow(stale);
   expect(structureSnapshotCommand([dir]).exit).toBe(0);
   const bytes = readFileSync(join(dir, out));
   expect(JSON.parse(bytes.toString('utf8'))).toEqual({
@@ -85,7 +86,9 @@ test('current parts snapshots bind the exact run config and leave the project re
   expect(structureSnapshotCommand([dir]).stdout).toContain('unchanged');
   expect(readFileSync(join(dir, out))).toEqual(bytes);
   expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
-  expect(() => optionContext(project, stage, now, dir)).toThrow(stale);
+  const unsignedContext = optionContext(project, stage, now, dir);
+  expect(unsignedContext).toMatchObject({ kind: 'current-parts', target, run: parts.run, config });
+  expect(unsignedContext.signoff_at).toBeUndefined();
 });
 
 test('mixed records keep historical numbered reads while fresh parts context waits for current approval', () => {

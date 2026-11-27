@@ -17,7 +17,7 @@ const pins = {
   '@rig-c/core': PINNED_PACKAGES['@rig-c/core'],
   [CREATE_PACKAGE]: runningCreateVersion(),
   '@rig-c/parts': PINNED_PACKAGES['@rig-c/parts'],
-  '@rig-c/review': '4.22.0',
+  '@rig-c/review': '4.24.0',
 };
 const legacyPins = { ...PINNED_PACKAGES, '@rig-c/review': '4.22.0' };
 function fixture(dependencies: Record<string, string>) {

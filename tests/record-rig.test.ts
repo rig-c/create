@@ -64,7 +64,7 @@ test('record rig writes current.rig with the §1.3 shape and renames the produce
   expect(treeDigest(join(dir, 'outputs/rig'))).toEqual(producerBytes);
   const node = rig(dir);
   expect(Object.keys(node)).toEqual(['at', 'built_by', 'built_with', 'files', 'files_sha256', 'built_from', 'run', 'report', 'rebuild']);
-  expect(node.built_with).toEqual({ '@rig-c/parts': '2.60.0', '@rig-c/core': '3.9.2' });
+  expect(node.built_with).toEqual({ '@rig-c/parts': '2.61.0', '@rig-c/core': '3.10.0' });
   expect(node.built_from).toEqual([{ path: CONFIG, sha256: sha(readFileSync(join(dir, CONFIG))) }]);
   expect(node.run).toEqual({ path: 'outputs/rig/run.json', sha256: sha(readFileSync(join(dir, 'outputs/rig/run.json'))) });
   expect((node.report as JsonObject).path).toBe('outputs/rig/check/check.json');

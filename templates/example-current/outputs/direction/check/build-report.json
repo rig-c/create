@@ -64,6 +64,10 @@
           "reason": "no animation carries a deform timeline"
         },
         {
+          "code": "A53_DECLARED_SLIDER_COMBINATIONS_KEEP_WINDING",
+          "reason": "rig declares no invariants.deformSliderCombinations"
+        },
+        {
           "code": "A23_PHYSICS_CONSTRAINT_EFFECTIVE",
           "reason": "the skeleton declares no physics constraint"
         },
@@ -162,11 +166,11 @@
       ],
       "failures": [],
       "summary": {
-        "assertions": 52,
+        "assertions": 53,
         "measured": 19,
         "passed": 19,
         "failed": 0,
-        "skipped": 33,
+        "skipped": 34,
         "notInProfile": 0,
         "profile": "rig-play"
       },
@@ -184,7 +188,7 @@
         "profile": "rig-play"
       },
       "here": {
-        "modelSide": 42,
+        "modelSide": 43,
         "restated": 9,
         "notRun": [
           "A00_ROUNDTRIP_PARSE"
@@ -251,6 +255,10 @@
         {
           "code": "A39_DEFORM_KEEPS_TRIANGLE_WINDING",
           "reason": "no animation carries a deform timeline"
+        },
+        {
+          "code": "A53_DECLARED_SLIDER_COMBINATIONS_KEEP_WINDING",
+          "reason": "rig declares no invariants.deformSliderCombinations"
         },
         {
           "code": "A23_PHYSICS_CONSTRAINT_EFFECTIVE",
@@ -347,11 +355,11 @@
       ],
       "failures": [],
       "summary": {
-        "assertions": 52,
+        "assertions": 53,
         "measured": 20,
         "passed": 20,
         "failed": 0,
-        "skipped": 32,
+        "skipped": 33,
         "notInProfile": 0,
         "profile": "rig-play"
       },
@@ -369,7 +377,7 @@
         "profile": "rig-play"
       },
       "here": {
-        "modelSide": 42,
+        "modelSide": 43,
         "restated": 9,
         "notRun": [
           "A00_ROUNDTRIP_PARSE"

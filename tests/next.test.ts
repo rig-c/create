@@ -392,6 +392,13 @@ describe('Frozen Bar 3 — Agent commands never invent human acts', () => {
       const report = nextProject(dir, CHAIN_NOW);
       for (const move of report.moves) {
         if (move.role === 'agent' || move.role === 'producer') {
+          if (move.command === null) {
+            expect(move.role).toBe('agent');
+            expect(move.field).toMatch(/^(?:drafts|versions)$/);
+            expect(move.awaits).toBe(move.field);
+            expect(move.act).toMatch(/^NUMBERED_ACT_RETIRED: Numbered (?:drafts|rig registrations|scenes and posts) are read-only\./);
+            continue;
+          }
           expect(typeof move.command).toBe('string');
           for (const pattern of FORBIDDEN_WRITERS) {
             expect(move.command!).not.toMatch(pattern);

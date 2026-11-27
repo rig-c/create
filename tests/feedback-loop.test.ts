@@ -80,8 +80,8 @@ function expectReadOnlyPost(report: NextReport) {
   const migration = report.moves.find(move => move.field === 'versions');
   expect(migration).toMatchObject({
     role: 'agent', field: 'versions', awaits: 'versions', command: null,
-    act: expect.stringContaining('NUMBERED_ACT_RETIRED: Numbered scenes and posts are read-only.'),
   });
+  expect(migration?.act).toStartWith('NUMBERED_ACT_RETIRED: Numbered scenes and posts are read-only.');
   expect(report.moves.some(move => move.field.startsWith('current.') || move.review_act?.stage === 'direction-review'
     || /^rig-create (?:direction write|scene write)\b/.test(move.command ?? ''))).toBe(false);
   return migration!;

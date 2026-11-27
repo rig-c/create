@@ -1,6 +1,7 @@
-import { afterEach, expect, test } from 'bun:test';
+import { afterAll, afterEach, expect, test } from 'bun:test';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 import { packagesCommand } from '../src/packages-upgrade.ts';
 import { packageUpgradeFindings, packageUpgradeWarnings } from '../src/package-upgrades.ts';
@@ -12,12 +13,28 @@ import { tempDir } from './helpers.ts';
 import { EXAMPLE_ANCHOR, EXAMPLE_NOW } from '../scripts/example-time.ts';
 
 const roots: string[] = [];
+// The staged install resolves @rig-c/create at the running version. A release candidate's version is not on
+// the registry until it is published, so fixtures resolve it from a tarball packed from the tree under test.
+let packedCreate: string | undefined;
+let packedCreateDir: string | undefined;
+afterAll(() => { if (packedCreateDir) rmSync(packedCreateDir, { recursive: true, force: true }); });
+function createOverrides(): Record<string, string> {
+  if (!packedCreate) {
+    const out = packedCreateDir = mkdtempSync(join(tmpdir(), 'rig-create-packed-'));
+    const pack = Bun.spawnSync(['npm', 'pack', '--pack-destination', out], { cwd: join(import.meta.dir, '..'), stdout: 'pipe', stderr: 'pipe' });
+    // Read the tarball from the destination, not npm's stdout: its shape differs between npm versions.
+    const packed = readdirSync(out).filter((name) => name.endsWith('.tgz'));
+    if (pack.exitCode !== 0 || packed.length !== 1) throw new Error(`npm pack failed (exit ${pack.exitCode}, ${packed.length} tarballs): ${pack.stderr.toString()}`);
+    packedCreate = join(out, packed[0]!);
+  }
+  return { [CREATE_PACKAGE]: `file:${packedCreate}` };
+}
 afterEach(() => { for (const dir of roots.splice(0)) rmSync(dir, { recursive: true, force: true }); });
 const pins = {
   '@rig-c/core': PINNED_PACKAGES['@rig-c/core'],
   [CREATE_PACKAGE]: runningCreateVersion(),
   '@rig-c/parts': PINNED_PACKAGES['@rig-c/parts'],
-  '@rig-c/review': '4.22.0',
+  '@rig-c/review': '4.24.0',
 };
 const legacyPins = { ...PINNED_PACKAGES, '@rig-c/review': '4.22.0' };
 function fixture(dependencies: Record<string, string>) {
@@ -25,7 +42,7 @@ function fixture(dependencies: Record<string, string>) {
   const project = readTemplate('project.json');
   const bytes = `${JSON.stringify(project, null, 2)}\n`;
   writeFileSync(join(dir, 'project.json'), bytes);
-  writeFileSync(join(dir, 'package.json'), `${JSON.stringify({ name: 'synthetic-project', private: true, type: 'module', dependencies }, null, 2)}\n`);
+  writeFileSync(join(dir, 'package.json'), `${JSON.stringify({ name: 'synthetic-project', private: true, type: 'module', dependencies, overrides: createOverrides() }, null, 2)}\n`);
   mkdirSync(join(dir, 'node_modules'));
   writeFileSync(join(dir, 'node_modules/sentinel'), 'original-install');
   writeFileSync(join(dir, 'bun.lock'), 'original-lock\n');
@@ -67,7 +84,7 @@ test('malformed present history has the same named refusal in writer and project
 
 test('an older synthetic project upgrades all release pins and changes only the pin lines and package_upgrades on a formatted record', () => {
   const { dir, bytes } = fixture({ ...pins, '@rig-c/parts': '2.23.4', '@rig-c/review': '4.7.0' });
-  const manifest = `${JSON.stringify({ name: 'synthetic-project', private: true, type: 'module', dependencies: { ...pins, '@rig-c/parts': '2.23.4', '@rig-c/review': '4.7.0' } }, null, 2)}\n`;
+  const manifest = `${JSON.stringify({ name: 'synthetic-project', private: true, type: 'module', dependencies: { ...pins, '@rig-c/parts': '2.23.4', '@rig-c/review': '4.7.0' }, overrides: createOverrides() }, null, 2)}\n`;
   writeFileSync(join(dir, 'package.json'), manifest);
   rmSync(join(dir, 'bun.lock'));
   const install = Bun.spawnSync([process.execPath, 'install', '--ignore-scripts'], { cwd: dir, stdout: 'pipe', stderr: 'pipe' });
@@ -150,7 +167,7 @@ test('job open --question publishes after upgrading an actual older synthetic in
     const path = 'evidence/interview/upgrade-motion.json';
     writeFileSync(join(dir, path), JSON.stringify(set, null, 2) + '\n');
     interviewOptionsCommand(['motion', dir, '--file', path], EXAMPLE_NOW);
-    writeFileSync(join(dir, 'package.json'), JSON.stringify({ name: 'synthetic-record-project', private: true, dependencies: { ...pins, '@rig-c/parts': '2.23.4' } }));
+    writeFileSync(join(dir, 'package.json'), JSON.stringify({ name: 'synthetic-record-project', private: true, dependencies: { ...pins, '@rig-c/parts': '2.23.4' }, overrides: createOverrides() }));
     const install = Bun.spawnSync([process.execPath, 'install', '--ignore-scripts'], { cwd: dir, stdout: 'pipe', stderr: 'pipe' });
     expect(install.exitCode).toBe(0);
     packagesCommand(['upgrade', dir, '--by', 'operator'], EXAMPLE_NOW);
@@ -204,7 +221,7 @@ test('adds absent create and review pins while preserving earlier 3-pin history 
   const row = { by: 'earlier-operator', at: new Date(EXAMPLE_NOW - 1000).toISOString(), packages: Object.entries(legacyPins).map(([name, to]) => ({ name, from: null, to })), lock_sha256: '0'.repeat(64) };
   const initialProject = { ...readTemplate('project.json'), package_upgrades: [row] };
   writeFileSync(join(dir, 'project.json'), `${JSON.stringify(initialProject, null, 2)}\n`);
-  const pkg = { name: 'synthetic-project', private: true, dependencies: { ...PINNED_PACKAGES } };
+  const pkg = { name: 'synthetic-project', private: true, dependencies: { ...PINNED_PACKAGES }, overrides: createOverrides() };
   writeFileSync(join(dir, 'package.json'), JSON.stringify(pkg, null, '\t'));
   packagesCommand(['upgrade', dir, '--by', 'operator'], EXAMPLE_NOW);
   const written = readFileSync(join(dir, 'project.json'), 'utf8');

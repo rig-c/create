@@ -72,12 +72,12 @@
       "relayed_by": "example-agent",
       "target": {
         "subject": "current.parts",
-        "record_sha256": "62bcf5bc54145fc68cdd81ee70971d81882a1afd52cd16f7c5a8468569f81067",
+        "record_sha256": "1148adcb683519a290009832b26681c6d6ace38e86e5e0209e610a0d67a800dd",
         "files_sha256": "8086da1cca9944f02b9a2b838c3430e1f8069519661c0df6f33c692c5611ae74"
       },
       "structure": {
-        "path": "evidence/structure/current-parts/62bcf5bc54145fc68cdd81ee70971d81882a1afd52cd16f7c5a8468569f81067.json",
-        "sha256": "22163219716e8f65986e831f4ce68f7e09cf1f2ba9c476878f5316f734e9604b"
+        "path": "evidence/structure/current-parts/1148adcb683519a290009832b26681c6d6ace38e86e5e0209e610a0d67a800dd.json",
+        "sha256": "3e6abf32b38a6f53789e5a156b68c67d36ddb179c986f7ded7b76f98e6389f5a"
       }
     },
     {
@@ -111,13 +111,13 @@
         "signoff_at": "2026-11-27T00:00:18.000Z",
         "target": {
           "subject": "current.parts",
-          "record_sha256": "62bcf5bc54145fc68cdd81ee70971d81882a1afd52cd16f7c5a8468569f81067",
+          "record_sha256": "1148adcb683519a290009832b26681c6d6ace38e86e5e0209e610a0d67a800dd",
           "files_sha256": "8086da1cca9944f02b9a2b838c3430e1f8069519661c0df6f33c692c5611ae74"
         }
       },
       "structure": {
-        "path": "evidence/structure/current-parts/62bcf5bc54145fc68cdd81ee70971d81882a1afd52cd16f7c5a8468569f81067.json",
-        "sha256": "22163219716e8f65986e831f4ce68f7e09cf1f2ba9c476878f5316f734e9604b"
+        "path": "evidence/structure/current-parts/1148adcb683519a290009832b26681c6d6ace38e86e5e0209e610a0d67a800dd.json",
+        "sha256": "3e6abf32b38a6f53789e5a156b68c67d36ddb179c986f7ded7b76f98e6389f5a"
       }
     },
     {
@@ -131,8 +131,8 @@
       "relayed_by": "example-agent",
       "target": {
         "subject": "current.rig",
-        "record_sha256": "23e19079cbe339be16861068e9738a8577a80dc5e17d10a01cd436f2bc2be8b8",
-        "files_sha256": "a1493faa8c4de2e13339b7f8cd5919693bb76805cd277b212ac9107efda9673a"
+        "record_sha256": "ef474110ad0ee758cbf43f73ecbb1b9c9ac851a7e6760d82a63bc8114f8e5240",
+        "files_sha256": "58cf4dc9dcbe9126788c8ee4c588ba3927d4f2cc9984647032a701ce5c5fcde9"
       }
     },
     {
@@ -155,9 +155,9 @@
         "composition": "f51d04b9305f31b6694e7277f9b385aa15c08f3b6c850311e6fcebbd6f18f5ad"
       },
       "answer_hashes": {
-        "camera_depth": "633062b9b27f0325f615d018fb7cdd324ed645966234fc91622b9835b57b7dfb",
-        "post_timing": "62f3c09ff07f77274fdac3417962218eb831c822e32cef2b4f188df61de5b412",
-        "post_composition": "b49f9743f6db88dcb013ceae77b12d499225f6a7fc9f98ddf50a53affc14ef10"
+        "camera_depth": "7f9d364fbb093dd7496739bb5d5a527738d65f9d648033b86da2293dbe01c268",
+        "post_timing": "830a6b55a881b0382c9ec52adc08c2f9e3b5ac6f6575204ae0bb969761f89431",
+        "post_composition": "d8c2d4a23c376e3cb7b09ad3ee22991f463812f36d80089ed2a8e44214080a0e"
       }
     },
     {
@@ -171,13 +171,13 @@
       "relayed_by": "example-agent",
       "target": {
         "subject": "current.direction",
-        "record_sha256": "8025ff1088dff2f212b51ef5b3263519bc26eb202bce94b09effac07be54faec",
-        "files_sha256": "3f9b01e0d28a2734c1a34292e4313e543ca9a417145d36fab528c3aae7daf46f"
+        "record_sha256": "c2c4c7633b6e59102583ea64ef47d9d8c0b7f952aa7833d7a35f16f58b1e5621",
+        "files_sha256": "21673b73bd7aaf4b35c2d19606abf0cccf6ceeb238fe77eb125b5cafd0e2fb18"
       }
     }
   ],
   "interview": {
-    "question_set": "rig-create/interview@2 (waypoints read from @rig-c/parts 2.60.0)",
+    "question_set": "rig-create/interview@2 (waypoints read from @rig-c/parts 2.61.0)",
     "turn_question": "rig-create/turn-question@1",
     "held": false,
     "date": null,
@@ -496,7 +496,7 @@
               "spec": "rig-create/interview-choice@1",
               "set": {
                 "path": "evidence/interview/camera_depth.json",
-                "sha256": "0e4d3d36c64be177b09f1144cfa644d1d9bf963c1cff4dfa4fbd0058c8db02e6"
+                "sha256": "f589d3cf1eeae370dd84a58ff0a045c69920a97ceae9cab67685051a31dfdd3e"
               },
               "picks": [
                 {
@@ -540,7 +540,7 @@
               "spec": "rig-create/interview-choice@1",
               "set": {
                 "path": "evidence/interview/post_timing.json",
-                "sha256": "16d6dd5d55667953c6661e6f24fc3bb6d31861275ec30c74de31418bfb5c1e67"
+                "sha256": "c13ef6385522de8473f7d9225e3efd4be20609ff352a05068cd9f204035decb0"
               },
               "picks": [
                 {
@@ -584,7 +584,7 @@
               "spec": "rig-create/interview-choice@1",
               "set": {
                 "path": "evidence/interview/post_composition.json",
-                "sha256": "564c3c2159105af131012ca1fa7fb42f45b852362cc8b060d2121abaf65efbd3"
+                "sha256": "e8cfb1cf69715f60e65d62d598e3da8ca7304f2b8a50731f8ddad989db05d929"
               },
               "picks": [
                 {
@@ -701,13 +701,13 @@
         "signoff_at": "2026-11-27T00:00:18.000Z",
         "target": {
           "subject": "current.parts",
-          "record_sha256": "62bcf5bc54145fc68cdd81ee70971d81882a1afd52cd16f7c5a8468569f81067",
+          "record_sha256": "1148adcb683519a290009832b26681c6d6ace38e86e5e0209e610a0d67a800dd",
           "files_sha256": "8086da1cca9944f02b9a2b838c3430e1f8069519661c0df6f33c692c5611ae74"
         }
       },
       "structure": {
-        "path": "evidence/structure/current-parts/62bcf5bc54145fc68cdd81ee70971d81882a1afd52cd16f7c5a8468569f81067.json",
-        "sha256": "22163219716e8f65986e831f4ce68f7e09cf1f2ba9c476878f5316f734e9604b"
+        "path": "evidence/structure/current-parts/1148adcb683519a290009832b26681c6d6ace38e86e5e0209e610a0d67a800dd.json",
+        "sha256": "3e6abf32b38a6f53789e5a156b68c67d36ddb179c986f7ded7b76f98e6389f5a"
       }
     }
   },
@@ -1791,7 +1791,7 @@
       "at": "2026-11-27T00:00:15.000Z",
       "built_by": "agent",
       "built_with": {
-        "@rig-c/parts": "2.60.0"
+        "@rig-c/parts": "2.61.0"
       },
       "files": [
         {
@@ -1861,7 +1861,7 @@
         },
         {
           "path": "outputs/parts/run.json",
-          "sha256": "1e9688e14d32b7f52769982dc9c918cd5dfa62438fc33f48373fc01ceae2fd40",
+          "sha256": "660b227d6de0a0bb08fed20fabe9c5536bda0ff0be8b602abf8c7941054c62e4",
           "bytes": 2192
         }
       ],
@@ -1882,7 +1882,7 @@
       ],
       "run": {
         "path": "outputs/parts/run.json",
-        "sha256": "1e9688e14d32b7f52769982dc9c918cd5dfa62438fc33f48373fc01ceae2fd40"
+        "sha256": "660b227d6de0a0bb08fed20fabe9c5536bda0ff0be8b602abf8c7941054c62e4"
       },
       "report": {
         "path": "outputs/parts/check/parts-check.json",
@@ -1893,19 +1893,19 @@
       "at": "2026-11-27T00:00:34.000Z",
       "built_by": "agent",
       "built_with": {
-        "@rig-c/parts": "2.60.0",
-        "@rig-c/core": "3.9.2"
+        "@rig-c/parts": "2.61.0",
+        "@rig-c/core": "3.10.0"
       },
       "files": [
         {
           "path": "outputs/rig/check/build-report.json",
-          "sha256": "140d18ff6863b2456c2c2978881335880fc8a0afafa5aa5fc01b4fa54e3a6626",
-          "bytes": 14974
+          "sha256": "6594a7c153f90c7ea0fee74554c05fbba1b532da45bb50d71402048cca671a4b",
+          "bytes": 15298
         },
         {
           "path": "outputs/rig/check/build/run.json",
-          "sha256": "814d243f547d0ed5f34dd553518c9efa169eec98f5cd7d7fa825d296ac9a482c",
-          "bytes": 1197
+          "sha256": "981eb32f7de207902e3f01aa802338322a4dd91ac603e25b4ddbb3a8c7f83a68",
+          "bytes": 1198
         },
         {
           "path": "outputs/rig/check/build/skeleton.atlas",
@@ -1929,7 +1929,7 @@
         },
         {
           "path": "outputs/rig/check/check-run.json",
-          "sha256": "baad9fac44b13f2fab61904cedeefc44cec3c0fae6d82db93d36f50a7d4a46be",
+          "sha256": "9113521752481aa1724b1f467523f7f093c3dc669267ec2e333830bbfbecbb0a",
           "bytes": 8363
         },
         {
@@ -1944,7 +1944,7 @@
         },
         {
           "path": "outputs/rig/check/gate_spine-html.txt",
-          "sha256": "db2dbd0bef9b6b909ef61b038d857dda8b13d571b5cf2622de4c90d3620f6f86",
+          "sha256": "5256f3b928cd1a3a6386378c7a9c2df3823475011c9f748b27685300b41e3d7a",
           "bytes": 1392
         },
         {
@@ -2209,8 +2209,8 @@
         },
         {
           "path": "outputs/rig/check/idle_frames/render-run.json",
-          "sha256": "dbed973a51e9435386cc6e384b12c48f4fedac4c05bb771549c7c655d0bb4c54",
-          "bytes": 7561
+          "sha256": "26f3f42affb82ccbcb4b88e91368e7a32e4a9c0bc51141c59c400eaded7d9b75",
+          "bytes": 7562
         },
         {
           "path": "outputs/rig/check/motion_heat.png",
@@ -2264,11 +2264,11 @@
         },
         {
           "path": "outputs/rig/run.json",
-          "sha256": "94c2cee98ee163e89e82a615e5ff04b1555eaebb3bf5e16c85183a661cd35de0",
+          "sha256": "421c268b74222fa118037d6929fcc3c1474bb45ab315efee10c2c39fda0f10bf",
           "bytes": 1424
         }
       ],
-      "files_sha256": "a1493faa8c4de2e13339b7f8cd5919693bb76805cd277b212ac9107efda9673a",
+      "files_sha256": "58cf4dc9dcbe9126788c8ee4c588ba3927d4f2cc9984647032a701ce5c5fcde9",
       "built_from": [
         {
           "path": "specs/rig/config.json",
@@ -2277,7 +2277,7 @@
       ],
       "run": {
         "path": "outputs/rig/run.json",
-        "sha256": "94c2cee98ee163e89e82a615e5ff04b1555eaebb3bf5e16c85183a661cd35de0"
+        "sha256": "421c268b74222fa118037d6929fcc3c1474bb45ab315efee10c2c39fda0f10bf"
       },
       "report": {
         "path": "outputs/rig/check/check.json",
@@ -2288,7 +2288,7 @@
         "runs": [
           {
             "path": "outputs/rig/check/check-run.json",
-            "sha256": "baad9fac44b13f2fab61904cedeefc44cec3c0fae6d82db93d36f50a7d4a46be",
+            "sha256": "9113521752481aa1724b1f467523f7f093c3dc669267ec2e333830bbfbecbb0a",
             "spec": "rig-run/2",
             "argv": [
               "check",
@@ -2316,7 +2316,7 @@
       "at": "2026-11-27T00:00:57.000Z",
       "built_by": "agent",
       "built_with": {
-        "@rig-c/core": "3.9.2"
+        "@rig-c/core": "3.10.0"
       },
       "files": [
         {
@@ -2356,8 +2356,8 @@
         },
         {
           "path": "outputs/motion/render-run.json",
-          "sha256": "0bb95a50dc5f13c4e6b66caff5e2eeb64e18310e3d799bde1c2090d8e988096b",
-          "bytes": 1874
+          "sha256": "4e7cd7b6af8edb55cca527019891504acf1120180a7f966a10800d5de455fa80",
+          "bytes": 1875
         }
       ],
       "files_sha256": "06dbcd27bf34a3d9231367d0a3a070a8a30e061fe11316ce6abe82bd7e09e67b",
@@ -2377,14 +2377,14 @@
       ],
       "run": {
         "path": "outputs/motion/render-run.json",
-        "sha256": "0bb95a50dc5f13c4e6b66caff5e2eeb64e18310e3d799bde1c2090d8e988096b"
+        "sha256": "4e7cd7b6af8edb55cca527019891504acf1120180a7f966a10800d5de455fa80"
       },
       "rebuild": {
         "recorded": true,
         "runs": [
           {
             "path": "outputs/motion/render-run.json",
-            "sha256": "0bb95a50dc5f13c4e6b66caff5e2eeb64e18310e3d799bde1c2090d8e988096b",
+            "sha256": "4e7cd7b6af8edb55cca527019891504acf1120180a7f966a10800d5de455fa80",
             "spec": "rigc-run/2",
             "argv": [
               "--candidate",
@@ -2411,13 +2411,13 @@
       "files": [
         {
           "path": "outputs/direction/check/build-report.json",
-          "sha256": "ae767ff1e6f0a12c648b3e7533d752a8b25988c1e8c75cc8048c3fac1fe4f242",
-          "bytes": 14818
+          "sha256": "b2346edb497b5963ff636235bd4e68778f5e940c3abba1994fca7785f9404f9d",
+          "bytes": 15142
         },
         {
           "path": "outputs/direction/check/build/run.json",
-          "sha256": "3fe9a453103937d10b100b4ec4eafcbe1283d7f503ea52dcab247ecf050466c3",
-          "bytes": 1205
+          "sha256": "dde07b641246c17f4c140a6bbdc6a6f1c42ce8c44288b5fae0af386faa3a0c57",
+          "bytes": 1206
         },
         {
           "path": "outputs/direction/check/build/skeleton.atlas",
@@ -2461,7 +2461,7 @@
         },
         {
           "path": "outputs/direction/check/gate_spine-html.txt",
-          "sha256": "fc544c492bf9b6507587a41b4efd3d34648ca8e4d2aae9f8d3a559ce506548b8",
+          "sha256": "c2ce8add4804828fb82e6b59c9003ce6640aec1ca650194130d51d25a87f9f1d",
           "bytes": 1366
         },
         {
@@ -2726,8 +2726,8 @@
         },
         {
           "path": "outputs/direction/check/idle_frames/render-run.json",
-          "sha256": "f96715b488fb3c87872e6e43d50cdb2faf22a050d8555230e7e97f1963bf1920",
-          "bytes": 7561
+          "sha256": "c141666f16876a7ef69e0d356ae9ffe6ccd22bc129b979e8ff4b1da0017be37b",
+          "bytes": 7562
         },
         {
           "path": "outputs/direction/check/motion_heat.png",
@@ -2790,7 +2790,7 @@
           "bytes": 1356
         }
       ],
-      "files_sha256": "3f9b01e0d28a2734c1a34292e4313e543ca9a417145d36fab528c3aae7daf46f",
+      "files_sha256": "21673b73bd7aaf4b35c2d19606abf0cccf6ceeb238fe77eb125b5cafd0e2fb18",
       "built_from": [
         {
           "path": "inputs/background.png",

@@ -68,8 +68,6 @@ folder answers.
 | `outputs/v<N>/` | until discarded | no | One folder per version that was shown to anyone, frozen when shown. Hashes go into `versions[].outputs`. If the user keeps finals elsewhere, `archive` records where. |
 | `scratch/` | none | no | Anything. Deleting it must never lose information; if it would, the file belongs in `evidence/` or `derived/`. |
 
-`scratch/` is the agent's working folder. `init` adds `/scratch/` to `.gitignore`, nothing in the record points into `scratch/` (`SCRATCH_BINDING_FORBIDDEN` in [CHECKS.md](CHECKS.md)), and Create never deletes `scratch/` or anything in it; clearing it is the user's call. Writers that read a file from `scratch/` only to copy its text verbatim into `project.json` (such as `--owner-chat scratch/owner-words.txt` or `--verbatim-file`) are allowed because no `scratch/` path is stored in the record.
-
 ## Stages
 
 `interview` → `plan-approved` → `parts` → `parts-review` → `rigging-interview` → `rigging` →
@@ -731,32 +729,6 @@ From the project root, render the recorded current rig into
 ```text
 rig-create record motion --from outputs/motion.next
 ```
-
-For a looping motion export, the project spec may declare a seam budget.
-Use this starting value in `specs/motion/loop-seam.json` and adjust it to suit the take.
-
-```json
-{
-  "channel_delta": 8,
-  "pixels_above": 0,
-  "warmup_cap": 12
-}
-```
-
-The budget allows at most `pixels_above` pixels whose largest absolute RGBA
-channel difference is strictly greater than `channel_delta`. Core searches from
-zero warm-up loops through `warmup_cap` inclusive. With a budget, `next` adds
-`--loop-seam-bar 8,0 --loop-seam-cap 12` (using the declared numbers) to the
-motion render. Use a Core version that writes `rigc-loop-seam/1`. Older Core can
-accept those flags and still produce no report.
-
-`record motion` binds each reported seam and its endpoint files by SHA-256 in
-`current.motion.files`. It reads Core's verdict and requires a matching judged
-report for every frame set when a budget is declared. `check` warns when an
-already-recorded motion is missing its requested report or the report is
-unjudged, and refuses a report that is invalid or over its bar. Without a
-budget, a render can still be recorded without a seam report. Use Core's
-`--loop-seam` for an observation without a verdict.
 
 Author `specs/direction/compose-scene.json` as a Parts `spine-parts-scene/1`
 with one character, named plates and an explicit idle animation. The
@@ -2587,7 +2559,7 @@ and hyphens, starting with a letter or digit. The reader identity is
 `rig-create/publication-reader/2`. Create opens new hosts in
 `record-and-package` mode. Package and record publications share the host
 identity and owner link. Record publications use the V3 symbols and types
-exported by the release-pinned Review 4.22.0.
+exported by the release-pinned Review 4.24.0.
 
 Eligibility comes from the one `checkProject` call with `readOnly: true`.
 Its effective stage must match the requested option set's stage. Plan
@@ -3120,5 +3092,5 @@ The rest of the frozen compose inventory (`scene.json`, `check/check.json`,
 published. Each published build file must match its recorded hash, and a
 declared build path that Review's `jobPath` rule refuses is
 `JOB_PUBLICATION_INVALID` before anything is written. It does not substitute
-the accepted character package. The release-pinned Review 4.22.0 reads
+the accepted character package. The release-pinned Review 4.24.0 reads
 direction@3.

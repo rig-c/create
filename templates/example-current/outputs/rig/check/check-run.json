@@ -2,7 +2,7 @@
  "spec": "rig-run/2",
  "package": {
   "name": "@rig-c/parts",
-  "version": "2.60.0"
+  "version": "2.61.0"
  },
  "command": "check",
  "started_at": "2026-11-27T00:00:00.000Z",
@@ -10,7 +10,7 @@
  "outputs": [
   {
    "path": "build-report.json",
-   "sha256": "140d18ff6863b2456c2c2978881335880fc8a0afafa5aa5fc01b4fa54e3a6626"
+   "sha256": "6594a7c153f90c7ea0fee74554c05fbba1b532da45bb50d71402048cca671a4b"
   },
   {
    "path": "build/skeleton.atlas",
@@ -38,7 +38,7 @@
   },
   {
    "path": "gate_spine-html.txt",
-   "sha256": "db2dbd0bef9b6b909ef61b038d857dda8b13d571b5cf2622de4c90d3620f6f86"
+   "sha256": "5256f3b928cd1a3a6386378c7a9c2df3823475011c9f748b27685300b41e3d7a"
   },
   {
    "path": "idle_frames/frames.json",

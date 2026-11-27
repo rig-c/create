@@ -517,7 +517,7 @@ the completed definition and execution history.
 After recording every pick, run `interview --check` and relay the owner's
 signature with `signoff interview --owner-chat`. Grouped and single-set
 option publications remain available for viewing and comments in
-[Review 4.22.0](https://github.com/rig-c/review/tree/v4.22.0), including the
+[Review 4.24.0](https://github.com/rig-c/review/tree/v4.24.0), including the
 multi-set route from [Review #1004](https://github.com/rig-c/review/issues/1004).
 After advancing, `next` offers the separate `plan-approved` signature.
 
@@ -543,7 +543,7 @@ SHA-256 are the record's own, and the file joins `files` like any sealed read. A
 record without such a row, or whose named file is absent, publishes no field, as
 before. Earlier stages and option sets never carry it. The field needs a served
 Review with the #983 contract, which the release-pinned
-[Review 4.22.0](https://github.com/rig-c/review/tree/v4.22.0) supports.
+[Review 4.24.0](https://github.com/rig-c/review/tree/v4.24.0) supports.
 A Review host without that contract refuses it with `JOB_SOURCE_MISMATCH`.
 
 ## Rig approval in one sitting

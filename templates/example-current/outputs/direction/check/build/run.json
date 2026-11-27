@@ -2,7 +2,7 @@
   "spec": "rigc-run/1",
   "package": {
     "name": "@rig-c/core",
-    "version": "3.9.2"
+    "version": "3.10.0"
   },
   "command": "build",
   "started_at": "2026-11-27T00:00:00.000Z",
@@ -22,7 +22,7 @@
   "outputs": [
     {
       "path": "../build-report.json",
-      "sha256": "ae767ff1e6f0a12c648b3e7533d752a8b25988c1e8c75cc8048c3fac1fe4f242"
+      "sha256": "b2346edb497b5963ff636235bd4e68778f5e940c3abba1994fca7785f9404f9d"
     },
     {
       "path": "skeleton.atlas",

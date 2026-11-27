@@ -28,13 +28,14 @@ const WORDS = '  Synthetic owner review words.\r\n';
 // Measured 2.59s–3.67s per multi-spawn CLI + live host flow locally; 15_000ms tier avoids 5s default timeout flakes under load.
 const REFRESH_FLOW_TIMEOUT_MS = 15_000;
 const roots: string[] = [];
-const legacyPackageHosts: Awaited<ReturnType<typeof openCreateJob>>[] = [];
+const legacyPackageHosts = new Set<Awaited<ReturnType<typeof openCreateJob>>>();
 const opened: { proc: Bun.Subprocess; root: string }[] = [];
 const checkProject = (dir: string, candidate?: JsonObject, _options?: { now: number }) =>
   rawCheckProject(dir, candidate, { now: testClock.now() });
 
 afterEach(async () => {
-  for (const host of legacyPackageHosts.splice(0)) host.stop();
+  for (const host of legacyPackageHosts) host.stop();
+  legacyPackageHosts.clear();
   for (const { proc, root } of opened.splice(0)) {
     if (readWriterBinding(root) && pendingPublications(root).length === 0) {
       await cli(root, ['job', 'close', root]);
@@ -83,7 +84,7 @@ async function openLegacyNumberedVerdict(root: string, version: number, stage: '
       return declareLegacySubject ? { ...context, subjects: [subject] } : context;
     },
   }));
-  legacyPackageHosts.push(host);
+  legacyPackageHosts.add(host);
   const project = read(root);
   const result = { path: prepareLiveManifest(root, project, version), selector: publicationSelector(project, version) };
   const binding = readWriterBinding(root)!;
@@ -101,7 +102,7 @@ async function openLegacyNumberedVerdict(root: string, version: number, stage: '
     expect(await askDeclaredSubjects(host, publication.publicationId, [subject], false)).toEqual([{ status: 'asked', subject }]);
   });
   declareLegacySubject = false;
-  return { url: new URL(host.ownerUrl) };
+  return { host, url: new URL(host.ownerUrl) };
 }
 
 async function freshRigVerdict(verdict: 'approved' | 'changes-requested' | 'pending' = 'approved') {
@@ -792,10 +793,11 @@ test('#467 source-linked direction verdict then record sign-off ingests and adva
   expect((recordView.head.source as JsonObject).subjects).toEqual([]);
   expect(recordView.asks).toEqual([]);
 
-  // Close the background listener and serve a stored historical record signoff act@4 to exercise compact receipt ingestion and replay.
-  const active = opened.pop()!;
+  // Close the numbered job before serving the historical act@4 from a new record host.
   expectExit0(await cli(root, ['job', 'close', root]));
-  await active.proc.exited;
+  opening.host.stop();
+  legacyPackageHosts.delete(opening.host);
+  expect(readWriterBinding(root)).toBeNull();
   const legacySubjects = [{ kind: 'signoff' as const, stage: 'direction-review' as const }];
   const legacyHost = await openCreateJob(root, { id: 'synthetic-owner', role: 'owner' }, testClock.now(), options => startJobHost({
     ...options,

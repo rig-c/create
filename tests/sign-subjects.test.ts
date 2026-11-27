@@ -14,7 +14,7 @@ import { structureSnapshotCommand } from '../src/structure-snapshot.ts';
 import { diffClassesCommand } from '../src/diff-classes.ts';
 import { advanceCommand } from '../src/progress-writers.ts';
 import { readHostActsAndAsks } from '../src/job-acts.ts';
-import { openCreateJob, publishPending, reconcileCreateJob } from '../src/job-host.ts';
+import { openCreateJob, openDraftPublication, publishPending, reconcileCreateJob } from '../src/job-host.ts';
 import { prepareLiveManifest } from '../src/job-publication.ts';
 import { draftPublicationResult, jobRuntimeExecArgv } from '../src/job-writer.ts';
 import { acknowledgePublication, enqueuePublication, jobHostStateRoot, readAcknowledgedPublication, readWriterBinding, type PublicationSubject } from '../src/job-outbox.ts';
@@ -166,8 +166,9 @@ test('a fresh rig version published in rig-review folds its approval into the di
   const freshRoot = copy('3-rig-review');
   const freshHost = await open(freshRoot);
   await publishRigWithoutAsks(freshRoot, freshHost);
-  for (const subject of [rigVerdictSubject, { kind: 'signoff', stage: 'rig-review' }, { kind: 'signoff', stage: 'direction-review' }] as const) {
-    expect((await ask(freshHost, subject)).error?.code).toBe('JOB_ASK_INVALID');
+  // Review still allows a manual verdict ask. Only the retired signoff asks refuse.
+  for (const stage of ['rig-review', 'direction-review'] as const) {
+    expect((await ask(freshHost, { kind: 'signoff', stage })).error?.code).toBe('JOB_ASK_INVALID');
   }
   const root = copy('3-rig-review');
   const { host, verdict } = await historicalRigVerdict(root);
@@ -293,7 +294,7 @@ test('bar: review-verdict is not declared once the verdict for the displayed ver
 
 // Measured 6690ms for this multi-writer flow; 15000ms bounds it above the default 5s timeout.
 test('bar: a new numbered post publishes without review-verdict even when only the earlier rig has a verdict', async () => {
-  // The earlier rig already has a verdict. Publish the new post through the direction writer.
+  // The earlier rig already has a verdict. Write the new post, then open its numbered view.
   const postRoot = copy('4-direction-post');
   const postHost = await open(postRoot);
   cpSync(join(postRoot, 'derived/drafts/chain/input/parts/background.png'), join(postRoot, 'inputs/background.png'));
@@ -305,8 +306,13 @@ test('bar: a new numbered post publishes without review-verdict even when only t
   writeFileSync(join(postRoot, 'evidence/direction-input.json'), `${JSON.stringify(directionInput, null, 2)}\n`);
   const written = await cli(postRoot, ['direction', 'write', '2', postRoot, '--file', 'evidence/direction-input.json', '--rig', '1']);
   expect({ exit: written.exit, stderr: written.stderr }).toEqual({ exit: 0, stderr: '' });
+  await openDraftPublication(postRoot, postHost, Date.now(), undefined, '2');
+  const publication = postHost.session.status().publication;
+  expect(publication).toMatchObject({ source: { selector: { kind: 'post', version: 2, rigVersion: 1 } } });
   expect(declared(postRoot, postHost)).toEqual([]);
-  expect((await readHostActsAndAsks(postHost)).asks).toEqual([]);
+  const { head, asks } = await readHostActsAndAsks(postHost);
+  expect(head).toBe(publication!.publicationId);
+  expect(asks).toEqual([]);
 }, 15_000);
 
 test('bar: a retained rig approval folds its signature and reopened stages publish without asks', async () => {

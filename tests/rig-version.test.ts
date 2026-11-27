@@ -2675,12 +2675,30 @@ test('#454 no-bounce rig writer and next preserve previous bytes and output', as
   const { nextCommand } = await import('../src/next.ts');
   const f = setup(true);
   const result = rigVersionCommand(f.args);
-  const record = readFileSync(join(f.dir, 'project.json'));
-  const output = (json = false): string => nextCommand([f.dir, ...(json ? ['--json'] : [])], testClock.now()).stdout.replaceAll(f.dir, '<project>');
-  const nextJson = output(true);
-  const nextText = output();
-  expect({ exit: result.exit, stdout: jobHash(result.stdout), record: jobHash(record), nextJson: jobHash(nextJson), nextText: jobHash(nextText) }).toMatchSnapshot();
-  expect(readFileSync(join(f.dir, 'project.json'))).toEqual(record);
+  const path = join(f.dir, 'project.json');
+  const record = readFileSync(path);
+  expect({ exit: result.exit, stdout: jobHash(result.stdout), record: jobHash(record) }).toMatchSnapshot();
+
+  const json = nextCommand([f.dir, '--json'], testClock.now());
+  const text = nextCommand([f.dir], testClock.now());
+  expect([json.exit, text.exit]).toEqual([0, 0]);
+  const report = JSON.parse(json.stdout) as import('../src/next.ts').NextReport;
+  const awaits = 'versions[n=1].verdicts[review=rig-review]';
+  const field = 'versions[v1].verdicts';
+  const projectId = String(f.load().name ?? '');
+  expect(report).toMatchObject({
+    schema: 'rig-create/next@1', project_id: projectId, stage: 'rig-review', effective_stage: 'rig-review',
+    accepted: false, refusals: [],
+  });
+  expect(report.awaits).toContain(awaits);
+  const verdictMoves = report.moves.filter(move => move.field === field || move.awaits === awaits || move.review_act?.kind === 'review-verdict');
+  expect(verdictMoves).toEqual([{
+    role: 'human', field, awaits, command: null,
+    act: 'NUMBERED_ACT_RETIRED: Rig v1 needs an accepted live rig-review verdict. To continue on the current path, follow the adoption or rebuild instructions in docs/PROJECT.md#adopting-existing-numbered-outputs. To complete the numbered verdict gate, use Create 1.26.0.',
+  }]);
+  expect(text.stdout.split('\n')[0]).toBe(`next: ${projectId || '(unnamed)'} — stage: rig-review`);
+  expect(text.stdout).toContain(`  [human] (${field} -> ${awaits}) ${verdictMoves[0]!.act}`);
+  expect(readFileSync(path)).toEqual(record);
 });
 
 test('#1044 next uses the frozen registration config for the adopted rig replacement', async () => {

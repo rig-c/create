@@ -809,24 +809,28 @@ test.each(['rig', 'post'] as const)('current project publishes retained %s for v
   const opening = await open(root, ['--rig', String(version)]);
   expect(opening.lines).toEqual([publishedLine(`${kind} v${version} published`, root)]);
   expect(latestReceipt(root).subjects).toEqual([]);
-  if (kind === 'post') {
-    const writer = await cli(root, ['direction', 'write', '3', root, '--file', 'evidence/direction-input.json', '--rig', '1']);
-    expect(writer).toMatchObject({ exit: 0, stderr: '' });
-    expect(writer.stdout).toContain('direction: v3 committed without publishing');
-    expect(latestReceipt(root)).toMatchObject({ result: { selector: { kind: 'post', version, rigVersion: 1 } }, subjects: [] });
-    expect(pendingPublications(root)).toEqual([]);
-  }
-  const selected = version;
   const person = await page(root, opening.url, 0);
   expect(person.asks).toEqual([]);
   expect(await person.inspect()).toMatchObject({ capabilities: { playback: true, preRig: false } });
   expect(await person.comment(WORDS)).toMatchObject({ kind: 'comments', publicationId: person.head.publicationId,
-    source: { selector: { kind, version: selected } }, value: { comments: [{ text: WORDS }] } });
+    source: { selector: { kind, version } }, value: { comments: [{ text: WORDS }] } });
   const before = readFileSync(file);
   const again = await cli(root, ['job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner']);
-  expect(again).toEqual({ exit: 0, stderr: '', stdout: `${opening.url.href}\n${publishedLine(`${kind} v${selected} already published`, root)}\n` });
+  expect(again).toEqual({ exit: 0, stderr: '', stdout: `${opening.url.href}\n${publishedLine(`${kind} v${version} already published`, root)}\n` });
   expect(latestReceipt(root).publicationId).toBe(person.head.publicationId as string);
   expect(readFileSync(file)).toEqual(before);
+  if (kind === 'post') {
+    const receipt = latestReceipt(root);
+    const writer = await cli(root, ['direction', 'write', '3', root, '--file', 'evidence/direction-input.json', '--rig', '1']);
+    expect(writer).toMatchObject({ exit: 0, stderr: '' });
+    expect(writer.stdout).toContain('direction: v3 committed without publishing');
+    expect((read(root).versions as JsonObject[]).at(-1)).toMatchObject({ n: 3, kind: 'post', rig_version: 1 });
+    expect(latestReceipt(root)).toEqual(receipt);
+    const after = await publication(root, opening.url, 0);
+    expect(after.head.publicationId).toBe(person.head.publicationId);
+    expect(after.asks).toEqual([]);
+    expect(pendingPublications(root)).toEqual([]);
+  }
 }, 30_000);
 
 test('current numbered open and old outbox replay keep immutable verdict subjects without reissuing an ask', async () => {

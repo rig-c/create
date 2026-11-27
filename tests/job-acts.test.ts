@@ -15,9 +15,9 @@ import { amendCommand } from './clock.ts';
 import type { PendingAskV3 } from '@rig-c/review/job-host';
 import { acknowledgePublication, enqueuePublication, JOB_BINDING_FILE, writePrivateJson, jobHash, jobHostStateRoot, jobPrivateRoot, pendingPublications, readWriterBinding, type AcknowledgedPublication } from '../src/job-outbox.ts';
 import { jobRuntimeExecArgv } from '../src/job-writer.ts';
-import { askDeclaredSubjects, listCreateJobActs, openCreateJob, reconcileCreateJob } from '../src/job-host.ts';
+import { listCreateJobActs, openCreateJob, openDraftPublication, reconcileCreateJob } from '../src/job-host.ts';
 import { assertNoPendingJobAsk } from '../src/job-close.ts';
-import { currentJobIdentity, prepareLiveManifest, readPublished, readRecordPublished, type RecordPublicationRequest } from '../src/job-publication.ts';
+import { currentJobIdentity, readRecordPublished, type RecordPublicationRequest } from '../src/job-publication.ts';
 import { JOB_COMMENTS_ACT_SCHEMA, JOB_RECORD_ACT_SCHEMA, parseCommentsAct, parseRecordAct, startJobHost, type ActV3, type JobOwnerHost, type JobHostOptions, type RecordPlanSubject } from '@rig-c/review/job-host';
 import { interviewAnswerCommand } from '../src/choice-writers.ts';
 import { reviewActFindings } from '../src/review-act.ts';
@@ -266,30 +266,21 @@ async function executePrinted(root: string, command: string) {
 }
 
 async function openRetainedVerdict(root: string, kind: 'rig' | 'post') {
-  const subject = { kind: 'review-verdict' as const, stage: kind === 'rig' ? 'rig-review' as const : 'direction-review' as const };
-  const selector = kind === 'rig' ? { kind, version: 1 } : { kind, version: 2, rigVersion: 1 };
-  const host = await openCreateJob(root, { id: 'synthetic-owner', role: 'owner' }, testClock.now(), options => startJobHost({
-    ...options,
-    readPublished: async input => ({ ...await readPublished(input), subjects: [subject] }),
-  }));
+  const now = testClock.now();
+  const host = await openCreateJob(root, { id: 'synthetic-owner', role: 'owner' }, now);
   try {
-    const path = prepareLiveManifest(root, read(root), selector.version);
-    const entry = enqueuePublication(root, readWriterBinding(root)!, { path, selector });
-    expect(pendingPublications(root)).toEqual([entry]);
-    expect(await reconcileCreateJob(root, async pending => {
-      const requestId = randomUUID();
-      const reply = await agentCall(host, {
-        verb: 'publish', requestId, idempotencyKey: requestId, expectedGeneration: 0,
-        result: pending.result,
-        freeze: { kind: 'producer-held', holdId: pending.id, record: { path: 'project.json', sha256: pending.recordHash } },
-      });
-      expect(reply.ok).toBe(true);
-      const { publication, generation } = host.session.status();
-      expect(await askDeclaredSubjects(host, publication!.publicationId, [subject], false))
-        .toEqual([{ subject, status: 'asked' }]);
-      acknowledgePublication(pending, publication!.publicationId, generation, requestId, [subject]);
-    })).toBe(1);
-    expect(pendingPublications(root)).toEqual([]);
+    await openDraftPublication(root, host, now, undefined, kind === 'rig' ? '1' : '2');
+    const { publication, generation } = host.session.status();
+    // Create opens an askless view. Model an already-issued ask via Review's manual package API.
+    const reply = await agentCall(host, {
+      schema: 'rig-review/job-api@2',
+      verb: 'ask',
+      publicationId: publication!.publicationId,
+      expectedGeneration: generation,
+      idempotencyKey: randomUUID(),
+      subject: { kind: 'review-verdict', stage: kind === 'rig' ? 'rig-review' : 'direction-review' },
+    });
+    expect(reply.ok, JSON.stringify(reply.error)).toBe(true);
     return { host, url: new URL(host.ownerUrl) };
   } catch (error) {
     host.stop();
@@ -1899,7 +1890,11 @@ test('#711 relayed rigging-interview signoff unblocks draft publication on the s
   expectExit0(recorded);
   const draftResult = JSON.parse(recorded.stdout) as { id: string; publication: { status: string; lines: string[] } };
   expect(draftResult.id).toBe('next');
-  expect(draftResult.publication, draftResult.publication.lines.join('\n')).toMatchObject({ status: 'published' });
+  expect(draftResult.publication, draftResult.publication.lines.join('\n')).toMatchObject({ status: 'deferred' });
+  expect(draftResult.publication.lines.join('\n')).toContain('no owner ask is ready');
+  expect(arr(read(root).drafts).map(obj)).toContainEqual(expect.objectContaining({ id: 'next' }));
+  const openedDraft = await cli(root, ['job', 'open', root, '--draft', 'next', '--reviewer', 'synthetic-owner', '--role', 'owner']);
+  expectExit0(openedDraft);
   const next = await page(root, opening.url, 0);
   expect(next.head.publicationId).not.toBe(planPublicationId);
   expect(next.asks).toEqual([]);

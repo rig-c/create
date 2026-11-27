@@ -131,7 +131,7 @@ function isRecordAdoption(command: string | null): boolean {
 function expectRetiredVerdict(report: NextReport, awaits: string): void {
   expect(report.awaits).toContain(awaits);
   const moves = report.moves.filter(move => move.awaits === awaits);
-  expect(moveTuples(moves)).toEqual([['agent', null, null]]);
+  expect(moveTuples(moves)).toEqual([['human', null, null]]);
   expect(moves[0]?.act).toContain('NUMBERED_ACT_RETIRED');
   expect(moves[0]?.act).toContain(`Create ${LAST_NUMBERED_CREATE_RELEASE}`);
 }

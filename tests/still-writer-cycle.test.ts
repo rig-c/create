@@ -31,7 +31,7 @@ test('writer-only draft, parts approval, new producer build and verdict ingestio
     for (const item of arr(obj(obj(project.interview).post).items).map(obj)) item.guide = null;
     project.scenes = [];
     obj(project.direction_contract).grandfathered_posts = [];
-  }, 'example-project.json', {}, true);
+  }, 'example-numbered/example-project.json', {}, true);
   // Drop the seed's output files before any writer runs; the cycle registers
   // only the fresh producer build below.
   rmSync(join(dir, 'outputs'), { recursive: true, force: true });

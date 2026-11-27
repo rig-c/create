@@ -1673,7 +1673,7 @@ function partsRetouchMoves(dir: string, project: JsonObject, draft: JsonObject):
 
 function numberedVerdictUnavailable(field: string, awaits: string, detail: string): NextMove {
   return {
-    role: 'agent', field, awaits, command: null,
+    role: 'human', field, awaits, command: null,
     act: `NUMBERED_ACT_RETIRED: ${detail} To continue on the current path, follow the adoption or rebuild instructions in docs/PROJECT.md#adopting-existing-numbered-outputs. To complete the numbered verdict gate, use Create ${LAST_NUMBERED_CREATE_RELEASE}.`,
   };
 }

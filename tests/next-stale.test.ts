@@ -484,7 +484,7 @@ test('next gives numbered rig migration guidance for a project without current',
   const awaits = 'versions[n=1].verdicts[review=rig-review]';
   expect(report.awaits).toContain(awaits);
   expect(report.moves.filter(move => move.awaits === awaits)).toMatchObject([{
-    role: 'agent', command: null, act: expect.stringContaining('NUMBERED_ACT_RETIRED'),
+    role: 'human', command: null, act: expect.stringContaining('NUMBERED_ACT_RETIRED'),
   }]);
   expect(report.moves.some(move => move.review_act?.kind === 'review-verdict')).toBe(false);
 });

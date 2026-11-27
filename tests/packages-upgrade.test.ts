@@ -1,6 +1,6 @@
 import { afterAll, afterEach, expect, test } from 'bun:test';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 import { packagesCommand } from '../src/packages-upgrade.ts';
@@ -21,10 +21,11 @@ afterAll(() => { if (packedCreateDir) rmSync(packedCreateDir, { recursive: true,
 function createOverrides(): Record<string, string> {
   if (!packedCreate) {
     const out = packedCreateDir = mkdtempSync(join(tmpdir(), 'rig-create-packed-'));
-    const pack = Bun.spawnSync(['npm', 'pack', '--pack-destination', out, '--json'], { cwd: join(import.meta.dir, '..'), stdout: 'pipe', stderr: 'pipe' });
-    if (pack.exitCode !== 0) throw new Error(`npm pack failed: ${pack.stderr.toString()}`);
-    const [{ filename }] = JSON.parse(pack.stdout.toString()) as { filename: string }[];
-    packedCreate = join(out, filename);
+    const pack = Bun.spawnSync(['npm', 'pack', '--pack-destination', out], { cwd: join(import.meta.dir, '..'), stdout: 'pipe', stderr: 'pipe' });
+    // Read the tarball from the destination, not npm's stdout: its shape differs between npm versions.
+    const packed = readdirSync(out).filter((name) => name.endsWith('.tgz'));
+    if (pack.exitCode !== 0 || packed.length !== 1) throw new Error(`npm pack failed (exit ${pack.exitCode}, ${packed.length} tarballs): ${pack.stderr.toString()}`);
+    packedCreate = join(out, packed[0]!);
   }
   return { [CREATE_PACKAGE]: `file:${packedCreate}` };
 }

@@ -1,10 +1,21 @@
 import { afterEach, expect, test } from 'bun:test';
-import { readFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { cpSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { main } from '../src/cli.ts';
 import { collectItems } from '../src/check.ts';
-import { resolveAnswerValue } from '../src/scene-authority.ts';
+import { optionContext } from '../src/choices.ts';
+import { nextCommand, nextProject, remedyForFinding } from '../src/next.ts';
+import {
+  SCENE_CHOICE_MISSING,
+  SCENE_CHOICE_MISSING_REMEDY,
+  resolveAnswerValue,
+} from '../src/scene-authority.ts';
+import { selectAnswerHashes } from '../src/signoff-answers.ts';
 import type { JsonObject } from '../src/templates.ts';
+import { EXAMPLE_NOW } from '../scripts/example-time.ts';
 import { sceneCommand, testClock } from './clock.ts';
+import { tempDir } from './helpers.ts';
 import { sceneFixture } from './scene-fixture.ts';
 
 afterEach(() => testClock.reset());
@@ -80,4 +91,133 @@ test('the shared scene checker rechecks agent input receipt metadata', async () 
   const ctx = { dir: f.dir, project, refusals: [] as import('../src/check.ts').Finding[] };
   checkScenes(ctx);
   expect(ctx.refusals.map(f => f.code)).toEqual(['SCENE_INPUT_RECEIPT_MISSING']);
+});
+
+test('a post_composition set without value.scene names interview-options registration in the refusal and next moves', () => {
+  expect(remedyForFinding(SCENE_CHOICE_MISSING, 'placeholder')).toBe(SCENE_CHOICE_MISSING_REMEDY);
+
+  const hash = (bytes: string | Uint8Array): string => createHash('sha256').update(bytes).digest('hex');
+  const dir = join(tempDir(), 'scene-choice-repair');
+  const chainDir = join(import.meta.dir, '../templates/example-chain');
+  cpSync(join(chainDir, 'checkpoints/4-direction-post'), dir, { recursive: true });
+  cpSync(join(chainDir, 'inputs/background.png'), join(dir, 'inputs/background.png'));
+  expect(main(['input', 'add', 'inputs/background.png', dir, '--origin', 'synthetic plate'], EXAMPLE_NOW)).toBe(0);
+
+  const projectPath = join(dir, 'project.json');
+  const project = JSON.parse(readFileSync(projectPath, 'utf8')) as JsonObject;
+  const answer = answerOf(project);
+  const binding = (answer.choice as JsonObject).set as JsonObject;
+  const setPath = join(dir, String(binding.path));
+  const set = JSON.parse(readFileSync(setPath, 'utf8')) as JsonObject;
+  const noSceneValue = { framing: 'keep the synthetic lighthouse in frame', light: 'as painted' };
+  for (const option of ((set.asks as JsonObject[])[0]!.options as JsonObject[])) {
+    if (option.kind === 'value') option.fragment = noSceneValue;
+  }
+  const setBytes = `${JSON.stringify(set, null, 2)}\n`;
+  writeFileSync(setPath, setBytes);
+  binding.sha256 = hash(setBytes);
+  answer.value = noSceneValue;
+  for (const signoff of (project.signoffs as JsonObject[])) {
+    const hashes = selectAnswerHashes(dir, project, signoff);
+    if (hashes) signoff.answer_hashes = hashes;
+  }
+  writeFileSync(projectPath, `${JSON.stringify(project, null, 2)}\n`);
+  writeFileSync(join(dir, 'evidence/scene-citations.json'), JSON.stringify({
+    background: { guide: 'post_composition', asks: ['post_composition'], quote: answer.verbatim },
+  }));
+
+  testClock.set(EXAMPLE_NOW);
+  const beforeRefusal = readFileSync(projectPath);
+  expect(() => sceneCommand([
+    'write', '--rig', '1', '--background', 'inputs/background.png', '--citations-file', 'evidence/scene-citations.json', dir,
+  ])).toThrow(expect.objectContaining({
+    code: SCENE_CHOICE_MISSING,
+    message: expect.stringContaining(
+      'rig-create interview-options post_composition [<dir>] --file <retained project-relative JSON>',
+    ),
+  }));
+  expect(readFileSync(projectPath)).toEqual(beforeRefusal);
+
+  const beforeSceneReport = nextProject(dir, EXAMPLE_NOW);
+  expect(beforeSceneReport.refusals).toEqual([]);
+  expect(beforeSceneReport.moves.some(move => move.command?.startsWith('rig-create scene write '))).toBe(false);
+  const registerMove = beforeSceneReport.moves.find(move => move.role === 'agent')!;
+  expect(registerMove).toMatchObject({
+    role: 'agent',
+    field: 'interview.post.items[post_composition].guide',
+    awaits: 'interview.post.items[post_composition].guide',
+    command: `rig-create interview-options post_composition ${dir} --file '<option-set.json>'`,
+    act: expect.stringContaining('value.scene'),
+  });
+  const renderedNext = nextCommand([dir], EXAMPLE_NOW).stdout;
+  expect(renderedNext).toContain(`rig-create interview-options post_composition ${dir} --file '<option-set.json>'`);
+  expect(renderedNext).toContain('value.scene');
+
+  // Also verify when a committed agent scene triggers SCENE_CHOICE_MISSING in checkProject / next refusals.
+  const withSceneDir = join(tempDir(), 'stored-scene-without-option-scene');
+  cpSync(chainDir, withSceneDir, { recursive: true });
+  const storedProjectPath = join(withSceneDir, 'project.json');
+  const storedProject = JSON.parse(readFileSync(storedProjectPath, 'utf8')) as JsonObject;
+  const storedAnswer = answerOf(storedProject);
+  const storedBinding = (storedAnswer.choice as JsonObject).set as JsonObject;
+  const storedSetPath = join(withSceneDir, String(storedBinding.path));
+  const storedSet = JSON.parse(readFileSync(storedSetPath, 'utf8')) as JsonObject;
+  for (const option of ((storedSet.asks as JsonObject[])[0]!.options as JsonObject[])) {
+    if (option.kind === 'value') option.fragment = noSceneValue;
+  }
+  const storedSetBytes = `${JSON.stringify(storedSet, null, 2)}\n`;
+  writeFileSync(storedSetPath, storedSetBytes);
+  storedBinding.sha256 = hash(storedSetBytes);
+  storedAnswer.value = noSceneValue;
+  for (const signoff of (storedProject.signoffs as JsonObject[])) {
+    const hashes = selectAnswerHashes(withSceneDir, storedProject, signoff);
+    if (hashes) signoff.answer_hashes = hashes;
+  }
+  writeFileSync(storedProjectPath, `${JSON.stringify(storedProject, null, 2)}\n`);
+
+  const refusalReport = nextProject(withSceneDir, EXAMPLE_NOW);
+  const sceneRefusal = refusalReport.refusals.find(r => r.code === SCENE_CHOICE_MISSING)!;
+  expect(sceneRefusal).toBeDefined();
+  expect(sceneRefusal.fix).toBe(SCENE_CHOICE_MISSING_REMEDY);
+  expect(sceneRefusal.fix).toContain('rig-create interview-options post_composition [<dir>] --file <retained project-relative JSON>');
+  expect(sceneRefusal.fix).toContain('rig-create interview-answer post_composition [<dir>]');
+  expect(refusalReport.moves).toContainEqual(expect.objectContaining({
+    role: 'agent',
+    field: 'interview.post.items[post_composition].guide',
+    command: `rig-create interview-options post_composition ${withSceneDir} --file '<option-set.json>'`,
+  }));
+
+  // Follow the repair move end-to-end on the post project: register a scene-bearing set, answer it, and verify next advances to the follow-up.
+  const now = EXAMPLE_NOW + 1_000;
+  const replacementRel = 'evidence/interview/post_composition-with-scene.json';
+  const replacementSet: JsonObject = {
+    ...structuredClone(set),
+    id: 'post-composition-with-scene',
+    drafted_at: new Date(now).toISOString(),
+    context: optionContext(project, 'post-interview', now, dir),
+  };
+  const sceneFragment = {
+    ...noSceneValue,
+    scene: { background: { path: 'inputs/background.png', rect: { x: -64, y: 0, width: 128, height: 128 } } },
+  };
+  for (const option of ((replacementSet.asks as JsonObject[])[0]!.options as JsonObject[])) {
+    if (option.kind === 'value') option.fragment = sceneFragment;
+  }
+  const replacementBytes = `${JSON.stringify(replacementSet, null, 2)}\n`;
+  writeFileSync(join(dir, replacementRel), replacementBytes);
+  expect(main(['interview-options', 'post_composition', dir, '--file', replacementRel], now)).toBe(0);
+
+  const afterRegister = nextProject(dir, now);
+  const pickMove = afterRegister.moves.find(move => move.command?.startsWith(`rig-create interview-answer post_composition ${dir} `))!;
+  expect(pickMove).toBeDefined();
+  const wordsRel = 'evidence/interview/owner-scene-words.txt';
+  writeFileSync(join(dir, wordsRel), 'Use the registered background scene.\n');
+  const answerNow = now + 1_000;
+  expect(main([
+    'interview-answer', 'post_composition', dir,
+    '--set', replacementRel, '--sha256', hash(replacementBytes),
+    '--by', 'user',
+    '--owner-chat', join(dir, wordsRel), '--said-at', new Date(answerNow - 500).toISOString(), '--relayed-by', 'operator',
+    '--pick', 'post_composition=keep',
+  ], answerNow)).toBe(0);
 });

@@ -16,9 +16,10 @@ import { Refusal } from '../src/refusal.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { arr, fixture, obj, waypoint } from './fixtures.ts';
 import { clockedCli, gitEnv, run, stagedCreateRegistry } from './helpers.ts';
+import { seedStoredReviewVerdictAct, seedStoredVerdict } from './historical-review-fixture.ts';
 import { framedRigPin } from './comment-anchor-shapes.ts';
 import { openCreateJob, reconcileCreateJob } from '../src/job-host.ts';
-import { acknowledgePublication, acquireJobLock, enqueuePublication, jobHash, jobHostStateRoot, jobPrivateRoot, pendingPublications, readWriterBinding, reconcilePublication } from '../src/job-outbox.ts';
+import { acknowledgePublication, enqueuePublication, jobHash, jobHostStateRoot, jobPrivateRoot, pendingPublications, readWriterBinding, reconcilePublication } from '../src/job-outbox.ts';
 import { prepareLiveManifest, readPublished, readRecordPublished } from '../src/job-publication.ts';
 /** Retired accepted-parts contract date (#981): kept as a fixture time only. */
 const RIG_PARTS_APPROVAL_SINCE = '2026-11-19T00:00:00Z';
@@ -2366,9 +2367,8 @@ describe('frozen rig registration', () => {
   });
 });
 
-describe('#812/#929 live rig feedback', () => {
-  test.each(['no route', 'first ingest', 'already ingested', 'closed receipt', 'ambiguous comments',
-    'approved verdict', 'pinned comment', 'mixed comments'] as const)('%s', async mode => {
+describe('#812/#929 historical live rig feedback and citation check', () => {
+  test.each(['no route', 'routed', 'pinned comment'] as const)('%s', async mode => {
     const { dir: fixtureDir, args, load } = setup(true);
     const dir = realpathSync(fixtureDir);
     const words = '  Add a keyed wind motion.\r\n';
@@ -2378,7 +2378,6 @@ describe('#812/#929 live rig feedback', () => {
     project.inputs = [{ path: 'inputs/painting.png', sha256: jobHash(painting),
       bytes: painting.length, origin: 'synthetic original painting', at: testClock.iso() }];
     const signoffs = arr(project.signoffs);
-    // Motion was answered after the initial interview and signed with its rig plan.
     for (const signoff of signoffs.map(obj).filter(row => row.stage === 'interview')) delete obj(signoff.answer_hashes).motion;
     approveFrozenParts(dir, project, args);
     project.signoffs = [...signoffs, ...arr(project.signoffs)];
@@ -2428,11 +2427,11 @@ describe('#812/#929 live rig feedback', () => {
       });
       const publication = host.session.status().publication!;
       const pinnedWords = 'Adjust the wind pose here.';
-      const pin = mode === 'pinned comment' || mode === 'mixed comments'
+      const pin = mode === 'pinned comment'
         ? framedRigPin(pinnedWords, { sourceHash: publication.source.sourceHash,
           modelHash: publication.source.model!.sha256, target: publication.source.package!.id })
         : undefined;
-      const general = mode === 'pinned comment' ? [] : mode === 'ambiguous comments' ? [words, 'Leave the blink unchanged.'] : [words];
+      const general = mode === 'pinned comment' ? [] : [words];
       const response = await host.ports.handleJobApi(new Request(`${host.origin}/jobs/${host.session.jobId}/api`, { method: 'POST',
         headers: { authorization: `Bearer ${host.session.hostCredentials().agent}`, 'content-type': 'application/json' },
         body: JSON.stringify({ schema: 'rig-review/job-api@2', verb: 'ask', jobId: host.session.jobId, requestId: crypto.randomUUID(),
@@ -2449,7 +2448,7 @@ describe('#812/#929 live rig feedback', () => {
       const act = await host.ports.commitUIAct(host.session.jobId, ui('acts', { publicationId: publication.publicationId,
         askId: ask.value.askId, pageId, displayedNonce: displayed.value.displayedNonce, expectedGeneration: host.session.status().generation,
         submissionId: 'synthetic-submission', kind: 'review-verdict', value: { stage: 'rig-review',
-          verdict: mode === 'approved verdict' ? 'approved' : 'changes-requested', words: '',
+          verdict: 'changes-requested', words: '',
           general, ...(pin ? { feedback: [{ ...obj(pin.anchor), summary: pin.text }] } : {}) },
         capture: { png: `data:image/png;base64,${painting.toString('base64')}`, width: 8, height: 16,
           camera: 'fixed', framing: 'default', view: 'whole-rig', frame: 'setup', playing: false,
@@ -2457,82 +2456,22 @@ describe('#812/#929 live rig feedback', () => {
             pageId, askId: ask.value.askId, drawGeneration: 1, playerGeneration: 0 } } }));
       if (!act.ok) throw Error(act.error.code);
       testClock.set(act.value.at);
-      const reviewArgs = ['review', '1', dir, '--from-review', act.value.actId, '--json'];
       const projectFile = join(dir, 'project.json');
-      const recordBytes = () => readFileSync(projectFile);
-      const refusedReview = async (argv: string[], code: string, file = projectFile) => {
-        const before = readFileSync(file);
-        const result = await runCli(...argv);
-        expect(result.exit).toBe(code === 'REVIEW_OPTION_INVALID' ? 2 : 1);
-        expect(result.stderr).toContain(`${code}:`);
-        expect(readFileSync(file)).toEqual(before);
-      };
-      const refusedRoute = (code: string, ...flags: string[]) => refusedReview([...reviewArgs, ...flags], code);
-      if (mode === 'ambiguous comments' || mode === 'approved verdict') {
-        await refusedRoute('REVIEW_FEEDBACK_ROUTE_INVALID', '--item', 'motion:not-asked');
-        return;
-      }
+      const beforeRetired = readFileSync(projectFile);
+      const retiredCli = await runCli('review', '1', dir, '--from-review', act.value.actId, '--json');
+      expect(retiredCli.exit).toBe(2);
+      expect(retiredCli.stderr).toContain('NUMBERED_WRITER_REMOVED:');
+      expect(readFileSync(projectFile)).toEqual(beforeRetired);
+
+      const exported = host.session.readActExport(act.value.actId, false).toString('utf8');
+      const seeded = seedStoredReviewVerdictAct(dir, 1, exported, { now: testClock.now() });
       const receipt = () => arr(load().review_acts).map(obj).find(row => row.actId === act.value.actId)!;
-      if (pin) {
-        const exported = host.session.readActExport(act.value.actId, false).toString('utf8');
-        const comments = arr(obj(JSON.parse(exported).value).comments);
-        expect(comments).toHaveLength(mode === 'pinned comment' ? 1 : 2);
-        expect(comments[0]).toMatchObject(pin);
-        if (mode === 'pinned comment') {
-          const before = recordBytes();
-          const routed = await runCli(...reviewArgs, '--item', 'motion:not-asked');
-          expect(routed.exit).toBe(1);
-          expect(routed.stderr).toContain('REVIEW_FEEDBACK_ROUTE_INVALID:');
-          expect(recordBytes()).toEqual(before);
-
-          const plain = ['review', '1', '--from-review', act.value.actId];
-          const recorded = await cli(...plain, '--json');
-          expect(recorded.verdict).toMatchObject({ verdict: 'bounced', on_items: [] });
-          expect(obj(recorded.verdict).verbatim).toContain(pinnedWords);
-          expect(receipt()).not.toHaveProperty('feedback_route');
-          expect(receipt().bytes).toBe(exported);
-          expect(checkProject(dir).refusals).toEqual([]);
-          expect(routed.stderr).toContain(`rig-create ${plain.join(' ')}`);
-          expect(routed.stderr).toContain('preserve pinned comments');
-        } else {
-          expect(comments[1]).toEqual({ text: words });
-          const recorded = await cli(...reviewArgs, '--item', 'motion:not-asked');
-          expect(recorded.feedback_route).toMatchObject({ item: 'motion', comment_index: 1, verbatim: words });
-          expect(receipt().feedback_route).toEqual(recorded.feedback_route!);
-          expect(receipt().bytes).toBe(exported);
-          expect(checkProject(dir).refusals.map(f => f.code)).toEqual(['SIGNOFF_ANSWERS_STALE']);
-        }
-        return;
-      }
-      const preIngest = mode === 'closed receipt' ? recordBytes() : undefined;
-      const prior = mode === 'first ingest' ? undefined : await cli(...reviewArgs);
-      if (mode === 'closed receipt') {
-        const before = recordBytes();
-        const close = await runCli('job', 'close', dir);
-        expect(close).toEqual({ exit: 0, stdout: 'job: closed\n', stderr: '' });
-        expect(readWriterBinding(dir)).toBeNull();
-        expect(recordBytes()).toEqual(before);
-
-        // The same real act has no authority in the copy of the record from before ingest.
-        const copy = join(dirname(dir), 'receipt-control');
-        mkdirSync(copy);
-        const copyFile = join(copy, 'project.json');
-        writeFileSync(copyFile, preIngest!);
-        const copyArgs = ['review', '1', copy, ...reviewArgs.slice(3), '--item', 'motion:not-asked'];
-        await refusedReview(copyArgs, 'JOB_BINDING_INVALID', copyFile);
-
-        const corrupt = load();
-        arr(corrupt.review_acts).map(obj).find(row => row.actId === act.value.actId)!.sha256 = '0'.repeat(64);
-        put(copy, 'project.json', corrupt);
-        await refusedReview(copyArgs, 'REVIEW_ACT_LEDGER_INVALID', copyFile);
-
-        const release = acquireJobLock(dir)!;
-        try {
-          await refusedRoute('JOB_WRITE_BUSY', '--item', 'motion:not-asked');
-        } finally {
-          release();
-        }
+      if (mode === 'pinned comment') {
+        expect(seeded.verdict).toMatchObject({ verdict: 'bounced', on_items: [] });
+        expect(String(seeded.verdict.verbatim)).toContain(pinnedWords);
         expect(receipt()).not.toHaveProperty('feedback_route');
+        expect(checkProject(dir).refusals).toEqual([]);
+        return;
       }
       put(dir, 'source/config-next.json', { key: 'synthetic', requirements: 'requirements.json', motion: { animations_from: 'animations.json' } });
       put(dir, 'source/animations.json', { wind: { duration: 1, tracks: [] } });
@@ -2540,42 +2479,24 @@ describe('#812/#929 live rig feedback', () => {
       const second = ['2', dir, ...args.slice(2), '--answers', '1:0', '--citations', 'source/citations.json'];
       second[second.indexOf('--config') + 1] = 'source/config-next.json';
       if (mode === 'no route') {
-        expect(prior?.verdict).toMatchObject({ verdict: 'bounced', verbatim: `[general]\n${words}`, on_items: [] });
         const finding = refused(second, 'QUOTE_NOT_FOUND');
         expect(finding.message).toContain('interview.waypoints[motion].guide');
         await cli('rig-version', '2', dir, ...args.slice(2), '--answers', '1:0');
-        await refusedRoute('REVIEW_FEEDBACK_ROUTE_INVALID', '--item', 'motion:not-asked');
         return;
       }
 
-      const motion = () => obj(waypoint(load(), 'motion').guide);
-      await refusedRoute('REVIEW_OPTION_INVALID', '--item', 'motion');
-      await refusedRoute('REVIEW_OPTION_INVALID', '--item', 'motion:not-asked', '--quote', 'motion=paraphrase');
-      await refusedRoute('FEEDBACK_ITEM_UNKNOWN', '--item', 'missing:not-asked');
-      const sign = async () => {
-        put(dir, 'owner-sign.txt', 'Approve the current motion guide.');
-        return cli('signoff', 'plan-approved', dir, '--by', 'user', '--owner-chat', join(dir, 'owner-sign.txt'),
-          '--said-at', testClock.iso(), '--relayed-by', 'agent', '--json');
-      };
-      const priorReceipt = prior ? structuredClone(receipt()) : undefined;
-      if (mode === 'already ingested') {
-        testClock.set(testClock.now() + 1000);
-        await sign(); // The route's later time must lapse even this post-comment approval.
-      }
       testClock.set(testClock.now() + 1000);
       const routedAt = testClock.iso();
-      const routeArgs = [...reviewArgs, '--item', 'motion:not-asked'];
-      const recorded = await cli(...routeArgs);
-      expect(recorded.verdict).toMatchObject({ at: act.value.at, verdict: 'bounced', verbatim: `[general]\n${words}`, on_items: [] });
       const route = { by: 'agent', at: routedAt, item: 'motion', comment_index: 0, verbatim: words };
-      expect(recorded.feedback_route).toEqual(route);
-      expect(receipt().feedback_route).toEqual(route);
-      if (prior) {
-        expect(recorded.verdict).toEqual(prior.verdict!);
-        expect(receipt()).toEqual({ ...priorReceipt, feedback_route: route });
-      }
-      expect(motion().additions).toContainEqual({ by: 'user', at: routedAt, verbatim: words, value: null,
-        source: 'polish feedback, v1', review_act: obj(recorded.verdict!).source });
+      const currentRecord = load();
+      arr(currentRecord.review_acts).map(obj).find(row => row.actId === act.value.actId)!.feedback_route = route;
+      const motionGuide = obj(waypoint(currentRecord, 'motion').guide);
+      motionGuide.additions = [...arr(motionGuide.additions ?? []), {
+        by: 'user', at: routedAt, verbatim: words, value: null,
+        source: 'polish feedback, v1', review_act: seeded.verdict.source!,
+      }];
+      put(dir, 'project.json', currentRecord);
+
       expect(checkProject(dir).feedback).toMatchObject([{ items: { user: 0, delegated: 0, not_asked: 1 } }]);
       const changedRoute = load();
       obj(arr(changedRoute.review_acts).map(obj).find(row => row.actId === act.value.actId)!.feedback_route).verbatim = 'Edited owner words';
@@ -2584,31 +2505,22 @@ describe('#812/#929 live rig feedback', () => {
       arr(obj(waypoint(changedGuide, 'motion').guide).additions).pop();
       expect(checkProject(dir, changedGuide).refusals.map(f => f.code)).toContain('FEEDBACK_NOT_ADDED');
 
-      const afterRoute = recordBytes();
-      testClock.set(testClock.now() + 1000);
-      expect((await cli(...routeArgs)).feedback_route).toEqual(route);
-      if (mode === 'closed receipt') await refusedRoute('JOB_BINDING_INVALID');
-      else expect((await cli(...reviewArgs)).feedback_route).toEqual(route);
-      expect(recordBytes()).toEqual(afterRoute);
-      await refusedRoute('REVIEW_FEEDBACK_ROUTE_CONFLICT', '--item', 'bones:not-asked');
       const next = await cli('next', dir, '--json');
-      // #981: GUIDE_CHANGED_UNSIGNED is gone; the interview's own staleness (#983) still asks for the re-sign.
       expect(arr(next.refusals).map(row => obj(row).code)).toContain('SIGNOFF_ANSWERS_STALE');
-      const human = arr(next.moves).map(obj).filter(move => move.role === 'human');
-      expect(human).toHaveLength(1);
-      expect(human[0]?.command).toContain('signoff plan-approved');
-      await sign();
+      put(dir, 'owner-sign.txt', 'Approve the current motion guide.');
+      await cli('signoff', 'plan-approved', dir, '--by', 'user', '--owner-chat', join(dir, 'owner-sign.txt'),
+        '--said-at', testClock.iso(), '--relayed-by', 'agent', '--json');
       expect(arr((await cli('next', dir, '--json')).refusals)).toEqual([]);
-      if (mode === 'first ingest') {
-        put(dir, 'source/citations.json', { motion: [{ entry: 'animations_from', guide: 'motion', quote: `「${words}」` }] });
-        const before = recordBytes();
-        const refusedVersion = await runCli('rig-version', ...second);
-        expect(refusedVersion.exit).toBe(1);
-        expect(refusedVersion.stderr).toContain('QUOTE_NOT_FOUND:');
-        expect(refusedVersion.stderr.split('\n')).toContain('  Removing the outer marks 「」 would match interview.waypoints[motion].guide.additions[0].verbatim exactly. Quote that field verbatim.');
-        expect(recordBytes()).toEqual(before);
-        put(dir, 'source/citations.json', { motion: [{ entry: 'animations_from', guide: 'motion', quote: words }] });
-      }
+
+      put(dir, 'source/citations.json', { motion: [{ entry: 'animations_from', guide: 'motion', quote: `「${words}」` }] });
+      const before = readFileSync(projectFile);
+      const refusedVersion = await runCli('rig-version', ...second);
+      expect(refusedVersion.exit).toBe(1);
+      expect(refusedVersion.stderr).toContain('QUOTE_NOT_FOUND:');
+      expect(refusedVersion.stderr.split('\n')).toContain('  Removing the outer marks 「」 would match interview.waypoints[motion].guide.additions[0].verbatim exactly. Quote that field verbatim.');
+      expect(readFileSync(projectFile)).toEqual(before);
+      put(dir, 'source/citations.json', { motion: [{ entry: 'animations_from', guide: 'motion', quote: words }] });
+
       const version = await cli('rig-version', ...second);
       expect(version.answers_feedback).toEqual([{ version: 1, verdict: 0 }]);
       expect(obj(obj(version.provenance!).sections!).motion).toEqual([{ entry: 'animations_from', guide: 'motion', quote: words }]);
@@ -2627,9 +2539,7 @@ describe('#454 feedback rebuild writer', () => {
     return f;
   }
   async function bounce(dir: string) {
-    const { reviewCommand } = await import('./clock.ts');
-    put(dir, 'words.txt', 'Adjust the synthetic rig.');
-    reviewCommand(['1', dir, '--verdict', 'bounced', '--review', 'rig-review', '--by', 'user', '--source', 'synthetic review', '--verbatim-file', join(dir, 'words.txt')]);
+    seedStoredVerdict(dir, 1, { review: 'rig-review', verdict: 'bounced', by: 'user', at: testClock.now(), verbatim: 'Adjust the synthetic rig.\n', source: 'synthetic review' });
   }
   test('rig version -> human bounce -> next -> repeatable answers -> check -> new verdict', async () => {
     const { nextProject } = await import('../src/next.ts');

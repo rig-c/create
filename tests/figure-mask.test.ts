@@ -118,7 +118,7 @@ describe('figure mask declaration and provenance', () => {
     seedStoredVerdict(dir, 1, { review: 'rig-review', verdict: 'accepted', by: 'user',
       at: FIGURE_MASK_MATTE_RECEIPT_SINCE, verbatim: 'Approve synthetic rig', source: 'synthetic control' });
     const before = readFileSync(join(dir, 'project.json'));
-    expect(() => handoff(dir, 1)).toThrow(expect.objectContaining({ code }));
+    expect(() => selectSignoffTarget(dir, JSON.parse(before.toString('utf8')) as JsonObject, 'rig-review', '1')).toThrow(expect.objectContaining({ code }));
     expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
   });
   test('operation-only provenance warns one second before the cutoff and refuses at it', () => {
@@ -140,7 +140,7 @@ describe('figure mask declaration and provenance', () => {
     seedStoredVerdict(dir, 1, { review: 'rig-review', verdict: 'accepted', by: 'user',
       at: FIGURE_MASK_MATTE_RECEIPT_SINCE, verbatim: 'Approve synthetic rig', source: 'synthetic control' });
     const before = readFileSync(join(dir, 'project.json'));
-    expect(() => handoff(dir, 1)).toThrow(expect.objectContaining({ code: 'FIGURE_MASK_MATTE_RECEIPT_INVALID' }));
+    expect(() => selectSignoffTarget(dir, JSON.parse(before.toString('utf8')) as JsonObject, 'rig-review', '1')).toThrow(expect.objectContaining({ code: 'FIGURE_MASK_MATTE_RECEIPT_INVALID' }));
     expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
   });
   test('a receipt bound to equal mask bytes at another locator cannot authorize the frozen declaration', () => {

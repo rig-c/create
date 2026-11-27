@@ -13,6 +13,7 @@ import { listCreateJobActs, openCreateJob, openRecordPublication, publishPending
 import { enqueuePublication, failPublication, jobHash, jobHostStateRoot, jobPrivateRoot, pendingPublications, readWriterBinding } from '../src/job-outbox.ts';
 import { fetchReviewAct, appendWithdrawalReceipt, buildDiscardActReceipt, reviewActTransport } from '../src/review-act.ts';
 import { nextProject } from '../src/next.ts';
+import { seedStoredInterviewPicksAnswer } from './historical-review-fixture.ts';
 import type { JsonObject } from '../src/templates.ts';
 
 const questions = ['rig_type', 'reference', 'seethrough'];
@@ -187,7 +188,7 @@ async function fetchPicks(root: string, actId: string) {
   return (await fetchReviewAct({ ...reviewActTransport(root, actId), kind: 'interview-picks' })).bytes;
 }
 
-test('#558 ingests a ready subset atomically and republishes the exact remaining set against fresh project bytes', async () => {
+test('#558 retires batch/from-review ingestion, seeds historical subset receipts, and republishes the remaining set against fresh project bytes', async () => {
   const sharedSetId = 'chain-rig_type';
   const { root, host, now } = await open(sharedSetId);
   const submit = await ownerPage(root, host);
@@ -197,42 +198,25 @@ test('#558 ingests a ready subset atomically and republishes the exact remaining
   expect(initial.acts.flatMap(act => act.kind === 'interview-picks' ? [[act.value.questionId, act.source.optionSet.id]] : []))
     .toEqual([['reference', sharedSetId], ['rig_type', sharedSetId]]);
   const args = ['interview-answer', '--batch', root, ...actIds.flatMap(id => ['--from-review', id])];
-  // job acts offers no ingest for 2 of 3 sets; the explicit writer still accepts the subset.
   const listed = pendingJobActs(read(root), initial.acts, root);
-  expect(listed.map(row => [row.command, row.waiting])).toEqual([[null, { received: 2, total: 3 }], [null, { received: 2, total: 3 }]]);
-  expect(jobActsText({ acts: listed })).not.toContain('interview-answer');
+  expect(listed.map(row => [row.command, row.unavailable?.code])).toEqual([
+    [null, 'SIGNOFF_FROM_REVIEW_REMOVED'],
+    [null, 'SIGNOFF_FROM_REVIEW_REMOVED'],
+  ]);
+  expect(jobActsText({ acts: listed })).toContain('SIGNOFF_FROM_REVIEW_REMOVED');
   const fetched = new Map(await Promise.all(actIds.map(async id => [id, await fetchPicks(root, id)] as const)));
-  const hooks = { fetch: ({ actId }: { actId: string }) => ({ bytes: fetched.get(actId)! }) };
   const original = bytes(root);
-  const last = actIds[1]!;
-  const valid = fetched.get(last)!;
-  const altered = JSON.parse(valid);
-
-  altered.publicationId = 'unrelated-publication';
-  fetched.set(last, JSON.stringify(altered));
-  expect(() => interviewAnswerCommand(args.slice(1), now, hooks)).toThrow(expect.objectContaining({ code: 'REVIEW_ACT_INVALID' }));
+  expect(() => interviewAnswerCommand(args.slice(1), now))
+    .toThrow(expect.objectContaining({ code: 'SIGNOFF_FROM_REVIEW_REMOVED', exitCode: 2 }));
   expect(bytes(root)).toEqual(original);
-  altered.publicationId = initial.head;
-  altered.value.selections[0].optionId = 'unknown-option';
-  fetched.set(last, JSON.stringify(altered));
-  expect(() => interviewAnswerCommand(args.slice(1), now, hooks)).toThrow(expect.objectContaining({ code: 'INTERVIEW_CHOICE_INVALID' }));
-  expect(bytes(root)).toEqual(original);
-  fetched.set(last, valid);
 
-  expect(() => interviewAnswerCommand([...args.slice(1), '--from-review', last], now, hooks))
-    .toThrow(expect.objectContaining({ code: 'JOB_OPTION_SET_DUPLICATE' }));
-  expect(bytes(root)).toEqual(original);
-  const unrelatedDrift = Buffer.concat([original, Buffer.from(' ')]);
-  const file = join(root, 'project.json');
-  writeFileSync(file, unrelatedDrift);
-  expect(() => interviewAnswerCommand(args.slice(1), now, hooks)).toThrow(expect.objectContaining({ code: 'REVIEW_ACT_SOURCE_STALE' }));
-  expect(bytes(root)).toEqual(unrelatedDrift);
-  writeFileSync(file, original);
-
-  const output = interviewAnswerCommand(args.slice(1), now, hooks);
+  for (const id of actIds) {
+    seedStoredInterviewPicksAnswer(root, fetched.get(id)!, { now, checkProjectHash: id === actIds[0] });
+  }
   const partial = bytes(root);
-  expect(JSON.parse(output)).toHaveLength(2);
-  expect(interviewAnswerCommand(args.slice(1), now, hooks)).toBe(output);
+  for (const id of actIds) {
+    seedStoredInterviewPicksAnswer(root, fetched.get(id)!, { now });
+  }
   expect(bytes(root)).toEqual(partial);
   const after = await readHostActsAndAsks(host);
   expect(ingestedJobActs(read(root), after.asks, after.acts, root).map(row => row.question)).toEqual(questions.slice(0, 2));
@@ -251,8 +235,10 @@ test('#558 ingests a ready subset atomically and republishes the exact remaining
   const freshBytes = await fetchPicks(root, freshId);
   const { acts } = await readHostActsAndAsks(host);
   const [only] = pendingJobActs(read(root), acts, root);
-  expect(only!.args).toEqual(['interview-answer', 'seethrough', root, '--from-review', freshId]);
-  interviewAnswerCommand(only!.args!.slice(1), now, { fetch: () => ({ bytes: freshBytes }) });
+  expect(only).toMatchObject({ actId: freshId, args: null, command: null, unavailable: { code: 'SIGNOFF_FROM_REVIEW_REMOVED' } });
+  expect(() => interviewAnswerCommand(['seethrough', root, '--from-review', freshId], now))
+    .toThrow(expect.objectContaining({ code: 'SIGNOFF_FROM_REVIEW_REMOVED', exitCode: 2 }));
+  seedStoredInterviewPicksAnswer(root, freshBytes, { now, checkProjectHash: true });
   expect(checkProject(root, undefined, { now }).refusals).toEqual([]);
   for (const question of questions) expect(item(root, question).record.pending_options).toBeUndefined();
   expect((read(root).review_acts as JsonObject[]).map(row => row.actId)).toEqual([...actIds, freshId]);
@@ -271,7 +257,9 @@ test('#558 owner chat settles only its own set, and a finalized stale act stays 
   const view = await readHostActsAndAsks(host);
   expect(pendingJobActs(read(root), view.acts, root).map(row => row.actId)).toEqual([finalized]);
   const before = bytes(root);
-  expect(() => interviewAnswerCommand(['rig_type', root, '--from-review', finalized], now, { fetch: () => ({ bytes: finalizeBytes }) }))
+  expect(() => interviewAnswerCommand(['rig_type', root, '--from-review', finalized], now))
+    .toThrow(expect.objectContaining({ code: 'SIGNOFF_FROM_REVIEW_REMOVED', exitCode: 2 }));
+  expect(() => seedStoredInterviewPicksAnswer(root, finalizeBytes, { now, checkProjectHash: true }))
     .toThrow(expect.objectContaining({ code: 'REVIEW_ACT_SOURCE_STALE' }));
   expect(bytes(root)).toEqual(before);
   await expect(refusePendingJobAsks(root, host.session.jobId, host, target('seethrough')))
@@ -308,7 +296,7 @@ test('#785 staleInterviewAct accepts a withdraw-act discard receipt and still re
   expect(pendingJobAsksForTarget(read(root), view.asks, view.acts, root, target('seethrough'), afterWithdraw).some(row => row.staleInterviewActId)).toBe(false);
   await expect(refusePendingJobAsks(root, host.session.jobId, host, target('seethrough'))).rejects.toMatchObject({
     code: 'JOB_ASK_PENDING',
-    message: expect.stringContaining('run the printed ingest commands'),
+    message: expect.stringContaining('inspect or withdraw pending acts before closing'),
   });
   expect(bytes(root)).toEqual(afterWithdraw);
 
@@ -341,31 +329,30 @@ test('#807 multiple stale interview acts still name the batch close remedy', asy
   await expect(refusal).rejects.toMatchObject({ message: expect.not.stringContaining('job withdraw-act') });
 }, 30_000);
 
-test('#558 job acts holds a partial grouped page: no command, n/K, and --wait waits for every set', async () => {
+test('#558 job acts surfaces retired interview-picks acts with SIGNOFF_FROM_REVIEW_REMOVED and owner-chat remedy', async () => {
   const { root, host, now } = await open();
   const submit = await ownerPage(root, host);
   // Reuse the in-process host for the strict attach; the fixture stops it.
   const start = async () => ({ ...host, reused: true, stop: () => {} }) as JobOwnerHost;
   const first = (await submit('rig_type')).value!.actId;
   const partial = await listCreateJobActs(root, start);
-  expect(partial.acts.map(row => [row.actId, row.command, row.waiting])).toEqual([[first, null, { received: 1, total: 3 }]]);
-  expect(jobActsText(partial)).toContain('waiting for 1/3 sets on this page');
-  expect(jobActsText(partial)).not.toContain('interview-answer');
-  await expect(listCreateJobActs(root, start, { timeoutMs: 300 })).rejects.toMatchObject({ code: 'JOB_NEXT_TIMEOUT' });
-  await expect(listCreateJobActs(root, start, { timeoutMs: 300 })).rejects.toThrow('waiting for 1/3 sets');
-
-  let settled = false;
-  const waiting = listCreateJobActs(root, start, { timeoutMs: 10_000 }).finally(() => { settled = true; });
+  expect(partial.acts.map(row => [row.actId, row.command, row.unavailable?.code])).toEqual([
+    [first, null, 'SIGNOFF_FROM_REVIEW_REMOVED'],
+  ]);
+  expect(jobActsText(partial)).toContain('SIGNOFF_FROM_REVIEW_REMOVED:');
+  expect(jobActsText(partial)).toContain('--owner-chat');
   const second = (await submit('reference')).value!.actId;
-  await Bun.sleep(500);
-  expect(settled).toBe(false);
   const third = (await submit('seethrough')).value!.actId;
-  const complete = await waiting;
-  const args = ['interview-answer', '--batch', root, ...[first, second, third].flatMap(id => ['--from-review', id])];
-  expect(complete.acts.map(row => [row.args, row.waiting])).toEqual([[args, undefined], [args, undefined], [args, undefined]]);
-  expect(jobActsText(complete).match(/interview-answer --batch/g)).toHaveLength(1);
+  const complete = await listCreateJobActs(root, start);
+  expect(complete.acts.map(row => [row.actId, row.args, row.unavailable?.code])).toEqual([
+    [first, null, 'SIGNOFF_FROM_REVIEW_REMOVED'],
+    [second, null, 'SIGNOFF_FROM_REVIEW_REMOVED'],
+    [third, null, 'SIGNOFF_FROM_REVIEW_REMOVED'],
+  ]);
   const fetched = new Map(await Promise.all([first, second, third].map(async id => [id, await fetchPicks(root, id)] as const)));
-  interviewAnswerCommand(args.slice(1), now, { fetch: ({ actId }) => ({ bytes: fetched.get(actId)! }) });
+  for (const id of [first, second, third]) {
+    seedStoredInterviewPicksAnswer(root, fetched.get(id)!, { now });
+  }
   expect(checkProject(root, undefined, { now }).refusals).toEqual([]);
   for (const question of questions) expect(item(root, question).record.pending_options).toBeUndefined();
 }, 30_000);

@@ -1,6 +1,6 @@
 import { jobHash } from '../src/job-outbox.ts';
 import { draftRigCommand } from '../src/drafts.ts';
-import { PARTS_CLI_RECEIPT, decodePartsRead, partsVerdictNames } from '../src/parts-verdict-record.ts';
+import { PARTS_CLI_RECEIPT, decodePartsRead, partsVerdictNames, recordedPartsVerdict } from '../src/parts-verdict-record.ts';
 import { storeReviewRead } from '../src/review-read.ts';
 import { structureSnapshotCommand } from '../src/structure-snapshot.ts';
 /** Synthetic stored CLI receipts for check-time receipt consumers. Review-owned paths are opaque. */
@@ -72,15 +72,16 @@ export function preparePartsApproval(root: string, now: number, partsDir = 'deri
   const stack = existsSync(direct) ? direct : join(root, 'derived/parts/rig/recomposite_rig.png');
   if (existsSync(stack)) put(`${draftRoot}/input/rig/recomposite_rig.png`, readFileSync(stack));
   draftRigCommand([id, root, '--config', `${draftRoot}/config.json`, '--parts', `${draftRoot}/input/rig`, '--from', `${draftRoot}/out`], now);
-  const receipt = recordPartsReceipt(root, id, now);
+  recordPartsReceipt(root, id, now);
   const snapshot = `evidence/structure-${id}.json`;
   structureSnapshotCommand([root, '--draft', id, '--out', snapshot]);
   const project = JSON.parse(readFileSync(join(root, 'project.json'), 'utf8')) as JsonObject;
+  const verdict = recordedPartsVerdict(root, project, id);
   const bytes = readFileSync(join(root, snapshot));
   for (const signoff of project.signoffs as JsonObject[]) {
     if (signoff.stage !== 'parts-review') continue;
     signoff.draft_id = id;
-    signoff.evidence = { ...(receipt.evidence as JsonObject), spec: 'rig-create/parts-verdict-cli@1' };
+    signoff.evidence = verdict.evidence;
     signoff.structure = { path: snapshot, sha256: jobHash(bytes) };
     if (
       signoff.diff_map !== undefined &&

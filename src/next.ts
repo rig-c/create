@@ -2519,8 +2519,11 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
       };
       if (checkpoint !== null) {
         moves.push({
-          ...checkpointSignoffMove(dir, lapsedStage as 'parts' | 'rigging' | 'post', checkpoint, awaitTarget),
+          role: 'human',
           field: reopenField,
+          awaits: awaitTarget,
+          command: null,
+          act: `re-approve lapsed checkpoint ${checkpoint} (${warning.path}, lapsed by ${reopenField}${reopenId ? ` ${reopenId}` : ''}: ${warning.code})`,
           lapse,
         });
       } else if (legacyWrites && (lapsedStage === 'parts-review' || lapsedStage in SIGNOFF_TARGET_KINDS)) {
@@ -2616,8 +2619,11 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
       };
       if (checkpoint !== null) {
         moves.push({
-          ...checkpointSignoffMove(dir, targetStage as 'parts' | 'rigging' | 'post', checkpoint, awaitTarget),
+          role: 'human',
           field: amendField,
+          awaits: awaitTarget,
+          command: null,
+          act: `re-approve ${lapsedApproval.path} (${targetStage}) lapsed by ${amendField}${targetId ? ` (${targetId})` : ''}`,
           lapse,
         });
       } else if (legacyWrites && (targetStage === 'parts-review' || targetStage in SIGNOFF_TARGET_KINDS)) {

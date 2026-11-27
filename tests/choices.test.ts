@@ -1,25 +1,21 @@
-import { reviewStdout } from './review-read-fixture.ts';
-
-import { plantLegacyReopen, retainSignoffs } from './fixtures.ts';
-import { resignAfterChange } from './fixtures.ts';
+import { plantLegacyReopen, retainSignoffs, resignAfterChange, fixture, obj, arr, waypoint, framing } from './fixtures.ts';
 import { afterEach, expect, test } from 'bun:test';
-import { readFileSync, writeFileSync, symlinkSync, mkdirSync, rmSync, renameSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync, rmSync, renameSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
-import { collectItems, isObject, asArray, type Finding } from '../src/check.ts';
+import { collectItems, type Finding } from '../src/check.ts';
 import { CHOICE_SPEC, CHOICE_ORDER_SPEC, sha256, optionContext, validateSet, assembleFragments, checkChoiceConstraints, type ChoiceError } from '../src/choices.ts';
 import { FRAMING_IDS } from '../src/waypoints.ts';
 import { GUIDE_INTERVIEW, hasStageOrder, stageIndex } from '../src/stages.ts';
 import { currentJobIdentity, readRecordPublished, type RecordPlanContext } from '../src/job-publication.ts';
 import { JOB_BINDING_FILE, jobHash, writePrivateJson } from '../src/job-outbox.ts';
-import { realpathSync } from 'node:fs';
 import { interviewAnswerCommand as rawInterviewAnswer } from '../src/choice-writers.ts';
 import { decodeReviewResponse, fetchReviewAct, REVIEW_ACT_ACTOR_SINCE, reviewActFindings } from '../src/review-act.ts';
-import { partsReviewCommand } from '../src/parts-review.ts';
 import { PARTS_CLI_RECEIPT, partsReadFindings } from '../src/parts-verdict-record.ts';
 import { Refusal } from '../src/refusal.ts';
 import { nextCommand, nextProject } from '../src/next.ts';
-import { assertPlanSignoffCandidate, signoffCommand as rawSignoff } from '../src/signoff.ts';
-import { fixture, obj, arr, waypoint, framing } from './fixtures.ts';
+import { assertPlanSignoffCandidate } from '../src/signoff.ts';
+import { seedStoredInterviewPicksAnswer, seedStoredSignoffAct } from './historical-review-fixture.ts';
+import { recordPartsReceipt } from './parts-receipt-fixture.ts';
 import type { Json, JsonObject } from '../src/templates.ts';
 import { EXAMPLE_ANCHOR } from '../scripts/example-time.ts';
 
@@ -78,10 +74,19 @@ function reviewAnswer(w: {dir:string;path:string;hash:string}, payload: JsonObje
       parts:{enumeratorVersion:'2.30.1'},optionSet:{id:set.id,sha256:obj(payload.set).sha256}},
     value:{questionId:set.question,selections:arr(payload.picks).map(raw=>({itemId:obj(raw).ask,optionId:obj(raw).option_id,otherText:obj(raw).other_text??null})),note:payload.note??''}};
   editAct?.(act as JsonObject);
-  return rawInterviewAnswer([String(set.question),realpathSync(w.dir),'--from-review',actId,...extra],testClock.now(),{fetch:transport=>{
-    expect(transport.jobId).toBe(jobId);expect(transport.actId).toBe(actId);expect(transport.kind).toBe('interview-picks');
-    return {bytes:JSON.stringify(act)};
-  }});
+  let whyFile: string | undefined;
+  let remaining = [...extra];
+  const whyIdx = remaining.indexOf('--why-file');
+  if (whyIdx >= 0 && remaining[whyIdx + 1]) {
+    whyFile = remaining[whyIdx + 1];
+    remaining = [...remaining.slice(0, whyIdx), ...remaining.slice(whyIdx + 2)];
+  }
+  return seedStoredInterviewPicksAnswer(realpathSync(w.dir), act as JsonObject, {
+    now: testClock.now(),
+    expectedQuestion: String(set.question),
+    whyFile,
+    extraFlags: remaining,
+  });
 }
 
 test('every framing id explicitly belongs to the source interview',()=>{for(const id of FRAMING_IDS)expect(GUIDE_INTERVIEW[id]).toBe('interview');});
@@ -186,16 +191,16 @@ test.each(['review', 'owner-chat'] as const)('#670 %s signoff refuses with ident
   let actAt = testClock.iso();
   const sign = () => route === 'owner-chat'
     ? signoffCommand(['interview', w.dir, '--by', 'user', ...ownerChatArgs(wordsFile)])
-    : rawSignoff(['interview', realpathSync(w.dir), '--from-review', actId], testClock.now(), { fetch: transport => {
-      expect(transport.kind).toBe('signoff');
-      return { bytes: JSON.stringify({
-        schema: 'rig-review/act@2', kind: 'signoff', jobId: transport.jobId, actId, askId: 'synthetic-ask', publicationId: 'synthetic-publication',
+    : (() => {
+      seedStoredSignoffAct(realpathSync(w.dir), 'interview', {
+        schema: 'rig-review/act@2', kind: 'signoff', jobId: 'synthetic-interview-job', actId, askId: 'synthetic-ask', publicationId: 'synthetic-publication',
         at: actAt, authority: { actor: 'human', channel: 'review-ui', reviewer: { id: 'synthetic-owner', role: 'owner' } },
         source: { sourceHash: '1'.repeat(64), projectHash: '2'.repeat(64), package: { id: 'synthetic-package', revision: 'one' },
           selector: null, model: null, direction: null, optionSet: null, appliedResult: null, plan: null, parts: { enumeratorVersion: '2.45.0' } },
         value: { stage: 'interview', decision: 'approved', words },
-      }) };
-    } });
+      }, { now: testClock.now() });
+      return { exit: 0 };
+    })();
   const file = join(w.dir, 'project.json');
   const before = readFileSync(file);
   const refusal = code(sign);
@@ -386,14 +391,9 @@ test('job selections preserve Other text and delegate authority and replay histo
 });
 test('merged ledger records picks after a parts CLI receipt and runs the picks branch',()=>{
   const w=working('reference');const root=realpathSync(w.dir);
-  const draft=obj(arr(load(root).drafts)[0]);const parts=obj(draft.parts);
-  const value={schema:'rig-review-parts-verdict/2',tool:{name:'@rig-c/review',version:'2.5.0'},
-    source:{sha256:'a'.repeat(64),files:arr(parts.files).map(raw=>({sha256:obj(raw).sha256,path:'opaque/frame'}))},
-    status:'approved',parts:{'synthetic part':{outcome:'clean',note:''}}};
-  const recorded=partsReviewCommand([root,'--draft',String(draft.id),'--from-review-cli','--by','user','--json','--','opaque/input','--verdict','never-created.json'],testClock.now(),{
-    runCli:reviewStdout(JSON.stringify(value)),
-  });
-  expect(recorded.exit).toBe(0);expect(obj(arr(load(root).review_acts)[0]).schema).toBe(PARTS_CLI_RECEIPT);
+  const draft=obj(arr(load(root).drafts)[0]);
+  recordPartsReceipt(root, String(draft.id), testClock.now(), 'approved');
+  expect(obj(arr(load(root).review_acts)[0]).schema).toBe(PARTS_CLI_RECEIPT);
   expect(partsReadFindings(root,load(root))).toEqual([]);
   const payload:JsonObject={set:{path:w.path,sha256:w.hash},picks:[{ask:'reference',option_id:'keep'}],at:new Date(testClock.now()).toISOString()};
   reviewAnswer(w,payload);const project=load(root);
@@ -714,7 +714,9 @@ test.each(['--said-at','--relayed-by','agent','--from-review','bad-pick'])('owne
   if(change.startsWith('--') && change!=='--from-review')args.splice(args.indexOf(change),2);
   if(change==='--from-review')args.push('--from-review','synthetic-act');
   const before=readFileSync(join(w.dir,'project.json'));
-  expect(code(()=>rawInterviewAnswer(args,testClock.now()))).toBe(change==='bad-pick'||change==='agent'?'INTERVIEW_CHOICE_INVALID':'OWNER_CHAT_INVALID');
+  expect(code(()=>rawInterviewAnswer(args,testClock.now()))).toBe(
+    change==='--from-review'?'SIGNOFF_FROM_REVIEW_REMOVED':change==='bad-pick'||change==='agent'?'INTERVIEW_CHOICE_INVALID':'OWNER_CHAT_INVALID',
+  );
   expect(readFileSync(join(w.dir,'project.json'))).toEqual(before);
 });
 
@@ -805,15 +807,16 @@ test('#701 all rigging picks reach rigging without a plan publication', () => {
   expect(checkProject(dir).warnings).toEqual([]);
 });
 
-/** #828: a Review signoff act on the interview stage, fetched through the injected adapter. */
+/** #828: a historical Review signoff act on the interview stage. */
 function reviewSignoff(w: {dir:string}, actId: string, at: string, words: string, reviewer: JsonObject = { id: 'synthetic-owner', role: 'owner' }) {
-  return rawSignoff(['interview', realpathSync(w.dir), '--from-review', actId], testClock.now(), { fetch: transport => ({ bytes: JSON.stringify({
-    schema: 'rig-review/act@2', kind: 'signoff', jobId: transport.jobId, actId, askId: 'synthetic-ask', publicationId: 'synthetic-publication',
+  seedStoredSignoffAct(realpathSync(w.dir), 'interview', {
+    schema: 'rig-review/act@2', kind: 'signoff', jobId: 'synthetic-interview-job', actId, askId: 'synthetic-ask', publicationId: 'synthetic-publication',
     at, authority: { actor: 'human', channel: 'review-ui', reviewer },
     source: { sourceHash: '1'.repeat(64), projectHash: '2'.repeat(64), package: { id: 'synthetic-package', revision: 'one' },
       selector: null, model: null, direction: null, optionSet: null, appliedResult: null, plan: null, parts: { enumeratorVersion: '2.45.0' } },
     value: { stage: 'interview', decision: 'approved', words },
-  }) }) });
+  }, { now: testClock.now() });
+  return { exit: 0 };
 }
 const agentReviewer = (act: JsonObject): void => { obj(obj(act.authority).reviewer).id = 'agent'; };
 function rehash(receipt: JsonObject, edit: (act: JsonObject) => void): void {

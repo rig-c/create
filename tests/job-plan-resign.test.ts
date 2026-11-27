@@ -1,13 +1,15 @@
 import { expect, test } from 'bun:test';
 import { cpSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import type { JobOwnerHost } from '@rig-c/review/job-host';
+import { startJobHost, type JobOwnerHost } from '@rig-c/review/job-host';
 import { agentCall, readHostActsAndAsks } from '../src/job-acts.ts';
-import { openCreateJob, openDraftPublication } from '../src/job-host.ts';
-import { jobHash, pendingPublications, readWriterBinding } from '../src/job-outbox.ts';
+import { openCreateJob } from '../src/job-host.ts';
+import { acknowledgePublication, enqueuePublication, jobHash, pendingPublications, readWriterBinding, reconcilePublication } from '../src/job-outbox.ts';
+import { prepareLiveManifest, readPublished } from '../src/job-publication.ts';
 import { jobRuntimeExecArgv } from '../src/job-writer.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { arr, obj, waypoint } from './fixtures.ts';
+import { seedStoredReviewVerdictAct } from './historical-review-fixture.ts';
 import { tempDir } from './helpers.ts';
 
 const checkpoint = join(import.meta.dir, '../templates/example-chain/checkpoints/3-rig-review');
@@ -84,10 +86,32 @@ async function routeReviewComment() {
   expect(beforeReview.effective_stage).toBe('rig-review');
   expect(additions()).toEqual([]);
 
-  const host = await openCreateJob(root, reviewer, now);
+  const historicalSubject = { kind: 'review-verdict' as const, stage: 'rig-review' as const };
+  const host = await openCreateJob(root, reviewer, now, options => startJobHost({
+    ...options,
+    readPublished: async input => ({ ...await readPublished(input), subjects: [historicalSubject] }),
+  }));
   let verdictSource: string;
   try {
-    await openDraftPublication(root, host, now, undefined, '1');
+    const manifest = prepareLiveManifest(root, load(), 1);
+    const result = { path: manifest, selector: { kind: 'rig' as const, version: 1 } };
+    const binding = readWriterBinding(root)!;
+    const entry = enqueuePublication(root, binding, result);
+    const pubReqId = crypto.randomUUID();
+    await reconcilePublication(root, entry, async pending => {
+      const pubReply = await agentCall(host, {
+        schema: binding.identity.apiSchema,
+        verb: 'publish',
+        requestId: pubReqId,
+        idempotencyKey: pubReqId,
+        expectedGeneration: host.session.status().generation,
+        result,
+        freeze: { kind: 'producer-held', holdId: pending.id, record: { path: 'project.json', sha256: pending.recordHash } },
+      });
+      expect(pubReply.ok, JSON.stringify(pubReply.error)).toBe(true);
+      const pub = host.session.status().publication!;
+      acknowledgePublication(pending, pub.publicationId, pub.generation, pubReqId, [historicalSubject]);
+    });
     // Recreate a historical verdict ask on the numbered view through Review's manual API.
     const { publication, generation } = host.session.status();
     const reply = await agentCall(host, {
@@ -96,15 +120,17 @@ async function routeReviewComment() {
       publicationId: publication!.publicationId,
       expectedGeneration: generation,
       idempotencyKey: crypto.randomUUID(),
-      subject: { kind: 'review-verdict', stage: 'rig-review' },
+      subject: historicalSubject,
     });
     expect(reply.ok, JSON.stringify(reply.error)).toBe(true);
     const act = await commitOwnerAct(host, 'review-verdict', {
       stage: 'rig-review', verdict: 'changes-requested', words: '', general: [comment],
     }, readFileSync(join(root, 'evidence/setup.png')));
     afterAct(act.at);
-    const review = ['review', '1', root, '--from-review', act.actId, '--json'];
-    const ingested = JSON.parse(await success(...review)) as JsonObject;
+    const retired = await cli('review', '1', root, '--from-review', act.actId, '--json');
+    expect(retired.exit).toBe(2);
+    expect(retired.stderr).toContain('NUMBERED_WRITER_REMOVED');
+    const ingested = seedStoredReviewVerdictAct(root, 1, host.session.readActExport(act.actId, false).toString('utf8'), { now });
     verdictSource = `review act ${act.jobId}/${act.actId}`;
     expect(ingested.verdict).toMatchObject({ verdict: 'bounced', source: verdictSource, verbatim: `[general]\n${comment}` });
     expect(additions()).toEqual([]);
@@ -114,9 +140,16 @@ async function routeReviewComment() {
     expect(readWriterBinding(root)).toBeNull();
     expect(bytes()).toEqual(beforeClose);
     afterAct(act.at);
-    const routed = JSON.parse(await success(...review, '--item', 'motion:not-asked')) as JsonObject;
-    expect(routed.verdict).toEqual(ingested.verdict!);
-    expect(routed.feedback_route).toMatchObject({ item: 'motion', comment_index: 0, verbatim: comment });
+    const current = load();
+    const receipt = arr(current.review_acts).map(obj).find(row => row.actId === act.actId)!;
+    const routedAt = new Date(now).toISOString();
+    receipt.feedback_route = { by: 'agent', at: routedAt, item: 'motion', comment_index: 0, verbatim: comment };
+    const motionGuide = obj(waypoint(current, 'motion').guide);
+    motionGuide.additions = [
+      ...arr(motionGuide.additions ?? []),
+      { by: 'user', at: routedAt, verbatim: comment, value: null, source: 'polish feedback, v1', review_act: verdictSource },
+    ];
+    writeFileSync(file, `${JSON.stringify(current, null, 2)}\n`);
   } finally {
     host.stop();
   }

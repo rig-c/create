@@ -18,6 +18,7 @@ const EXAMPLE_PARTS_DIR = 'derived/drafts/receipt-fixture/input/rig';
 const ASSEMBLE_STACK = 'derived/drafts/receipt-fixture/input/render/recomposite_rig.png';
 const RECEIPT_FLAGS = ['--draft', 'receipt-fixture', '--structure-file', 'evidence/structure-receipt-fixture.json'];
 import { checkProject, advanceCommand, inputCommand, signoffCommand, testClock } from './clock.ts';
+import { seedStoredPartsSignoff } from './historical-review-fixture.ts';
 
 const sha = (bytes: string | Buffer): string => createHash('sha256').update(bytes).digest('hex');
 const reports: Record<string, string> = {};
@@ -124,8 +125,14 @@ describe('B0 normal writer and both producer layouts', () => {
     expect(obj(arr(obj(classified.diff_map).components)[0]).why).toBe('observed: synthetic difference');
     writeFileSync(join(dir, 'words.txt'), 'reviewed the synthetic assembly');
     const signResult = cli(['signoff', 'parts-review', '--by', 'user', ...RECEIPT_FLAGS, '--verbatim-file', join(dir, 'words.txt'), '--json'], dir, gitEnv());
-    expect(signResult.code).toBe(0);
-    const signed = JSON.parse(signResult.stdout) as JsonObject;
+    expect(signResult.code).toBe(2);
+    expect(signResult.stderr).toContain('NUMBERED_WRITER_REMOVED');
+    const signed = seedStoredPartsSignoff(dir, 'receipt-fixture', {
+      by: 'user',
+      at: testClock.now(),
+      verbatim: 'reviewed the synthetic assembly',
+      structureFile: 'evidence/structure-receipt-fixture.json',
+    });
     expect(signed.diff_map).toBeUndefined();
     declareDiffPainting(dir);
     advanceCommand(['rigging', dir]);
@@ -331,7 +338,7 @@ describe('writer usage and cutoff', () => {
     const dir = project(); writeFileSync(join(dir, 'words.txt'), 'reviewed');
     const before = readFileSync(join(dir, 'project.json'));
     try {
-      signoffCommand([...flags, dir, '--by', 'user', ...(flags[0] === 'parts-review' ? RECEIPT_FLAGS : []), '--verbatim-file', join(dir, 'words.txt')]);
+      signoffCommand([...flags, dir, '--by', 'user', '--verbatim-file', join(dir, 'words.txt')]);
       throw new Error('writer accepted invalid options');
     } catch (error) { expect((error as { code: string }).code).toBe(code); }
     expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
@@ -358,11 +365,10 @@ describe('writer usage and cutoff', () => {
     const dir = project((_s, p) => { delete p.diff_map; });
     writeFileSync(join(dir, 'words.txt'), 'reviewed');
     const before = readFileSync(join(dir, 'project.json'));
-    try {
-      signoffCommand(['parts-review', dir, '--by', 'user', ...RECEIPT_FLAGS, '--verbatim-file', join(dir, 'words.txt')]);
-      throw new Error('writer accepted a missing map');
-    } catch (error) { expect((error as { code: string }).code).toBe('DIFF_MAP_MISSING'); }
+    expect(() => signoffCommand(['parts-review', dir, '--by', 'user', ...RECEIPT_FLAGS, '--verbatim-file', join(dir, 'words.txt')]))
+      .toThrow(expect.objectContaining({ code: 'NUMBERED_WRITER_REMOVED' }));
     expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
+    only(dir, 'DIFF_MAP_MISSING');
   });
 });
 

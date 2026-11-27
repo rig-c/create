@@ -468,17 +468,16 @@ test('#676 job open --draft publishes a writer-recorded assemble-only draft and 
   const status = host.session.status();
   const publication = status.publication!;
   expect(stdout.trimEnd().split('\n')).toContain(`job: draft chain published (publication ${publication.publicationId})`);
-  expect(stdout).toContain('job: asked parts-verdict chain');
+  expect(stdout).not.toContain('job: asked parts-verdict');
   const selector = { kind: 'draft', id: 'chain' } as const;
-  const subject = { kind: 'parts-verdict', draftId: 'chain' } as const;
   expect(publication.source.selector).toEqual(selector);
   expect(publication.source.projectHash).toBe(jobHash(record));
   expect(publication.source.model).toBeNull();
   const partsManifest = `${parts}/parts.json`;
   expect(publication.source.parts?.manifest).toEqual({ path: partsManifest, sha256: jobHash(readFileSync(join(root, partsManifest))) });
-  expect(status.pending).toEqual([expect.objectContaining({ publicationId: publication.publicationId, subject, status: 'pending' })]);
+  expect(status.pending).toEqual([]);
   const result = { path: 'review-draft-chain.json', selector };
-  expect(readAcknowledgedPublication(root, host.session.jobId, publication.publicationId)).toMatchObject({ result, subjects: [subject] });
+  expect(readAcknowledgedPublication(root, host.session.jobId, publication.publicationId)).toMatchObject({ result, subjects: [] });
   expect(pendingPublications(root)).toEqual([]);
   expect(readFileSync(recordPath)).toEqual(record);
 
@@ -1259,9 +1258,7 @@ test('#389 parts-review drafts publish without unready approval and recover thro
     record: { path: 'project.json', sha256: jobHash(readyBytes) },
     result: { path: readyManifest, selector: { kind: 'draft', id: 'chain' } },
   });
-  expect(readyContext.subjects).toEqual([
-    { kind: 'parts-verdict', draftId: 'chain' },
-  ]);
+  expect(readyContext.subjects).toEqual([]);
 
   enqueuePublication(root, binding, { path: readyManifest, selector: result.selector }, readyBytes);
   expect(
@@ -1270,12 +1267,9 @@ test('#389 parts-review drafts publish without unready approval and recover thro
   expect(pendingPublications(root)).toEqual([]);
   expect(apiCalls).toEqual([
     { schema: JOB_API_SCHEMA, verb: 'publish' },
-    { schema: JOB_API_V3_SCHEMA, verb: 'ask', subject: { kind: 'parts-verdict', draftId: 'chain' } },
   ]);
   const acknowledged = readAcknowledgedPublication(root, jobId, 'pub-synthetic-389-2')!;
-  expect(acknowledged.subjects).toEqual([
-    { kind: 'parts-verdict', draftId: 'chain' },
-  ]);
+  expect(acknowledged.subjects).toEqual([]);
 
   // A structurally broken committed publication stays pending and blocks unrelated writes.
   writeFileSync(join(root, 'project.json'), unsignedRecordBytes);
@@ -1833,8 +1827,8 @@ test('#743 retry of an unacknowledged pending draft publish uses the stored gene
   expect(pending.generation).toBe(0);
   const afterFirst = host.session.status();
   expect(afterFirst.publication?.generation).toBe(1);
-  expect(afterFirst.pending).toHaveLength(1);
-  expect(afterFirst.generation).toBe(2);
+  expect(afterFirst.pending).toEqual([]);
+  expect(afterFirst.generation).toBe(1);
   expect(existsSync(join(jobPrivateRoot(root), 'acknowledged-publications'))).toBe(false);
 
   expect(await reconcileCreateJob(root, item => publishPending(item, undefined, undefined, startObserve))).toBe(1);
@@ -1856,7 +1850,7 @@ test('#743 retry of an unacknowledged pending draft publish uses the stored gene
     publicationId: afterFirst.publication!.publicationId,
     generation: 1,
     requestId: parsed.requestId,
-    subjects: [{ kind: 'parts-verdict', draftId: 'chain' }],
+    subjects: [],
   });
 });
 function idleFramesSetup(): { root: string; project: JsonObject; framesPath: string; framesBytes: Buffer; idle: { path: string; sha256: string }; save: () => void } {

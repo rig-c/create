@@ -2,13 +2,16 @@ import { afterEach, expect, test } from 'bun:test';
 import { createHash } from 'node:crypto';
 import { cpSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { asArray } from '../src/check.ts';
 import type { Finding } from '../src/check.ts';
-import { Refusal } from '../src/refusal.ts';
+import { Refusal, USAGE_EXIT } from '../src/refusal.ts';
+import { selectAnswerHashes } from '../src/signoff-answers.ts';
 import { checkSignoffTarget, selectSignoffTarget, SIGNOFF_TARGET_SINCE } from '../src/signoff-target.ts';
 import type { Json, JsonObject } from '../src/templates.ts';
 import { directionFixture } from './direction-fixture.ts';
 import { plantLegacyReopen, arr, fixture, obj, withdrawSignature } from './fixtures.ts';
 import { tempDir } from './helpers.ts';
+import { selectHistoricalSignoffTarget } from './historical-review-fixture.ts';
 import { checkProject, directionCommand, advanceCommand, signoffCommand, testClock } from './clock.ts';
 
 const hash = (bytes: string | Uint8Array): string => createHash('sha256').update(bytes).digest('hex');
@@ -25,7 +28,21 @@ function setup(stage = 'rig-review'): string {
   return dir;
 }
 function sign(dir: string, stage: string, version?: string): JsonObject {
-  const signature = JSON.parse(signoffCommand([stage, dir, '--by', 'user', '--verbatim-file', join(dir, 'words.txt'), '--json', ...(version ? ['--version', version] : [])]).stdout) as JsonObject;
+  const project = load(dir);
+  const target = selectHistoricalSignoffTarget(dir, project, stage as 'rig-review' | 'direction-review', version, testClock.now());
+  if (!target) throw Error(`Missing signoff target for ${stage}`);
+  const signature: JsonObject = {
+    stage,
+    checkpoint: null,
+    by: 'user',
+    at: testClock.iso(),
+    verbatim: readFileSync(join(dir, 'words.txt'), 'utf8'),
+    target,
+  };
+  const answerHashes = selectAnswerHashes(dir, project, signature);
+  if (answerHashes !== undefined) signature.answer_hashes = answerHashes;
+  project.signoffs = [...asArray(project.signoffs), signature];
+  save(dir, project);
   if (stage === 'direction-review' && load(dir).stage === stage) {
     advanceCommand(['accepted', dir]);
   }
@@ -270,32 +287,21 @@ test('candidate refusal names every version without a recency preference', () =>
 test.each(['parts-review','rig-review','direction-review'])('owner chat signs only after the current accepted live verdict: %s', stage => {
   const dir=stage==='parts-review'?fixture(p=>{p.drafts=arr(p.drafts).filter(d=>obj(d).id==='example');},'example-numbered/example-project.json'):setup(stage);
   if(stage==='parts-review'){writeFileSync(join(dir,'words.txt'),'Approve this reviewed version.\n');testClock.set(new Date(withdrawSignature(dir,stage)));}
-  const p=load(dir);const draft='example';
-  if(stage==='direction-review'){
-    const post=arr(p.versions).map(obj).filter(v=>v.kind==='post').at(-1)!;
-    obj(arr(post.verdicts).at(-1)).at=new Date(testClock.now()-500).toISOString();save(dir,p);
-  }
+  const draft='example';
   const args=[stage,dir,'--by','user','--owner-chat',join(dir,'words.txt'),
     '--said-at',new Date(testClock.now()-1000).toISOString(),'--relayed-by','operator','--json',
     ...(stage==='parts-review'?['--draft',draft,'--structure-file','evidence/structure-example.json']:[])];
-  const accepted=readFileSync(join(dir,'project.json'));
-  if(stage==='parts-review')p.review_acts=arr(p.review_acts).filter(raw=>obj(raw).kind!=='parts-verdict');
-  else for(const raw of arr(p.versions))if(obj(raw).kind===(stage==='rig-review'?'rig':'post'))obj(raw).verdicts=[];
-  save(dir,p);const before=readFileSync(join(dir,'project.json'));
-  try{signoffCommand(args);throw Error('accepted without verdict');}catch(error){expect((error as Refusal).code).toBe('OWNER_CHAT_GATE_VISUAL');}
+  const before=readFileSync(join(dir,'project.json'));
+  expect(()=>signoffCommand(args)).toThrow(expect.objectContaining({code:'NUMBERED_WRITER_REMOVED',exitCode:USAGE_EXIT}));
   expect(readFileSync(join(dir,'project.json'))).toEqual(before);
-  writeFileSync(join(dir,'project.json'),accepted);
-  const record=JSON.parse(signoffCommand(args).stdout);
-  expect(record.verbatim).toBe('Approve this reviewed version.\n');expect(record.said_at).toBe(args[args.indexOf('--said-at')+1]);
-  expect(record.source).toBe('owner chat, relayed');expect(record.relayed_by).toBe('operator');expect(record.actId).toBeUndefined();
 });
 
 test.each(['rig-review','direction-review'])('owner chat rejects changes-requested: %s', stage=>{
   const dir=setup(stage);const p=load(dir);const v=arr(p.versions).map(obj).filter(v=>v.kind===(stage==='rig-review'?'rig':'post')).at(-1)!;
   obj(arr(v.verdicts).at(-1)).verdict='changes-requested';save(dir,p);
   const before=readFileSync(join(dir,'project.json'));
-  try{signoffCommand([stage,dir,'--by','user','--owner-chat',join(dir,'words.txt'),'--said-at',new Date(testClock.now()-1000).toISOString(),'--relayed-by','operator']);throw Error('accepted');}
-  catch(error){expect((error as Refusal).code).toBe('OWNER_CHAT_GATE_VISUAL');}
+  expect(()=>signoffCommand([stage,dir,'--by','user','--owner-chat',join(dir,'words.txt'),'--said-at',new Date(testClock.now()-1000).toISOString(),'--relayed-by','operator']))
+    .toThrow(expect.objectContaining({code:'NUMBERED_WRITER_REMOVED',exitCode:USAGE_EXIT}));
   expect(readFileSync(join(dir,'project.json'))).toEqual(before);
 });
 
@@ -304,7 +310,7 @@ test.each(['rig-review','direction-review'])('owner chat refuses an accepted ver
   const dir=setup(stage);testClock.set('2026-11-20T00:01:00Z');
   plantLegacyReopen(dir, stage, { by: 'user', wordsFile: join(dir,'words.txt') });
   const before=readFileSync(join(dir,'project.json'));
-  try{signoffCommand([stage,dir,'--by','user','--owner-chat',join(dir,'words.txt'),'--said-at','2026-11-20T00:00:59Z','--relayed-by','operator']);throw Error('accepted');}
-  catch(error){expect((error as Refusal).code).toBe('OWNER_CHAT_GATE_VISUAL');}
+  expect(()=>signoffCommand([stage,dir,'--by','user','--owner-chat',join(dir,'words.txt'),'--said-at','2026-11-20T00:00:59Z','--relayed-by','operator']))
+    .toThrow(expect.objectContaining({code:'NUMBERED_WRITER_REMOVED',exitCode:USAGE_EXIT}));
   expect(readFileSync(join(dir,'project.json'))).toEqual(before);
 });

@@ -20,8 +20,9 @@ import { assertNoPendingJobAsk } from '../src/job-close.ts';
 import { currentJobIdentity, readRecordPublished, type RecordPublicationRequest } from '../src/job-publication.ts';
 import { JOB_COMMENTS_ACT_SCHEMA, JOB_RECORD_ACT_SCHEMA, parseCommentsAct, parseRecordAct, startJobHost, type ActV3, type JobOwnerHost, type JobHostOptions, type RecordPlanSubject } from '@rig-c/review/job-host';
 import { interviewAnswerCommand } from '../src/choice-writers.ts';
-import { reviewActFindings } from '../src/review-act.ts';
+import { reviewActFindings, reviewActTransport } from '../src/review-act.ts';
 import { sorted, stepHash } from '../src/step-hash.ts';
+import { seedStoredInterviewPicks, seedStoredInterviewPicksAnswer, seedStoredVersionSignoff } from './historical-review-fixture.ts';
 import type { Json, JsonObject } from '../src/templates.ts';
 import { testClock } from './clock.ts';
 import { EXAMPLE_NOW } from '../scripts/example-time.ts';
@@ -463,10 +464,12 @@ test('#789 job acts preserves checkpoint and signoff words and interview comment
 
     const text = await cli(root, ['job', 'acts', root]);
     expectExit0(text);
+    expect(parsed.acts[0]!.command).toBeNull();
+    expect(parsed.acts[0]!.unavailable?.code).toBe('SIGNOFF_FROM_REVIEW_REMOVED');
     expect(text.stdout).toContain([
       `${String(checkpoint.actId)} checkpoint checkpoint assemble / parts at ${String(checkpoint.at)}`,
       `  words: ${words}`,
-      `  ${parsed.acts[0]!.command!}`,
+      `  SIGNOFF_FROM_REVIEW_REMOVED: ${parsed.acts[0]!.unavailable!.message}`,
     ].join('\n'));
     expect(readFileSync(join(root, 'project.json'))).toEqual(projectBefore);
   } finally {
@@ -494,10 +497,12 @@ test('#789 job acts preserves checkpoint and signoff words and interview comment
 
     const signoffText = await cli(signoffRoot, ['job', 'acts', signoffRoot]);
     expectExit0(signoffText);
+    expect(signoffParsed.acts[0]!.command).toBeNull();
+    expect(signoffParsed.acts[0]!.unavailable?.code).toBe('SIGNOFF_FROM_REVIEW_REMOVED');
     expect(signoffText.stdout).toContain([
       `${String(signoff.actId)} signoff stage plan-approved at ${String(signoff.at)}`,
       `  words: ${signoffWords}`,
-      `  ${signoffParsed.acts[0]!.command!}`,
+      `  SIGNOFF_FROM_REVIEW_REMOVED: ${signoffParsed.acts[0]!.unavailable!.message}`,
     ].join('\n'));
   } finally {
     servedSignoff.host.stop();
@@ -521,12 +526,14 @@ test('#789 job acts preserves checkpoint and signoff words and interview comment
 
   const picksText = await cli(picksRoot, ['job', 'acts', picksRoot]);
   expectExit0(picksText);
+  expect(picksParsed.acts[0]!.command).toBeNull();
+  expect(picksParsed.acts[0]!.unavailable?.code).toBe('SIGNOFF_FROM_REVIEW_REMOVED');
   expect(picksText.stdout).toContain([
     `${String(picksAct.actId)} interview-picks question motion at ${String(picksAct.at)}`,
     `  comment: ${picksWords}`,
-    `  ${picksParsed.acts[0]!.command!}`,
+    `  SIGNOFF_FROM_REVIEW_REMOVED: ${picksParsed.acts[0]!.unavailable!.message}`,
   ].join('\n'));
-  await executePrinted(picksRoot, picksParsed.acts[0]!.command!);
+  seedStoredInterviewPicks(picksRoot, picksAct, { now: testClock.now(), checkProjectHash: true });
 }, 30_000);
 
 test('#760 a rig verdict ask and its un-ingested act on a rig the amendment superseded no longer hold a new ask', () => {
@@ -588,21 +595,18 @@ test('routing preserves exact replay identities, retires numbered acts and keeps
     });
   }
   for (const id of ['pick', 'checkpoint', 'sign', 'current-sign']) {
-    expect(rows.find(row => row.actId === id)?.unavailable).toBeUndefined();
+    expect(rows.find(row => row.actId === id)).toMatchObject({
+      args: null, command: null, unavailable: { code: 'SIGNOFF_FROM_REVIEW_REMOVED' },
+    });
   }
-  expect(rows.filter(row => row.args !== null).map(row => row.args)).toEqual([
-    ['interview-answer', 'motion', root, '--from-review', 'pick'],
-    ['signoff', 'parts', root, '--checkpoint', 'assemble', '--from-review', 'checkpoint'],
-    ['signoff', 'rig-review', root, '--from-review', 'sign'],
-    ['signoff', 'rig-review', root, '--from-review', 'current-sign'],
-  ]);
+  expect(rows.filter(row => row.args !== null)).toEqual([]);
   for (const id of ['unbound-parts-sign', 'removed']) {
     expect(rows.find(row => row.actId === id)).toMatchObject({
       args: null, command: null, unavailable: { code: 'JOB_ACTS_WRITER_UNAVAILABLE' },
     });
   }
-  expect(rows.find(row => row.actId === 'sign')?.command)
-    .toBe(String.raw`rig-create signoff rig-review 'synthetic project'\''s root' --from-review sign`);
+  expect(rows.find(row => row.actId === 'sign')?.unavailable?.message)
+    .toContain(String.raw`signoff rig-review 'synthetic project'\''s root'`);
   const remaining = pendingJobActs({ review_acts: [{ jobId: 'job', actId: 'rig' }], signoffs: [{ source: 'review act job/sign' }] }, actors, root);
   expect(remaining.map(row => row.actId)).not.toContain('rig'); expect(remaining.map(row => row.actId)).not.toContain('sign');
 });
@@ -740,6 +744,7 @@ function seedLegacyPicksPage(root: string) {
   const dbPath = join(binding.identity.stateDir, 'jobs.sqlite');
   const updateJob = <T>(fn: (data: StoredLegacyJobDoc) => T): T => {
     const db = new Database(dbPath);
+    db.exec('PRAGMA busy_timeout = 5000;');
     try {
       const row = db.query<{ revision: number; document: string }, [string]>(
         'SELECT revision, document FROM jobs WHERE job_id = ?',
@@ -902,9 +907,7 @@ function ingestClosureFixturePicks(
     source: { sourceHash: jobHash(JSON.stringify({ schema: 'rig-review-job-record-source/1', ...binding })),
       projectHash: record.sha256, subject: 'option-set', ...binding },
   }, comments);
-  const answer = JSON.parse(interviewAnswerCommand([questionId, root, '--from-review', actId], testClock.now(), {
-    fetch: () => ({ bytes: JSON.stringify(act) }),
-  })) as JsonObject;
+  const answer = JSON.parse(seedStoredInterviewPicksAnswer(root, act, { now: testClock.now() })) as JsonObject;
   return { question: questionId, jobId, actId, at, answer };
 }
 
@@ -1085,8 +1088,7 @@ test('#846 single ingest routes exact comments and preserves survey, receipt and
   const bytes = JSON.stringify(act6, null, 2) + '\n';
   const file = join(root, 'project.json');
   const before = readFileSync(file);
-  const ingest = (bytes: string) => interviewAnswerCommand(['motion', root, '--from-review', String(act6.actId)], testClock.now(),
-    { fetch: () => ({ bytes }) });
+  const ingest = (bytes: string) => seedStoredInterviewPicksAnswer(root, bytes, { now: testClock.now() });
   const answer = ingest(bytes);
   const at6 = readFileSync(file);
   expect(ingest(bytes)).toBe(answer);
@@ -1138,8 +1140,7 @@ test('#846 the ledger refuses tampered routes and warns for missing routes at an
   ] });
   const bytes = JSON.stringify(act);
   const file = join(root, 'project.json');
-  const ingest = () => interviewAnswerCommand(['motion', root, '--from-review', String(act.actId)], testClock.now(),
-    { fetch: () => ({ bytes }) });
+  const ingest = () => seedStoredInterviewPicksAnswer(root, bytes, { now: testClock.now() });
   const answer = ingest();
   const project = read(root);
   const index = arr(project.review_acts).length - 1;
@@ -1218,7 +1219,10 @@ test('#860 act@6 interview feedback preserves a rig point and check refuses an e
   const decoded = parseCommentsAct(act);
   expect(decoded.kind).toBe('interview-picks');
   expect(decoded.value).toMatchObject({ comments: [comment] });
-  expectExit0(await cli(root, ['interview-answer', 'motion', root, '--from-review', decoded.actId]));
+  const retired = await cli(root, ['interview-answer', 'motion', root, '--from-review', decoded.actId]);
+  expect(retired.exit).toBe(2);
+  expect(retired.stderr).toContain('SIGNOFF_FROM_REVIEW_REMOVED');
+  seedStoredInterviewPicksAnswer(root, JSON.stringify(decoded), { now: testClock.now() });
 
   const project = read(root);
   const entry = obj(arr(project.review_acts).at(-1));
@@ -1254,13 +1258,19 @@ test('#846 batch ingest routes comments atomically and omits the route for an em
   const motionId = String(motion.actId);
   const bonesId = String(bones.actId);
   const args = ['--batch', root, '--from-review', motionId, '--from-review', bonesId];
+  expect(() => interviewAnswerCommand(args, testClock.now()))
+    .toThrow(expect.objectContaining({ code: 'SIGNOFF_FROM_REVIEW_REMOVED', exitCode: 2 }));
   const bytes = new Map(acts.map(act => [String(act.actId), JSON.stringify(act)]));
-  const ingest = () => interviewAnswerCommand(args, testClock.now(), { fetch: ({ actId }) => ({ bytes: bytes.get(actId)! }) });
+  const ingest = () => JSON.stringify([
+    JSON.parse(seedStoredInterviewPicksAnswer(root, bytes.get(motionId)!, { now: testClock.now() })),
+    JSON.parse(seedStoredInterviewPicksAnswer(root, bytes.get(bonesId)!, { now: testClock.now() })),
+  ]);
   const file = join(root, 'project.json');
   const before = readFileSync(file);
   const bonesBytes = bytes.get(bonesId)!;
-  bytes.set(bonesId, JSON.stringify({ ...bones, at: new Date(testClock.now() + 1000).toISOString() }));
-  expect(ingest).toThrow(expect.objectContaining({ code: 'REVIEW_ACT_INVALID' }));
+  bytes.set(bonesId, JSON.stringify({ ...bones, at: new Date(testClock.now() + 10_000).toISOString() }));
+  expect(() => seedStoredInterviewPicksAnswer(root, bytes.get(bonesId)!, { now: testClock.now() }))
+    .toThrow(expect.objectContaining({ code: 'REVIEW_ACT_INVALID' }));
   expect(readFileSync(file)).toEqual(before);
   bytes.set(bonesId, bonesBytes);
 
@@ -1290,10 +1300,10 @@ test('merged record-mode host lists finalized picks and its printed writer comma
   const before = snapshot(root); const listed = await cli(root, ['job', 'acts', root, '--json']); expectExit0(listed);
   expect(snapshot(root)).toEqual(before);
   const row = JSON.parse(listed.stdout).acts[0];
-  expect(row.args).toEqual(['interview-answer', 'motion', root, '--from-review', act.actId]);
+  expect(row).toMatchObject({ actId: act.actId, args: null, command: null, unavailable: { code: 'SIGNOFF_FROM_REVIEW_REMOVED' } });
   const offered = nextProject(root).moves.filter(move => move.command?.includes('--question motion'));
   expect(offered).toHaveLength(1);
-  await executePrinted(root, row.command);
+  seedStoredInterviewPicksAnswer(root, act, { now: testClock.now() });
   // #738: an empty pending list names the act already ingested for the current ask.
   const after = JSON.parse((await cli(root, ['job', 'acts', root, '--json'])).stdout);
   expect(after.acts).toEqual([]);
@@ -1344,8 +1354,8 @@ test('#737 a second --question refuses JOB_ASK_PENDING while the first ask is op
   expect(snapshot(root)).toEqual(before);
   const listed = await cli(root, ['job', 'acts', root, '--json', '--wait']); expectExit0(listed);
   const row = JSON.parse(listed.stdout).acts[0] as PendingJobAct;
-  expect(row).toMatchObject({ actId: act.actId, kind: 'interview-picks' });
-  await executePrinted(root, row.command!);
+  expect(row).toMatchObject({ actId: act.actId, kind: 'interview-picks', unavailable: { code: 'SIGNOFF_FROM_REVIEW_REMOVED' } });
+  seedStoredInterviewPicksAnswer(root, act, { now: testClock.now() });
 
   const next = await cli(root, ['job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner', '--question', 'bones']);
   expectExit0(next);
@@ -1378,8 +1388,6 @@ test('#826 record-only writers preserve an open interview ask and its finalized 
     ['interview-options', 'motion', root, '--file', setPath],
     ['interview-options', '--adopt', root],
     answer,
-    ['interview-answer', 'motion', root, '--set', setPath, '--sha256', jobHash(readFileSync(join(root, setPath))),
-      '--by', 'user', '--from-review', '', ...value.selections.flatMap(row => ['--pick', `${row.itemId}=${row.optionId}`])],
     ['interview-decision', 'motion', root, '--by', 'agent', '--reasoning-file', join(root, 'owner-words-motion.txt')],
   ];
   const projectFile = join(root, 'project.json');
@@ -1401,7 +1409,7 @@ test('#826 record-only writers preserve an open interview ask and its finalized 
   await refuses();
   const act = await view.act('interview-picks', 'interview-picks', value);
   await refuses();
-  expectExit0(await cli(root, ['interview-answer', 'motion', root, '--from-review', String(act.actId)]));
+  seedStoredInterviewPicksAnswer(root, act, { now: testClock.now() });
   expect(arr(read(root).review_acts).at(-1)).toMatchObject({ kind: 'interview-picks', actId: act.actId });
   expectExit0(await cli(root, add));
   expect(arr(read(root).inputs)).toContainEqual(expect.objectContaining({ path }));
@@ -1437,7 +1445,7 @@ test('#833 draft and owner-language writers refuse until the finalized Review an
   await refuses();
   const act = await view.act('interview-picks', 'interview-picks', value);
   await refuses();
-  expectExit0(await cli(root, ['interview-answer', 'motion', root, '--from-review', String(act.actId)]));
+  seedStoredInterviewPicksAnswer(root, act, { now: testClock.now() });
   expectExit0(await cli(root, language));
   expectExit0(await cli(root, draft));
   const project = read(root);
@@ -1532,8 +1540,8 @@ test.each([
   const listed = await cli(root, ['job', 'acts', root, '--json', '--wait']);
   expectExit0(listed);
   const row = JSON.parse(listed.stdout).acts[0] as PendingJobAct;
-  expect(row).toMatchObject({ actId: act.actId, kind: 'interview-picks' });
-  await executePrinted(root, row.command!);
+  expect(row).toMatchObject({ actId: act.actId, kind: 'interview-picks', unavailable: { code: 'SIGNOFF_FROM_REVIEW_REMOVED' } });
+  seedStoredInterviewPicksAnswer(root, act, { now: testClock.now() });
 
   const published = await cli(root, ['job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner', ...selector]);
   expectExit0(published);
@@ -1977,11 +1985,19 @@ test('#502 owner-chat direction signoff accepts a retained approved verdict', as
   });
   const before = nextProject(root, testClock.now());
   expect(before.moves.filter(move => move.command?.includes('--plan'))).toEqual([]);
-  expect(before.moves.some(move => move.command?.includes('signoff direction-review') && move.command.includes('--owner-chat'))).toBe(true);
+  expect(before.moves.some(move => move.awaits === 'signoffs[stage=direction-review]' && move.command === null && move.act.includes('NUMBERED_ACT_RETIRED'))).toBe(true);
   const directionWords = join(root, 'direction-approval.txt');
   writeFileSync(directionWords, WORDS);
-  expectExit0(await cli(root, ['signoff', 'direction-review', root, '--by', 'synthetic-owner',
-    '--owner-chat', directionWords, '--said-at', testClock.iso(), '--relayed-by', 'synthetic-operator']));
+  const removed = await cli(root, ['signoff', 'direction-review', root, '--by', 'synthetic-owner',
+    '--owner-chat', directionWords, '--said-at', testClock.iso(), '--relayed-by', 'synthetic-operator']);
+  expect(removed.exit).toBe(2);
+  expect(removed.stderr).toContain('NUMBERED_WRITER_REMOVED:');
+  seedStoredVersionSignoff(root, 'direction-review', 2, {
+    by: 'user',
+    at: testClock.now(),
+    verbatim: WORDS,
+    source: 'owner chat',
+  });
   const advance = nextProject(root, testClock.now()).moves.find(move => move.command?.startsWith('rig-create advance accepted'))!;
   await executePrinted(root, advance.command!);
   expect(nextProject(root, testClock.now()).accepted).toBe(true);
@@ -2021,11 +2037,13 @@ test('#556 job close refuses un-ingested acts byte-identically, closes after ing
   expect(refusedClose.stderr).toStartWith('JOB_ACTS_PENDING: ');
   expect(refusedClose.stderr).toContain(String(firstAct.actId));
   const [pending] = pendingJobActs(read(root), [firstAct as unknown as ActV3], root);
-  expect(refusedClose.stderr).toContain(pending!.command!);
+  expect(pending!.command).toBeNull();
+  expect(pending!.unavailable?.code).toBe('SIGNOFF_FROM_REVIEW_REMOVED');
+  expect(refusedClose.stderr).toContain(pending!.unavailable!.message);
   expect(readFileSync(bindingPath)).toEqual(beforeBindingBytes);
   expect(readFileSync(join(root, 'project.json'))).toEqual(beforeProjectBytes);
 
-  await executePrinted(root, pending!.command!);
+  seedStoredInterviewPicks(root, firstAct, { now: testClock.now(), checkProjectHash: true });
   const afterIngestClose = await cli(root, ['job', 'close', root]);
   expectExit0(afterIngestClose);
   expect(afterIngestClose.stdout.trim()).toBe('job: closed');
@@ -2121,8 +2139,9 @@ test('#556 job close refuses un-ingested acts byte-identically, closes after ing
   const beforeReplay = readFileSync(join(discardRoot, 'project.json'));
   const beforeReplayBinding = readFileSync(discardBindingPath);
   const replay = await cli(discardRoot, ['interview-answer', 'rig_type', discardRoot, '--from-review', String(droppedAct.actId)]);
-  expect(replay.exit).toBe(1);
-  expect(replay.stderr).toStartWith('rig-create: REVIEW_ACT_DISCARDED: ');
+  expect(replay.exit).toBe(2);
+  expect(replay.stderr).toStartWith('rig-create: SIGNOFF_FROM_REVIEW_REMOVED: ');
+  expect(() => reviewActTransport(discardRoot, String(droppedAct.actId))).toThrow(expect.objectContaining({ code: 'REVIEW_ACT_DISCARDED' }));
   expect(readFileSync(join(discardRoot, 'project.json'))).toEqual(beforeReplay);
   expect(readFileSync(discardBindingPath)).toEqual(beforeReplayBinding);
   expectExit0(await cli(discardRoot, [...discardCommand, 'Synthetic agent reason', '--by', 'agent']));

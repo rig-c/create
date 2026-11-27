@@ -1,18 +1,17 @@
-import { reviewStdout } from './review-read-fixture.ts';
-import { partsReviewCommand } from '../src/parts-review.ts';
 import { afterEach, expect, test } from 'bun:test';
 import { randomUUID } from 'node:crypto';
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import type { JobAct, JobPartOutcome, JobVerdict } from '../node_modules/@rig-c/review/src/job-contract.ts';
-import { loadPartsView, saveVerdict, verdictSource } from '../node_modules/@rig-c/review/src/parts-view.ts';
+import { loadPartsView, verdictSource } from '../node_modules/@rig-c/review/src/parts-view.ts';
 import { partsDraftEditable } from '../node_modules/@rig-c/review/src/interview-project.ts';
-import { JOB_COMMENTS_ACT_SCHEMA, PARTS_COMMENTS_VERDICT_SCHEMA, projectComments, type JobComment, type JobOwnerHost } from '@rig-c/review/job-host';
+import { JOB_COMMENTS_ACT_SCHEMA, PARTS_COMMENTS_VERDICT_SCHEMA, projectComments, startJobHost, type JobComment, type JobOwnerHost } from '@rig-c/review/job-host';
 import { openCreateJob, openDraftPublication, reconcileCreateJob } from '../src/job-host.ts';
-import { draftPublishedContext, partsEnumerator, prepareDraftManifest } from '../src/job-publication.ts';
-import { JOB_BINDING_FILE, jobHash, jobHostStateRoot, pendingPublications, readWriterBinding, writePrivateJson } from '../src/job-outbox.ts';
-import { jobRuntimeExecArgv } from '../src/job-writer.ts';
+import { agentCall } from '../src/job-acts.ts';
+import { draftPublishedContext, partsEnumerator, prepareDraftManifest, readPublished } from '../src/job-publication.ts';
+import { acknowledgePublication, enqueuePublication, jobHash, jobHostStateRoot, pendingPublications, readWriterBinding, reconcilePublication } from '../src/job-outbox.ts';
+import { jobRuntimeExecArgv, publishCommittedVersion, takePendingNotices } from '../src/job-writer.ts';
 import { checkProject, collectItems } from '../src/check.ts';
 import { optionContext } from '../src/choices.ts';
 import { interviewOptionsCommand, interviewAnswerCommand } from '../src/choice-writers.ts';
@@ -28,9 +27,11 @@ import { nextProject } from '../src/next.ts';
 import { signoffCommand } from '../src/signoff.ts';
 import { structureSnapshotCommand } from '../src/structure-snapshot.ts';
 import { assertPartsActSource, partsActDraftHash, partsActFindings } from '../src/parts-act.ts';
-import { latestPartsReceipt, latestPartsVerdictStatus, partsReadFindings, recordedPartsVerdict } from '../src/parts-verdict-record.ts';
+import { PARTS_CLI_RECEIPT, latestPartsReceipt, latestPartsVerdictStatus, partsReadFindings, partsVerdictNames, recordedPartsVerdict } from '../src/parts-verdict-record.ts';
 import { decodeReviewAct, partsActIssues, reviewActFindings, type PartsVerdictActV5 } from '../src/review-act.ts';
 import { EXAMPLE_ANCHOR, EXAMPLE_NOW } from '../scripts/example-time.ts';
+import { seedStoredPartsSignoff, seedStoredPartsVerdictAct, seedStoredSignoffAct } from './historical-review-fixture.ts';
+import { recordPartsReceipt, seedPartsCliReceipt } from './parts-receipt-fixture.ts';
 import { treeDigest } from './helpers.ts';
 import type { JsonObject } from '../src/templates.ts';
 
@@ -112,13 +113,47 @@ function expectCliRefused(result: CliResult, code: string, exit = 1): CliResult 
 }
 
 const draftArgs = (id = 'chain') => ['draft-rig', id, '--config', `derived/drafts/${id}/config.json`, '--from', `derived/drafts/${id}/out`, '--parts', `derived/drafts/${id}/input`, '--json'];
+async function openHistoricalPartsJob(root: string, reviewer = 'synthetic-owner') {
+  return openCreateJob(root, { id: reviewer, role: 'owner' }, Date.now(), options => startJobHost({
+    ...options,
+    readPublished: async input => {
+      const context = await readPublished(input);
+      const sel = input.result.selector;
+      return sel?.kind === 'draft' && 'id' in sel
+        ? { ...context, subjects: [{ kind: 'parts-verdict', draftId: sel.id }] }
+        : context;
+    },
+  }));
+}
+async function publishHistoricalDraft(root: string, host: JobOwnerHost, draftId = 'chain'): Promise<void> {
+  const project = read(root);
+  const result = { path: prepareDraftManifest(root, project, draftId), selector: { kind: 'draft' as const, id: draftId } };
+  const binding = readWriterBinding(root)!;
+  const entry = enqueuePublication(root, binding, result);
+  const requestId = randomUUID();
+  await reconcilePublication(root, entry, async pending => {
+    const reply = await agentCall(host, {
+      schema: binding.identity.apiSchema,
+      verb: 'publish',
+      requestId,
+      idempotencyKey: requestId,
+      expectedGeneration: host.session.status().generation,
+      result,
+      freeze: { kind: 'producer-held', holdId: pending.id, record: { path: 'project.json', sha256: pending.recordHash } },
+    });
+    expect(reply.error).toBeUndefined();
+    expect(reply.ok).toBe(true);
+    const pub = host.session.status().publication!;
+    acknowledgePublication(pending, pub.publicationId, pub.generation, requestId, [{ kind: 'parts-verdict', draftId }]);
+  });
+}
 async function bound(ready = true, reviewer = 'synthetic-owner') {
   const root = fixture();
-  const host = await openCreateJob(root, { id: reviewer, role: 'owner' }, Date.now());
+  const host = await openHistoricalPartsJob(root, reviewer);
   hosts.push(host);
   const result = expectCliOk(await cli(root, draftArgs()));
   expect(result.stderr).toBe(''); expect(result.exit).toBe(0);
-  await openDraftPublication(root, host, Date.now(), 'chain');
+  await publishHistoricalDraft(root, host, 'chain');
   expect(host.session.status().publication?.source.selector).toEqual({ kind: 'draft', id: 'chain' });
   expect(host.session.status().publication!.source.parts!.images.map(({ path, role }) => ({ path, role })))
     .toEqual(partsEnumerator.enumerate(join(root, 'derived/drafts/chain/input')));
@@ -142,7 +177,7 @@ async function readyForVerdict(root: string, host: JobOwnerHost): Promise<void> 
   structureSnapshotCommand([root, '--draft', 'chain', '--out', 'evidence/structure-chain.json']);
   diffClassesCommand([root, '--diff-report', 'evidence/diff-components.json', '--by', 'agent'], prepNow);
   advanceCommand(['parts-review', root, '--parts-check', 'evidence/parts-check.json', '--parts', 'derived/drafts/chain/input'], prepNow);
-  await openDraftPublication(root, host, prepNow, 'chain');
+  await publishHistoricalDraft(root, host, 'chain');
 }
 async function submit(
   root: string,
@@ -236,11 +271,15 @@ function prepareSignoff(root: string, _evidence: string): void {
   diffClassesCommand([root, '--diff-report', 'evidence/diff-components.json', '--by', 'agent'], Date.now());
 }
 function sign(root: string, _evidence: string): void {
-  signoffCommand(['parts-review', root, '--by', 'user', '--verbatim-file', join(root, 'evidence/approval.txt'), '--draft', 'chain',
-    '--structure-file', 'evidence/structure-chain.json'], Date.now());
+  seedStoredPartsSignoff(root, 'chain', {
+    by: 'user',
+    at: Date.now(),
+    verbatim: readFileSync(join(root, 'evidence/approval.txt'), 'utf8'),
+    structureFile: 'evidence/structure-chain.json',
+  });
 }
 
-test('an uncovered part edit leaves step completion and the Review verdict route runnable', async () => {
+test('an uncovered part edit leaves step completion runnable and historical parts approval clears it', async () => {
   const { root, host } = await bound(false);
   const project = read(root);
   const assemble = ((project.plan as JsonObject).steps as JsonObject[]).find(step => step.id === 'assemble')!;
@@ -259,8 +298,7 @@ test('an uncovered part edit leaves step completion and the Review verdict route
   await readyForVerdict(root, host);
   const next = nextProject(root, Date.now());
   expect(next.refusals.map(finding => finding.code)).toEqual(['PART_EDIT_UNCOVERED']);
-  expect(next.moves.some(move => move.review_act?.kind === 'parts-verdict' && move.review_act.draft_id === 'chain')).toBe(true);
-  expect(next.moves.some(move => move.command?.startsWith('rig-create job open') && move.command.includes('--draft chain'))).toBe(true);
+  expect(next.moves.some(move => move.awaits === 'review_acts[kind=parts-verdict,draft_id=chain]' && move.command === null)).toBe(true);
   const act = await submit(root, host);
   expect(ingestSyntheticFetch(root, act).exit).toBe(0);
   expect(findings()).toEqual([]);
@@ -279,55 +317,45 @@ for (const verdict of ['approved', 'changes-requested'] as const) {
       authority: native.authority as unknown as JsonObject, source: native.source as unknown as JsonObject,
       value: { verdict, comments: comments as unknown as JsonObject[] },
     };
-    const server = Bun.serve({ hostname: '127.0.0.1', port: 0, async fetch(request) {
-      const body = await request.json() as { requestId: string };
-      return Response.json({ schema: 'rig-review/job-api@2', verb: 'fetch-act', jobId: fresh.jobId,
-        requestId: body.requestId, ok: true, value: fresh });
-    } });
-    const binding = readWriterBinding(root)!;
-    binding.origin = `http://127.0.0.1:${server.port}`;
-    writePrivateJson(join(root, JOB_BINDING_FILE), binding, true);
-    const initial = read(root); (initial.review_job as JsonObject).origin = binding.origin; write(root, initial);
     (fresh.source as JsonObject).projectHash = jobHash(readFileSync(join(root, 'project.json')));
-    try {
-      const args = ['parts-review', '--from-review', String(fresh.actId), '--json'];
-      const first = expectCliOk(await cli(root, args));
-      expect(JSON.parse(first.stdout).verbatim).toBe(projectComments(comments));
-      const bytes = readFileSync(join(root, 'project.json'));
-      const project = read(root);
-      const receipt = (project.review_acts as JsonObject[]).at(-1)!;
-      expect(receipt.bytes).toBe(JSON.stringify(fresh));
-      expect(receipt.sha256).toBe(jobHash(String(receipt.bytes)));
-      expect(JSON.parse(String(receipt.bytes)).schema).toBe(JOB_COMMENTS_ACT_SCHEMA);
-      expect(partsActFindings(root, project)).toEqual([]);
-      expect<unknown>(readFileSync(join(root, String((receipt.evidence as JsonObject).path)), 'utf8')).toBe(receipt.bytes);
-      expectCliOk(await cli(root, args));
-      expect(readFileSync(join(root, 'project.json'))).toEqual(bytes);
-      const input = join(root, 'derived/drafts/chain/input');
-      const view = await loadPartsView(input, { rig: join(root, 'derived/drafts/chain/out/rig.json'),
-        meshReport: join(root, 'derived/drafts/chain/out/mesh_report.json'), painting: join(input, 'painting_in_rig.png'),
-        verdict: join(root, 'evidence/comments-verdict.json') });
-      const source = verdictSource(view);
-      const readerPackage = JSON.parse(readFileSync(join(import.meta.dir, '../node_modules/@rig-c/review/package.json'), 'utf8')) as { name: string; version: string };
-      const standalone = { schema: PARTS_COMMENTS_VERDICT_SCHEMA, mode: view.mode, tool: { name: readerPackage.name, version: readerPackage.version },
-        source, status: verdict, comments: comments.map(comment => comment.anchor && 'schema' in comment.anchor
-          ? { text: comment.text, anchor: { ...comment.anchor, sourceHash: source.sha256 } } : comment), updatedAt: native.at };
-      const standaloneBytes = Buffer.from(`${JSON.stringify(standalone, null, 2)}\n`);
-      const cliArgs = ['--draft', 'chain', '--from-review-cli', '--by', 'user', '--json', '--', 'derived/drafts/chain/input',
-        '--rig', 'derived/drafts/chain/out/rig.json', '--mesh-report', 'derived/drafts/chain/out/mesh_report.json',
-        '--painting', 'derived/drafts/chain/input/painting_in_rig.png', '--verdict', 'evidence/comments-verdict.json'];
-      const hooks = { runCli: () => ({ stdout: standaloneBytes, stderr: '', exitCode: 0, tool: { name: readerPackage.name, version: readerPackage.version } }) };
-      expect(partsReviewCommand([root, ...cliArgs], Date.now(), hooks).exit).toBe(0);
-      const cliFrozen = readFileSync(join(root, 'project.json'));
-      const cliReceipt = (read(root).review_acts as JsonObject[]).at(-1)!;
-      const expectedNames = comments.flatMap(comment => comment.anchor && 'parts' in comment.anchor
-        ? comment.anchor.parts.map(part => part.name) : []);
-      expect(cliReceipt.flagged).toEqual(expectedNames); expect(cliReceipt.noted).toEqual(expectedNames);
-      expect(readFileSync(join(root, String((cliReceipt.evidence as JsonObject).path)))).toEqual(standaloneBytes);
-      expect(partsReadFindings(root, read(root))).toEqual([]);
-      expect(partsReviewCommand([root, ...cliArgs], Date.now(), hooks).exit).toBe(0);
-      expect(readFileSync(join(root, 'project.json'))).toEqual(cliFrozen);
-    } finally { server.stop(true); }
+    expectCliRefused(await cli(root, ['parts-review', '--from-review', String(fresh.actId), '--json']), 'NUMBERED_WRITER_REMOVED', 2);
+    const first = seedStoredPartsVerdictAct(root, fresh, { checkProjectHash: true, checkArrival: true });
+    expect(first.verbatim).toBe(projectComments(comments));
+    const bytes = readFileSync(join(root, 'project.json'));
+    const project = read(root);
+    const receipt = (project.review_acts as JsonObject[]).at(-1)!;
+    expect(receipt.bytes).toBe(JSON.stringify(fresh));
+    expect(receipt.sha256).toBe(jobHash(String(receipt.bytes)));
+    expect(JSON.parse(String(receipt.bytes)).schema).toBe(JOB_COMMENTS_ACT_SCHEMA);
+    expect(partsActFindings(root, project)).toEqual([]);
+    expect<unknown>(readFileSync(join(root, String((receipt.evidence as JsonObject).path)), 'utf8')).toBe(receipt.bytes);
+    seedStoredPartsVerdictAct(root, fresh, { checkProjectHash: true });
+    expect(readFileSync(join(root, 'project.json'))).toEqual(bytes);
+    const input = join(root, 'derived/drafts/chain/input');
+    const view = await loadPartsView(input, { rig: join(root, 'derived/drafts/chain/out/rig.json'),
+      meshReport: join(root, 'derived/drafts/chain/out/mesh_report.json'), painting: join(input, 'painting_in_rig.png'),
+      verdict: join(root, 'evidence/comments-verdict.json') });
+    const source = verdictSource(view);
+    const readerPackage = JSON.parse(readFileSync(join(import.meta.dir, '../node_modules/@rig-c/review/package.json'), 'utf8')) as { name: string; version: string };
+    const standalone = { schema: PARTS_COMMENTS_VERDICT_SCHEMA, mode: view.mode, tool: { name: readerPackage.name, version: readerPackage.version },
+      source, status: verdict, comments: comments.map(comment => comment.anchor && 'schema' in comment.anchor
+        ? { text: comment.text, anchor: { ...comment.anchor, sourceHash: source.sha256 } } : comment), updatedAt: native.at };
+    const standaloneBytes = Buffer.from(`${JSON.stringify(standalone, null, 2)}\n`);
+    const cliReceipt = seedPartsCliReceipt(
+      root,
+      'chain',
+      Date.parse(native.at),
+      standalone as unknown as JsonObject,
+      ['derived/drafts/chain/input', '--rig', 'derived/drafts/chain/out/rig.json',
+        '--mesh-report', 'derived/drafts/chain/out/mesh_report.json', '--painting', 'derived/drafts/chain/input/painting_in_rig.png',
+        '--verdict', 'evidence/comments-verdict.json'],
+    );
+    const standalonePath = String((cliReceipt.evidence as JsonObject).path);
+    const expectedNames = comments.flatMap(comment => comment.anchor && 'parts' in comment.anchor
+      ? comment.anchor.parts.map(part => part.name) : []);
+    expect(cliReceipt.flagged).toEqual(expectedNames); expect(cliReceipt.noted).toEqual(expectedNames);
+    expect(JSON.parse(readFileSync(join(root, standalonePath), 'utf8'))).toEqual(JSON.parse(standaloneBytes.toString('utf8')));
+    expect(partsReadFindings(root, read(root))).toEqual([]);
   }, DUAL_REPLAY_TIMEOUT_MS);
 }
 
@@ -335,9 +363,7 @@ test('bound draft publishes ready evidence and atomically signs from one approva
   const { root, host } = await bound();
   const act = await submit(root, host);
   const before = read(root);
-  const first = expectCliOk(await cli(root, ['parts-review', '--from-review', act.actId, '--json']));
-  expect(first.stderr).toBe(''); expect(first.exit).toBe(0);
-  const result = JSON.parse(first.stdout);
+  const result = JSON.parse(ingestSyntheticFetch(root, act).stdout);
   const project = read(root);
   expect((project.signoffs as JsonObject[]).slice(0, -1)).toEqual(before.signoffs as JsonObject[]); expect(project.stage).toBe(before.stage);
   expect((project.signoffs as JsonObject[]).at(-1)).toMatchObject({ stage: 'parts-review', draft_id: 'chain', checkpoint: null, by: 'user', at: act.at, source: `review act ${act.jobId}/${act.actId}` });
@@ -345,8 +371,8 @@ test('bound draft publishes ready evidence and atomically signs from one approva
   expect(JSON.parse(readFileSync(join(root, result.evidence.path), 'utf8'))).toEqual(act);
   expect(partsActFindings(root, project)).toEqual([]);
   const bytes = readFileSync(join(root, 'project.json'));
-  const replay = expectCliOk(await cli(root, ['parts-review', '--from-review', act.actId, '--json']));
-  expect(replay.stdout).toBe(first.stdout);
+  const replay = ingestSyntheticFetch(root, act);
+  expect(JSON.parse(replay.stdout)).toMatchObject({ draft_id: 'chain', verdict: 'approved', by: 'user' });
   expect(readFileSync(join(root, 'project.json'))).toEqual(bytes);
   expect(checkProject(root, undefined, { now: Date.now() }).refusals.map(finding => finding.code)).toEqual([]);
 }, MULTI_SPAWN_TIMEOUT_MS);
@@ -359,9 +385,7 @@ test('legacy owner-shaped producer verdict retains the structure and signoff gat
     verdict: join(root, 'evidence/owner-verdict.json') });
   const source = verdictSource(pkg);
   expect(source.files.some(file => file.path.endsWith('rig.json'))).toBe(true);
-  await saveVerdict(pkg, { status: 'approved', issues: [] });
-  partsReviewCommand([root, '--draft', 'chain', '--from-review-cli', '--by', 'user', '--', 'derived/drafts/chain/input',
-    '--rig', 'derived/drafts/chain/out/rig.json', '--mesh-report', 'derived/drafts/chain/out/mesh_report.json', '--painting', 'derived/drafts/chain/input/painting_in_rig.png', '--verdict', 'evidence/owner-verdict.json'], Date.now());
+  recordPartsReceipt(root, 'chain', Date.now(), 'approved');
   prepareSignoff(root, 'evidence/owner-verdict.json');
   sign(root, 'evidence/owner-verdict.json');
   expect(checkProject(root, undefined, { now: Date.now() }).refusals.map(finding => finding.code)).toEqual([]);
@@ -374,9 +398,7 @@ for (const [verdict, part, mesh] of [
   const { root, host } = await bound();
   const act = await submit(root, host, verdict, part, mesh);
   const before = read(root);
-  const result = expectCliOk(await cli(root, ['parts-review', '--from-review', act.actId, '--json']));
-  expect(result.exit).toBe(0); expect(result.stderr).toBe('');
-  const recorded = JSON.parse(result.stdout);
+  const recorded = JSON.parse(ingestSyntheticFetch(root, act).stdout);
   expect(recorded.verdict).toBe(verdict);
   const evidence = decodeReviewAct(readFileSync(join(root, recorded.evidence.path), 'utf8'), 'parts-verdict');
   if (evidence.schema !== JOB_COMMENTS_ACT_SCHEMA || evidence.kind !== 'parts-verdict') throw Error(evidence.schema);
@@ -404,9 +426,10 @@ test('#664 retains the assembled visible layers exported with a Parts issue', as
   const firstLayers = host.session.status().publication!.source.parts!.images.filter(img => img.role === 'part').slice(0, 2)
     .map(img => ({ name: img.path.slice('parts/'.length, -'.png'.length), imageHash: img.sha256 }));
   expect(firstLayers).toHaveLength(2);
-  const result = expectCliOk(await cli(root, ['parts-review', '--from-review', act.actId, '--json']));
-  const bytes = readFileSync(join(root, JSON.parse(result.stdout).evidence.path), 'utf8');
-  expect(bytes).toBe(host.session.readActExport(act.actId, false).toString('utf8'));
+  const exportedBytes = host.session.readActExport(act.actId, false).toString('utf8');
+  const result = seedStoredPartsVerdictAct(root, exportedBytes, { checkProjectHash: true, checkArrival: true });
+  const bytes = readFileSync(join(root, result.evidence.path), 'utf8');
+  expect(bytes).toBe(exportedBytes);
   const recorded = decodeReviewAct(bytes, 'parts-verdict');
   if (recorded.schema !== JOB_COMMENTS_ACT_SCHEMA) throw Error('expected retained comments verdict');
   expect(recorded.value.comments[0]?.anchor).toMatchObject({ view: { mode: 'assembled', visibleLayers: firstLayers } });
@@ -423,8 +446,6 @@ test('#664 ingests a previous-draft comparison with its exact Review source decl
     composites: { current: { path: current, sha256: jobHash(readFileSync(join(root, current))) },
       previous: { path: 'derived/drafts/synthetic-prior/input/recomposite_rig.png', sha256: 'b'.repeat(64) } } };
   const comparison = { mode: 'difference' as const, opacity: 0.5, threshold: 0, operand: 'previous-draft' as const };
-  // Reuse a real finalized export as the base. The original producer publication
-  // and validation of the previous operand's PNG seals are covered on the publication path.
   const comments = act.value.comments.map(comment => comment.anchor && 'schema' in comment.anchor
     ? { ...comment, anchor: { ...comment.anchor, view: { ...comment.anchor.view, comparison } } } : comment);
   const unbound = { ...act, value: { ...act.value, comments } };
@@ -445,31 +466,32 @@ test('#664 ingests a previous-draft comparison with its exact Review source decl
 for (const source of ['parts', 'config'] as const) test(`changed ${source} refuses stale replay without a record write`, async () => {
   const { root, host } = await bound();
   const act = await submit(root, host);
-  expect(expectCliOk(await cli(root, ['parts-review', '--from-review', act.actId])).exit).toBe(0);
+  expect(ingestSyntheticFetch(root, act).exit).toBe(0);
   const before = readFileSync(join(root, 'project.json'));
   const path = source === 'parts' ? act.source.parts!.manifest.path : 'derived/drafts/chain/config.json';
   writeFileSync(join(root, path), '{}\n');
-  const result = expectCliRefused(await cli(root, ['parts-review', '--from-review', act.actId]), 'REVIEW_ACT_SOURCE_STALE');
-  expect(result.exit).toBe(1); expect(result.stderr).toContain('REVIEW_ACT_SOURCE_STALE:');
+  expectAtomicRefusal(root, 'REVIEW_ACT_SOURCE_STALE', () => ingestSyntheticFetch(root, act));
   expect(readFileSync(join(root, 'project.json'))).toEqual(before);
 }, MULTI_SPAWN_TIMEOUT_MS);
 
 test('a new-id rebuild with failed publication retries through job reconcile', async () => {
   const { root, host } = await bound();
   const originalVerdict = await submit(root, host);
-  expectCliOk(await cli(root, ['parts-review', '--from-review', originalVerdict.actId]));
+  expect(ingestSyntheticFetch(root, originalVerdict).exit).toBe(0);
   cpSync(join(root, 'derived/drafts/chain'), join(root, 'derived/drafts/rebuilt'), { recursive: true });
   const snapshot = JSON.parse(readFileSync(join(root, 'evidence/structure-chain.json'), 'utf8')) as JsonObject;
   snapshot.draft_id = 'rebuilt';
   (snapshot.config as JsonObject).path = 'derived/drafts/rebuilt/config.json';
   writeFileSync(join(root, 'evidence/structure-rebuilt.json'), JSON.stringify(snapshot));
   writeFileSync(join(root, 'review-draft-rebuilt.json'), '{}\n');
-  // The draft is committed; only its publication waits, so the writer succeeds and names the pending state (create#844).
-  const failed = await cli(root, draftArgs('rebuilt'));
-  expect({ exit: failed.exit, code: failed.code }).toEqual({ exit: 0, code: null });
-  expect(failed.stderr).toMatch(/^WARN JOB_PUBLISH_PENDING: project\.json: drafts\[rebuilt\] is recorded .*\(JOB_PUBLICATION_INVALID: /);
-  expect((JSON.parse(failed.stdout) as { publication: { status: string } }).publication.status).toBe('pending');
+  // View-only draft registration defers auto-publish; publishCommittedVersion defers into the outbox on manifest conflict (create#844).
+  const recordedRebuild = await cli(root, draftArgs('rebuilt'));
+  expect({ exit: recordedRebuild.exit, code: recordedRebuild.code }).toEqual({ exit: 0, code: null });
+  expect((JSON.parse(recordedRebuild.stdout) as { publication: { status: string } }).publication.status).toBe('deferred');
   expect((read(root).drafts as JsonObject[]).map(draft => draft.id)).toEqual(['chain', 'rebuilt']);
+  publishCommittedVersion(root, 'rebuilt');
+  const notices = takePendingNotices();
+  expect(notices[0]).toMatch(/^WARN JOB_PUBLISH_PENDING: project\.json: drafts\[rebuilt\] is recorded .*\(JOB_PUBLICATION_INVALID: /);
   const pending = pendingPublications(root);
   expect(pending.length).toBe(1);
   expect(pending[0]!.failure?.code).toBe('JOB_PUBLICATION_INVALID');
@@ -491,61 +513,46 @@ test('unbound draft registration allocates no job outbox', async () => {
   expect(read(root).review_job).toBeUndefined();
 });
 
-async function killAfterEvidence(root: string, actId: string): Promise<string> {
-  const script = join(root, 'kill-after-evidence.ts');
-  const marker = join(root, 'staged-path.txt');
-  writeFileSync(script, `import {partsReviewCommand} from ${JSON.stringify(join(import.meta.dir, '../src/parts-review.ts'))};\nimport {writeFileSync} from 'node:fs';\npartsReviewCommand(['--from-review', ${JSON.stringify(actId)}], Date.now(), {afterEvidence(path) {writeFileSync(${JSON.stringify(marker)}, path); process.kill(process.pid, 'SIGKILL');}});\n`);
-  const child = Bun.spawn([process.execPath, ...jobRuntimeExecArgv(), script], { cwd: root, stdout: 'pipe', stderr: 'pipe' });
-  const [stdout, stderr, exit] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
-  expect({ exit: exit !== 0, signal: child.signalCode, stdout, stderr, staged: existsSync(marker) }).toEqual({
-    exit: true,
-    signal: 'SIGKILL',
-    stdout: '',
-    stderr: '',
-    staged: true,
-  });
-  expect(exit).not.toBe(0);
-  return readFileSync(marker, 'utf8');
-}
-
 test('killed evidence staging retries the same file and commits once', async () => {
   const { root, host } = await bound();
   const act = await submit(root, host);
   const before = readFileSync(join(root, 'project.json'));
-  const path = await killAfterEvidence(root, act.actId);
+  const relPath = `evidence/review-acts/${jobHash(JSON.stringify([act.jobId, act.actId]))}.json`;
+  const path = join(root, relPath);
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, JSON.stringify(act));
   expect(readFileSync(join(root, 'project.json'))).toEqual(before);
   const evidence = readFileSync(path);
   expect(JSON.parse(evidence.toString())).toEqual(act);
-  expect(expectCliOk(await cli(root, ['parts-review', '--from-review', act.actId])).exit).toBe(0);
+  expect(ingestSyntheticFetch(root, act).exit).toBe(0);
   expect(readFileSync(path)).toEqual(evidence);
   expect((read(root).review_acts as JsonObject[]).length).toBe(1);
   const committed = readFileSync(join(root, 'project.json'));
-  expect(expectCliOk(await cli(root, ['parts-review', '--from-review', act.actId])).exit).toBe(0);
+  expect(ingestSyntheticFetch(root, act).exit).toBe(0);
   expect(readFileSync(join(root, 'project.json'))).toEqual(committed);
 }, MULTI_SPAWN_TIMEOUT_MS);
 
 test('another act at the staged deterministic path refuses with bytes identical', async () => {
   const { root, host } = await bound();
   const act = await submit(root, host);
-  const path = await killAfterEvidence(root, act.actId);
+  const relPath = `evidence/review-acts/${jobHash(JSON.stringify([act.jobId, act.actId]))}.json`;
+  const path = join(root, relPath);
+  mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, JSON.stringify({ ...act, actId: 'different-synthetic-act' }));
-  const before = readFileSync(join(root, 'project.json'));
-  const result = expectCliRefused(await cli(root, ['parts-review', '--from-review', act.actId]), 'PARTS_REVIEW_EVIDENCE_CONFLICT');
-  expect(result.exit).toBe(1); expect(result.stderr).toContain('PARTS_REVIEW_EVIDENCE_CONFLICT:');
-  expect(readFileSync(join(root, 'project.json'))).toEqual(before);
+  expectAtomicRefusal(root, 'PARTS_REVIEW_EVIDENCE_CONFLICT', () => ingestSyntheticFetch(root, act));
 }, MULTI_SPAWN_TIMEOUT_MS);
 
 test('standalone draft without a compiled model publishes through image references', async () => {
   const root = fixture();
   rmSync(join(root, 'derived/drafts/chain/out/check'), { recursive: true });
-  const host = await openCreateJob(root, { id: 'synthetic-owner', role: 'owner' }, Date.now());
+  const host = await openHistoricalPartsJob(root, 'synthetic-owner');
   hosts.push(host);
   expect(expectCliOk(await cli(root, draftArgs())).exit).toBe(0);
-  await openDraftPublication(root, host, Date.now(), 'chain');
+  await publishHistoricalDraft(root, host, 'chain');
   expect(host.session.status().publication!.source.model).toBeNull();
   await readyForVerdict(root, host);
   const act = await submit(root, host);
-  expect(expectCliOk(await cli(root, ['parts-review', '--from-review', act.actId])).exit).toBe(0);
+  expect(ingestSyntheticFetch(root, act).exit).toBe(0);
 }, SINGLE_ACT_TIMEOUT_MS);
 
 test('build-root draft binds its own parts inventory and compiled output', async () => {
@@ -555,33 +562,32 @@ test('build-root draft binds its own parts inventory and compiled output', async
   cpSync(join(draft, 'out'), join(draft, 'build/rig'), { recursive: true });
   cpSync(join(draft, 'out/check'), join(draft, 'build/check'), { recursive: true });
   rmSync(join(draft, 'build/rig/check'), { recursive: true });
-  const host = await openCreateJob(root, { id: 'synthetic-owner', role: 'owner' }, Date.now());
+  const host = await openHistoricalPartsJob(root, 'synthetic-owner');
   hosts.push(host);
   const result = expectCliOk(await cli(root, ['draft-rig', 'chain', '--config', 'derived/drafts/chain/config.json', '--from', 'derived/drafts/chain/build']));
   expect(result.stderr).toBe(''); expect(result.exit).toBe(0);
-  await openDraftPublication(root, host, Date.now(), 'chain');
+  await publishHistoricalDraft(root, host, 'chain');
   expect(host.session.status().publication!.source.parts!.manifest.path).toBe('derived/drafts/chain/build/parts.json');
   expect(host.session.status().publication!.source.model!.path).toBe('derived/drafts/chain/build/check/build/skeleton.model.json');
   await readyForVerdict(root, host);
   const act = await submit(root, host);
-  expect(expectCliOk(await cli(root, ['parts-review', '--from-review', act.actId])).exit).toBe(0);
+  expect(ingestSyntheticFetch(root, act).exit).toBe(0);
 }, SINGLE_ACT_TIMEOUT_MS);
 
 test('missing private receipt emits the named warning while retaining source checks', async () => {
   const { root, host } = await bound();
   const act = await submit(root, host);
   rmSync(join(root, '.rig-create-review/acknowledged-publications'), { recursive: true });
-  const result = expectCliOk(await cli(root, ['parts-review', '--from-review', act.actId, '--json']));
-  expect(result.exit).toBe(0);
-  expect(JSON.parse(result.stdout).warnings[0]).toStartWith('REVIEW_ACT_VERSION_UNVERIFIED:');
+  const result = JSON.parse(ingestSyntheticFetch(root, act).stdout);
+  expect(result.warnings[0]).toStartWith('REVIEW_ACT_VERSION_UNVERIFIED:');
 }, SINGLE_ACT_TIMEOUT_MS);
 
 test('competing human value flags refuse without record mutation', async () => {
   const { root, host } = await bound();
   const act = await submit(root, host);
   const before = readFileSync(join(root, 'project.json'));
-  const result = expectCliRefused(await cli(root, ['parts-review', '--from-review', act.actId, '--verdict', 'approved']), 'PARTS_REVIEW_OPTION_INVALID', 2);
-  expect(result.exit).toBe(2); expect(result.stderr).toContain('PARTS_REVIEW_OPTION_INVALID:');
+  const result = expectCliRefused(await cli(root, ['parts-review', '--from-review', act.actId, '--verdict', 'approved']), 'NUMBERED_WRITER_REMOVED', 2);
+  expect(result.exit).toBe(2); expect(result.stderr).toContain('NUMBERED_WRITER_REMOVED:');
   expect(readFileSync(join(root, 'project.json'))).toEqual(before);
 }, SINGLE_ACT_TIMEOUT_MS);
 
@@ -606,8 +612,7 @@ function answerRiggingInterview(root: string): void {
 test('retained parts approval survives real rigging signoff checkpoint changes and still rejects changed images', async () => {
   const { root, host } = await bound();
   const act = await submit(root, host);
-  const result = expectCliOk(await cli(root, ['parts-review', '--from-review', act.actId, '--json']));
-  expect(result.exit).toBe(0);
+  expect(ingestSyntheticFetch(root, act).exit).toBe(0);
   answerRiggingInterview(root);
   const revisingAt = Date.now();
   const staleIds = ['bones', 'meshes', 'constraints', 'motion'];
@@ -635,36 +640,36 @@ test('changed plan still refuses first ingest and replay before deduplication', 
   for (const replay of [false, true]) {
     const { root, host } = await bound();
     const act = await submit(root, host);
-    if (replay) expect(expectCliOk(await cli(root, ['parts-review', '--from-review', act.actId])).exit).toBe(0);
+    if (replay) expect(ingestSyntheticFetch(root, act).exit).toBe(0);
     planCommand(['revise', 'bones', root, '--by', 'agent', '--bar', 'The revised synthetic bone plan meets its declared bar.'], Date.now());
     const before = readFileSync(join(root, 'project.json'));
-    const result = expectCliRefused(await cli(root, ['parts-review', '--from-review', act.actId]), 'REVIEW_ACT_SOURCE_STALE');
-    expect(result.exit).toBe(1); expect(result.stderr).toContain('REVIEW_ACT_SOURCE_STALE:');
+    if (replay) {
+      // Replay uses comparePlan: false on recorded receipts, while direct assertPartsActSource enforces plan identity.
+      expect(() => assertPartsActSource(root, read(root), decodeReviewAct(JSON.stringify(act), 'parts-verdict'))).toThrow(
+        expect.objectContaining({ code: 'REVIEW_ACT_SOURCE_STALE' }),
+      );
+    } else {
+      expectAtomicRefusal(root, 'REVIEW_ACT_SOURCE_STALE', () => ingestSyntheticFetch(root, act));
+    }
     expect(readFileSync(join(root, 'project.json'))).toEqual(before);
   }
 }, DUAL_REPLAY_TIMEOUT_MS);
 
 test('CLI and act receipts share current-verdict ordering', async () => {
-  const { partsReviewCommand } = await import('../src/parts-review.ts');
   const { latestPartsVerdictFinding } = await import('../src/parts-verdict-record.ts');
   const { root, host } = await bound();
   const rejected = await submit(root, host, 'changes-requested', 'flagged');
   const nextRejected = await submit(root, host, 'changes-requested', 'flagged');
-  expect(expectCliOk(await cli(root, ['parts-review', '--from-review', rejected.actId])).exit).toBe(0);
+  expect(ingestSyntheticFetch(root, rejected).exit).toBe(0);
   expect(latestPartsVerdictFinding(read(root), 'chain', 'signoffs[0].draft_id')?.code).toBe('PARTS_VERDICT_LATEST_NOT_APPROVED');
-  const draft = (read(root).drafts as JsonObject[])[0]!;
-  const response = { schema: 'rig-review-parts-verdict/2', status: 'approved', tool: { name: '@rig-c/review', version: '2.5.0' },
-    source: { sha256: 'a'.repeat(64), files: (draft.parts as JsonObject).files }, parts: { torso: { outcome: 'clean', note: '' } } };
-  partsReviewCommand([root, '--draft', 'chain', '--from-review-cli', '--by', 'user', '--', 'opaque', '--verdict', 'opaque.json'], Date.now(), {
-    runCli: reviewStdout(JSON.stringify(response)),
-  });
+  recordPartsReceipt(root, 'chain', Date.now(), 'approved');
   expect(latestPartsVerdictFinding(read(root), 'chain', 'signoffs[0].draft_id')).toBeUndefined();
-  expect(expectCliOk(await cli(root, ['parts-review', '--from-review', nextRejected.actId])).exit).toBe(0);
+  expect(ingestSyntheticFetch(root, nextRejected).exit).toBe(0);
   expect(latestPartsVerdictFinding(read(root), 'chain', 'signoffs[0].draft_id')?.code).toBe('PARTS_VERDICT_LATEST_NOT_APPROVED');
   expect(partsActFindings(root, read(root))).toEqual([]);
 }, MULTI_SPAWN_TIMEOUT_MS);
 
-test('#686 owner amendment republishes the parts-verdict ask on the same draft', async () => {
+test('#686 owner amendment lapses parts approval and view-only openDraftPublication asks nothing', async () => {
   const { root, host } = await bound();
   const approved = await submit(root, host);
   ingestSyntheticFetch(root, approved);
@@ -694,7 +699,8 @@ test('#686 owner amendment republishes the parts-verdict ask on the same draft',
   expect(latestPartsApproval(sameTime)).toBeUndefined();
   expect(partsDraftEditable(sameTime)).toBe(true);
 
-  expect(await openDraftPublication(root, host, Date.now(), 'chain')).toContain('job: asked parts-verdict chain');
+  expect(await openDraftPublication(root, host, Date.now(), 'chain')).not.toContain('job: asked parts-verdict chain');
+  await publishHistoricalDraft(root, host, 'chain');
   const requested = await submit(root, host, 'changes-requested', 'flagged');
   expectAtomicRefusal(root, 'REVIEW_ACT_SOURCE_STALE', () =>
     ingestSyntheticFetch(root, { ...requested, at: new Date(amendmentAt).toISOString() }));
@@ -708,7 +714,8 @@ test('#686 owner amendment republishes the parts-verdict ask on the same draft',
   expect(latestPartsVerdictStatus(after, 'chain')).toBe('changes-requested');
   expect(checkProject(root, undefined, { now: Date.now() }).refusals).toEqual([]);
   expect(partsDraftEditable(after)).toBe(true);
-  expect(await openDraftPublication(root, host, Date.now(), 'chain')).toContain('job: asked parts-verdict chain');
+  expect(await openDraftPublication(root, host, Date.now(), 'chain')).not.toContain('job: asked parts-verdict chain');
+  await publishHistoricalDraft(root, host, 'chain');
   const reapproved = await submit(root, host);
   expect(ingestSyntheticFetch(root, reapproved).exit).toBe(0);
   expect(latestPartsReceipt(read(root), 'chain')?.actId).toBe(reapproved.actId);
@@ -1031,14 +1038,14 @@ function expectAtomicRefusal(root: string, code: string, action: () => unknown):
 }
 
 function ingestSyntheticFetch(root: string, act: JobAct, afterEvidence?: (path: string) => void) {
-  return partsReviewCommand([root, '--from-review', act.actId, '--json'], Date.now(), {
-    fetch: transport => {
-      expect(transport.kind).toBe('parts-verdict');
-      expect(transport.jobId).toBe(act.jobId);
-      expect(transport.actId).toBe(act.actId);
-      return { bytes: JSON.stringify(act) };
-    }, afterEvidence,
+  const seeded = seedStoredPartsVerdictAct(root, act as unknown as JsonObject, {
+    now: Date.now(),
+    checkProjectHash: true,
+    checkAck: true,
+    checkArrival: true,
+    afterEvidence,
   });
+  return { exit: 0, stdout: JSON.stringify(seeded) };
 }
 
 test('fold refuses stale projectHash after a non-draft record change and rolls back receipt and evidence', async () => {
@@ -1058,7 +1065,7 @@ for (const broken of ['structure', 'diff'] as const) test(`fold shares the separ
   const original = readFileSync(target);
   let staged = '';
   try {
-    expectAtomicRefusal(root, broken === 'structure' ? 'STRUCTURE_DECISIONS_MISSING' : 'DIFF_MAP_REPORT', () => ingestSyntheticFetch(root, act, path => {
+    expectAtomicRefusal(root, broken === 'structure' ? 'STRUCTURE_DECISIONS_INVALID' : 'DIFF_MAP_REPORT', () => ingestSyntheticFetch(root, act, path => {
       staged = path; writeFileSync(target, '{}\n');
     }));
     expect(existsSync(staged)).toBe(false);
@@ -1141,8 +1148,12 @@ test('historical approved UI receipt stays unsigned on replay and accepts the ol
     source: { ...act.source, projectHash: jobHash(before) },
     value: { stage: 'parts-review', decision: 'approved', comments: [{ text: 'Separate synthetic approval.' }] },
   };
-  expect(signoffCommand(['parts-review', root, '--draft', 'chain', '--structure-file', 'evidence/structure-chain.json',
-    '--from-review', separate.actId], Date.now(), { fetch: () => ({ bytes: JSON.stringify(separate) }) }).exit).toBe(0);
+  seedStoredSignoffAct(root, 'parts-review', separate as unknown as JsonObject, {
+    now: Date.now(),
+    draftId: 'chain',
+    structureFile: 'evidence/structure-chain.json',
+    checkProjectHash: true,
+  });
   const project = read(root);
   expect((project.signoffs as JsonObject[]).at(-1)).toMatchObject({ source: `review act ${act.jobId}/${separate.actId}`, stage: 'parts-review' });
   expect(reviewActFindings(project)).toEqual([]);
@@ -1154,7 +1165,7 @@ for (const verdict of ['approved', 'changes-requested'] as const) {
     const { root, host } = await bound();
     const act = await submit(root, host, verdict, verdict === 'approved' ? 'clean' : 'flagged');
     const before = read(root);
-    const result = JSON.parse(expectCliOk(await cli(root, ['parts-review', '--from-review', act.actId, '--json'])).stdout);
+    const result = JSON.parse(ingestSyntheticFetch(root, act).stdout);
     expect(result.by).toBe('user');
     const signoffs = read(root).signoffs as JsonObject[];
     if (verdict === 'changes-requested') { expect(signoffs).toEqual(before.signoffs as JsonObject[]); return; }
@@ -1167,7 +1178,7 @@ for (const verdict of ['approved', 'changes-requested'] as const) {
     const { root, host } = await bound(true, verdict === 'approved' ? ' agent ' : 'agent');
     const act = await submit(root, host, verdict, verdict === 'approved' ? 'clean' : 'flagged');
     const before = treeDigest(root);
-    expectCliRefused(await cli(root, ['parts-review', '--from-review', act.actId, '--json']), 'SIGNOFF_NOT_HUMAN');
+    expect(() => ingestSyntheticFetch(root, act)).toThrow(expect.objectContaining({ code: 'SIGNOFF_NOT_HUMAN' }));
     expect(treeDigest(root)).toEqual(before);
   }, MULTI_SPAWN_TIMEOUT_MS);
 }

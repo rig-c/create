@@ -11,6 +11,8 @@ import { EXAMPLE_ANCHOR } from '../scripts/example-time.ts';
 import { JOB_BINDING_FILE, writePrivateJson, jobHash } from '../src/job-outbox.ts';
 import { main } from '../src/cli.ts';
 import { currentJobIdentity, partsEnumerator, prepareLiveManifest, readPublished } from '../src/job-publication.ts';
+import { USAGE_EXIT } from '../src/refusal.ts';
+import { seedStoredPartsSignoff, seedStoredReviewVerdictAct, seedStoredVersionSignoff } from './historical-review-fixture.ts';
 import type { JsonObject } from '../src/templates.ts';
 
 // Initial interview/plan approvals are fixture inputs. Every record from the
@@ -53,8 +55,12 @@ test('writer-only draft, parts approval, new producer build and verdict ingestio
     command(['draft-rig', 'example', dir, '--config', `${EXAMPLE_DRAFT}/config.json`, '--from', `${EXAMPLE_DRAFT}/out`, '--parts', `${EXAMPLE_DRAFT}/input`], draftAt);
     command(['diff-classes', dir, '--diff-report', EXAMPLE_DIFF_REPORT, '--component', 'p10-n3=in-painting:the synthetic painting deliberately differs here',
       '--component', 'p1000-n3=in-painting:the synthetic painting deliberately differs here', '--by', 'agent'], partsAt);
-    command(['signoff', 'parts-review', dir, '--by', 'user', '--verbatim-file', join(dir, 'approval.txt'),
-      '--draft', 'example', '--structure-file', 'evidence/structure-example.json'], partsAt);
+    seedStoredPartsSignoff(dir, 'example', {
+      by: 'user',
+      at: partsAt,
+      verbatim: readFileSync(join(dir, 'approval.txt'), 'utf8'),
+      structureFile: 'evidence/structure-example.json',
+    });
     const now = EXAMPLE_ANCHOR + 300_000;
     const core = join(import.meta.dir, '../node_modules/@rig-c/core/bin/rigc.cjs');
     const producer = (args: string[]): void => {
@@ -115,9 +121,10 @@ test('writer-only draft, parts approval, new producer build and verdict ingestio
     if (act.schema !== 'rig-review/act@6' || !act.still) throw Error('expected displayed comments still');
     const reviewAt = Math.max(now + 4000, Date.parse(act.at));
     const consumer = Bun.spawn([process.execPath, join(import.meta.dir, '../src/cli.ts'), 'review', '1', dir, '--from-review', act.actId], { stdout: 'pipe', stderr: 'pipe' });
-    const [stdout, stderr, exit] = await Promise.all([new Response(consumer.stdout).text(), new Response(consumer.stderr).text(), consumer.exited]);
-    expect({ exit, stderr }).toEqual({ exit: 0, stderr: '' });
-    expect(stdout).toContain('recorded or replayed');
+    const [, stderr, exit] = await Promise.all([new Response(consumer.stdout).text(), new Response(consumer.stderr).text(), consumer.exited]);
+    expect(exit).toBe(USAGE_EXIT);
+    expect(stderr).toContain('NUMBERED_WRITER_REMOVED:');
+    seedStoredReviewVerdictAct(dir, 1, host.session.readActExport(act.actId, false).toString('utf8'), { now: reviewAt });
     expect(arr(obj(arr(load().versions)[0]).evidence)).toEqual([]);
     expect(readdirSync(join(dir, 'evidence/v1'))).not.toContain(act.still.path);
     const checkAt = (at: number, expectedExit: number): { refusals: { code: string; path: string }[]; warnings: { code: string; path: string }[] } => {
@@ -133,7 +140,11 @@ test('writer-only draft, parts approval, new producer build and verdict ingestio
     ]);
     // #981: a stage behind its signoffs is no finding. src/check.ts:550:
     // arrival opens step 4's questions; it does not answer that next interview.
-    command(['signoff', 'rig-review', dir, '--version', '1', '--by', 'user', '--verbatim-file', join(dir, 'approval.txt')], reviewAt + 1000);
+    seedStoredVersionSignoff(dir, 'rig-review', 1, {
+      by: 'user',
+      at: reviewAt + 1000,
+      verbatim: readFileSync(join(dir, 'approval.txt'), 'utf8'),
+    });
     expect(checkAt(reviewAt + 1000, 0).refusals).toEqual([]);
     command(['advance', 'post-interview', dir], reviewAt + 2000);
     expect(checkAt(reviewAt + 2000, 1).refusals.map(({ code, path }) => ({ code, path }))).toEqual([

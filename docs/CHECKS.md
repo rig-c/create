@@ -1880,13 +1880,13 @@ and check.
 
 | Code | Meaning and remedy |
 | --- | --- |
-| `PACKAGE_UPGRADE_MALFORMED` | `project.json.package_upgrades` is not the writer's history: restore its operator, timestamp, three from/to package entries and lock sha256, plus any `rehearsal` / `local_dependencies` metadata and `question_set` or `waypoint_config` move it recorded. |
+| `PACKAGE_UPGRADE_MALFORMED` | `project.json.package_upgrades` is not the writer's history: restore its operator, timestamp, three or four from/to package entries and lock sha256, plus any `rehearsal` / `local_dependencies` metadata and `question_set` or `waypoint_config` move it recorded. |
 | `CREATE_PIN_MISSING` (WARN) | `package.json.dependencies[@rig-c/create]` is absent (or `package.json` is unreadable), so `npx` can run a cached Create release rather than one pinned by the project. Run `rig-create packages upgrade [dir] --by <operator>` to pin `@rig-c/create` and record the move. |
 | `CREATE_PIN_MISMATCH` (WARN) | `package.json.dependencies[@rig-c/create]` differs from the running `@rig-c/create` version. Run `rig-create packages upgrade [dir] --by <operator>` to move an older pin, or invoke the project's declared `@rig-c/create`. |
 | `PACKAGE_UPGRADE_USAGE` | Supply `packages upgrade [dir] --by <operator> [--rehearsal]`. |
 | `PACKAGE_UPGRADE_INPUT` | Restore the named manifest/record field; pins must be exact versions in dependencies, with no duplicate locations, workspace or local dependencies. To rehearse in a clone against an unreleased packed tarball, pass `--rehearsal` with `file:<absolute-path>.tgz` (for example via `bun add file:<absolute-path>.tgz`); relative `file:`, `link:`, `workspace:`, bare paths and missing or non-`.tgz` targets remain refused. |
 | `PACKAGE_UPGRADE_REHEARSAL` (WARN) | `project.json.package_upgrades[i]` was recorded with `--rehearsal` (`rehearsal: true` and `local_dependencies` tarball sha256 bindings). A rehearsal clone still checks green on refusals; a live project should rerun `rig-create packages upgrade` against the published release. |
-| `PACKAGE_UPGRADE_CURRENT` | All three manifest pins already equal Create's release pins, and `interview.question_set` and every waypoint `config[]` match the installed parts; no write is needed. |
+| `PACKAGE_UPGRADE_CURRENT` | All four manifest pins already equal Create's release pins, and `interview.question_set` and every waypoint `config[]` match the installed parts; no write is needed. |
 | `PACKAGE_UPGRADE_DOWNGRADE` | The named package is newer than Create's release pin; use a newer Create release. |
 | `PACKAGE_UPGRADE_INSTALL` | The staged install failed; repair registry access or the package versions and retry. |
 | `PACKAGE_UPGRADE_CHECK_FAILED` | The project check could not complete; repair the record or installed packages and retry. |

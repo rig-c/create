@@ -29,3 +29,12 @@ export const PINNED_PACKAGES = {
   '@rig-c/core': '3.9.2',
   '@rig-c/parts': '2.60.0',
 } as const satisfies Record<string, string>;
+
+/** Exact dependencies `init` writes into a new project or collection manifest. */
+export function initDependencies(): Record<string, string> {
+  return {
+    '@rig-c/core': PINNED_PACKAGES['@rig-c/core'],
+    [CREATE_PACKAGE]: runningCreateVersion(),
+    '@rig-c/parts': PINNED_PACKAGES['@rig-c/parts'],
+  };
+}

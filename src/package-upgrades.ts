@@ -5,7 +5,8 @@ import { isObject, readJsonObject, type Finding } from './check.ts';
 import { CREATE_PACKAGE, runningCreateVersion } from './pins.ts';
 import type { JsonObject } from './templates.ts';
 
-export const PACKAGE_NAMES = ['@rig-c/core', '@rig-c/parts', '@rig-c/review'] as const;
+export const LEGACY_PACKAGE_NAMES = ['@rig-c/core', '@rig-c/parts', '@rig-c/review'] as const;
+export const PACKAGE_NAMES = ['@rig-c/core', CREATE_PACKAGE, '@rig-c/parts', '@rig-c/review'] as const;
 export const exactVersion = (value: unknown): value is string => typeof value === 'string' && /^\d+\.\d+\.\d+$/.test(value);
 
 export function createPinWarning(dir: string, running = runningCreateVersion()): Finding | undefined {
@@ -67,10 +68,13 @@ export function packageUpgradeFindings(project: JsonObject): Finding[] {
   const out: Finding[] = [];
   for (const [index, row] of history.entries()) {
     const path = `package_upgrades[${index}]`;
-    if (!isObject(row) || typeof row.by !== 'string' || !row.by.trim() || typeof row.at !== 'string' || !Number.isFinite(Date.parse(row.at)) || !sha256Hex(row.lock_sha256) || !Array.isArray(row.packages) || row.packages.length !== PACKAGE_NAMES.length) {
+    const expectedNames: readonly string[] = isObject(row) && Array.isArray(row.packages) && row.packages.length === LEGACY_PACKAGE_NAMES.length
+      ? LEGACY_PACKAGE_NAMES
+      : PACKAGE_NAMES;
+    if (!isObject(row) || typeof row.by !== 'string' || !row.by.trim() || typeof row.at !== 'string' || !Number.isFinite(Date.parse(row.at)) || !sha256Hex(row.lock_sha256) || !Array.isArray(row.packages) || row.packages.length !== expectedNames.length) {
       out.push(bad(path)); continue;
     }
-    for (const [i, name] of PACKAGE_NAMES.entries()) {
+    for (const [i, name] of expectedNames.entries()) {
       const pin = row.packages[i];
       if (!isObject(pin) || pin.name !== name || (pin.from !== null && !exactVersion(pin.from)) || !exactVersion(pin.to) || (typeof pin.from === 'string' && compareVersions(pin.from, pin.to) > 0)) out.push(bad(`${path}.packages[${i}]`));
     }

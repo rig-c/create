@@ -2952,9 +2952,9 @@ done, next and advance retain their existing checks and producer-report contract
 
 Run `rig-create packages upgrade [dir] --by <operator>` before opening a record
 ask on a host whose parts release differs from the project's. The writer moves
-`dependencies` for core, parts and review to Create's release pins, using a
+`dependencies` for core, create, parts and review to Create's release pins, using a
 staged `bun install --ignore-scripts`. No manual `bun add` is needed. The
-record publication contract compares parts only; core and review still move
+record publication contract compares parts only; core, create and review still move
 with Create's complete release pin set. Missing pins are recorded as `null`.
 
 The writer appends `package_upgrades[]`, with `by`, `at`, `packages` (each entry
@@ -2970,7 +2970,7 @@ version. It also regenerates each record waypoint's `config[]` whose set differs
 from what the installed parts places there. The row records each move as
 `question_set` (`from`, `to`) and `waypoint_config[]` (`id`, `from`, `to`).
 `config[]` is not part of any answer binding, so no signature goes stale. With
-all three pins already current, the writer still runs when either move is due.
+all four pins already current, the writer still runs when either move is due.
 It refuses `PACKAGE_UPGRADE_CURRENT` only when nothing is left to move. A
 question set that names no parts version is left alone; its warning remains.
 

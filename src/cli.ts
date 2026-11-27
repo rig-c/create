@@ -139,7 +139,8 @@ ${INPUT_CLI}  rig-create init <dir> [--no-install]              create a project
                                                     record the green compose output and rename it into outputs/direction/
   rig-create split-captions [<project dir|project.json>] [--config <file>]
                                                     generate caption data from the config and split.parts
-  rig-create packages upgrade [<dir>] --by <operator>  update release pins with checked history
+  rig-create packages upgrade [<dir>] --by <operator> [--rehearsal]
+                                                    update release pins with checked history
   rig-create --help                                 show this help
   rig-create --version                              show the version
 

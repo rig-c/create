@@ -1870,16 +1870,18 @@ A missing or dead host refuses `JOB_HOST_ATTACH_REFUSED`; restore it with
 
 ## Package upgrades
 
-`rig-create packages upgrade [dir] --by <operator>` checks the project before
-and after installing Create's release pins. Existing refusals may disappear;
-no refusal may be added or change its code, path or message. The history is
-optional on older records; present rows are validated by the writer and check.
+`rig-create packages upgrade [dir] --by <operator> [--rehearsal]` checks the
+project before and after installing Create's release pins. Existing refusals
+may disappear; no refusal may be added or change its code, path or message. The
+history is optional on older records; present rows are validated by the writer
+and check.
 
 | Code | Meaning and remedy |
 | --- | --- |
-| `PACKAGE_UPGRADE_MALFORMED` | `project.json.package_upgrades` is not the writer's history: restore its operator, timestamp, three from/to package entries and lock sha256, and any `question_set` or `waypoint_config` move it recorded. |
-| `PACKAGE_UPGRADE_USAGE` | Supply `packages upgrade [dir] --by <operator>`. |
-| `PACKAGE_UPGRADE_INPUT` | Restore the named manifest/record field; pins must be exact versions in dependencies, with no duplicate locations, workspace or local dependencies. |
+| `PACKAGE_UPGRADE_MALFORMED` | `project.json.package_upgrades` is not the writer's history: restore its operator, timestamp, three from/to package entries and lock sha256, plus any `rehearsal` / `local_dependencies` metadata and `question_set` or `waypoint_config` move it recorded. |
+| `PACKAGE_UPGRADE_USAGE` | Supply `packages upgrade [dir] --by <operator> [--rehearsal]`. |
+| `PACKAGE_UPGRADE_INPUT` | Restore the named manifest/record field; pins must be exact versions in dependencies, with no duplicate locations, workspace or local dependencies. To rehearse in a clone against an unreleased packed tarball, pass `--rehearsal` with `file:<absolute-path>.tgz` (for example via `bun add file:<absolute-path>.tgz`); relative `file:`, `link:`, `workspace:`, bare paths and missing or non-`.tgz` targets remain refused. |
+| `PACKAGE_UPGRADE_REHEARSAL` (WARN) | `project.json.package_upgrades[i]` was recorded with `--rehearsal` (`rehearsal: true` and `local_dependencies` tarball sha256 bindings). A rehearsal clone still checks green on refusals; a live project should rerun `rig-create packages upgrade` against the published release. |
 | `PACKAGE_UPGRADE_CURRENT` | All three manifest pins already equal Create's release pins, and `interview.question_set` and every waypoint `config[]` match the installed parts; no write is needed. |
 | `PACKAGE_UPGRADE_DOWNGRADE` | The named package is newer than Create's release pin; use a newer Create release. |
 | `PACKAGE_UPGRADE_INSTALL` | The staged install failed; repair registry access or the package versions and retry. |

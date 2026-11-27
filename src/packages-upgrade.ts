@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { closeSync, existsSync, lstatSync, mkdtempSync, openSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { closeSync, existsSync, lstatSync, mkdtempSync, openSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { basename, join, resolve } from 'node:path';
 import { isObject, type CheckReport } from './check.ts';
 import { acquireBoundJobWrite, jobRuntimeExecArgv } from './job-writer.ts';
 import { PACKAGE_NAMES, compareVersions, exactVersion, packageUpgradeFindings } from './package-upgrades.ts';
@@ -68,14 +68,23 @@ function checked(dir: string, project: JsonObject, now: number): UpgradeCheck {
   return JSON.parse(child.stdout.toString()) as UpgradeCheck;
 }
 
+function rehearsalTarballPath(spec: string): string | null {
+  if (!spec.startsWith('file:')) return null;
+  const tarball = spec.slice('file:'.length);
+  if (!tarball.startsWith('/') || tarball.startsWith('//') || resolve(tarball) !== tarball || !tarball.endsWith('.tgz') || basename(tarball) === '.tgz') return null;
+  return tarball;
+}
+
 export function packagesCommand(args: string[], now: number): string {
-  if (args[0] !== 'upgrade') refuse('PACKAGE_UPGRADE_USAGE', 'project.json: use packages upgrade [dir] --by <operator>', USAGE_EXIT);
-  let by = ''; let dirArg: string | undefined;
+  const usage = 'project.json: use packages upgrade [dir] --by <operator> [--rehearsal]';
+  if (args[0] !== 'upgrade') refuse('PACKAGE_UPGRADE_USAGE', usage, USAGE_EXIT);
+  let by = ''; let dirArg: string | undefined; let rehearsal = false;
   for (let i = 1; i < args.length; i++) {
     const arg = args[i]!;
     if (arg === '--by' && !by && args[i + 1] && !args[i + 1]!.startsWith('-')) by = args[++i]!;
+    else if (arg === '--rehearsal' && !rehearsal) rehearsal = true;
     else if (!arg.startsWith('-') && dirArg === undefined) dirArg = arg;
-    else refuse('PACKAGE_UPGRADE_USAGE', 'project.json: use packages upgrade [dir] --by <operator>', USAGE_EXIT);
+    else refuse('PACKAGE_UPGRADE_USAGE', usage, USAGE_EXIT);
   }
   if (!by.trim()) refuse('PACKAGE_UPGRADE_USAGE', 'project.json: packages upgrade requires --by <operator>', USAGE_EXIT);
   const dir = resolve(dirArg ?? process.cwd());
@@ -114,9 +123,29 @@ export function packagesCommand(args: string[], now: number): string {
     const questionSet = questionSetMove(project, pins['@rig-c/parts']);
     const currentRefusal = () => refuse('PACKAGE_UPGRADE_CURRENT', 'package.json.dependencies: all packages already match Create release pins, and interview.question_set and waypoint config[] match the installed parts; no upgrade to record');
     // A staging install must not resolve local dependencies against a different directory.
+    const localDeps: { name: string; path: string; sha256: string }[] = [];
+    const seenLocalNames = new Set<string>();
     for (const section of ['dependencies', 'devDependencies', 'optionalDependencies']) {
       const entries = pkg[section];
-      if (entries && typeof entries === 'object') for (const value of Object.values(entries)) if (typeof value === 'string' && /^(?:file:|link:|workspace:|\.\.?\/|\/)/.test(value)) refuse('PACKAGE_UPGRADE_INPUT', `package.json.${section}: local dependencies cannot be staged safely; publish or resolve them before packages upgrade`);
+      if (entries && typeof entries === 'object') {
+        if (rehearsal && Array.isArray(entries)) refuse('PACKAGE_UPGRADE_INPUT', `package.json.${section}: expected a dependency object before packages upgrade`);
+        for (const [name, value] of Object.entries(entries)) {
+          if (typeof value !== 'string' || !/^(?:file:|link:|workspace:|\.\.?\/|\/)/.test(value)) continue;
+          if (!rehearsal) refuse('PACKAGE_UPGRADE_INPUT', `package.json.${section}: local dependencies cannot be staged safely; publish or resolve them before packages upgrade`);
+          const tarball = rehearsalTarballPath(value);
+          if (tarball === null) refuse('PACKAGE_UPGRADE_INPUT', `package.json.${section}[${name}]: --rehearsal accepts only file:<absolute path to an existing .tgz>; pack local dependencies before packages upgrade`);
+          let tarballBytes: Buffer;
+          try {
+            if (!statSync(tarball).isFile()) throw new Error('not a regular file');
+            tarballBytes = readFileSync(tarball);
+          } catch {
+            return refuse('PACKAGE_UPGRADE_INPUT', `package.json.${section}[${name}]: rehearsal tarball does not exist or is not a regular file; supply file:<absolute path to an existing .tgz>`);
+          }
+          if (seenLocalNames.has(name)) refuse('PACKAGE_UPGRADE_INPUT', `package.json.${section}[${name}]: duplicate local dependency across manifest sections; keep each rehearsal tarball in one section`);
+          seenLocalNames.add(name);
+          localDeps.push({ name, path: tarball, sha256: createHash('sha256').update(tarballBytes).digest('hex') });
+        }
+      }
     }
     if (pkg.workspaces) refuse('PACKAGE_UPGRADE_INPUT', 'package.json.workspaces: upgrade a standalone project install; resolve workspace ownership before packages upgrade');
     const before = checked(dir, project, now);
@@ -133,6 +162,10 @@ export function packagesCommand(args: string[], now: number): string {
     if (install.exitCode !== 0 || !existsSync(join(scratch, 'bun.lock'))) refuse('PACKAGE_UPGRADE_INSTALL', 'package.json/bun.lock: staged bun install failed; check registry access and package versions before retrying packages upgrade');
     const nextLock = readFileSync(join(scratch, 'bun.lock'));
     const row: JsonObject = { by, at: new Date(now).toISOString(), packages, lock_sha256: createHash('sha256').update(nextLock).digest('hex') };
+    if (rehearsal) {
+      row.rehearsal = true;
+      row.local_dependencies = localDeps.map(({ name, sha256 }) => ({ name, sha256 }));
+    }
     if (questionSet) row.question_set = questionSet;
     const history = [...(project.package_upgrades as JsonObject[] | undefined ?? []), row];
     const candidate: JsonObject = { ...structuredClone(project), package_upgrades: history };
@@ -142,6 +175,13 @@ export function packagesCommand(args: string[], now: number): string {
     for (const [path, bytes] of originals) {
       const current = existsSync(join(dir, path)) ? readFileSync(join(dir, path)) : null;
       if (bytes === null ? current !== null : !current?.equals(bytes)) refuse('PACKAGE_UPGRADE_CONFLICT', `project.json: ${path} changed during installation; retry packages upgrade against the current files`);
+    }
+    for (const dep of localDeps) {
+      let unchanged = false;
+      try {
+        unchanged = statSync(dep.path).isFile() && createHash('sha256').update(readFileSync(dep.path)).digest('hex') === dep.sha256;
+      } catch { unchanged = false; }
+      if (!unchanged) refuse('PACKAGE_UPGRADE_CONFLICT', `project.json: rehearsal tarball for ${dep.name} changed during installation; retry packages upgrade --rehearsal against the current tarball`);
     }
     if (existsSync(join(dir, 'node_modules'))) {
       if (!lstatSync(join(dir, 'node_modules')).isDirectory()) refuse('PACKAGE_UPGRADE_INPUT', 'package.json: node_modules must be a project-owned directory; restore a standalone install before packages upgrade');
@@ -174,7 +214,7 @@ export function packagesCommand(args: string[], now: number): string {
     writeRecord(join(dir, 'project.json'), recordBytes, candidate, 'packages', 'PACKAGE_UPGRADE_CONFLICT');
     committed = true;
     const moved = [...(questionSet ? [`interview.question_set → ${JSON.stringify(questionSet.to)}`] : []), ...configs.map(move => `interview.waypoints[${move.id}].config → [${move.to.join(', ')}]`)];
-    return `packages: upgraded ${packages.map(pin => `${pin.name} ${pin.from ?? '(absent)'} → ${pin.to}`).join(', ')}${moved.length ? `; ${moved.join('; ')}` : ''}; recorded package_upgrades[${history.length - 1}]`;
+    return `packages: upgraded ${packages.map(pin => `${pin.name} ${pin.from ?? '(absent)'} → ${pin.to}`).join(', ')}${moved.length ? `; ${moved.join('; ')}` : ''}; recorded package_upgrades[${history.length - 1}]${rehearsal ? ' (rehearsal)' : ''}`;
   } catch (error) {
     if (error instanceof Refusal) throw error;
     return refuse('PACKAGE_UPGRADE_INSTALL', 'project.json/package.json: package migration could not complete; restore filesystem access and retry packages upgrade');

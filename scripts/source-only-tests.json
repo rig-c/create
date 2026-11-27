@@ -1,7 +1,1 @@
-[
-  {
-    "file": "tests/motion-seam-source.test.ts",
-    "name": "#1073 records real Core loop seam evidence and refuses wrong endpoint identities and hashes",
-    "reason": "Requires the sibling Core render loop seam bar and cap flags."
-  }
-]
+[]

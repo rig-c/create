@@ -417,9 +417,15 @@ async function generate(root: string, scratch: string, inputs: Map<string, Buffe
     const stillRoot = join(candidate, 'check/setup_still');
     const png = files(stillRoot).find(path => path.endsWith('/f0000.png'));
     if (!png) throw Error('Parts --keep-stills did not produce a setup PNG');
-    const rigAct = await submit(host, 'review-verdict', inputs.get('approval/rig.txt')!.toString(), { picture: readFileSync(join(stillRoot, png)) });
+    const rigApproval = inputs.get('approval/rig.txt')!;
+    const rigAct = await submit(host, 'review-verdict', rigApproval.toString(), { picture: readFileSync(join(stillRoot, png)) });
     now = Math.max(now, Date.parse(rigAct.at));
     await write('review', '1', '--from-review', rigAct.actId);
+    // The historical ask on a view-only publication does not fold a signature.
+    const rigApprovalPath = 'evidence/rig-approval.txt';
+    put(join(root, rigApprovalPath), rigApproval);
+    await write('signoff', 'rig-review', '--version', '1', '--by', owner, '--owner-chat', rigApprovalPath,
+      '--said-at', rigAct.at, '--relayed-by', 'agent');
     await write('handoff', '--rig', '1');
     // Close the rig review before moving to post authoring.
     await write('job', 'close');

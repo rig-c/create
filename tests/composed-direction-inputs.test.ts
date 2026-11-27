@@ -80,6 +80,16 @@ test('public composed example replaces and re-signs a completed composition step
     const record = JSON.parse(readFileSync(join(project, 'project.json'), 'utf8'));
     expect(record.stage).toBe('accepted');
     expect(record.advances.at(-1)).toMatchObject({ from_stage: 'direction-review', stage: 'accepted' });
+    const rigIndex = record.versions.findIndex(({ n, kind }: JsonObject) => n === 1 && kind === 'rig');
+    expect(record.signoffs.filter(({ stage }: JsonObject) => stage === 'rig-review')).toEqual([
+      expect.objectContaining({
+        by: 'synthetic-owner',
+        source: 'owner chat, relayed',
+        verbatim: readFileSync(join(repo, 'templates/example-composed-direction/inputs/approval/rig.txt'), 'utf8'),
+        relayed_by: 'agent',
+        target: expect.objectContaining({ version: 1, verdict: `versions[${rigIndex}].verdicts[0]` }),
+      }),
+    ]);
     const [v2, v3] = record.versions.filter((version: { kind: string }) => version.kind === 'post');
     expect(v2).toMatchObject({ n: 2, verdicts: [{ review: 'direction-review', verdict: 'bounced' }] });
     expect(record.review_acts).toContainEqual(expect.objectContaining({ version: 2, verdict: 0 }));

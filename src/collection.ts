@@ -30,7 +30,7 @@ import {
   TRACKED_EMPTY_DIRS,
   writePackageJson,
 } from './init.ts';
-import { PINNED_PACKAGES } from './pins.ts';
+import { initDependencies } from './pins.ts';
 import { refuse, USAGE_EXIT } from './refusal.ts';
 import { CHOICE_ORDER_SPEC } from './choices.ts';
 import { readTemplate, TEMPLATES_DIR, type Json, type JsonObject } from './templates.ts';
@@ -286,7 +286,7 @@ export function initMember(collectionArg: string, name: string, now: Date, owner
 }
 
 export function describeCollectionInit(result: CollectionInitResult): string {
-  const pins = Object.entries(PINNED_PACKAGES).map(([pkg, version]) => `${pkg} ${version}`).join(', ');
+  const pins = Object.entries(initDependencies()).map(([pkg, version]) => `${pkg} ${version}`).join(', ');
   const lines = [
     `Created collection ${result.name} at ${result.dir}`,
     result.installed

@@ -1,6 +1,6 @@
 import { ownerChatFinding } from './owner-chat.ts';
 import { ownerLanguageFinding } from './owner-language.ts';
-import { packageUpgradeFindings, packageUpgradeWarnings } from './package-upgrades.ts';
+import { createPinWarning, packageUpgradeFindings, packageUpgradeWarnings } from './package-upgrades.ts';
 import { checkPublicationGenerations } from './job-publication.ts';
 import { collectBarAmendments, effectiveBar } from './plan-bar-amendments.ts';
 import { partsReadFindings, latestPartsVerdictFinding, PARTS_VERDICT_LATEST_SINCE, recordedPartsVerdict, recordedPartsFinding } from './parts-verdict-record.ts';
@@ -952,6 +952,10 @@ function checkProjectOnce(projectDirArg: string, candidate: JsonObject | undefin
   warnings.push(...packageUpgradeWarnings(project));
   checkCollectionBinding(dir, project, refusals);
   const collection = loadCollection(dir, project);
+  if (!options.recordPublication) {
+    const createPin = createPinWarning(dir, collection);
+    if (createPin) warnings.push(createPin);
+  }
   const reopens = collectReopens(project, refusals, warnings);
   const historySignoffs = collectSignoffs(project, refusals).filter(s => {
     if (STAGE_VALUES.includes(s.stage)) return true;

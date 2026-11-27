@@ -4,7 +4,7 @@ import { existsSync, readFileSync, readdirSync, statSync } from './check-reads.t
 import { basename, dirname, join, resolve } from 'node:path';
 
 import { writeAgentGuide } from './agent-guide.ts';
-import { PINNED_PACKAGES } from './pins.ts';
+import { initDependencies } from './pins.ts';
 import { readVerbatim } from './record-input.ts';
 import { refuse, USAGE_EXIT } from './refusal.ts';
 import { CHOICE_ORDER_SPEC } from './stages.ts';
@@ -149,7 +149,7 @@ export function writePackageJson(dir: string, name: string): void {
     name: packageNameFor(name),
     private: true,
     type: 'module',
-    dependencies: { ...PINNED_PACKAGES },
+    dependencies: initDependencies(),
   };
   writeFileSync(join(dir, 'package.json'), `${JSON.stringify(pkg, null, 2)}\n`);
 }
@@ -239,7 +239,7 @@ export function initProject(target: string, options: InitOptions): InitResult {
 
 /** What init prints on success. */
 export function describeInit(result: InitResult): string {
-  const pins = Object.entries(PINNED_PACKAGES)
+  const pins = Object.entries(initDependencies())
     .map(([pkg, version]) => `${pkg} ${version}`)
     .join(', ');
   const lines = [

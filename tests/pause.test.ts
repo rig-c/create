@@ -1,14 +1,18 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
-import { cpSync, readFileSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { EXAMPLE_ANCHOR } from '../scripts/example-time.ts';
 import { checkProject as checkCandidate } from '../src/check.ts';
+import { isCurrentProject } from '../src/current.ts';
+import type { NextReport } from '../src/next.ts';
 import { Refusal } from '../src/refusal.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { plantLegacyReopen, arr, obj } from './fixtures.ts';
-import { clockedCli, ownerChatArgs, run, tempDir } from './helpers.ts';
-import { advanceCommand, checkProject, pauseCommand, resumeCommand, signoffCommand, testClock } from './clock.ts';
+import { cli, clockedCli, ownerChatArgs, run, tempDir } from './helpers.ts';
+import { advanceCommand, amendCommand, checkProject, pauseCommand, resumeCommand, signoffCommand, testClock } from './clock.ts';
 
 const CHECKPOINTS = join(import.meta.dir, '../templates/example-chain/checkpoints');
+const EXAMPLE_CURRENT = join(import.meta.dir, '../templates/example-current');
 const read = (dir: string): JsonObject => JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8'));
 const save = (dir: string, project: JsonObject): void => writeFileSync(join(dir, 'project.json'), JSON.stringify(project, null, 2) + '\n');
 function words(dir: string): string { const path = join(dir, 'words.txt'); writeFileSync(path, 'Hold the synthetic project.\n'); return path; }
@@ -207,5 +211,105 @@ describe('check reads pauses[]', () => {
     const dir = chain('1-parts-verdict');
     const p = read(dir); p.pauses = {}; save(dir, p);
     expect(checkProject(dir).refusals.map(f => [f.code, f.path])).toEqual([['PAUSE_MALFORMED', 'pauses']]);
+  });
+});
+
+function parseShellWords(command: string): string[] {
+  const words: string[] = [];
+  let word = '', quote = '', started = false;
+  for (let i = 0; i < command.length; i++) {
+    const ch = command[i]!;
+    if (quote) {
+      if (ch === quote) quote = '';
+      else word += ch;
+      started = true;
+    } else if (ch === "'" || ch === '"') { quote = ch; started = true; }
+    else if (ch === '\\') { word += command[++i]!; started = true; }
+    else if (/\s/.test(ch)) { if (started) { words.push(word); word = ''; started = false; } }
+    else { word += ch; started = true; }
+  }
+  expect(quote).toBe('');
+  if (started) words.push(word);
+  return words;
+}
+
+describe('next --json on a paused project', () => {
+  test('emits the runnable resume command with no review_act for numbered and current projects', () => {
+    const numbered = join(tempDir(), 'numbered paused');
+    cpSync(join(CHECKPOINTS, '3-rig-review'), numbered, { recursive: true });
+    expect(isCurrentProject(read(numbered))).toBe(false);
+    testClock.set(EXAMPLE_ANCHOR + 5 * 60_000);
+    signPaused(numbered);
+    pause(numbered);
+
+    const current = join(tempDir(), 'current paused');
+    cpSync(EXAMPLE_CURRENT, current, { recursive: true });
+    expect(isCurrentProject(read(current))).toBe(true);
+    let now = EXAMPLE_ANCHOR + 5 * 60_000;
+    mkdirSync(join(current, 'evidence'), { recursive: true });
+    writeFileSync(join(current, 'evidence/change.json'), '{"amended":"rig-review"}\n');
+    const amendWords = join(current, 'amend-words.txt');
+    writeFileSync(amendWords, 'Adjust motion before continuing.\n');
+    testClock.set(now += 1000);
+    expect(amendCommand([
+      'rig-review', current,
+      '--kind', 'config-field',
+      '--target', 'motion',
+      '--change', 'evidence/change.json',
+      '--by', 'owner',
+      '--owner-chat', amendWords,
+      '--said-at', new Date(now - 500).toISOString(),
+      '--relayed-by', 'synthetic-operator',
+    ]).exit).toBe(0);
+    testClock.set(now += 1000);
+    expect(advanceCommand(['post-interview', current]).exit).toBe(0);
+    const currentPauseWords = words(current);
+    testClock.set(now += 1000);
+    expect(signoffCommand(['paused', current, '--by', 'owner', '--verbatim-file', currentPauseWords]).exit).toBe(0);
+    testClock.set(now += 1000);
+    expect(pauseCommand([current, '--by', 'owner', '--verbatim-file', currentPauseWords]).exit).toBe(0);
+
+    for (const [kind, srcDir, resumeTarget] of [
+      ['numbered', numbered, 'rig-review'],
+      ['current', current, 'post-interview'],
+    ] as const) {
+      const clone = join(tempDir(), `${kind} clone`);
+      cpSync(srcDir, clone, { recursive: true });
+      testClock.set(now += 1000);
+      const nextOut = cli(['next', clone, '--json'], clone, process.env as Record<string, string>);
+      expect(nextOut.stderr).toBe('');
+      expect(nextOut.code).toBe(0);
+      const report = JSON.parse(nextOut.stdout) as NextReport;
+      expect(report.stage).toBe('paused');
+      expect(report.accepted).toBe(false);
+      expect(report.refusals).toEqual([]);
+      expect(report.awaits).toContain('project.stage');
+
+      const move = report.moves.find(m => m.field === 'pauses');
+      expect(move).toBeDefined();
+      expect(move).toMatchObject({
+        role: 'human',
+        field: 'pauses',
+        awaits: 'project.stage',
+        command: `rig-create resume ${resumeTarget} --by '<who>' --verbatim-file '<file>' '${clone}'`,
+        act: `resume paused project to ${resumeTarget}`,
+      });
+      expect('review_act' in move!).toBe(false);
+      expect(move!.review_act).toBeUndefined();
+
+      const resumeWords = join(clone, 'resume-words.txt');
+      writeFileSync(resumeWords, 'Resume synthetic project.\n');
+      const argv = parseShellWords(move!.command!).map(arg =>
+        arg === '<who>' ? 'owner' : arg === '<file>' ? resumeWords : arg);
+      expect(argv[0]).toBe('rig-create');
+
+      testClock.set(now += 1000);
+      const resumed = cli(argv.slice(1), clone, process.env as Record<string, string>);
+      expect({ kind, code: resumed.code, stderr: resumed.stderr }).toEqual({ kind, code: 0, stderr: '' });
+      expect(read(clone).stage).toBe(resumeTarget);
+      const checked = checkCandidate(clone, undefined, { now, readOnly: true });
+      expect(checked.refusals).toEqual([]);
+      expect(checked.warnings).toEqual([]);
+    }
   });
 });

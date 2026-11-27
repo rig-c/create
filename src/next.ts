@@ -7,6 +7,7 @@ import { createHash } from 'node:crypto';
 import { existsSync, lstatSync, readdirSync, readFileSync, realpathSync } from './check-reads.ts';
 import { isDeepStrictEqual } from 'node:util';
 import { CURRENT_KINDS, CURRENT_RIG_MODEL, currentFileBinding, isCurrentProject, outputRoot, RUN_RECORD_NAME, type CurrentKind } from './current.ts';
+import { readMotionLoopSeamPolicy } from './motion-loop-seam.ts';
 import { COMPOSE_CHECK_PATH, COMPOSE_RUN_PATH, CURRENT_DIRECTION_PATH, currentDirectionSource } from './current-direction.ts';
 import { currentAdvanceOutputFinding, isPublishAdvanceStage } from './job-advance.ts';
 import { eligibleRigDraftModel, optionPublicationStage, publicationFile, riggingDraftPartsChange, SUPPORTED_CURRENT_PUBLICATION_OUTPUTS } from './job-publication.ts';
@@ -94,7 +95,7 @@ import { checkVersionDeclarations, type VersionDeclaration } from './version-dec
 import { checkRigReport, parseRigCheckReport, RIG_CHECK_REPORT_FILE } from './rig-check-report.ts';
 import { validateRunRecord } from './run-record.ts';
 import { latestPartsApproval, partsApprovalIdentity } from './structure.ts';
-import { resolveAgentCitationSpec } from './scene-authority.ts';
+import { postCompositionSetOffersScene, resolveAgentCitationSpec } from './scene-authority.ts';
 import { DIRECTION_COMPOSE_SPEC } from './direction-compose.ts';
 import { DirectionError, directionJson, missingDirectionStepApprovals } from './direction.ts';
 import { type NextComment, withCurrentComments } from './comment-closures.ts';
@@ -264,6 +265,7 @@ function isOpenInterviewTodo(finding: Finding, effectiveStage: string): boolean 
 }
 
 const SCENE_OTHER_FOLLOW_UP = 'use the recorded Other words to draft concrete scene options with fragment.scene. Write each label and effect as one plain 해요체 sentence. Register the new set for an owner pick, then cite that pick in scene write';
+const SCENE_OPTIONS_REPAIR_ACT = 'register a post_composition option set whose value options carry value.scene, then have the owner answer it before scene write';
 
 function delegatedAsks(dir: string, item: Item): string[] {
   const answer = item.state.state === 'user' || item.state.state === 'delegated' ? item.state.answer : null;
@@ -814,6 +816,63 @@ function runnableNextMoves(dir: string, project: JsonObject, effectiveStage: str
       && moves.some(other => other.review_act?.stage === 'direction-review' && other.review_act.kind === 'review-verdict')) return [move];
     return reviewCommands(dir, project, move);
   });
+}
+
+function answeredPostCompositionSetLacksScene(dir: string, item: Item | undefined): boolean {
+  if (!item || (item.state.state !== 'user' && item.state.state !== 'delegated')) return false;
+  const answer = item.state.answer;
+  const resolved = item.state.state === 'delegated' && isObject(answer.agent_decision)
+    ? answer.agent_decision.value
+    : answer.value;
+  if (isObject(resolved) && isObject(resolved.scene)) return false;
+  if (!isObject(answer.choice) || !isObject(answer.choice.set)) return false;
+  try {
+    const { set } = optionFile(dir, answer.choice.set);
+    return !postCompositionSetOffersScene(set);
+  } catch {
+    return false;
+  }
+}
+
+function postCompositionSceneRepairMoves(
+  dir: string,
+  project: JsonObject,
+  item: Item | undefined,
+  effectiveStage: string,
+  now: number,
+): NextMove[] {
+  if (!item || !answeredPostCompositionSetLacksScene(dir, item)) return [];
+  const pending = pendingInterviewOptions(item);
+  if (pending !== undefined) {
+    if (optionPublicationStage(project, effectiveStage, now) === 'post-interview') {
+      return interviewQuestionMoves(dir, [item], effectiveStage);
+    }
+    let optSetId = typeof pending.id === 'string' ? pending.id : '';
+    if (!optSetId && typeof pending.path === 'string') {
+      try {
+        const rawSet = JSON.parse(readFileSync(join(dir, pending.path), 'utf8')) as JsonObject;
+        if (typeof rawSet.id === 'string') optSetId = rawSet.id;
+      } catch {
+        optSetId = pending.path;
+      }
+    }
+    const questionPath = item.path.replace(/\.(answer|guide)$/, '');
+    const humanMove: NextMove = {
+      role: 'human',
+      field: pendingInterviewOptionsPath(item),
+      awaits: item.path,
+      command: null,
+      act: `ask the owner in chat for ${questionPath} (option set ${optSetId}), then relay the answer with interview-answer --owner-chat`,
+    };
+    return [humanMove, ...ownerChatPickMove(dir, project, humanMove, item.id)];
+  }
+  return [{
+    role: 'agent',
+    field: item.path,
+    awaits: item.path,
+    command: optionCommand(item.id, dir),
+    act: SCENE_OPTIONS_REPAIR_ACT,
+  }];
 }
 
 function sceneWriteCommand(dir: string, project: JsonObject, rigN: string): string {
@@ -1436,8 +1495,10 @@ function currentPostOutputMove(dir: string, project: JsonObject, kind: 'motion' 
   if (kind === 'motion') {
     if (!currentFileBinding(project, 'rig', CURRENT_RIG_MODEL)) return;
     if (existsSync(join(dir, 'outputs/motion.next/frames.json'))) return currentOutputMove(dir, kind, shellWord);
+    const { policy: seam } = readMotionLoopSeamPolicy(dir);
+    const flags = seam ? ` --loop-seam-bar ${seam.channel_delta},${seam.pixels_above} --loop-seam-cap ${seam.warmup_cap}` : '';
     return { role: 'producer', field: 'current.motion', awaits: 'current.motion',
-      command: inProject("rigc render --candidate outputs/rig/check/build --out outputs/motion.next --animation idle --fps '<frames-per-second>'"),
+      command: inProject(`rigc render --candidate outputs/rig/check/build --out outputs/motion.next --animation idle --fps '<frames-per-second>'${flags}`),
       act: 'Render the recorded rig at the requested sample rate, then record the staged motion.' };
   }
   if (!isObject(project.current) || !isObject(project.current.motion)) return;
@@ -2001,10 +2062,14 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
       });
     }
     // Keep the interview and plan drafting available while a stale step blocks approval.
+    const postComp = allItems.find(item => item.id === 'post_composition');
+    const sceneChoiceMoves = report.refusals.some(r => r.code === 'SCENE_CHOICE_MISSING')
+      ? postCompositionSceneRepairMoves(dir, project, postComp, effectiveStage, now)
+      : [];
     const interviewCanContinue = holes.length === 0 && blockingRefusals.every(r => r.code === 'PLAN_STEP_PREDATES_ANSWER')
       && stage !== PAUSED_STAGE && isOpenInterviewStage(effectiveStage);
     const stepPlans = stepPlanQuestions(dir, project, stageItems, allowPostOptions);
-    const questions = interviewCanContinue ? [...stepPlans.moves, ...interviewQuestionMoves(dir, stepPlans.questionItems, effectiveStage)] : [];
+    const questions = [...sceneChoiceMoves, ...(interviewCanContinue ? [...stepPlans.moves, ...interviewQuestionMoves(dir, stepPlans.questionItems, effectiveStage)] : [])];
     const plan = interviewCanContinue ? interviewPlanMoves(dir, project, stageItems, effectiveStage, steps) : undefined;
     const awaits = [...moves, ...questions].map(move => move.awaits);
     if (plan?.missingPlanIds.length) awaits.push('plan.steps');
@@ -2908,10 +2973,17 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
           command: `rig-create direction write ${nextPostN} ${shellWord(dir)} --file '<direction@3.json>' --rig ${shellWord(rigN)} --compose-out '<compose-out>' --compose-scene '<compose-scene.json>'`,
           act: 'compose the cited owner values with Parts, then freeze the green idle as direction@3' });
       } else if (currentScene === undefined) {
-        addAwait('scenes[n=1]');
-        moves.push({ role: 'agent', field: 'scenes', awaits: 'scenes[n=1]',
-          command: sceneWriteCommand(dir, project, rigN),
-          act: 'author scene inputs matching the current post_composition Review choice, then write the scene' });
+        const postComp = allItems.find(item => item.id === 'post_composition');
+        const repairMoves = postCompositionSceneRepairMoves(dir, project, postComp, effectiveStage, now);
+        if (repairMoves.length > 0) {
+          for (const move of repairMoves) addAwait(move.awaits);
+          moves.push(...repairMoves);
+        } else {
+          addAwait('scenes[n=1]');
+          moves.push({ role: 'agent', field: 'scenes', awaits: 'scenes[n=1]',
+            command: sceneWriteCommand(dir, project, rigN),
+            act: 'author scene inputs matching the current post_composition Review choice, then write the scene' });
+        }
       } else {
         addAwait(`versions[n=${nextPostN}]`);
         moves.push({ role: 'agent', field: 'versions', awaits: `versions[n=${nextPostN}]`,
@@ -3157,6 +3229,7 @@ export function formatNext(report: NextReport | NextCollectionReport): string {
     lines.push(`  [${move.role}] (${move.field} -> ${move.awaits}) ${label}`);
     if (move.command !== null && (ROUTED_ANSWER_COMMENT_PATH.test(move.field) || move.field.startsWith('comments[')
       || move.field.startsWith('current.') || move.field === CURRENT_SCENE_PATH || move.field === CURRENT_DIRECTION_PATH
+      || move.act === SCENE_OPTIONS_REPAIR_ACT
       || move.act.startsWith(OPTIONAL_SIGNOFF_PREFIX))) {
       lines.push(`    ${move.act}`);
     }

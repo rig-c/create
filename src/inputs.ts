@@ -7,6 +7,7 @@ import { asArray, isObject, readJsonObject, type Ctx } from './check.ts';
 import { sameArtworkFor } from './init.ts';
 import { acquireBoundJobWrite } from './job-writer.ts';
 import { Refusal, refuse, USAGE_EXIT } from './refusal.ts';
+import { assertNotScratchBinding } from './scratch-bindings.ts';
 import type { Json, JsonObject } from './templates.ts';
 
 export const INPUT_WRITER_SINCE = '2026-11-08T00:00:00Z';
@@ -164,6 +165,7 @@ export function inputCommand(args: string[], now: number): { stdout: string; exi
   if (!painting && (projectsRoot !== undefined || sameArtworkReason !== undefined)) refuse('INPUT_USAGE', 'painting: --projects-root and --same-artwork-reason require input add --painting', USAGE_EXIT);
   const dir = resolve(positional[1] ?? process.cwd());
   const name = inputPath(dir, positional[0]!);
+  assertNotScratchBinding(name, 'inputs[].path');
   const file = resolve(dir, 'project.json');
   const lock = resolve(dir, '.input.lock');
   let fd: number;

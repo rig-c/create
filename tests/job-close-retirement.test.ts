@@ -27,6 +27,7 @@ import {
   type WriterBinding,
 } from '../src/job-outbox.ts';
 import { currentJobIdentity, partsEnumerator, prepareLiveManifest } from '../src/job-publication.ts';
+import { EXAMPLE_ANCHOR } from '../scripts/example-time.ts';
 import type { JsonObject } from '../src/templates.ts';
 
 const CLI = join(import.meta.dir, '../src/cli.ts');
@@ -505,7 +506,7 @@ test('#1076 stopped older-pin retirement refuses JOB_ACTS_PENDING when finalized
   writeFileSync(join(root, 'project.json'), `${JSON.stringify(currentProject, null, 2)}\n`);
 
   const { host, binding } = await openLegacyBoundHost(root, { enumeratorVersion: '2.44.0' });
-  await publishLegacyPlan(root, binding, Date.parse('2026-11-26T00:02:00.000Z'));
+  await publishLegacyPlan(root, binding, EXAMPLE_ANCHOR + 2 * 60_000);
   const head = host.session.status().publication!;
   const uiCap = host.session.hostCredentials().ui;
   const headers = { origin: host.origin, 'X-Review-Capability': uiCap, 'content-type': 'application/json' };
@@ -574,7 +575,7 @@ test('#1076 current-path project (project.current, record-and-package binding) r
 
   const { host, binding } = await openLegacyBoundHost(root, { enumeratorVersion: '2.44.0' });
   expect(binding.identity.publicationMode).toBe('record-and-package');
-  await publishLegacyPlan(root, binding, Date.parse('2026-11-26T00:02:00.000Z'));
+  await publishLegacyPlan(root, binding, EXAMPLE_ANCHOR + 2 * 60_000);
   const beforeBytes = readFileSync(join(root, 'project.json'));
   host.stop();
 
@@ -593,10 +594,10 @@ test('#1076 current-path project (project.current, record-and-package binding) r
   expect(readFileSync(join(root, 'project.json'))).toEqual(beforeBytes);
   expect(readWriterBinding(root)).toBeNull();
 
-  const next = await openCreateJob(root, { id: 'synthetic-owner', role: 'owner' }, Date.parse('2026-11-26T00:02:00.000Z'), undefined, true);
+  const next = await openCreateJob(root, { id: 'synthetic-owner', role: 'owner' }, EXAMPLE_ANCHOR + 2 * 60_000, undefined, true);
   hosts.push(next);
   expect(next.session.jobId).not.toBe(binding.jobId);
-  const lines = await openRecordPublication(root, next, undefined, true, Date.parse('2026-11-26T00:02:00.000Z'));
+  const lines = await openRecordPublication(root, next, undefined, true, EXAMPLE_ANCHOR + 2 * 60_000);
   expect(lines[0]).toContain('job: plan published');
 });
 

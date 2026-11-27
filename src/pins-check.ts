@@ -24,6 +24,7 @@ import { COLLECTION_STAGES, COLLECTION_STAGE_VALUES } from './collection.ts';
 import { isCurrentProject } from './current.ts';
 import type { CommandResult } from './interview.ts';
 import { refuse, USAGE_EXIT } from './refusal.ts';
+import { checkScratchBindings } from './scratch-bindings.ts';
 import { collectionAnswerCommand } from './collection-answer.ts';
 import type { Json, JsonObject } from './templates.ts';
 
@@ -434,6 +435,7 @@ function checkPins(dir: string, collection: JsonObject, members: Member[], refus
 
 /** Collection answers as `interview --check` reads a project's, against the collection's own stages. */
 export function checkCollectionRecord(collection: JsonObject, stage: string, refusals: Finding[], warnings: Finding[] = []): string {
+  checkScratchBindings(collection, refusals, warnings);
   const signoffs = collectSignoffs(collection, refusals);
   const order: readonly string[] = COLLECTION_STAGES.map((s) => s.id);
   const effective = stage === 'paused'

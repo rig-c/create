@@ -1,5 +1,5 @@
 import { expect, mock, test } from 'bun:test';
-import { cpSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { EXAMPLE_ANCHOR } from '../scripts/example-time.ts';
 import { amendCommand } from '../src/amend.ts';
@@ -134,7 +134,18 @@ async function replay(destination: string, skipSignoffs = false): Promise<void> 
     apply(target, receiver, args) {
       const [command, options] = args;
       if (options?.cwd === dir && Array.isArray(command) && typeof command[1] === 'string') {
-        if (command[1].endsWith('/rigc.cjs') && command[2] === 'render') assertOffered('rigc render', now);
+        if (command[1].endsWith('/rigc.cjs') && command[2] === 'render') {
+          const { offered } = assertOffered('rigc render', now);
+          expect(offered[0]).not.toContain('--loop-seam');
+          const spec = join(dir, 'specs/motion/loop-seam.json');
+          mkdirSync(join(dir, 'specs/motion'), { recursive: true });
+          writeFileSync(spec, JSON.stringify({ channel_delta: 9, pixels_above: 2, warmup_cap: 6 }));
+          try {
+            expect(commands(nextProject(dir, now), 'rigc render')).toEqual([
+              offered[0]!.replace(/\)$/, ' --loop-seam-bar 9,2 --loop-seam-cap 6)'),
+            ]);
+          } finally { unlinkSync(spec); }
+        }
         if (command[1].endsWith('/rig-parts.cjs') && typeof command[2] === 'string') {
           const prefix = `rig-parts ${command[2]}`;
           // The second check-parts call creates retained arrival evidence, outside staging.
@@ -336,15 +347,16 @@ if (process.argv[2] === '--replay-current-example') {
     const acceptedUnsigned = stripSignoffs(full);
     const rigSignoff = structuredClone(asArray(full.signoffs).filter(isObject).find(s => s.stage === 'rig-review')!);
     acceptedUnsigned.signoffs = [rigSignoff];
+    const reopenAt = new Date(EXAMPLE_ANCHOR + 40_500).toISOString();
     acceptedUnsigned.reopens = [{
       id: 'reopen-rig',
       stage: 'rig-review',
       from_stage: 'rig-review',
       by: 'owner',
-      at: '2026-11-26T00:00:40.500Z',
+      at: reopenAt,
       verbatim: 'Adjust the rig timing.\n',
       source: OWNER_CHAT_SOURCE,
-      said_at: '2026-11-26T00:00:40.500Z',
+      said_at: reopenAt,
       relayed_by: 'operator',
       steps_before: [],
     }];
@@ -370,10 +382,11 @@ if (process.argv[2] === '--replay-current-example') {
     expect(walkedRecord.stage).toBe('accepted');
     expect(asArray(walkedRecord.signoffs)).toEqual([]);
 
-    let t = Date.parse('2026-11-26T00:05:00.000Z');
+    let t = EXAMPLE_ANCHOR + 5 * 60_000;
     const recordAmend = (dir: string, stage: string) => {
+      mkdirSync(join(dir, 'evidence'), { recursive: true });
       mkdirSync(join(dir, 'scratch'), { recursive: true });
-      writeFileSync(join(dir, 'scratch/change.json'), `{"amended":"${stage}"}\n`);
+      writeFileSync(join(dir, 'evidence/change.json'), `{"amended":"${stage}"}\n`);
       const wordsFile = join(dir, 'scratch/amend-words.txt');
       writeFileSync(wordsFile, `Owner requested adjustment at ${stage}.\n`);
       const saidAt = new Date(t - 500).toISOString();
@@ -381,7 +394,7 @@ if (process.argv[2] === '--replay-current-example') {
         stage, dir,
         '--kind', 'config-field',
         '--target', 'motion',
-        '--change', 'scratch/change.json',
+        '--change', 'evidence/change.json',
         '--by', 'owner',
         '--owner-chat', wordsFile,
         '--said-at', saidAt,

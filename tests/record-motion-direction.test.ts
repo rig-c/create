@@ -92,6 +92,67 @@ test.each([true, false])('record motion binds the frame tree with producer recei
   expect(check(f.dir).warnings.some(f => f.code === 'REBUILD_ARGS_UNRECORDED' && f.path === 'current.motion.rebuild')).toBe(!stamped);
 });
 
+const seamSpec = 'specs/motion/loop-seam.json';
+const seamBudget = { channel_delta: 8, pixels_above: 0, warmup_cap: 12 };
+const stagedSeamPath = `${motionFrom}/idle@1fps/loop-seam.json`;
+
+function seamReport(dir: string, status: 'met' | 'unjudged', pixelsAbove = 0): void {
+  write(dir, `${motionFrom}/idle@1fps/loop-wrap.png`, 'synthetic wrap frame');
+  const endpoint = (name: string, time: number) => {
+    const path = `idle@1fps/${name}`;
+    return { path, time, sha256: binding(dir, `${motionFrom}/${path}`).sha256 };
+  };
+  write(dir, stagedSeamPath, {
+    spec: 'rigc-loop-seam/1', animation: 'idle', fps: 1, period: 0.9, status, warmup: 0,
+    first: endpoint('f0000.png', 0), wrap: { ...endpoint('loop-wrap.png', 0.9), encoding: 'png' },
+    ...(status === 'met' ? { bar: { channelDelta: 8, pixelsAbove: 0 }, cap: 12, pixelsAbove } : {}),
+  });
+}
+
+test('#1073 opt-in seam budget warns for existing motion and refuses a fresh record without a verdict', () => {
+  const f = sceneFixture();
+  currentRig(f);
+  render(f.dir, false);
+  expect(recordMotion(f.dir).exit).toBe(0);
+  write(f.dir, seamSpec, seamBudget);
+  expect(check(f.dir).warnings.map(finding => finding.code)).toContain('MOTION_LOOP_SEAM_MISSING');
+  const original = raw(f.dir, 'project.json');
+  render(f.dir, false);
+  expect(() => recordMotion(f.dir)).toThrow(expect.objectContaining({ code: 'MOTION_LOOP_SEAM_MISSING' }));
+  seamReport(f.dir, 'unjudged');
+  expect(() => recordMotion(f.dir)).toThrow(expect.objectContaining({ code: 'MOTION_LOOP_SEAM_UNJUDGED' }));
+  seamReport(f.dir, 'met', 1);
+  expect(() => recordMotion(f.dir)).toThrow(expect.objectContaining({ code: 'MOTION_LOOP_SEAM_OVER_BAR' }));
+  expect(raw(f.dir, 'project.json')).toEqual(original);
+  expect(existsSync(join(f.dir, stagedSeamPath))).toBe(true);
+});
+
+test('#1073 motion records producer seam hashes and check detects drift of either endpoint', () => {
+  const f = sceneFixture();
+  currentRig(f);
+  write(f.dir, seamSpec, seamBudget);
+  render(f.dir, false);
+  seamReport(f.dir, 'met');
+  const expected = binding(f.dir, stagedSeamPath).sha256;
+  const result = recordMotion(f.dir);
+  expect(result.exit).toBe(0);
+  expect((JSON.parse(result.stdout) as JsonObject).files).toContainEqual(expect.objectContaining({
+    path: 'outputs/motion/idle@1fps/loop-seam.json', sha256: expected,
+  }));
+  expect([...check(f.dir).refusals, ...check(f.dir).warnings].filter(finding => finding.code.startsWith('MOTION_LOOP_SEAM_'))).toEqual([]);
+  write(f.dir, 'outputs/motion/idle@1fps/loop-wrap.png', 'different wrap');
+  expect(check(f.dir).refusals.map(finding => finding.code)).toContain('MOTION_LOOP_SEAM_INVALID');
+});
+
+test('#1073 motion can retain an unjudged measurement without a declared budget', () => {
+  const f = sceneFixture();
+  currentRig(f);
+  render(f.dir, false);
+  seamReport(f.dir, 'unjudged');
+  expect(recordMotion(f.dir).exit).toBe(0);
+  expect(check(f.dir).warnings.map(finding => finding.code)).toContain('MOTION_LOOP_SEAM_UNJUDGED');
+});
+
 test('#1029 first record motion migrates the legacy pattern without contaminating JSON stdout', () => {
   const f = sceneFixture();
   currentRig(f);
@@ -271,7 +332,7 @@ test('next offers preparation and recording for missing current direction before
     load: () => json(dir, 'project.json'), save: (value: JsonObject) => write(dir, 'project.json', value) };
   currentRig(f);
   render(dir, false);
-  const now = Date.parse('2026-11-26T01:00:00Z');
+  const now = EXAMPLE_ANCHOR + 60 * 60_000;
   expect(nextProject(dir, now).moves).toContainEqual(expect.objectContaining({ field: 'current.motion' }));
   recordMotion(dir);
   const directionMove = expect.objectContaining({ field: 'current.direction', awaits: 'current.direction',

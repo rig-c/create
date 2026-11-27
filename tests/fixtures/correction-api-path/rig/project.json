@@ -16,7 +16,7 @@
     "paused"
   ],
   "interview": {
-    "question_set": "rig-create/interview@2 (waypoints read from @rig-c/parts 2.61.0)",
+    "question_set": "rig-create/interview@2 (waypoints read from @rig-c/parts 2.62.0)",
     "turn_question": "rig-create/turn-question@1",
     "held": false,
     "date": null,
@@ -296,8 +296,8 @@
       "answers_feedback": [],
       "review_origin": {
         "feedback": {
-          "path": "evidence/review-reads/a53dd26851ac6e0bc9322a21092f965550cf00fd6ee019b1610d4faaa4a9627f.json",
-          "sha256": "a53dd26851ac6e0bc9322a21092f965550cf00fd6ee019b1610d4faaa4a9627f"
+          "path": "evidence/review-reads/18ffb221dc15ce3fd5a39c55910ebe0b86d7ac5b1a3bc8cb63610f2d1c529e0d.json",
+          "sha256": "18ffb221dc15ce3fd5a39c55910ebe0b86d7ac5b1a3bc8cb63610f2d1c529e0d"
         },
         "review_read": {
           "route": "cli",
@@ -309,8 +309,8 @@
             "json"
           ],
           "stdout": {
-            "path": "evidence/review-reads/a53dd26851ac6e0bc9322a21092f965550cf00fd6ee019b1610d4faaa4a9627f.json",
-            "sha256": "a53dd26851ac6e0bc9322a21092f965550cf00fd6ee019b1610d4faaa4a9627f"
+            "path": "evidence/review-reads/18ffb221dc15ce3fd5a39c55910ebe0b86d7ac5b1a3bc8cb63610f2d1c529e0d.json",
+            "sha256": "18ffb221dc15ce3fd5a39c55910ebe0b86d7ac5b1a3bc8cb63610f2d1c529e0d"
           },
           "tool": {
             "name": "@rig-c/review",
@@ -334,18 +334,18 @@
             ],
             "producer": {
               "name": "@rig-c/parts",
-              "version": "2.61.0"
+              "version": "2.62.0"
             },
             "op": {
               "cmd": "rig",
               "args": []
             }
           },
-          "patchSha256": "1f2589b8ae7b4f96152f5253ba4a5fe3f8aa45f8ab6f454dcd4ca9869da2a1c4",
+          "patchSha256": "4a9ffc23716327bc75792a768a2001bd4a13222f7f0e38167bf731c2a348301d",
           "configHash": "02006a00e6bd712880b53463501c5e0ce676f1dfd276197c40114c7f9d7b8069",
           "producer": {
             "package": "@rig-c/parts",
-            "version": "2.61.0"
+            "version": "2.62.0"
           },
           "compiler": {
             "package": "@rig-c/core",
@@ -428,8 +428,8 @@
         "state": "applied-and-checked",
         "feedback": {
           "file": {
-            "path": "evidence/review-reads/a53dd26851ac6e0bc9322a21092f965550cf00fd6ee019b1610d4faaa4a9627f.json",
-            "sha256": "a53dd26851ac6e0bc9322a21092f965550cf00fd6ee019b1610d4faaa4a9627f"
+            "path": "evidence/review-reads/18ffb221dc15ce3fd5a39c55910ebe0b86d7ac5b1a3bc8cb63610f2d1c529e0d.json",
+            "sha256": "18ffb221dc15ce3fd5a39c55910ebe0b86d7ac5b1a3bc8cb63610f2d1c529e0d"
           },
           "item_id": "synthetic-apply"
         },
@@ -443,8 +443,8 @@
             "json"
           ],
           "stdout": {
-            "path": "evidence/review-reads/a53dd26851ac6e0bc9322a21092f965550cf00fd6ee019b1610d4faaa4a9627f.json",
-            "sha256": "a53dd26851ac6e0bc9322a21092f965550cf00fd6ee019b1610d4faaa4a9627f"
+            "path": "evidence/review-reads/18ffb221dc15ce3fd5a39c55910ebe0b86d7ac5b1a3bc8cb63610f2d1c529e0d.json",
+            "sha256": "18ffb221dc15ce3fd5a39c55910ebe0b86d7ac5b1a3bc8cb63610f2d1c529e0d"
           },
           "tool": {
             "name": "@rig-c/review",

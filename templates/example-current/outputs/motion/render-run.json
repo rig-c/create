@@ -2,7 +2,7 @@
   "spec": "rigc-run/2",
   "package": {
     "name": "@rig-c/core",
-    "version": "3.10.0"
+    "version": "3.11.0"
   },
   "command": "render",
   "argv": [
@@ -17,7 +17,11 @@
     "--max",
     "32",
     "--poser",
-    "core"
+    "core",
+    "--loop-seam-bar",
+    "8,0",
+    "--loop-seam-cap",
+    "12"
   ],
   "started_at": "2026-11-27T00:00:00.000Z",
   "finished_at": "2026-11-27T00:00:00.000Z",
@@ -65,6 +69,14 @@
     },
     {
       "path": "idle@1fps/f0004.png",
+      "sha256": "62c672a82c4802891267c8db63ab2420dafd45a155ba72169be7c754b9efe811"
+    },
+    {
+      "path": "idle@1fps/loop-seam.json",
+      "sha256": "238096563a83e6371b091448fa7dca36cb9ed0ffb888d179275bd3a048a59071"
+    },
+    {
+      "path": "idle@1fps/loop-wrap.png",
       "sha256": "62c672a82c4802891267c8db63ab2420dafd45a155ba72169be7c754b9efe811"
     }
   ]

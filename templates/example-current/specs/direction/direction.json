@@ -8,7 +8,7 @@
   },
   "scene": {
     "path": "specs/direction/scene.json",
-    "sha256": "2e9813b3095ccf69ea1b556b80c01dc19ff2193e97dfc5cba57905ac4be042f4"
+    "sha256": "b36d0cdb8364618ecfe4969fb260e0c3793204b6fc2461ca23e86bd5ea0d60df"
   },
   "take": {
     "duration": 4,

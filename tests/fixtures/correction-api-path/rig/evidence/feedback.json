@@ -45,18 +45,18 @@
             ],
             "producer": {
               "name": "@rig-c/parts",
-              "version": "2.62.0"
+              "version": "2.63.1"
             },
             "op": {
               "cmd": "rig",
               "args": []
             }
           },
-          "patchSha256": "4a9ffc23716327bc75792a768a2001bd4a13222f7f0e38167bf731c2a348301d",
+          "patchSha256": "4aae0fa931b8ebb7281ebb56f29ea351db6e9425b12b778a83e111066014f9c9",
           "configHash": "02006a00e6bd712880b53463501c5e0ce676f1dfd276197c40114c7f9d7b8069",
           "producer": {
             "package": "@rig-c/parts",
-            "version": "2.62.0"
+            "version": "2.63.1"
           },
           "compiler": {
             "package": "@rig-c/core",

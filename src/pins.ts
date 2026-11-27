@@ -27,7 +27,7 @@ export function runningCreateVersion(): string {
  */
 export const PINNED_PACKAGES = {
   '@rig-c/core': '3.11.0',
-  '@rig-c/parts': '2.62.0',
+  '@rig-c/parts': '2.63.1',
 } as const satisfies Record<string, string>;
 
 /** Exact dependencies `init` writes into a new project or collection manifest. */

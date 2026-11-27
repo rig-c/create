@@ -32,7 +32,7 @@
   },
   "dependencies": {
     "@rig-c/core": "3.11.0",
-    "@rig-c/parts": "2.62.0",
+    "@rig-c/parts": "2.63.1",
     "@rig-c/review": "4.24.0"
   },
   "devDependencies": {

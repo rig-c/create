@@ -1755,6 +1755,13 @@ Adopted parts keep the numbered ledger contract.
 | `RESTART_MALFORMED` | `restarts` is not a list, an entry lacks `{ at, by, reason, previous_record_sha256 }`, or a present `dropped_additions` list or row is malformed. `restart` also refuses a source addition it cannot hash. | restore the entry `restart` wrote, or restore the source addition and its exact words before restarting |
 | `RESTART_SOURCE_CHANGED` | `project.json` changed while `restart` was validating | retry against the current record |
 | `NEXT_USAGE` | `next` receives an unsupported option or more than one project directory argument (exit 2) | use `rig-create next [<project dir>] [--json]` |
+| `NEXT_NO_FORWARD_MOVE` | `next` derives no moves, awaits or other refusals for an unfinished project | inspect `rig-create interview --check <project dir> --json` and report the missing workflow route with the stored and effective stages |
+
+For a current project, `next` reports completion when the effective stage is
+`accepted` and there is no open feedback. An open numbered direction bounce
+or an open comment on the recorded direction is input to the current scene,
+direction, compose and record sequence. The move names the source record
+path. Recording a new output alone does not close feedback.
 
 `restart` does not keep the record it replaces; git history holds it, so
 restart refuses before it writes unless `project.json` is committed: tracked

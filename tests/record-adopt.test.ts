@@ -4,7 +4,7 @@ import { dirname, join } from 'node:path';
 import { EXAMPLE_ANCHOR } from '../scripts/example-time.ts';
 import { asArray, checkProject, isObject, type CheckReport } from '../src/check.ts';
 import { CURRENT_RIG_MODEL, currentFileBinding, currentShapeFindings, outputSetHash, sha256, treeFiles, type CurrentKind } from '../src/current.ts';
-import { reviewCommand } from '../src/feedback.ts';
+import { reviewCommand, type OpenDirectionComment } from '../src/feedback.ts';
 import { interviewCommand } from '../src/interview.ts';
 import { nextCommand, type NextReport } from '../src/next.ts';
 import { OWNER_CHAT_SOURCE } from '../src/owner-chat.ts';
@@ -354,7 +354,7 @@ test('adopts a bounced post in place and exposes its open comment through the le
   // The 1.26.0 writer added only current.direction. The view reads those same bytes.
   expect(project).toEqual({ ...JSON.parse(before.toString()), current: { direction: JSON.parse(adopted.stdout) } });
 
-  const comment = {
+  const comment: OpenDirectionComment = {
     field: 'current.direction', verdict: 'versions[v4].verdicts[1]', by: 'user',
     at: new Date(checkNow).toISOString(), source: 'synthetic chat', verbatim: words,
     on_items: [{ id: 'post_timing', answer_was: 'user' }],

@@ -17,16 +17,20 @@ import { asArray, isObject } from '../src/check.ts';
 import { main } from '../src/cli.ts';
 import { outputSetHash } from '../src/current.ts';
 import {
+  enqueuePublication,
+  JOB_BINDING_FILE,
   jobHash,
   jobHostStateRoot,
   jobPrivateRoot,
   publicationVersionHash,
-  readAcknowledgedPublication,
   readWriterBinding,
+  writePrivateJson,
   type AcknowledgedPublication,
+  type WriterBinding,
 } from '../src/job-outbox.ts';
 import {
   CURRENT_LIVE_MANIFEST,
+  currentJobIdentity,
   prepareCurrentManifest,
   readPublished,
 } from '../src/job-publication.ts';
@@ -405,6 +409,66 @@ test('prepareCurrentManifest, readPublished, commitCurrentPublication, and publi
       result: { path: CURRENT_LIVE_MANIFEST, selector: { kind: 'current', output: 'rig', record: editedHash } as never },
     });
     expect(Object.hasOwn(failedContext, 'commit')).toBe(false);
+  } finally {
+    rmSync(join(gitRoot, '.git/index.lock'), { force: true });
+  }
+});
+
+test('readPublished omits commit when a matching pending current entry has no commit even if HEAD holds the same project.json', async () => {
+  const gitRoot = cloneExampleCurrent({ git: true });
+  const recordBytes = readFileSync(join(gitRoot, 'project.json'));
+  const recordHash = jobHash(recordBytes);
+  const project = JSON.parse(recordBytes.toString('utf8')) as JsonObject;
+
+  // 1. Publish and commit `current parts` so HEAD holds the exact `project.json` (`recordHash`) and the parts manifest.
+  const partsPrepared = prepareCurrentManifest(gitRoot, project, 'parts', recordHash);
+  const partsCommit = commitCurrentPublication(gitRoot, 'parts', recordHash, partsPrepared.closurePaths);
+  expect(partsCommit.warning).toBeUndefined();
+  expect(partsCommit.commit).toMatch(/^[a-f0-9]{40}$/);
+
+  // 2. Without modifying `project.json`, prepare `current rig` while `.git/index.lock` forces PROJECT_COMMIT_FAILED.
+  const rigPrepared = prepareCurrentManifest(gitRoot, project, 'rig', recordHash);
+  const binding: WriterBinding = {
+    schema: 'rig-create/job-binding@1',
+    identity: currentJobIdentity({
+      root: gitRoot,
+      stateDir: join(jobHostStateRoot(gitRoot), 'host'),
+      fingerprint: 'rig-create/live-review/1',
+      reviewer: { id: 'synthetic-owner', role: 'owner' },
+      publicationMode: 'record-and-package',
+    }, gitRoot),
+    jobId: 'synthetic-job',
+    origin: 'http://127.0.0.1:9',
+    fetchCapability: 'cap',
+    listenerIncarnation: 'incarnation',
+  };
+  writePrivateJson(join(gitRoot, JOB_BINDING_FILE), binding, true);
+
+  writeFileSync(join(gitRoot, '.git/index.lock'), 'locked\n');
+  try {
+    const failedRigCommit = commitCurrentPublication(gitRoot, 'rig', recordHash, rigPrepared.closurePaths);
+    expect(failedRigCommit).toMatchObject({
+      warning: { code: 'PROJECT_COMMIT_FAILED', path: 'project.json' },
+    });
+    expect(failedRigCommit.commit).toBeUndefined();
+
+    const rigSelector = { kind: 'current' as const, output: 'rig' as const, record: recordHash };
+    const pending = enqueuePublication(
+      gitRoot,
+      binding,
+      { path: CURRENT_LIVE_MANIFEST, selector: rigSelector },
+      undefined,
+      failedRigCommit.commit,
+    );
+    expect(pending.commit).toBeUndefined();
+
+    const rigContext = await readPublished({
+      root: gitRoot,
+      record: { path: 'project.json', sha256: recordHash },
+      result: { path: CURRENT_LIVE_MANIFEST, selector: rigSelector as never },
+    });
+    expect(Object.hasOwn(rigContext, 'commit')).toBe(false);
+    expect(rigContext.commit).toBeUndefined();
   } finally {
     rmSync(join(gitRoot, '.git/index.lock'), { force: true });
   }

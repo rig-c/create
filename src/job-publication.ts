@@ -34,7 +34,7 @@ import { humanReviewVerdicts, readVersions } from './review.ts';
 import { isAssembleOnlyDraft } from './draft-layout.ts';
 import { hasCurrentParts, latestPartsApproval, previousPartsApproval, retainedJson } from './structure.ts';
 import { partsStructureSnapshot, shellWord } from './job-acts.ts';
-import { jobHash, pendingPublications, isRecordResult, type CurrentPublicationOutput, type CurrentPublicationSelector, type JobIdentity, type NumberedPublicationSelector, type PackagePublicationResult } from './job-outbox.ts';
+import { jobHash, pendingPublications, isRecordResult, type CurrentPublicationOutput, type CurrentPublicationSelector, type JobIdentity, type NumberedPublicationSelector, type PackagePublicationResult, type PendingPublication } from './job-outbox.ts';
 import { CURRENT_DIRECTION_PATH } from './current-direction.ts';
 import { CURRENT_RIG_MODEL, currentShapeFindings, isCurrentProject } from './current.ts';
 import { resolvePublishedRecordCommit } from './project-step-commit.ts';
@@ -1020,12 +1020,14 @@ function readCurrentPublished(
   }
   const files = [...closureFiles, { path: CURRENT_LIVE_MANIFEST, sha256: jobHash(manifestDisk) }]
     .sort((a, b) => a.path < b.path ? -1 : a.path > b.path ? 1 : 0);
-  let pendingCommit: string | undefined;
+  let pendingEntry: PendingPublication | undefined;
   try {
-    pendingCommit = pendingPublications(root).find(entry => !isRecordResult(entry.result)
-      && entry.recordHash === recordHash && isDeepStrictEqual(entry.result.selector, selector))?.commit;
+    pendingEntry = pendingPublications(root).find(entry => !isRecordResult(entry.result)
+      && entry.recordHash === recordHash && isDeepStrictEqual(entry.result.selector, selector));
   } catch { /* Read-only publication contexts without private outbox access fall back to HEAD below. */ }
-  const commit = resolvePublishedRecordCommit(root, recordHash, pendingCommit) ?? resolvePublishedRecordCommit(root, recordHash);
+  const commit = pendingEntry !== undefined
+    ? (pendingEntry.commit ? resolvePublishedRecordCommit(root, recordHash, pendingEntry.commit) : undefined)
+    : resolvePublishedRecordCommit(root, recordHash);
   return {
     selector: selector as unknown as JobSelector,
     plan: null,

@@ -23,7 +23,7 @@ import { formatNext, nextProject } from '../src/next.ts';
 import { selectSignoffTarget } from '../src/signoff-target.ts';
 import { stepHash } from '../src/step-hash.ts';
 import type { JsonObject } from '../src/templates.ts';
-import { advanceCommand, checkProject, directionCommand, inputCommand, planCommand, sceneCommand, signoffCommand, stepStatusCommand, testClock } from './clock.ts';
+import { advanceCommand, checkProject, inputCommand, planCommand, signoffCommand, stepStatusCommand, testClock } from './clock.ts';
 import { seedStoredSignoffAct, seedStoredVerdict, seedStoredVersionSignoff, selectHistoricalSignoffTarget } from './historical-review-fixture.ts';
 import { seedRetainedDirectionPost, seedRetainedReviewPackage, seedRetainedRigVersion, seedRetainedScene } from './numbered-seed.ts';
 import { composeFixture, composeRunFixture } from './direction-compose-fixture.ts';

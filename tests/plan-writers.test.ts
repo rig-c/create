@@ -13,7 +13,7 @@ import { signoffCommand as rawSignoff } from '../src/signoff.ts';
 import { STAGE_ORDER_SPEC } from '../src/stages.ts';
 import { stepHash } from '../src/step-hash.ts';
 import type { Json, JsonObject } from '../src/templates.ts';
-import { amendCommand, checkDirections, checkProject, directionCommand, planCommand, signoffCommand, testClock } from './clock.ts';
+import { amendCommand, checkDirections, checkProject, planCommand, signoffCommand, testClock } from './clock.ts';
 import { advanceCommand } from '../src/progress-writers.ts';
 import { directionFixture } from './direction-fixture.ts';
 import { plantLegacyReopen, arr, fixture, obj, retainSignoffs, step, waypoint } from './fixtures.ts';

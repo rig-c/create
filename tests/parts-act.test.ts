@@ -7,7 +7,7 @@ import type { JobAct, JobPartOutcome, JobVerdict } from '../node_modules/@rig-c/
 import { loadPartsView, verdictSource } from '../node_modules/@rig-c/review/src/parts-view.ts';
 import { partsDraftEditable } from '../node_modules/@rig-c/review/src/interview-project.ts';
 import { JOB_COMMENTS_ACT_SCHEMA, PARTS_COMMENTS_VERDICT_SCHEMA, projectComments, startJobHost, type JobComment, type JobOwnerHost } from '@rig-c/review/job-host';
-import { openCreateJob, reconcileCreateJob } from '../src/job-host.ts';
+import { openCreateJob, openDraftPublication, reconcileCreateJob } from '../src/job-host.ts';
 import { agentCall } from '../src/job-acts.ts';
 import { draftPublishedContext, partsEnumerator, prepareDraftManifest, readPublished } from '../src/job-publication.ts';
 import { acknowledgePublication, enqueuePublication, jobHash, jobHostStateRoot, pendingPublications, readWriterBinding, reconcilePublication } from '../src/job-outbox.ts';

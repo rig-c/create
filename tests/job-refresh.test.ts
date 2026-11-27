@@ -7,9 +7,9 @@ import { pathToFileURL } from 'node:url';
 import { JOB_RECORD_ACT_SCHEMA, parseRecordAct, startJobHost } from '@rig-c/review/job-host';
 import { checkProject as rawCheckProject } from '../src/check.ts';
 import { agentCall } from '../src/job-acts.ts';
-import { openCreateJob, reconcileCreateJob } from '../src/job-host.ts';
-import { acknowledgePublication, enqueuePublication, jobHash, jobHostStateRoot, jobPrivateRoot, pendingPublications, readAcknowledgedPublication, readWriterBinding, type AcknowledgedPublication } from '../src/job-outbox.ts';
-import { readPublished, readRecordPublished, type RecordPublicationRequest } from '../src/job-publication.ts';
+import { askDeclaredSubjects, openCreateJob, reconcileCreateJob } from '../src/job-host.ts';
+import { acknowledgePublication, enqueuePublication, jobHash, jobHostStateRoot, jobPrivateRoot, pendingPublications, readAcknowledgedPublication, readWriterBinding, reconcilePublication, type AcknowledgedPublication } from '../src/job-outbox.ts';
+import { prepareLiveManifest, publicationSelector, readPublished, readRecordPublished, type RecordPublicationRequest } from '../src/job-publication.ts';
 import { jobRuntimeExecArgv } from '../src/job-writer.ts';
 import type { Json, JsonObject } from '../src/templates.ts';
 import { testClock, interviewOptionsCommand, interviewAnswerCommand } from './clock.ts';
@@ -28,11 +28,13 @@ const WORDS = '  Synthetic owner review words.\r\n';
 // Measured 2.59s–3.67s per multi-spawn CLI + live host flow locally; 15_000ms tier avoids 5s default timeout flakes under load.
 const REFRESH_FLOW_TIMEOUT_MS = 15_000;
 const roots: string[] = [];
+const legacyPackageHosts: Awaited<ReturnType<typeof openCreateJob>>[] = [];
 const opened: { proc: Bun.Subprocess; root: string }[] = [];
 const checkProject = (dir: string, candidate?: JsonObject, _options?: { now: number }) =>
   rawCheckProject(dir, candidate, { now: testClock.now() });
 
 afterEach(async () => {
+  for (const host of legacyPackageHosts.splice(0)) host.stop();
   for (const { proc, root } of opened.splice(0)) {
     if (readWriterBinding(root) && pendingPublications(root).length === 0) {
       await cli(root, ['job', 'close', root]);
@@ -72,13 +74,43 @@ async function cli(root: string, args: string[]): Promise<{ stdout: string; stde
   return { stdout, stderr, exit };
 }
 
+async function openLegacyNumberedVerdict(root: string, version: number, stage: 'rig-review' | 'direction-review') {
+  const subject = { kind: 'review-verdict', stage } as const;
+  let declareLegacySubject = true;
+  const host = await openCreateJob(root, { id: 'synthetic-owner', role: 'owner' }, testClock.now(), options => startJobHost({
+    ...options, readPublished: async input => {
+      const context = await readPublished(input);
+      return declareLegacySubject ? { ...context, subjects: [subject] } : context;
+    },
+  }));
+  legacyPackageHosts.push(host);
+  const project = read(root);
+  const result = { path: prepareLiveManifest(root, project, version), selector: publicationSelector(project, version) };
+  const binding = readWriterBinding(root)!;
+  const entry = enqueuePublication(root, binding, result);
+  const requestId = randomUUID();
+  await reconcilePublication(root, entry, async pending => {
+    const reply = await agentCall(host, { schema: binding.identity.apiSchema, verb: 'publish', requestId, idempotencyKey: requestId,
+      expectedGeneration: host.session.status().generation, result,
+      freeze: { kind: 'producer-held', holdId: pending.id, record: { path: 'project.json', sha256: pending.recordHash } },
+    });
+    expect(reply.error).toBeUndefined();
+    expect(reply.ok).toBe(true);
+    const publication = host.session.status().publication!;
+    acknowledgePublication(pending, publication.publicationId, publication.generation, requestId, [subject]);
+    expect(await askDeclaredSubjects(host, publication.publicationId, [subject], false)).toEqual([{ status: 'asked', subject }]);
+  });
+  declareLegacySubject = false;
+  return { url: new URL(host.ownerUrl) };
+}
+
 async function freshRigVerdict(verdict: 'approved' | 'changes-requested' | 'pending' = 'approved') {
   const root = copy('3-rig-review', project => {
     project.stage = 'rigging';
     project.advances = (project.advances as JsonObject[]).filter(entry => entry.stage !== 'rig-review');
   });
-  const opening = await open(root);
   expectExit0(await cli(root, ['advance', 'rig-review', root, '--json']));
+  const opening = await openLegacyNumberedVerdict(root, 1, 'rig-review');
   const view = await page(root, opening.url, 1);
   expect(view.asks.map(ask => ask.subject)).toEqual([{ kind: 'review-verdict', stage: 'rig-review' }]);
   const ask = view.asks[0]!;
@@ -318,16 +350,15 @@ async function riggingPreview(model = false) {
   return { root, opening };
 }
 
-test('#712B model-backed rigging draft publishes exactly one rig-review verdict ask', async () => {
+test('#712B model-backed rigging draft publishes the model without a verdict ask', async () => {
   const { root, opening } = await riggingPreview(true);
-  const subject = { kind: 'review-verdict', stage: 'rig-review' } as const;
-  const view = await page(root, opening.url, 1);
-  expect(opening.lines).toEqual([`job: draft ${MESH_DRAFT} published (publication ${view.head.publicationId})`, 'job: asked review-verdict rig-review']);
-  expect(view.asks.map(ask => ask.subject)).toEqual([subject]);
+  const view = await page(root, opening.url, 0);
+  expect(opening.lines).toEqual([`job: draft ${MESH_DRAFT} published (publication ${view.head.publicationId})`]);
+  expect(view.asks).toEqual([]);
   expect(view.head.source).toMatchObject({ selector: { kind: 'draft', id: MESH_DRAFT }, model: {
     path: `derived/drafts/${MESH_DRAFT}/out/check/build/skeleton.model.json`,
   } });
-  expect(readAcknowledgedPublication(root, readWriterBinding(root)!.jobId, String(view.head.publicationId))?.subjects).toEqual([subject]);
+  expect(readAcknowledgedPublication(root, readWriterBinding(root)!.jobId, String(view.head.publicationId))?.subjects).toEqual([]);
 }, REFRESH_FLOW_TIMEOUT_MS);
 
 async function reviewedMeshPreview(verdict: 'approved' | 'changes-requested') {
@@ -408,7 +439,7 @@ test('#712A model-less rigging changes-requested feeds the next draft', async ()
   expect(revised.asks.map(ask => ask.subject)).toEqual([{ kind: 'parts-verdict', draftId: id }]);
 }, REFRESH_FLOW_TIMEOUT_MS);
 
-test('#712A rigging approval requires a separate version rig-review verdict', async () => {
+test('#712A rigging approval preserves draft evidence and the numbered rig view opens askless', async () => {
   const { root, opening } = await reviewedMeshPreview('approved');
   const draftPath = `derived/drafts/${MESH_DRAFT}`;
   for (const file of ['rig.json', 'mesh_report.json', 'motion.json']) {
@@ -422,9 +453,11 @@ test('#712A rigging approval requires a separate version rig-review verdict', as
     expect<Json>(jobHash(readFileSync(join(root, 'outputs/v1/out', part)))).toBe(file.sha256);
   }
   expectExit0(await cli(root, ['advance', 'rig-review', root, '--json']));
-  const view = await page(root, opening.url, 1);
+  expect((await page(root, opening.url, 0)).head.source).toMatchObject({ selector: { kind: 'draft', id: MESH_DRAFT } });
+  expectExit0(await cli(root, ['job', 'open', root, '--rig', '1', '--reviewer', 'synthetic-owner', '--role', 'owner']));
+  const view = await page(root, opening.url, 0);
   expect(view.head.source).toMatchObject({ selector: { kind: 'rig', version: 1 } });
-  expect(view.asks.map(ask => ask.subject)).toEqual([{ kind: 'review-verdict', stage: 'rig-review' }]);
+  expect(view.asks).toEqual([]);
   expect((read(root).versions as JsonObject[])[0]!.verdicts).toEqual([]);
 }, REFRESH_FLOW_TIMEOUT_MS);
 
@@ -721,9 +754,8 @@ test('#467 source-linked direction verdict then record sign-off ingests and adva
     postVersion.verdicts = Array.from({ length: 64 }, (_, index) => ({ by: 'user', at: postVersion.at!,
       review: 'direction-review', verdict: 'provisional', verbatim: `${index}: ${historyWords}`, source: 'synthetic history', on_items: [] }));
   });
-  const opening = await open(root, ['--plan']);
-  expectExit0(await cli(root, ['job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner', '--rig', '2']));
   expectExit0(await cli(root, ['advance', 'direction-review', root, '--json']));
+  const opening = await openLegacyNumberedVerdict(root, 2, 'direction-review');
 
   const firstView = await page(root, opening.url, 1);
   expect((firstView.head.source as JsonObject).selector).toEqual({ kind: 'post', version: 2, rigVersion: 1 });
@@ -873,11 +905,11 @@ test('#467 source-linked direction verdict then record sign-off ingests and adva
   }
 }, 30_000);
 
-// These are fresh publications, including the same non-pre_interview rig used by the legacy control above.
+// Recreate the historical verdict-only publication to exercise the retained fold path.
 test('#574 fresh rig approval folds one signature, preserves words, replays bytes and advances at check0', async () => {
   const { root, act } = await freshRigVerdict();
   const before = read(root);
-  expect(nextProject(root, testClock.now()).moves.filter(move => move.role === 'human').map(move => move.review_act?.kind)).toEqual(['review-verdict']);
+  expect(nextProject(root, testClock.now()).moves.some(move => move.review_act?.kind === 'review-verdict')).toBe(false);
   expectExit0(await cli(root, ['review', '1', root, '--from-review', String(act.actId), '--json']));
   const saved = read(root);
   const signature = (saved.signoffs as JsonObject[]).at(-1)!;

@@ -20,6 +20,7 @@ import { renderAgentGuide } from '../src/agent-guide.ts';
 import { optionContext } from '../src/choices.ts';
 import { NEXT_SCHEMA, nextCommand, nextProject, type NextMove, type NextReport } from '../src/next.ts';
 import { OWNER_CHAT_SOURCE } from '../src/owner-chat.ts';
+import { LAST_NUMBERED_CREATE_RELEASE } from '../src/numbered-retirement.ts';
 import { Refusal, USAGE_EXIT } from '../src/refusal.ts';
 import { EXAMPLE_NOW } from '../scripts/example-time.ts';
 import { planCommand, stepStatusCommand, amendCommand, reviewCommand, signoffCommand, testClock } from './clock.ts';
@@ -38,7 +39,7 @@ const CHAIN_NOW = EXAMPLE_NOW;
 
 afterEach(() => testClock.reset());
 
-test('#467 next routes direction verdict ingest to record-page sign-off', () => {
+test('#467 next keeps direction signoff pending until a live verdict is recorded', () => {
   const dir = join(tempDir(), 'direction-pages');
   cpSync(CHAIN_DIR, dir, { recursive: true });
   const file = join(dir, 'project.json');
@@ -52,16 +53,9 @@ test('#467 next routes direction verdict ingest to record-page sign-off', () => 
   writeFileSync(file, `${JSON.stringify(project, null, 2)}\n`);
   const before = nextProject(dir, CHAIN_NOW);
   expect(before.refusals).toEqual([]);
-  expect(before.moves.find(move => move.review_act?.kind === 'review-verdict' && move.review_act.stage === 'direction-review')).toMatchObject({
-    command: null,
-    act: expect.stringContaining('job open --rig 2'),
-    review_act: { kind: 'review-verdict', stage: 'direction-review', version_id: 'v2', review: 'direction-review' },
-  });
-  const pendingSignoffs = before.moves.filter(move => move.awaits === 'signoffs[stage=direction-review]');
-  expect(moveTuples(pendingSignoffs)).toEqual([['human', null, 'signoff']]);
-  expect(pendingSignoffs[0]!.review_act).toMatchObject({ stage: 'direction-review', version_id: 'v2' });
-  expect(pendingSignoffs[0]!.act).toContain('after ingesting the accepted direction-review verdict for v2');
-  expect(pendingSignoffs[0]!.act).not.toContain('job open --plan');
+  expectRetiredVerdict(before, 'versions[n=2].verdicts[review=direction-review]');
+  expect(before.awaits).toContain('signoffs[stage=direction-review]');
+  expect(before.moves.some(move => move.awaits === 'signoffs[stage=direction-review]')).toBe(false);
 
   post.verdicts = accepted!;
   writeFileSync(file, `${JSON.stringify(project, null, 2)}\n`);
@@ -132,6 +126,14 @@ function printedArgs(command: string): string[] {
 
 function isRecordAdoption(command: string | null): boolean {
   return command !== null && command.startsWith('rig-create record ') && printedArgs(command).includes('--adopt');
+}
+
+function expectRetiredVerdict(report: NextReport, awaits: string): void {
+  expect(report.awaits).toContain(awaits);
+  const moves = report.moves.filter(move => move.awaits === awaits);
+  expect(moveTuples(moves)).toEqual([['agent', null, null]]);
+  expect(moves[0]?.act).toContain('NUMBERED_ACT_RETIRED');
+  expect(moves[0]?.act).toContain(`Create ${LAST_NUMBERED_CREATE_RELEASE}`);
 }
 
 function moveTuples(moves: NextMove[]) {
@@ -298,21 +300,7 @@ describe('Frozen Bar 1 — The chain is the answer key (example-chain checkpoint
         expect(project.current).toBeUndefined();
         expect(report.refusals).toEqual([]);
         expect(report.awaits).toEqual(['versions[n=1].verdicts[review=rig-review]']);
-        expect(moveTuples(allMoves)).toEqual([
-          ['agent', 'rig-create job open', null],
-          ['human', null, 'review-verdict'],
-          ['agent', 'rig-create job acts', null],
-          ['agent', 'rig-create review 1', null],
-        ]);
-        expect(allMoves[0]!.command).toBe(`rig-create job open ${cpDir} --rig 1 --reviewer '<reviewer>' --role owner`);
-        expect(report.moves[0]).toMatchObject({
-          role: 'human',
-          field: 'versions[v1].verdicts',
-          awaits: 'versions[n=1].verdicts[review=rig-review]',
-          command: null,
-          review_act: { kind: 'review-verdict', stage: 'rig-review', version_id: 'v1', review: 'rig-review' },
-        });
-        expect(report.moves[0]!.act).toContain('approve once');
+        expectRetiredVerdict({ ...report, moves: allMoves }, 'versions[n=1].verdicts[review=rig-review]');
       } else if (spec.name === '4-direction-post') {
         expect(project.current).toBeUndefined();
         expect(allMoves.some(move => isRecordAdoption(move.command))).toBe(false);
@@ -320,12 +308,10 @@ describe('Frozen Bar 1 — The chain is the answer key (example-chain checkpoint
         const agentMove = report.moves.find(m => m.command?.startsWith('rig-create scene write '));
         expect(agentMove?.command).toBe(`rig-create scene write ${cpDir} --rig 1 --background '<background.png>' --citations-file '<scene-citations.json>'`);
         expect(report.moves.some(move => move.command?.includes('advance direction-review'))).toBe(false);
-        // scenes is absent and versions has only v1 (rig), so next names scenes[n=1], versions[n=2] as unanswered_by_record.
         expect(project.scenes).toBeUndefined();
-        expect(report.moves.filter(m => m.role === 'human').map(m => m.unanswered_by_record)).toEqual([
-          'scenes[n=1], versions[n=2]',
-          'scenes[n=1], versions[n=2]',
-        ]);
+        expectRetiredVerdict({ ...report, moves: allMoves }, 'versions[n=2].verdicts[review=direction-review]');
+        expect(report.awaits).toContain('signoffs[stage=direction-review]');
+        expect(report.moves.some(move => move.awaits === 'signoffs[stage=direction-review]')).toBe(false);
       }
     });
   }
@@ -1389,7 +1375,7 @@ describe('Frozen Bar 5 — Plants (lapsed approval, changed bound input DRAFT_RI
     const afterReport = nextProject(dir, CHAIN_NOW + 1000);
     expect(afterReport.awaits).not.toContain('diff_map');
     expect(afterReport.moves.find(m => m.field === 'diff_map')).toBeUndefined();
-    expect(afterReport.moves.find(m => m.review_act?.kind === 'parts-verdict')).toMatchObject({ role: 'human', command: null });
+    expect(afterReport.moves.find(move => move.review_act?.kind === 'parts-verdict')).toMatchObject({ role: 'human', command: null });
     expect(afterReport.moves.some(m => m.review_act?.kind === 'signoff')).toBe(false);
   });
 
@@ -1642,7 +1628,7 @@ test('#557 fresh parts prepares check, structure and diff before advance and the
 });
 
 
-test.each(['generic', 'per-draft'])('#490 legacy approved %s snapshot for another draft is retained and both command views select the same fresh path', slot => {
+test.each(['generic', 'per-draft'])('#490 legacy approved %s snapshot for another draft is retained and next selects a fresh path', slot => {
   const dir = join(tempDir(), 'snapshot-selection');
   cpSync(join(CHECKPOINTS_DIR, '1-parts-verdict'), dir, { recursive: true });
   recordPartsReceipt(dir, 'chain', CHAIN_NOW);
@@ -1658,14 +1644,13 @@ test.each(['generic', 'per-draft'])('#490 legacy approved %s snapshot for anothe
   const act = { jobId: 'synthetic', actId: 'parts-sign', kind: 'signoff', at: new Date(CHAIN_NOW).toISOString(),
     source: { selector: { kind: 'draft', id: 'chain' } }, value: { stage: 'parts-review' } } as unknown as ActV3;
   const row = pendingJobActs(project, [act], dir)[0]!;
-  expect(printedArgs(snapshot.command!)).toEqual(printedArgs(row.preconditions![0]!.command!));
-  expect(row.args).toContain(selected.path);
+  expect(snapshot.command).toContain('--draft chain');
+  expect(row).toMatchObject({ actId: 'parts-sign', args: null, command: null, unavailable: { code: 'NUMBERED_ACT_RETIRED' } });
   const signoffs = next.moves.filter(move => move.awaits === 'signoffs[stage=parts-review]');
   expect(moveTuples(signoffs)).toEqual([['human', null, 'signoff']]);
   expect(signoffs[0]!.act).toContain(selected.path);
   expect(runMainCapture(printedArgs(snapshot.command!).slice(1), CHAIN_NOW)).toMatchObject({ code: 0, stderr: '' });
   expect(partsStructureSnapshot(dir, project, 'chain')).toEqual({ ...selected, valid: true });
-  expect(pendingJobActs(project, [act], dir)[0]!.preconditions).toBeUndefined();
   expect(readFileSync(join(dir, path), 'utf8')).toBe(wrong);
   expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
 });
@@ -2798,7 +2783,7 @@ describe('#720 next offers the frozen checked build', () => {
   });
 });
 
-test('#579 after a rig-review reopen, next omits history rig versions and lapsed rig-review signoff, routes through registering and publishing a post-reopen rig version, and keeps post stages free of history rigs', () => {
+test('#579 after a rig-review reopen, next omits history rig versions and lapsed rig-review signoff, keeps post-reopen rig registration available, and keeps post stages free of history rigs', () => {
   const dir = join(tempDir(), 'reopen-rig-review');
   cpSync(join(CHECKPOINTS_DIR, '3-rig-review'), dir, { recursive: true });
   const file = join(dir, 'project.json');
@@ -2807,15 +2792,7 @@ test('#579 after a rig-review reopen, next omits history rig versions and lapsed
   const unreopened = nextProject(dir, CHAIN_NOW);
   expect(unreopened.refusals).toEqual([]);
   expect(unreopened.awaits).toEqual(['versions[n=1].verdicts[review=rig-review]']);
-  expect(unreopened.moves.filter(m => m.role === 'human')).toEqual([
-    expect.objectContaining({
-      role: 'human',
-      field: 'versions[v1].verdicts',
-      awaits: 'versions[n=1].verdicts[review=rig-review]',
-      command: null,
-      review_act: { kind: 'review-verdict', stage: 'rig-review', version_id: 'v1', review: 'rig-review' },
-    }),
-  ]);
+  expectRetiredVerdict(unreopened, 'versions[n=1].verdicts[review=rig-review]');
 
   // Step 1: Rig v1 is accepted and rig-review is signed on it.
   testClock.set(new Date(CHAIN_NOW));
@@ -2967,7 +2944,7 @@ test('#579 after a rig-review reopen, next omits history rig versions and lapsed
   // #981: rig-version no longer binds a parts approval.
   expect(arr(reboundProject.versions).map(obj).find(v => v.n === 3)?.accepted_parts).toBeUndefined();
 
-  // After registering the post-reopen rig version (v3): next lists only the one-verdict publication route for v3.
+  // After registration, the live replacement rig carries the pending verdict gate.
   const afterPostReopenRig = nextProject(dir, v3At);
   expect(afterPostReopenRig.refusals).toEqual([]);
   expect(afterPostReopenRig.awaits.filter(field => !field.startsWith('current.'))).toEqual(['versions[n=3].verdicts[review=rig-review]']);
@@ -2975,22 +2952,7 @@ test('#579 after a rig-review reopen, next omits history rig versions and lapsed
   expect(afterPostReopenRig.moves.some(m => m.review_act?.version_id === 'v1' || m.review_act?.version_id === 'v2')).toBe(false);
   expect(afterPostReopenRig.moves.some(m => m.command?.includes('--rig 1') || m.command?.includes('--rig 2'))).toBe(false);
   expect(afterPostReopenRig.moves.some(m => m.review_act?.kind === 'signoff')).toBe(false);
-  const humanMoves = afterPostReopenRig.moves.filter(m => m.role === 'human');
-  expect(humanMoves).toHaveLength(1);
-  expect(humanMoves[0]).toMatchObject({
-    role: 'human',
-    field: 'versions[v3].verdicts',
-    awaits: 'versions[n=3].verdicts[review=rig-review]',
-    command: null,
-    review_act: { kind: 'review-verdict', stage: 'rig-review', version_id: 'v3', review: 'rig-review' },
-  });
-  expect(humanMoves[0]!.act).toContain('approve once to record the verdict and rig-review signature');
-  expect(afterPostReopenRig.moves.filter(m => !m.field.startsWith('current.')).map(m => m.command)).toEqual([
-    `rig-create job open ${dir} --rig 3 --reviewer '<reviewer>' --role owner`,
-    null,
-    `rig-create job acts ${dir} --json --wait`,
-    `rig-create review 3 ${dir} --from-review '<actId>'`,
-  ]);
+  expectRetiredVerdict(afterPostReopenRig, 'versions[n=3].verdicts[review=rig-review]');
 
   // Post stages after such a reopen (post and direction-review) must not list history rig versions (v1 or v2).
   // Record a still frame on v3, accept v3 at rig-review, sign rig-review on v3, and advance through post-interview to post via writers.
@@ -3091,12 +3053,7 @@ test('#579 after a rig-review reopen, next omits history rig versions and lapsed
   expect(atDirectionReview.moves.some(m => m.lapse !== undefined)).toBe(false);
   expect(atDirectionReview.moves.some(m => m.review_act?.version_id === 'v1' || m.review_act?.version_id === 'v2' || m.review_act?.version_id === 'v3')).toBe(false);
   expect(atDirectionReview.moves.some(m => m.command?.includes('--rig 1') || m.command?.includes('--rig 2') || m.command?.includes('--rig 3'))).toBe(false);
-  expect(atDirectionReview.moves.find(m => m.review_act?.kind === 'review-verdict')).toMatchObject({
-    role: 'human',
-    field: 'versions[v4].verdicts',
-    awaits: 'versions[n=4].verdicts[review=direction-review]',
-    review_act: { kind: 'review-verdict', stage: 'direction-review', version_id: 'v4', review: 'direction-review' },
-  });
+  expectRetiredVerdict(atDirectionReview, 'versions[n=4].verdicts[review=direction-review]');
 
   // Consumer-clone shape: post v4 is reviewed and signed at direction-review, then rig-review is reopened,
   // a new rig v5 is registered, accepted and signed, and a new unreviewed post v6 reaches direction-review.
@@ -3183,29 +3140,9 @@ test('#579 after a rig-review reopen, next omits history rig versions and lapsed
     'versions[n=6].verdicts[review=direction-review]',
     'signoffs[stage=direction-review]',
   ]);
+  expect(afterSignedPostReopen.moves.some(move => move.awaits === 'signoffs[stage=direction-review]')).toBe(false);
   expect(afterSignedPostReopen.moves.some(m => m.lapse !== undefined)).toBe(false);
-  expect(afterSignedPostReopen.moves.some(m => m.act.includes('re-approve lapsed'))).toBe(false);
-  expect(afterSignedPostReopen.moves.some(m => m.review_act?.version_id !== 'v6' && m.review_act?.version_id !== undefined)).toBe(false);
-  expect(afterSignedPostReopen.moves.filter(m => !m.field.startsWith('current.')).map(m => m.command)).toEqual([
-    `rig-create job open ${dir} --rig 6 --reviewer '<reviewer>' --role owner`,
-    null,
-    `rig-create job acts ${dir} --json --wait`,
-    `rig-create review 6 ${dir} --from-review '<actId>'`,
-    null,
-  ]);
-  expect(afterSignedPostReopen.moves[1]).toMatchObject({
-    role: 'human',
-    field: 'versions[v6].verdicts',
-    awaits: 'versions[n=6].verdicts[review=direction-review]',
-    review_act: { kind: 'review-verdict', stage: 'direction-review', version_id: 'v6', review: 'direction-review' },
-  });
-  expect(afterSignedPostReopen.moves[4]).toMatchObject({
-    role: 'human',
-    field: 'signoffs',
-    awaits: 'signoffs[stage=direction-review]',
-    review_act: { kind: 'signoff', stage: 'direction-review', version_id: 'v6' },
-  });
-  expect(afterSignedPostReopen.moves[4]!.act).toContain('after ingesting the accepted direction-review verdict for v6');
+  expectRetiredVerdict(afterSignedPostReopen, 'versions[n=6].verdicts[review=direction-review]');
 }, 30_000);
 
 test('#587 after a parts-review reopen and a new prepared draft, next awaits the draft parts verdict via job open --draft ahead of any rig-version move', () => {
@@ -3490,10 +3427,7 @@ test('#773 a reopened rigging with an unreviewed compiled draft names both the d
 
   const report = nextProject(dir, reopenAt + 1000);
   expect(report.refusals).toEqual([]);
-  expect(report.moves).toContainEqual(expect.objectContaining({
-    role: 'human', field: `drafts[${draftId}]`,
-    review_act: expect.objectContaining({ kind: 'review-verdict', stage: 'rig-review', draft_id: draftId }),
-  }));
+  expectRetiredVerdict(report, `drafts[${draftId}]`);
   expect(report.moves).toContainEqual(expect.objectContaining({
     role: 'agent', field: 'versions', awaits: 'versions[n=2]', command: expect.stringContaining(`rig-create rig-version 2 ${dir}`),
   }));

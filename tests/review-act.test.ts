@@ -80,13 +80,17 @@ async function published(checkpoint = '3-rig-review', n = 1, role: 'owner' | 'de
   const stateDir = join(hidden, 'relocated-state');
   const identity = currentJobIdentity({ root, stateDir, fingerprint: 'rig-create/live-review/1', reviewer: { id: reviewerId, role },
     ...(attachable === 'record-and-package' ? { publicationMode: attachable } : {}) }, root);
-  let reader = existing?.reader ?? readPublished;
-  if (legacySubjects) {
-    reader = async input => {
-      const context = await readPublished(input);
-      return { ...context, subjects: [...context.subjects, { kind: 'signoff' as const, stage: 'rig-review' as const }] };
-    };
-  }
+  const stage = n === 1 ? 'rig-review' : 'direction-review';
+  const baseReader = existing?.reader ?? readPublished;
+  const reader: typeof readPublished = async input => {
+    const context = await baseReader(input);
+    const subjects = [...context.subjects];
+    if (!subjects.some(subject => subject.kind === 'review-verdict' && subject.stage === stage)) {
+      subjects.push({ kind: 'review-verdict', stage });
+    }
+    if (legacySubjects) subjects.push({ kind: 'signoff', stage: 'rig-review' });
+    return { ...context, subjects };
+  };
   let writerGrant: Pick<WriterBinding, 'jobId' | 'origin' | 'fetchCapability'> | undefined;
   const host = await startJobHost({ ...identity, partsEnumerator, readPublished: reader,
     ...(attachable === 'record-and-package' ? { readRecordPublished } : {}),
@@ -125,7 +129,6 @@ async function published(checkpoint = '3-rig-review', n = 1, role: 'owner' | 'de
     result: entry.result as Parameters<typeof readPublished>[0]['result'] })).subjects : undefined;
   acknowledgePublication(entry, String(publication.publicationId), Number(publication.generation), 'synthetic-request', subjects);
   rmSync(join(root, '.rig-create-review/outbox'), { recursive: true });
-  const stage = n === 1 ? 'rig-review' : 'direction-review';
   const ask = await agent('ask', { publicationId: publication.publicationId, subject: { kind: 'review-verdict', stage } });
   function uiRequest(route: string, value: object) {
     return new Request(`${host.origin}/jobs/${host.session.jobId}/ui/${route}`, { method: 'POST',

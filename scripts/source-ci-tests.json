@@ -141,11 +141,6 @@
   },
   {
     "file": "tests/job-signal-ask.test.ts",
-    "name": "bound writers surface JOB_ASK_REFUSED by named code when Review refuses a declared ask after acknowledging the publication",
-    "reason": "Exercises published Review behavior under sibling source resolution"
-  },
-  {
-    "file": "tests/job-signal-ask.test.ts",
     "name": "bound writers print concise asked/already subject lines in text mode and preserve JSON stdout in --json mode",
     "reason": "Exercises published Review behavior under sibling source resolution"
   },
@@ -182,13 +177,13 @@
   },
   {
     "file": "tests/job-acts.test.ts",
-    "name": "job acts discovers a finalized rig verdict; its exact quoted command also records the signature",
-    "reason": "Exercises published Review rig-verdict approval/signature behavior under sibling source resolution."
+    "name": "job acts lists a retained rig verdict with adoption guidance and no writer command",
+    "reason": "Exercises retained Review rig-verdict decoding and retirement under sibling source resolution."
   },
   {
     "file": "tests/job-acts.test.ts",
-    "name": "#507 rig-review approval folds signature through printed host, acts, ingest and close",
-    "reason": "Exercises published Review rig-verdict approval/signature behavior under sibling source resolution."
+    "name": "merged record-mode host lists finalized picks and its printed writer command ingests them",
+    "reason": "Exercises retained Review picks and CLI ingestion under sibling source resolution."
   },
   {
     "file": "tests/job-refresh.test.ts",
@@ -232,17 +227,12 @@
   },
   {
     "file": "tests/sign-subjects.test.ts",
-    "name": "bar: fresh rig approval folds its signature and reopened stages ask only for a new verdict",
-    "reason": "Exercises published Review fresh rig approval/signature behavior under sibling source resolution."
-  },
-  {
-    "file": "tests/advance-publication.test.ts",
-    "name": "advance rig-review on a bound job publishes the current rig and folds the approved UI verdict into its signature via CLI",
-    "reason": "Exercises published Review fresh rig approval/signature behavior under sibling source resolution."
+    "name": "bar: a retained rig approval folds its signature and reopened stages publish without asks",
+    "reason": "Exercises retained Review rig approval and askless reopen publication under sibling source resolution."
   },
   {
     "file": "tests/job-acts.test.ts",
-    "name": "#698 wait wakes on a finalized pick and reuses the strict attach without timer re-listing",
+    "name": "#698 wait wakes on a finalized retained verdict and reuses the strict attach without timer re-listing",
     "reason": "Exercises the host-bound waiter against the pinned Review source"
   },
   {

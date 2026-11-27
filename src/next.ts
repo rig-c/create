@@ -1,3 +1,4 @@
+import { LAST_NUMBERED_CREATE_RELEASE } from './numbered-retirement.ts';
 import { missingPickSignoffSteps, pickSignoffEvidence, requiredInterviewSteps } from './pick-signoff.ts';
 import { ChoiceError, hasPendingOther, isUndecidedDelegation, literalFile, optionFile, pendingInterviewOptions, pendingInterviewOptionsPath, selection } from './choices.ts';
 import { reviewVerdictSignable, rigVerdictIngestible } from './signable.ts';
@@ -462,7 +463,7 @@ function rigRegistrationMove(dir: string, n: number, checked?: CheckedRigBuild, 
       `Supply --compile-report from ${checked.source}/check/build-report.json, the build-report/1 rig-parts check writes beside --build (from Parts 2.47.0; an earlier check needs a rigc build --report of the same build), and --toolchain-lock from the build's bun.lock (bun install) or package-lock.json (npm install).`,
       'Supply your identity with --by and include --citations for applicable config sections.',
     ].join(' ') + declarations
-    : `register a new rig version built after the reopen or amendment with rig-version ${n}, then publish it for one verdict`;
+    : `register a new rig version built after the reopen or amendment with rig-version ${n}`;
   return { role: 'agent', field: 'versions', awaits: `versions[n=${n}]`, command: rigRegistrationCommand([String(n), dir, ...args]),
     act: pending ? `${pending.code}: ${pending.message}. Register without carrying the draft verdict. ${act}` : act };
 }
@@ -635,30 +636,16 @@ function reviewCommands(dir: string, project: JsonObject, move: NextMove): NextM
       ? [{ ...move, command: chatSignoff, act: 'Relay the owner chat signoff with exact words, owner date and relay identity.', review_act: undefined }]
       : [move];
   }
-  if (act.kind === 'signoff-checkpoint') return [move];
-  let selector: string;
-  let writer: string;
-  if (act.kind === 'parts-verdict' && act.draft_id) {
-    selector = `--draft ${shellWord(act.draft_id)}`;
-    writer = 'parts-review';
-  } else if (act.kind === 'review-verdict' && act.stage === 'rig-review' && act.draft_id) {
-    selector = `--draft ${shellWord(act.draft_id)}`;
-    writer = `review --draft ${shellWord(act.draft_id)}`;
-  } else if (['rig-review', 'direction-review'].includes(act.stage) && act.kind === 'review-verdict' && act.version_id) {
-    const n = act.version_id.slice(1);
-    selector = `--rig ${shellWord(n)}`;
-    writer = `review ${shellWord(n)}`;
-  } else return [move];
+  if (act.kind !== 'parts-verdict' || !act.draft_id) return [move];
   const agent = (command: string, description: string): NextMove => ({
     role: 'agent', field: move.field, awaits: move.awaits, command, act: description,
   });
   const root = shellWord(dir);
-  const publish = `publish this Review page; ${OPEN_REVIEW_HOST}`;
   return [
-    agent(`rig-create job open ${root} ${selector} --reviewer '<reviewer>' --role owner`, publish),
+    agent(`rig-create job open ${root} --draft ${shellWord(act.draft_id)} --reviewer '<reviewer>' --role owner`, `publish this Review page; ${OPEN_REVIEW_HOST}`),
     move,
-    agent(`rig-create job acts ${root} --json --wait`, `wait in the background for the person to submit in Review, then use the matching actId below${act.kind === 'parts-verdict' ? '; approval also records the prepared parts-review signature' : ''}`),
-    agent(`rig-create ${writer} ${root} --from-review '<actId>'`, 'ingest the matching exported Review act; never supply the human answer or words'),
+    agent(`rig-create job acts ${root} --json --wait`, 'wait in the background for the person to submit in Review, then use the matching actId below; approval also records the prepared parts-review signature'),
+    agent(`rig-create parts-review ${root} --from-review '<actId>'`, 'ingest the matching exported Review act; never supply the human answer or words'),
   ];
 }
 
@@ -817,8 +804,6 @@ function runnableNextMoves(dir: string, project: JsonObject, effectiveStage: str
         : [move];
     }
     if (move.review_act && move.review_act.stage !== effectiveStage) return [move];
-    if (move.review_act?.stage === 'direction-review' && move.review_act.kind === 'signoff'
-      && moves.some(other => other.review_act?.stage === 'direction-review' && other.review_act.kind === 'review-verdict')) return [move];
     return reviewCommands(dir, project, move);
   });
 }
@@ -1686,6 +1671,13 @@ function partsRetouchMoves(dir: string, project: JsonObject, draft: JsonObject):
   ];
 }
 
+function numberedVerdictUnavailable(field: string, awaits: string, detail: string): NextMove {
+  return {
+    role: 'agent', field, awaits, command: null,
+    act: `NUMBERED_ACT_RETIRED: ${detail} To continue on the current path, follow the adoption or rebuild instructions in docs/PROJECT.md#adopting-existing-numbered-outputs. To complete the numbered verdict gate, use Create ${LAST_NUMBERED_CREATE_RELEASE}.`,
+  };
+}
+
 function partsDraftEvidenceMoves(
   dir: string,
   project: JsonObject,
@@ -1889,8 +1881,7 @@ function moveNeedsJobHost(move: NextMove, hasJobBinding: boolean): boolean {
   const cmd = move.command;
   if (!cmd) return false;
   if (cmd.startsWith('rig-create job ') || cmd.includes(' --from-review')) return true;
-  if (!hasJobBinding) return false;
-  return /^rig-create (?:draft-rig|rig-version (?!adapter\b)|direction write [0-9]|advance (?:rig-review|direction-review)\b)/.test(cmd);
+  return hasJobBinding && /^rig-create draft-rig\b/.test(cmd);
 }
 
 function ownerLanguageMove(dir: string, report: CheckReport): NextMove | undefined {
@@ -2311,7 +2302,7 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
       if (partsEditHoles.length > 0 && (draftState.hasApprovedPartsVerdict || runnableDraftMoves.length === 0)) {
         for (const hole of partsEditHoles) runnableDraftMoves.push({
           role: 'agent', field: hole.path, awaits: hole.path, command: null,
-          act: `${hole.message}. ${legacyWrites ? 'Register a new draft if the current one binds different bytes. ' : ''}If the stage is already signed, record the owner's amendment before opening a new verdict.`,
+          act: `${hole.message}. ${legacyWrites ? 'Register a new draft if the current one binds different bytes. ' : ''}If the stage is already signed, record the owner's amendment before continuing with a replacement.`,
         });
       }
       for (const move of runnableDraftMoves) addAwait(move.awaits);
@@ -2355,7 +2346,7 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
       addAwait(field);
       moves.push({ role: 'agent', field, awaits: field,
         command: legacyWrites ? `rig-create draft-rig '<new-id>' ${shellWord(dir)} --config '<new-config>' --from '<new-output>'` : null,
-        act: `Read the retained comments in ${source} and ${legacyWrites ? 'build a new draft with a new ID' : 'prepare the replacement rig output'}${isObject(revision) ? ` using the retained Parts revision ${String(revision.revision)}` : ''}. Preserve ${field} and its verdict${legacyWrites ? ', then register and publish the new draft' : ''}.` });
+        act: `Read the retained comments in ${source} and ${legacyWrites ? 'build a new draft with a new ID' : 'prepare the replacement rig output'}${isObject(revision) ? ` using the retained Parts revision ${String(revision.revision)}` : ''}. Preserve ${field} and its verdict${legacyWrites ? ', then register the new draft' : ''}.` });
       if (checkedRegistration) {
         addAwait(checkedRegistration.awaits);
         moves.push(checkedRegistration);
@@ -2591,18 +2582,7 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
       addAwait(awaitTarget);
       recordedLapseTargets.add(awaitTarget);
       moves.push({
-        role: 'human',
-        field: reopenField,
-        awaits: awaitTarget,
-        command: null,
-        act: `re-approve lapsed ${reviewStage} verdict on versions[v${n}] (${warning.path}, lapsed by ${reopenField}${reopenId ? ` ${reopenId}` : ''}: ${warning.code}) via review-tool act review-verdict`,
-        review_act: {
-          kind: 'review-verdict',
-          stage: reviewStage,
-          version_id: `v${n}`,
-          review: reviewStage,
-          ...(jobId ? { job_id: jobId } : {}),
-        },
+        ...numberedVerdictUnavailable(reopenField, awaitTarget, `The ${reviewStage} verdict at ${warning.path} lapsed after ${reopenField}${reopenId ? ` (${reopenId})` : ''} (${warning.code}).`),
         lapse: {
           code: warning.code,
           source_field: reopenField,
@@ -3019,15 +2999,14 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
       }
     }
 
-    const offerDraftReview = legacyWrites && rigN === null && compiledDraftId !== undefined && compiledVerdict?.value.verdict !== 'approved';
-    if (offerDraftReview) {
+    const needsDraftVerdict = legacyWrites && rigN === null && compiledDraftId !== undefined && compiledVerdict?.value.verdict !== 'approved';
+    if (needsDraftVerdict) {
       const field = `drafts[${compiledDraftId}]`;
       addAwait(field);
-      moves.push({ role: 'human', field, awaits: field, command: null, act: `review-tool act review-verdict for rigging draft ${compiledDraftId}`,
-        review_act: { kind: 'review-verdict', stage: 'rig-review', review: 'rig-review', draft_id: compiledDraftId, ...(jobId ? { job_id: jobId } : {}) } });
+      moves.push(numberedVerdictUnavailable(field, field, `Rigging draft ${compiledDraftId} has no accepted numbered draft verdict.`));
     }
-    // Draft review is also available when the producer has a checked build to register,
-    // and a reopened project with a history rig can register a plain rig beside it (#773).
+    // A checked build can still be registered. A reopened project with a history rig
+    // can also register a plain rig without carrying a draft verdict (#773).
     if (checkedRegistration) {
       addAwait(checkedRegistration.awaits);
       moves.push(checkedRegistration);
@@ -3035,7 +3014,7 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
       const move = rigRegistrationMove(dir, nextRigN, undefined, '', pendingCarryCorrection);
       addAwait(move.awaits);
       moves.push(move);
-    } else if (!checked && !hasOpenRigSteps && (!offerDraftReview || hasHistoryRig)) {
+    } else if (!checked && !hasOpenRigSteps && (!needsDraftVerdict || hasHistoryRig)) {
       if (effectiveStage === 'rigging' && (!legacyWrites || rigN !== null)) {
         const advCmd = candidateAdvance(dir, project, 'rig-review', now);
         if (advCmd !== null) {
@@ -3069,41 +3048,13 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
       } else if (rigN === null) {
         const verdictAwait = 'versions[kind=rig].verdicts[review=rig-review]';
         addAwait(verdictAwait);
-        moves.push({
-          role: 'human',
-          field: 'versions',
-          awaits: verdictAwait,
-          command: null,
-          act: 'review-tool act review-verdict for rig-review (unanswered by record: versions[kind=rig] is not recorded in project.json)',
-          review_act: {
-            kind: 'review-verdict',
-            stage: 'rig-review',
-            review: 'rig-review',
-            ...(jobId ? { job_id: jobId } : {}),
-          },
-          unanswered_by_record: 'versions[kind=rig]',
-        });
+        moves.push(numberedVerdictUnavailable('versions', verdictAwait, 'A numbered rig and its accepted verdict are missing.'));
       } else {
         const hasLiveAcceptedRigVerdict = !reviewVerdictSignable(project, rigN, 'rig-review');
         const verdictAwait = `versions[n=${rigN}].verdicts[review=rig-review]`;
         if (!hasLiveAcceptedRigVerdict && !recordedLapseTargets.has(verdictAwait)) {
-          const coversChangedStructure = warnings.some(w =>
-            w.code === 'STRUCTURE_DELTA_REVIEW' && w.path === `versions[v${rigN}].provenance.structure_delta`);
           addAwait(verdictAwait);
-          moves.push({
-            role: 'human',
-            field: `versions[v${rigN}].verdicts`,
-            awaits: verdictAwait,
-            command: null,
-            act: `review-tool act review-verdict for versions[v${rigN}] (rig-review)${effectiveStage === 'rig-review' ? '; approve once to record the verdict and rig-review signature' : ''}${coversChangedStructure ? '; verdict covers changed structure' : ''}`,
-            review_act: {
-              kind: 'review-verdict',
-              stage: 'rig-review',
-              version_id: `v${rigN}`,
-              review: 'rig-review',
-              ...(jobId ? { job_id: jobId } : {}),
-            },
-          });
+          moves.push(numberedVerdictUnavailable(`versions[v${rigN}].verdicts`, verdictAwait, `Rig v${rigN} needs an accepted live rig-review verdict.`));
         }
       }
 
@@ -3240,75 +3191,41 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
         const { latestPost, postN, nextPostN, missingScene } = postState;
         addPostAuthoringMove();
         if (missingScene) addAwait('scenes[n=1]');
+        let hasLiveAcceptedPostVerdict = false;
         if (postN === null) {
           addAwait(`versions[n=${nextPostN}]`);
           const verdictAwait = `versions[n=${nextPostN}].verdicts[review=direction-review]`;
           addAwait(verdictAwait);
-          moves.push({
-            role: 'human',
-            field: 'versions',
-            awaits: verdictAwait,
-            command: null,
-            act: `review-tool act review-verdict for direction-review (unanswered by record: ${missingScene ? 'scenes[n=1] and ' : ''}versions[n=${nextPostN}] are not recorded in project.json)`,
-            review_act: {
-              kind: 'review-verdict',
-              stage: 'direction-review',
-              version_id: `v${nextPostN}`,
-              review: 'direction-review',
-              ...(jobId ? { job_id: jobId } : {}),
-            },
-            unanswered_by_record: missingScene ? `scenes[n=1], versions[n=${nextPostN}]` : `versions[n=${nextPostN}]`,
-          });
+          moves.push(numberedVerdictUnavailable('versions', verdictAwait, `Post v${nextPostN} and its accepted direction-review verdict are missing.`));
         } else {
           const acceptedIdx = latestPost !== undefined ? acceptedReviewVerdict(latestPost, 'direction-review') : -1;
           const acceptedEntry = acceptedIdx >= 0 ? asArray(latestPost?.verdicts)[acceptedIdx] : undefined;
-          const hasLiveAcceptedPostVerdict =
+          hasLiveAcceptedPostVerdict =
             isObject(acceptedEntry) &&
             liveSignoff(reopens, 'post', Date.parse(String(acceptedEntry.at)));
           const verdictAwait = `versions[n=${postN}].verdicts[review=direction-review]`;
           if (!hasLiveAcceptedPostVerdict && !recordedLapseTargets.has(verdictAwait)) {
             addAwait(verdictAwait);
-            moves.push({
-              role: 'human',
-              field: `versions[v${postN}].verdicts`,
-              awaits: verdictAwait,
-              command: null,
-              act: `review-tool act review-verdict for versions[v${postN}] (direction-review) on the post page: job open --rig ${postN}; ingest with review ${postN} --from-review <actId>`,
-              review_act: {
-                kind: 'review-verdict',
-                stage: 'direction-review',
-                version_id: `v${postN}`,
-                review: 'direction-review',
-                ...(jobId ? { job_id: jobId } : {}),
-              },
-            });
+            moves.push(numberedVerdictUnavailable(`versions[v${postN}].verdicts`, verdictAwait, `Post v${postN} needs an accepted live direction-review verdict.`));
           }
         }
 
         const signoffAwait = 'signoffs[stage=direction-review]';
-        if (!hasLiveStageSignoff('direction-review') && !recordedLapseTargets.has(signoffAwait)) {
-          addAwait(signoffAwait);
+        const needsSignoff = !hasLiveStageSignoff('direction-review') && !recordedLapseTargets.has(signoffAwait);
+        if (needsSignoff) addAwait(signoffAwait);
+        if (needsSignoff && postN !== null && hasLiveAcceptedPostVerdict) {
           moves.push({
             role: 'human',
             field: 'signoffs',
             awaits: signoffAwait,
             command: null,
-            act:
-              postN === null
-                ? `after recording the current post and accepted direction verdict, review-tool act signoff for direction-review (unanswered by record: ${missingScene ? 'scenes[n=1] and ' : ''}versions[n=${nextPostN}] are not recorded in project.json)`
-                : `after ingesting the accepted direction-review verdict for v${postN}, record signoff for stage direction-review, then advance accepted`,
+            act: `With the accepted direction-review verdict for v${postN} already recorded, record the owner's signoff for direction-review.`,
             review_act: {
               kind: 'signoff',
               stage: 'direction-review',
-              version_id: `v${nextPostN}`,
+              version_id: `v${postN}`,
               ...(jobId ? { job_id: jobId } : {}),
             },
-            ...(postN === null
-              ? {
-                  unanswered_by_record:
-                    missingScene ? `scenes[n=1], versions[n=${nextPostN}]` : `versions[n=${nextPostN}]`,
-                }
-              : {}),
           });
         }
       }

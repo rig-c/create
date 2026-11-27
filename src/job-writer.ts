@@ -3,14 +3,10 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { isDeepStrictEqual } from 'node:util';
 import { acquireJobLock, enqueuePublication, failPublication, jobPrivateRoot, pendingPublications, readWriterBinding, type PendingPublication, type WriterBinding } from './job-outbox.ts';
-import { liveManifestPath, livePublicationSubjects, draftPackageIdentity, inspectDraftPublication, prepareDraftManifest, prepareLiveManifest, publicationSelector } from './job-publication.ts';
-import { asArray, checkProject, isObject, type Finding } from './check.ts';
-import { isCurrentProject } from './current.ts';
-import { rigVerdictDeferred } from './rig-signoff.ts';
+import { draftPackageIdentity, inspectDraftPublication, prepareDraftManifest } from './job-publication.ts';
+import { type Finding } from './check.ts';
 import { Refusal, refuse } from './refusal.ts';
 import { shellWord, type JobWriteAskTarget } from './job-acts.ts';
-import { acceptedReviewVerdict } from './review.ts';
-import { validCarriedRigDraftVerdict } from './rig-draft-verdict.ts';
 import type { JsonObject } from './templates.ts';
 import type { JobProgressUpdate } from './job-progress.ts';
 
@@ -62,27 +58,6 @@ export function acquireBoundJobWrite(root: string, target?: JobWriteAskTarget): 
     checkedBoundTarget = null;
     release();
   };
-}
-
-export function prepareVersionIntent(root: string, bytes: Buffer, n: number): PendingPublication | null {
-  const binding = readWriterBinding(root);
-  if (!binding) return null;
-  const project = JSON.parse(bytes.toString('utf8')) as JsonObject;
-  const selector = publicationSelector(project, n);
-  const head = assertBoundJobAskReady(root, binding, selector);
-  if (head !== null && !isCurrentProject(project) && livePublicationSubjects(root, project, selector).length === 0) {
-    const version = asArray(project.versions).filter(isObject).find(row => row.n === n);
-    const verdict = version && asArray(version.verdicts)[acceptedReviewVerdict(version, 'rig-review')];
-    if (!version || !isObject(verdict) || !validCarriedRigDraftVerdict(root, project, version, verdict)) {
-      // Before rig-review the rig verdict is deferred, not missing: name that route (#754).
-      const deferred = selector.kind === 'rig'
-        ? rigVerdictDeferred(root, project, checkProject(root, structuredClone(project), { now: Date.now(), readOnly: true }).effective_stage, selector.version, Date.now(), head)
-        : null;
-      if (deferred) refuse(deferred.code, deferred.message);
-      refuse('JOB_PUBLICATION_ASK_REQUIRED', `project.json: replacing open publication ${head} requires an owner ask; keep the open page or use job open when the next review is ready`);
-    }
-  }
-  return enqueuePublication(root, binding, { path: liveManifestPath(root, project, n), selector }, bytes);
 }
 
 export const SOURCE_CONDITION = '@rig-c/source';
@@ -160,38 +135,31 @@ export function hasPendingNotice(): boolean {
 }
 
 /** The record is committed; only its publication waits. The writer succeeds and names the pending state. */
-function deferPublication(n: number | string, entry: PendingPublication, failure: PendingPublication['failure']): void {
-  const path = typeof n === 'string' ? `drafts[${n}]` : `versions[v${n}]`;
+function deferPublication(id: string, entry: PendingPublication, failure: PendingPublication['failure']): void {
+  const path = `drafts[${id}]`;
   pendingNotices.push(`WARN JOB_PUBLISH_PENDING: project.json: ${path} is recorded (record ${entry.recordHash}); its publication is pending${failure ? ` (${failure.code}: ${failure.message})` : ''}; restore the bound host and run rig-create job reconcile`);
 }
 
 /** Called by the committing writer, before its own locks are released. A publication that cannot
  * complete leaves the committed record in place and a WARN JOB_PUBLISH_PENDING notice, not a refusal:
  * a refusal means the record is byte-identical (AGENTS.md invariant 6). */
-export function publishCommittedVersion(root: string, n: number | string): string[] {
+export function publishCommittedVersion(root: string, id: string): string[] {
   pendingNotices.length = 0; // A writer call commits one record, so a notice names this commit only.
   const binding = readWriterBinding(root);
   if (!binding) return [];
   const project = JSON.parse(readFileSync(join(root, 'project.json'), 'utf8')) as JsonObject;
   const draftWarnings: Finding[] = [];
-  const result = typeof n === 'string'
-    ? draftPublicationResult(n, inspectDraftPublication(root, project, n, draftWarnings).rigging)
-    : { path: liveManifestPath(root, project, n), selector: publicationSelector(project, n) };
+  const result = draftPublicationResult(id, inspectDraftPublication(root, project, id, draftWarnings).rigging);
   publishedLines.push(...draftWarnings.map(finding => `WARN ${finding.code}: ${finding.message}`));
   const entry = enqueuePublication(root, binding, result);
   entry.phase = 'pending';
   failPublication(root, entry, entry.failure);
   try {
-    if (typeof n === 'string') prepareDraftManifest(root, project, n, result.path);
-    else {
-      const warnings: Finding[] = [];
-      prepareLiveManifest(root, project, n, warnings);
-      publishedLines.push(...warnings.map(finding => `WARN ${finding.code}: ${finding.message}`));
-    }
+    prepareDraftManifest(root, project, id, result.path);
   } catch {
     const failure = { code: 'JOB_PUBLICATION_INVALID', message: 'project.json: retained review package cannot be prepared; restore its model/direction sources' };
     failPublication(root, entry, failure);
-    deferPublication(n, entry, failure);
+    deferPublication(id, entry, failure);
     return [];
   }
   // A separate Bun process runs asynchronous Review while this synchronous writer
@@ -202,7 +170,7 @@ export function publishCommittedVersion(root: string, n: number | string): strin
       stdin: Buffer.from(JSON.stringify({ root, id: entry.id })), stdout: 'pipe', stderr: 'pipe',
     });
   } catch {
-    deferPublication(n, entry, { code: 'JOB_PUBLISH_PENDING', message: 'project.json: the publication process could not start; restore the runtime' });
+    deferPublication(id, entry, { code: 'JOB_PUBLISH_PENDING', message: 'project.json: the publication process could not start; restore the runtime' });
     return [];
   }
   const lines = child.stdout.toString('utf8').split('\n').map(line => line.trim()).filter(Boolean);
@@ -215,7 +183,7 @@ export function publishCommittedVersion(root: string, n: number | string): strin
       return lines; // The child acknowledged before its abnormal exit.
     }
     const pending = JSON.parse(readFileSync(path, 'utf8')) as PendingPublication;
-    deferPublication(n, entry, pending.failure);
+    deferPublication(id, entry, pending.failure);
   }
   return lines;
 }

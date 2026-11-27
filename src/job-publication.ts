@@ -36,7 +36,7 @@ import { hasCurrentParts, latestPartsApproval, previousPartsApproval, retainedJs
 import { partsStructureSnapshot, shellWord } from './job-acts.ts';
 import { jobHash, pendingPublications, isRecordResult, type CurrentPublicationOutput, type CurrentPublicationSelector, type JobIdentity, type NumberedPublicationSelector, type PackagePublicationResult, type PendingPublication } from './job-outbox.ts';
 import { CURRENT_DIRECTION_PATH, CURRENT_DIRECTION_SPEC } from './current-direction.ts';
-import { CURRENT_RIG_MODEL, currentShapeFindings, isCurrentProject } from './current.ts';
+import { CURRENT_RIG_MODEL, currentShapeFindings } from './current.ts';
 import { resolvePublishedRecordCommit } from './project-step-commit.ts';
 import { decodeReviewAct, PLAN_BOUND_SIGNOFF_STAGES, retainedActBy, reviewActVerdict } from './review-act.ts';
 import { Refusal, refuse } from './refusal.ts';
@@ -1069,7 +1069,7 @@ export const readPublished: JobPublicationReader = async ({ root, record, result
       files.push({ path: directionPath, sha256: jobHash(publicationFile(root, directionPath)) }, { path: result.path, sha256: jobHash(publicationFile(root, result.path)) });
       const steps = isObject(project.plan) ? asArray(project.plan.steps).filter(isObject) : [];
       return { selector, plan: { steps: steps.map(step => ({ id: String(step.id), hash: stepHash(step) })) }, parts: null,
-        subjects: livePublicationSubjects(root, project, selector), partIds: [], files, ...answered };
+        subjects: [], partIds: [], files, ...answered };
     }
   }
   const rig = selector.kind === 'post' ? selector.rigVersion : selector.version;
@@ -1122,12 +1122,11 @@ export const readPublished: JobPublicationReader = async ({ root, record, result
   }
   const plan = project.plan as JsonObject | undefined;
   const steps = Array.isArray(plan?.steps) ? plan.steps as JsonObject[] : [];
-  const subjects = livePublicationSubjects(root, project, selector);
   return {
     selector, plan: { steps: steps.map(step => ({ id: String(step.id), hash: stepHash(step) })) },
     parts: { enumeratorVersion: partsEnumerator.version, manifest: { path: manifestPath, sha256: jobHash(manifest) }, images },
     ...(selector.kind === 'rig' ? rigChestLandmarks(root, rig, packageFiles) : {}),
-    subjects, ...checkpointEvidenceContext(root, project, files),
+    subjects: [], ...checkpointEvidenceContext(root, project, files),
     partIds: (JSON.parse(manifest.toString('utf8')).parts as { name: string }[]).map(part => part.name), files, ...answered,
   };
 };
@@ -1171,21 +1170,6 @@ function rigChestLandmarks(root: string, rig: number, packageFiles: Json[]): { c
     return x < y ? -1 : x > y ? 1 : 0;
   });
   return { chestLandmarks: rows as unknown as PublishedChestLandmarks };
-}
-
-/** The same rig/post verdict asks are used for writer preflight and the sealed publication. */
-export function livePublicationSubjects(
-  root: string, project: JsonObject, selector: NumberedPublicationSelector | CurrentPublicationSelector,
-): JobPublishedContext['subjects'] {
-  if (selector.kind === 'current' || isCurrentProject(project)) return [];
-  if (selector.kind === 'post') {
-    return reviewVerdictSignable(project, selector.version, 'direction-review') ? [{ kind: 'review-verdict', stage: 'direction-review' }] : [];
-  }
-  const stage = effectiveStage(root, project);
-  // Before rig-review the owner's approval could not be ingested, so the page omits that ask (#754).
-  return rigVerdictIngestible(stage) && reviewVerdictSignable(project, selector.version, 'rig-review')
-    ? [{ kind: 'review-verdict', stage: 'rig-review' }]
-    : [];
 }
 
 export function publishedDraft(project: JsonObject, id: string): JsonObject {
@@ -1469,9 +1453,6 @@ function describeDraftPublication(root: string, project: JsonObject, id: string,
     ? structure.path : undefined;
   if (stage !== 'parts-review' || missingStructure !== undefined) subjects = subjects.filter(subject => subject.kind !== 'parts-verdict');
   if (rigging) subjects.unshift({ kind: 'parts-verdict', draftId: id });
-  else if (stage === 'rigging' && eligibleRigDraftModel(publishedDraft(project, id))) {
-    subjects.unshift({ kind: 'review-verdict', stage: 'rig-review' });
-  }
   const files = [...context.files];
   const checkpoints = checkpointEvidenceContext(root, project, files);
   const comparison = previousDraftContext(root, project, id, context.parts!.manifest, files, warnings);

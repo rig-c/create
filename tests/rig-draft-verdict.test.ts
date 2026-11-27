@@ -3,11 +3,13 @@ import { randomUUID } from 'node:crypto';
 import { cpSync, existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { JobSubject } from '@rig-c/review/job-host';
+import { startJobHost, type JobSubject } from '@rig-c/review/job-host';
 import { EXAMPLE_NOW, EXAMPLE_SOURCE_DATE_EPOCH } from '../scripts/example-time.ts';
 import { checkProject } from '../src/check.ts';
 import { draftRigCommand } from '../src/drafts.ts';
-import { jobHash, jobHostStateRoot, readAcknowledgedPublication, readWriterBinding } from '../src/job-outbox.ts';
+import { acknowledgePublication, enqueuePublication, jobHash, jobHostStateRoot, pendingPublications, readAcknowledgedPublication, readWriterBinding, reconcilePublication } from '../src/job-outbox.ts';
+import { askDeclaredSubjects, openCreateJob } from '../src/job-host.ts';
+import { draftPackageIdentity, prepareDraftManifest, publishedSourcePainting, readPublished } from '../src/job-publication.ts';
 import { jobRuntimeExecArgv } from '../src/job-writer.ts';
 import { decodeReviewAct, draftReviewStillEvidence, isDraftReviewVerdict, reviewActFindings } from '../src/review-act.ts';
 import { nextProject } from '../src/next.ts';
@@ -32,8 +34,10 @@ const meshTimeoutMs = 300_000;
 const examples = join(import.meta.dir, '../templates/example-chain');
 const roots: string[] = [];
 const hosts: Bun.Subprocess[] = [];
+const legacyHosts: Awaited<ReturnType<typeof openCreateJob>>[] = [];
 
 afterEach(async () => {
+  for (const host of legacyHosts.splice(0)) host.stop();
   for (const host of hosts.splice(0)) {
     if (host.exitCode === null) host.kill('SIGTERM');
     await host.exited;
@@ -97,6 +101,38 @@ async function open(root: string, id: string, kind: 'draft' | 'rig' = 'draft', r
   } finally { reader.releaseLock(); }
   const [url, ...lines] = output.trimEnd().split('\n');
   return { url: new URL(url!), lines };
+}
+
+/** Recreate a retained verdict-era Review publication for the historical ingest tests. */
+async function openLegacyVerdict(root: string, reviewer = 'synthetic-owner'): Promise<URL> {
+  const host = await openCreateJob(root, { id: reviewer, role: 'owner' }, Date.now(), options => startJobHost({
+    ...options, readPublished: async input => ({ ...await readPublished(input), subjects: [subject] }),
+  }));
+  legacyHosts.push(host);
+  const project = read(root);
+  const binding = readWriterBinding(root)!;
+  const path = prepareDraftManifest(root, project, draftId, draftPackageIdentity(draftId).path);
+  const result = { path, selector };
+  const entry = enqueuePublication(root, binding, result);
+  const requestId = randomUUID();
+  const response = await host.ports.handleJobApi(new Request(`${host.origin}/jobs/${binding.jobId}/api`, {
+    method: 'POST', headers: { authorization: `Bearer ${host.session.hostCredentials().agent}`, 'content-type': 'application/json' },
+    body: JSON.stringify({ schema: binding.identity.apiSchema, verb: 'publish', jobId: binding.jobId,
+      requestId, idempotencyKey: requestId, expectedGeneration: host.session.status().generation, result,
+      freeze: { kind: 'producer-held', holdId: entry.id, record: { path: 'project.json', sha256: entry.recordHash } } }),
+  }));
+  const reply = await response.json() as { ok: boolean; value: { publicationId: string; generation: number;
+    source: { projectHash: string; sourceHash: string; model: { path: string; sha256: string } } } };
+  expect(reply.ok).toBe(true);
+  const { publicationId, generation, source } = reply.value;
+  await reconcilePublication(root, entry, async pending => {
+    acknowledgePublication(pending, publicationId, generation, requestId, [subject], undefined, {
+      projectHash: source.projectHash, sourceHash: source.sourceHash, model: source.model,
+      painting: publishedSourcePainting(root, project, `drafts[${draftId}]`),
+    });
+  });
+  expect(await askDeclaredSubjects(host, publicationId, [subject], false)).toEqual([{ status: 'asked', subject }]);
+  return new URL(host.ownerUrl);
 }
 
 /** Rebuild the draft with producer-made meshes on two parts, as the example draft generator does. */
@@ -215,10 +251,10 @@ async function post(root: string, url: URL, verdict: 'approved' | 'changes-reque
 
   const pending = await cli(root, ['job', 'acts', root, '--json']);
   assertSuccess(pending);
-  const rows = (JSON.parse(pending.stdout) as { acts: { actId: string; args: string[] | null }[] }).acts;
+  const rows = (JSON.parse(pending.stdout) as { acts: unknown[] }).acts;
   expect(rows).toHaveLength(1);
-  expect(rows[0]).toMatchObject({ actId: act.actId, args: ['review', root, '--draft', draftId, '--from-review', act.actId] });
-  return { binding, act, rawAct, args: rows[0]!.args! };
+  expect(rows[0]).toMatchObject({ actId: act.actId, args: null, unavailable: { code: 'NUMBERED_ACT_RETIRED' } });
+  return { binding, act, rawAct, args: ['review', root, '--draft', draftId, '--from-review', String(act.actId)] };
 }
 
 async function submit(root: string, url: URL, verdict: 'approved' | 'changes-requested',
@@ -242,20 +278,21 @@ async function submit(root: string, url: URL, verdict: 'approved' | 'changes-req
   return receipt;
 }
 
-test('#712 a rigging --draft asks for a rig verdict and ingests the exact comment', async () => {
+test('#712 a compiled rigging draft publishes without a verdict ask', async () => {
   const root = rigging();
-  expect(nextProject(root).moves).toContainEqual(expect.objectContaining({
-    review_act: expect.objectContaining({ kind: 'review-verdict', stage: 'rig-review', draft_id: draftId }),
-  }));
   const opening = await open(root, draftId);
-  // Plant target: removing only the rigging subject must fail at this assertion.
-  expect(opening.lines).toContain('job: asked review-verdict rig-review');
-  const receipt = await submit(root, opening.url, 'changes-requested');
+  expect(opening.lines).toEqual([expect.stringMatching(/^job: draft synthetic-review published /)]);
+  expect(opening.lines.join('\n')).not.toMatch(/JOB_PUBLICATION_ASK_REQUIRED|JOB_RIG_VERDICT_DEFERRED/);
+  const publicationId = /publication ([\w-]+)\)/.exec(opening.lines[0]!)![1]!;
+  const binding = readWriterBinding(root)!;
+  expect(readAcknowledgedPublication(root, binding.jobId, publicationId)?.subjects).toEqual([]);
+}, testTimeoutMs);
+
+test('#712 a retained rigging draft verdict ingests the exact comment', async () => {
+  const root = rigging();
+  const url = await openLegacyVerdict(root);
+  const receipt = await submit(root, url, 'changes-requested');
   expect(read(root)).toMatchObject({ stage: 'rigging', versions: [] });
-  expect(nextProject(root).moves).toContainEqual(expect.objectContaining({
-    command: expect.stringContaining("draft-rig '<new-id>'"),
-    act: expect.stringContaining(String(receipt.actId)),
-  }));
   const record = readFileSync(join(root, 'project.json'));
   const actArgs = ['review', root, '--draft', draftId, '--from-review', String(receipt.actId)];
   const replay = await cli(root, actArgs);
@@ -287,10 +324,9 @@ test('#712 a rigging draft with a changed retained model refuses before publicat
 
 test('#773 a draft Request changes with two mesh edits records two mesh-delta corrections on the draft', async () => {
   const root = rigging(twoMeshDraft);
-  // Keep the background Review host alive across both mesh-edit builds and the replay fetch (#994).
-  const opening = await open(root, draftId, 'draft', undefined, 3 * meshTimeoutMs + 5_000);
+  const url = await openLegacyVerdict(root);
   let sent: JsonObject[] = [];
-  const receipt = await submit(root, opening.url, 'changes-requested', source => {
+  const receipt = await submit(root, url, 'changes-requested', source => {
     sent = meshEdits(root, source, ['face', 'torso']);
     return { meshEdits: sent };
   }, meshTimeoutMs);
@@ -316,8 +352,8 @@ test('#773 a draft Request changes with two mesh edits records two mesh-delta co
 
 test('#773 a draft ingest refused after its evidence write leaves the project tree as it was', async () => {
   const root = rigging();
-  const opening = await open(root, draftId);
-  const { args } = await post(root, opening.url, 'changes-requested');
+  const url = await openLegacyVerdict(root);
+  const { args } = await post(root, url, 'changes-requested');
   const plants = realpathSync(mkdtempSync(join(tmpdir(), 'create-draft-plant-')));
   roots.push(plants);
   const record = join(root, 'project.json');
@@ -355,9 +391,8 @@ async function register(root: string, variant: 'identical' | 'changed', n = 1, f
 test.each(['identical', 'changed', 'historical still'] as const)('#712 registration preserves the reviewed bytes and evidence for %s', async mode => {
   const variant = mode === 'changed' ? 'changed' : 'identical';
   const root = rigging();
-  const opening = await open(root, draftId);
-  expect(opening.lines).toContain('job: asked review-verdict rig-review');
-  const approval = await submit(root, opening.url, 'approved');
+  const url = await openLegacyVerdict(root);
+  const approval = await submit(root, url, 'approved');
   let still: ReturnType<typeof draftReviewStillEvidence>;
   if (mode === 'historical still') {
     const project = read(root);
@@ -378,38 +413,23 @@ test.each(['identical', 'changed', 'historical still'] as const)('#712 registrat
     assertSuccess(await cli(root, args));
     expect(readFileSync(join(root, 'project.json'))).toEqual(before);
   }
-  if (variant === 'changed') {
-    const before = readFileSync(join(root, 'project.json'));
-    const refused = await register(root, variant);
-    expect(refused.exit).toBe(1);
-    expect(refused.stderr).toMatch(/\bJOB_RIG_VERDICT_DEFERRED:/);
-    expect(readFileSync(join(root, 'project.json'))).toEqual(before);
-    assertSuccess(await cli(root, ['job', 'close', root]));
-  }
   const registration = await register(root, variant);
   assertSuccess(registration);
   const version = (read(root).versions as JsonObject[])[0]!;
   expect(version).toMatchObject({ n: 1, kind: 'rig' });
   expect(readFileSync(join(root, 'outputs/v1/out/check/build/skeleton.model.json'))).toEqual(readFileSync(join(root, model)));
+  expect(registration.stdout).toContain('rig-version: v1 committed without publishing');
+  expect(pendingPublications(root)).toEqual([]);
+  expect(existsSync(join(root, 'review-live-v1.json'))).toBe(false);
   if (variant === 'changed') {
     expect(version.verdicts).toEqual([]);
-    assertSuccess(await cli(root, ['advance', 'rig-review', root]));
-    const reopened = await open(root, '1', 'rig');
-    const { ask } = await page(root, reopened.url, subject);
-    expect(ask.source).toMatchObject({ selector: { kind: 'rig', version: 1 } });
     return;
   }
-  const published = /job: updated the open page: publication ([\w-]+)/.exec(registration.stdout);
-  expect(published).not.toBeNull();
-  const ack = readAcknowledgedPublication(root, String(approval.jobId), published![1]!);
-  expect(ack?.result).toMatchObject({ selector: { kind: 'rig', version: 1 } });
-  const verdictAsks = ack?.subjects?.filter(item => item.kind === 'review-verdict');
   expect(version.verdicts).toEqual([expect.objectContaining({ review: subject.stage, verdict: 'accepted', verbatim,
     carried_from_draft: expect.objectContaining({ draft_id: draftId, job_id: approval.jobId, act_id: approval.actId }) })]);
   expect(version.evidence).toEqual(still ? [still] : []);
   expect(registration.stdout).not.toContain('ask review-verdict rig-review');
   expect(registration.stdout).not.toContain('asked review-verdict rig-review');
-  expect(verdictAsks).toEqual([]);
   const project = read(root);
   if (still) {
     writeFileSync(join(root, still.path), 'changed after carry');
@@ -445,9 +465,8 @@ test('#803 a pending correction refuses carry and offers same-input registration
     '--path', 'described', '--id', 'revise-motion', '--by', 'synthetic-owner', '--verbatim-file', words]));
   const afterCorrection = check();
   expect(afterCorrection.refusals.map(f => f.code)).toEqual([]);
-  const opening = await open(root, draftId);
-  await submit(root, opening.url, 'approved');
-  assertSuccess(await cli(root, ['job', 'close', root]));
+  const url = await openLegacyVerdict(root);
+  await submit(root, url, 'approved');
 
   const before = readFileSync(join(root, 'project.json'));
   const registrations = nextProject(root, Date.now() + 2000).moves.filter(move => move.command?.startsWith('rig-create rig-version '));
@@ -472,15 +491,15 @@ test('#803 a pending correction refuses carry and offers same-input registration
 for (const [verdict, recorded] of [['approved', 'accepted'], ['changes-requested', 'bounced']] as const) {
   test(`#840 an owner ${verdict} draft verdict from an owner host keeps its receipt verdict bytes`, async () => {
     const root = rigging();
-    const opening = await open(root, draftId);
-    const receipt = await submit(root, opening.url, verdict);
+    const url = await openLegacyVerdict(root);
+    const receipt = await submit(root, url, verdict);
     expect(JSON.stringify(receipt.verdict)).toBe(`{"by":"user","at":"${String(JSON.parse(String(receipt.bytes)).at)}","review":"rig-review","verdict":"${recorded}","verbatim":${JSON.stringify(verbatim)},"source":"review act ${String(receipt.jobId)}/${String(receipt.actId)}","on_items":[]}`);
   }, testTimeoutMs);
 
   test(`#840 a ${verdict} draft verdict from an owner host opened for the agent refuses REVIEW_NOT_HUMAN and writes nothing`, async () => {
     const root = rigging();
-    const opening = await open(root, draftId, 'draft', verdict === 'approved' ? 'AGENT' : 'agent');
-    const { args } = await post(root, opening.url, verdict);
+    const url = await openLegacyVerdict(root, verdict === 'approved' ? 'AGENT' : 'agent');
+    const { args } = await post(root, url, verdict);
     const before = treeDigest(root);
     const refused = await cli(root, args);
     expect(refused.exit).toBe(1);

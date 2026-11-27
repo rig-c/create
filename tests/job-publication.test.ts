@@ -355,7 +355,7 @@ test('#1119 retirement preserves the original path and distinct generations or f
       const name = generation === 0 ? `${entry.id}.json` : `${entry.id}-${jobHash(content)}.json`;
       retireRefusedPublications(root, pending);
       archived.set(name, Buffer.from(`${content}\n`));
-      for (const [file, bytes] of archived) expect(readFileSync(join(archive, file))).toEqual(bytes);
+      for (const [file, bytes] of archived) expect(readFileSync(join(archive, file)).equals(bytes)).toBe(true);
       expect(pendingPublications(root)).toEqual([]);
     }
     expect(archived.size).toBe(3);

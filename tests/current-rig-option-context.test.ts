@@ -122,16 +122,46 @@ test('current-rig refuses missing, malformed, and ambiguous producer config bind
   expect(() => optionContext(missing.project, stage, draftTime, dir)).toThrow(stale);
 });
 
-test('current-rig needs a live, matching owner approval at drafting and selection', () => {
+test('current-rig binds an optional live owner approval when present and rejects a lapsed one', () => {
   const dir = tempDir();
   const rig = installRig(dir);
-  expect(() => optionContext(rig.project, stage, draftTime, dir)).toThrow(stale);
+  const target = selectSignoffTarget(dir, rig.project, 'rig-review')!;
+  expect(optionContext(rig.project, stage, draftTime, dir)).toEqual({
+    kind: 'current-rig', target, run: rig.run, config: rig.config,
+  });
   rig.approve();
-  expect(() => optionContext(rig.project, stage, Date.parse(builtAt), dir)).toThrow(stale);
+  expect(optionContext(rig.project, stage, Date.parse(builtAt), dir)).toEqual({
+    kind: 'current-rig', target, run: rig.run, config: rig.config,
+  });
   const set = { stage, drafted_at: draftedAt, context: optionContext(rig.project, stage, draftTime, dir) };
+  expect(set.context.signoff_at).toBe(signedAt);
   rig.project.reopens = [{ stage: 'rig-review', from_stage: 'post-interview', by: 'owner', at: afterDraftAt,
     verbatim: 'Reopen the rig.', source: OWNER_CHAT_SOURCE, said_at: afterDraftAt, relayed_by: 'operator', steps_before: [] }];
   expect(() => validateContext(dir, rig.project, set, selectionTime, true)).toThrow(stale);
+});
+
+test('#1062 current-rig option set can be drafted and answered with no signoff and stays sealed', () => {
+  const dir = postProject();
+  const config = 'specs/rig/unsigned.json';
+  expect(recordCommand(stageProducerRig(dir, config), Date.parse(builtAt)).exit).toBe(0);
+  const registered = registerCamera(dir);
+  expect(Object.keys(registered.context).sort()).toEqual(['config', 'kind', 'run', 'target']);
+  expect(registered.context.signoff_at).toBeUndefined();
+  const words = write(dir, 'camera-pick.txt', 'Keep the proposed camera_depth.\n');
+  testClock.set(selectionTime);
+  const answered = JSON.parse(interviewAnswerCommand([questionId, dir, '--by', 'owner', '--set', registered.pending.path,
+    '--sha256', registered.pending.sha256, '--owner-chat', join(dir, words.path), '--said-at', selectedAt,
+    '--relayed-by', 'operator', '--pick', registered.pick])) as JsonObject;
+  expect(obj(answered.choice).set).toEqual(registered.pending);
+  testClock.set(afterSelectionAt);
+  expect(planCommand(['revise', 'camera', dir, '--by', 'agent', '--reason', 'Reviewed the unsigned camera choice.']).exit).toBe(0);
+  expect(checkProject(dir, undefined, { now: Date.parse(afterSelectionAt), readOnly: true }).refusals).toEqual([]);
+
+  // Replacing current.rig later leaves the answered current-rig set valid without any rig-review signoff.
+  const next = stageProducerRig(dir, 'specs/rig/replacement-unsigned.json', true);
+  testClock.set(rebuiltAt);
+  expect(recordCommand(next, testClock.now()).exit).toBe(0);
+  expect(checkProject(dir, undefined, { now: Date.parse(rebuiltAt), readOnly: true }).refusals).toEqual([]);
 });
 
 test('scene-first drafting preserves the current-rig context already authored before a later scene', () => {

@@ -436,3 +436,43 @@ describe('#992 real compose from next in two folders', () => {
     }
   });
 });
+
+test('#1062 direction@4 accepts unsigned post steps, still requires unique camera and timing steps, and binds live post-interview signoffs when present', () => {
+  const f = composeFixture();
+  currentRig(f);
+  render(f.dir, false);
+  recordMotion(f.dir);
+  const files = ['check/check.json', 'rig/rig.json', 'rig/motion.json', 'rig/images/body.png'];
+  const stage = 'derived/compose-input';
+  for (const path of files) {
+    const current = `outputs/rig/${path.replace(/^rig\//, '')}`;
+    mkdirSync(dirname(join(f.dir, stage, path)), { recursive: true });
+    cpSync(join(f.dir, current), join(f.dir, stage, path));
+  }
+  write(f.dir, `${stage}/parts.json`, '{}');
+  const scene = structuredClone(f.scene);
+  (scene.characters as JsonObject[])[0]!.build = '../../derived/compose-input';
+  for (const plate of scene.plates as JsonObject[]) plate.image = `../../${String(plate.image)}`;
+  write(f.dir, partsScene, scene);
+  sceneCommand(['write', f.dir, '--compose-scene', partsScene], testClock.now());
+  write(f.dir, intentPath, { take: f.doc.take!, citations: f.doc.citations! });
+
+  const withSignoffs = f.load();
+  const unsigned = structuredClone(withSignoffs);
+  unsigned.signoffs = (unsigned.signoffs as JsonObject[]).filter(s => s.stage !== 'post-interview');
+  f.save(unsigned);
+  expect(directionCommand(['write', f.dir, '--file', intentPath], testClock.now()).exit).toBe(0);
+
+  const missingCamera = structuredClone(unsigned);
+  (missingCamera.plan as JsonObject).steps = ((missingCamera.plan as JsonObject).steps as JsonObject[])
+    .filter(step => step.id !== 'camera');
+  f.save(missingCamera);
+  expect(() => directionCommand(['write', f.dir, '--file', intentPath], testClock.now()))
+    .toThrow(expect.objectContaining({ code: 'DIRECTION_CITATION', message: expect.stringContaining('plan.steps[camera]') }));
+
+  const staleSigned = structuredClone(withSignoffs);
+  (((staleSigned.plan as JsonObject).steps as JsonObject[]).find(step => step.id === 'camera')!).does = 'Changed after post-interview signoff';
+  f.save(staleSigned);
+  expect(() => directionCommand(['write', f.dir, '--file', intentPath], testClock.now()))
+    .toThrow(expect.objectContaining({ code: 'DIRECTION_CITATION', message: expect.stringContaining('plan.steps[camera]') }));
+});

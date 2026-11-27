@@ -14,7 +14,7 @@ import { Refusal } from './refusal.ts';
 import { collectReopens, liveSignoff, type Reopen } from './reopen.ts';
 import { RunRecordError, validateRunRecord } from './run-record.ts';
 import { selectSignoffTarget, signoffTargetFormat } from './signoff-target.ts';
-import { currentPartsApproval, currentPartsReviewContext, hasCurrentParts, latestPartsApproval, partsApprovalIdentity, retainedCurrentPartsStructure, rigPartsApproval, structurePathIsIgnored } from './structure.ts';
+import { assertCurrentPartsStructure, currentPartsApproval, currentPartsReviewContext, hasCurrentParts, latestPartsApproval, partsApprovalIdentity, readCurrentPartsContext, retainedCurrentPartsStructure, rigPartsApproval, structurePathIsIgnored } from './structure.ts';
 import { CHOICE_ORDER_SPEC, approvalStageOfGuide, hasStageOrder, interviewStageOfGuide, stageIndex, stepPlanValue } from './stages.ts';
 import { WAYPOINT_ASKS } from './waypoints.ts';
 import type { Json, JsonObject } from './templates.ts';
@@ -171,17 +171,25 @@ function currentRigOptionContext(project: JsonObject, at: number, dir?: string):
   if (!isObject(rig) || !Number.isFinite(date(rig.at)) || date(rig.at) > at || !isObject(rig.run) || !text(rig.run.path) || !text(rig.run.sha256)) {
     fail('INTERVIEW_OPTIONS_STALE', 'current.rig: record the current rig and its producer run before drafting post options');
   }
-  const approval = currentRigApproval(project, collectReopens(project, []), at);
-  if (!approval || approval.at < date(rig.at)) {
-    fail('INTERVIEW_OPTIONS_STALE', 'current.rig: relay the live rig-review approval before drafting post options');
-  }
   let target: JsonObject | undefined;
   try { target = selectSignoffTarget(dir, project, 'rig-review'); }
   catch (error) {
     if (!(error instanceof Refusal)) throw error;
     fail('INTERVIEW_OPTIONS_STALE', error.message);
   }
-  if (target === undefined || !equal(target, approval.record.target)) fail('INTERVIEW_OPTIONS_STALE', 'current.rig: the rig-review approval binds a different output; sign the current rig again');
+  if (target === undefined) fail('INTERVIEW_OPTIONS_STALE', 'current.rig: record the current rig and its producer run before drafting post options');
+  const cutoffs = collectReopens(project, []).filter(reopen => reopen.at <= at);
+  const latestSignoff = collectSignoffs(project, []).filter(signoff => signoff.stage === 'rig-review' && signoff.checkpoint === null
+    && signoff.at <= at && liveSignoff(cutoffs, signoff.stage, signoff.at)
+    && signoffTargetFormat(signoff.record.target) === 'current')
+    .sort((a, b) => b.at - a.at || b.index - a.index)[0];
+  if (latestSignoff) {
+    const authFinding = ownerChatAuthorityFinding(latestSignoff.record, `signoffs[${latestSignoff.index}]`, latestSignoff.record.verbatim);
+    if (authFinding) fail('INTERVIEW_OPTIONS_STALE', authFinding.message);
+    if (latestSignoff.at < date(rig.at) || !equal(target, latestSignoff.record.target)) {
+      fail('INTERVIEW_OPTIONS_STALE', 'current.rig: the rig-review approval binds a different output; sign the current rig again');
+    }
+  }
 
   const run = { path: rig.run.path, sha256: rig.run.sha256 };
   const bytes = verifyBinding(dir, run, true)!;
@@ -205,19 +213,44 @@ function currentRigOptionContext(project: JsonObject, at: number, dir?: string):
   }
   const config = { path: matches[0]!.path!, sha256: configHash };
   verifyBinding(dir, config, true);
-  return { kind: 'current-rig', target, signoff_at: approval.record.at!, run, config };
+  return { kind: 'current-rig', target, ...(latestSignoff ? { signoff_at: latestSignoff.record.at! } : {}), run, config };
 }
 
 function currentPartsOptionContext(project: JsonObject, at: number, dir?: string): JsonObject {
   if (dir === undefined) fail('INTERVIEW_OPTIONS_STALE', 'current.parts: pass the project folder to verify current parts option context');
+  let source: ReturnType<typeof readCurrentPartsContext>;
   try {
-    const review = currentPartsReviewContext(dir, project, at);
-    if (review !== null) return { kind: 'current-parts', ...review };
+    source = readCurrentPartsContext(dir, project, at);
   } catch (error) {
     if (!(error instanceof Refusal)) throw error;
     fail('INTERVIEW_OPTIONS_STALE', error.message);
   }
-  return fail('INTERVIEW_OPTIONS_STALE', 'current.parts: relay the owner’s parts-review approval for the exact current output and retained structure before drafting rigging options.');
+  const cutoffs = collectReopens(project, []).filter(reopen => reopen.at <= at);
+  const latestSignoff = collectSignoffs(project, []).filter(signoff => signoff.stage === 'parts-review' && signoff.checkpoint === null
+    && Number.isFinite(signoff.at) && signoff.at <= at && liveSignoff(cutoffs, signoff.stage, signoff.at)
+    && isObject(signoff.record.target) && signoff.record.target.subject === 'current.parts')
+    .sort((a, b) => b.at - a.at || b.index - a.index)[0];
+  if (latestSignoff) {
+    try {
+      const review = currentPartsReviewContext(dir, project, at);
+      if (review !== null) return { kind: 'current-parts', ...review };
+    } catch (error) {
+      if (!(error instanceof Refusal)) throw error;
+      fail('INTERVIEW_OPTIONS_STALE', error.message);
+    }
+    return fail('INTERVIEW_OPTIONS_STALE', 'current.parts: restore a valid parts-review approval or record current parts again');
+  }
+  const path = `evidence/structure/current-parts/${source.target.record_sha256}.json`;
+  let structure: JsonObject;
+  try {
+    const bytes = readFileSync(literalFile(dir, path));
+    structure = { path, sha256: sha256(bytes) };
+    assertCurrentPartsStructure(dir, project, structure, at);
+  } catch (error) {
+    if (error instanceof Refusal) fail('INTERVIEW_OPTIONS_STALE', error.message);
+    fail('INTERVIEW_OPTIONS_STALE', `current.parts: retain the structure snapshot at ${path} with rig-create structure-snapshot before drafting rigging options`);
+  }
+  return { kind: 'current-parts', target: source.target, structure, run: source.run, config: source.config, parts: source.parts };
 }
 
 function numberedPartsOptionContext(project: JsonObject, at: number): JsonObject {
@@ -341,8 +374,12 @@ export function validateContext(dir: string, project: JsonObject, set: JsonObjec
         const basis = kind === 'current-rig' && time === drafted ? project : contextProject;
         const expected = retainedNumberedParts ? numberedPartsOptionContext(project, time)
           : optionContext(basis, String(set.stage), time, dir, legacyScene, drafted);
-        if (!equal(expected, set.context)) {
-          const difference = contextDifference(expected, set.context, 'context');
+        const comparable = time === at && (kind === 'current-rig' || kind === 'current-parts')
+          && isObject(set.context) && set.context.signoff_at === undefined && expected.signoff_at !== undefined
+          ? (({ signoff_at: _signoffAt, ...unsigned }) => unsigned)(expected)
+          : expected;
+        if (!equal(comparable, set.context)) {
+          const difference = contextDifference(comparable, set.context, 'context');
           fail('INTERVIEW_OPTIONS_STALE', `options no longer match the live context: ${difference}; redraft against current accepted inputs`);
         }
       }
@@ -464,19 +501,25 @@ function historicalPartsInventory(parts: Json | undefined, filesHash: string): b
 function validateAnsweredPartsContext(dir: string, project: JsonObject, set: JsonObject, context: JsonObject, at: number): void {
   const drafted = date(set.drafted_at);
   const { target, structure, config, run, parts } = context;
+  const hasSignoff = context.signoff_at !== undefined;
   if (!Number.isFinite(drafted) || !Number.isFinite(at) || drafted > at || set.stage !== 'rigging-interview'
-    || Object.keys(context).length !== 7 || !historicalBinding(structure) || !historicalBinding(config) || !historicalBinding(run)
+    || Object.keys(context).length !== (hasSignoff ? 7 : 6)
+    || !isObject(target) || Object.keys(target).length !== 3
+    || target.subject !== 'current.parts' || !digest(target.record_sha256) || !digest(target.files_sha256)
+    || !historicalBinding(structure) || !historicalBinding(config) || !historicalBinding(run)
     || !builtFromNameAllowed(config.path) || config.path.startsWith('outputs/parts/') || config.path === 'outputs/parts'
     || run.path !== 'outputs/parts/run.json') {
     fail('INTERVIEW_OPTIONS_STALE', 'context: restore the sealed current-parts target, structure, producer run and config shown for this answer');
   }
-  const approval = currentPartsApproval(project, at);
-  if (!approval || currentPartsApproval(project, drafted)?.index !== approval.index
-    || context.signoff_at !== approval.signoff_at || !equal(target, approval.target) || !equal(structure, approval.structure)) {
-    fail('INTERVIEW_OPTIONS_STALE', 'context: restore the matching owner-relayed parts approval live when these options were drafted and answered');
+  if (hasSignoff) {
+    const approval = currentPartsApproval(project, at);
+    if (!approval || currentPartsApproval(project, drafted)?.index !== approval.index
+      || context.signoff_at !== approval.signoff_at || !equal(target, approval.target) || !equal(structure, approval.structure)) {
+      fail('INTERVIEW_OPTIONS_STALE', 'context: restore the matching owner-relayed parts approval live when these options were drafted and answered');
+    }
   }
-  if (!historicalPartsInventory(parts, approval.target.files_sha256)) {
-    fail('INTERVIEW_OPTIONS_STALE', 'context.parts.files: restore the inventory bound by the current-parts approval');
+  if (!historicalPartsInventory(parts, target.files_sha256)) {
+    fail('INTERVIEW_OPTIONS_STALE', 'context.parts.files: restore the inventory bound by the current-parts target');
   }
   let snapshot: JsonObject;
   try { snapshot = retainedCurrentPartsStructure(dir, structure); }
@@ -496,19 +539,22 @@ function validateAnsweredContext(dir: string, project: JsonObject, set: JsonObje
   if (!isObject(context) || context.kind !== 'current-rig') return validateContext(dir, project, set, at, false, warn);
   const drafted = date(set.drafted_at);
   const { target, config, run } = context;
+  const hasSignoff = context.signoff_at !== undefined;
   if (!Number.isFinite(drafted) || !Number.isFinite(at) || drafted > at || set.stage !== 'post-interview'
-    || Object.keys(context).length !== 5 || !isObject(target) || Object.keys(target).length !== 3
+    || Object.keys(context).length !== (hasSignoff ? 5 : 4) || !isObject(target) || Object.keys(target).length !== 3
     || target.subject !== 'current.rig' || !digest(target.record_sha256) || !digest(target.files_sha256)
     || !historicalBinding(config) || !builtFromNameAllowed(config.path) || config.path.startsWith('outputs/rig/') || config.path === 'outputs/rig'
     || !historicalBinding(run) || !['outputs/rig/run.json', 'outputs/rig/build-run.json'].includes(run.path)) {
     fail('INTERVIEW_OPTIONS_STALE', 'context: restore the sealed current-rig target, producer run and config shown for this answer');
   }
-  // The answer seals the shown context. Only the retained approval is read here, so later rig records cannot rewrite it.
+  // The answer seals the shown context. Any recorded approval is validated when signoff_at is present.
   const reopens = collectReopens(project, []);
-  const approval = currentRigApproval(project, reopens, at);
-  if (!approval || currentRigApproval(project, reopens, drafted)?.index !== approval.index
-    || context.signoff_at !== approval.record.at || !equal(target, approval.record.target)) {
-    fail('INTERVIEW_OPTIONS_STALE', 'context: restore the matching owner-relayed rig approval live when these options were drafted and answered');
+  if (hasSignoff) {
+    const approval = currentRigApproval(project, reopens, at);
+    if (!approval || currentRigApproval(project, reopens, drafted)?.index !== approval.index
+      || context.signoff_at !== approval.record.at || !equal(target, approval.record.target)) {
+      fail('INTERVIEW_OPTIONS_STALE', 'context: restore the matching owner-relayed rig approval live when these options were drafted and answered');
+    }
   }
   validateContextReopens(reopens, set, drafted, at);
 }

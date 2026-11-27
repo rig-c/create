@@ -5,6 +5,7 @@ import { join, resolve } from 'node:path';
 import { readFileSync } from './check-reads.ts';
 import { asArray, isObject } from './check.ts';
 import { commentEntry, commentSource, type CommentOnlyAct } from './comment-record.ts';
+import { prepareCommentClosure } from './comment-closures.ts';
 import { stageReviewMeshDeltaCorrections } from './correction-writers.ts';
 import { discardReviewActOutputs, readProject, retainReviewSidecar } from './feedback.ts';
 import { jobHash } from './job-outbox.ts';
@@ -15,7 +16,7 @@ import { assertVersionReviewActSource, commentChestAct, commentMeshAct, decodeRe
   reviewActBy, reviewActFindings, reviewActTransport, type ReviewActTransport } from './review-act.ts';
 import { bustLandmarkCommands, currentUsesBustVersion, prepareBustConfig, retainedRigActPath } from './review-bust.ts';
 import { readVersions } from './review.ts';
-import type { JsonObject } from './templates.ts';
+import type { Json, JsonObject } from './templates.ts';
 
 export const COMMENT_HELP = `comment:
   rig-create comment --from-review <actId> [<dir>] [--config <path>] [--json]
@@ -24,7 +25,10 @@ export const COMMENT_HELP = `comment:
     carrier is applied through Parts like a Request changes mesh edit, with no verdict. A chest-landmarks
     carrier requires a project-relative working --config on first application and returns two Parts commands. A comment pins
     nothing. WARN COMMENT_COMMIT_MISMATCH when the declared commit does not hold the declared record;
-    the comment is kept with record.commit null.`;
+    the comment is kept with record.commit null.
+  rig-create comment --close <index> [<dir>] --act-sha256 <sha256> --after <path>=<sha256>... [--reason <text> | --reason-file <file>] [--by agent] [--json]
+    Records a comment_closures[] entry binding comments[<index>], its retained act sha256, and the
+    content hashes of the files changed in response.`;
 
 export interface CommentHooks {
   /** Test adapter for the finalized act fetch; decoding and identity checks still apply. */
@@ -56,7 +60,88 @@ export function checkedCommentCommit(root: string, act: CommentOnlyAct, path: st
     message: `project.json.${path}.record.commit: commit ${commit} ${bytes === null ? 'has no project.json in this repository' : 'holds a project.json that does not hash to the publication\'s projectHash'}; the comment is kept with commit null and stays bound by saw and record.sha256. Commit the record before publishing so later comments carry a commit` } };
 }
 
+function readReasonFile(path: string): string {
+  try {
+    return new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(readFileSync(path));
+  } catch {
+    refuse('COMMENT_CLOSURE_INVALID', `project.json.comment_closures: --reason-file ${path} must be readable UTF-8`);
+  }
+}
+
+function closeCommentCommand(args: string[], now: number): { stdout: string; exit: number } {
+  let closeRaw: string | undefined;
+  let actSha256: string | undefined;
+  let by: string | undefined;
+  let reason: string | undefined;
+  let reasonFile: string | undefined;
+  let json = false;
+  const afterSpecs: string[] = [];
+  const positional: string[] = [];
+  const usage = (): never => refuse(
+    'COMMENT_OPTION_INVALID',
+    'project.json.comment_closures: usage: rig-create comment --close <index> [<dir>] --act-sha256 <sha256> --after <path>=<sha256>... [--reason <text> | --reason-file <file>] [--by agent] [--json]',
+    USAGE_EXIT,
+  );
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i]!;
+    if (arg === '--json') { if (json) usage(); json = true; }
+    else if (arg === '--close') { if (closeRaw !== undefined) usage(); closeRaw = args[++i]; if (!closeRaw || closeRaw.startsWith('--')) usage(); }
+    else if (arg === '--act-sha256') { if (actSha256 !== undefined) usage(); actSha256 = args[++i]; if (!actSha256 || actSha256.startsWith('-')) usage(); }
+    else if (arg === '--after') { const val = args[++i]; if (!val || val.startsWith('-')) usage(); afterSpecs.push(val); }
+    else if (arg === '--by') { if (by !== undefined) usage(); by = args[++i]; if (!by || by.startsWith('-')) usage(); }
+    else if (arg === '--reason') { if (reason !== undefined || reasonFile !== undefined) usage(); reason = args[++i]; if (reason === undefined) usage(); }
+    else if (arg === '--reason-file') { if (reason !== undefined || reasonFile !== undefined) usage(); reasonFile = args[++i]; if (!reasonFile || reasonFile.startsWith('-')) usage(); }
+    else if (arg === '--from-review' || arg === '--config' || arg.startsWith('-')) usage();
+    else positional.push(arg);
+  }
+  if (closeRaw === undefined || positional.length > 1) usage();
+  const commentIndex = /^\d+$/.test(closeRaw!) ? Number(closeRaw!) : -1;
+  const resolvedReason = reasonFile !== undefined ? readReasonFile(reasonFile) : reason;
+  const root = resolve(positional[0] ?? process.cwd());
+  const release = acquireBoundJobWrite(root);
+  const temporary = join(root, `.rig-create-comment-close-${randomUUID()}.tmp`);
+  try {
+    const { file } = readProject(root);
+    const original = readFileSync(file);
+    const project = JSON.parse(original.toString('utf8')) as JsonObject;
+    const { row, index, replay } = prepareCommentClosure(root, project, now, {
+      comment: commentIndex,
+      actSha256: actSha256 ?? '',
+      by: by ?? 'agent',
+      afterSpecs,
+      ...(resolvedReason === undefined ? {} : { reason: resolvedReason }),
+    });
+    if (replay) {
+      const result = { closure: `comment_closures[${index}]`, comment: `comments[${row.comment}]`, entry: row, replayed: true };
+      return {
+        stdout: json ? JSON.stringify(result, null, 2) : `comment: comments[${row.comment}] already closed at ${result.closure}`,
+        exit: 0,
+      };
+    }
+    const next: JsonObject = structuredClone(project);
+    next.comment_closures = [...asArray(next.comment_closures), row as unknown as Json];
+    const problem = newRefusals(root, project, next, { now, verifyingCommentClosure: index })[0];
+    if (problem) refuse(problem.code, problem.message);
+    const fd = openSync(temporary, 'wx', 0o600);
+    try { writeFileSync(fd, `${JSON.stringify(next, null, 2)}\n`); fsyncSync(fd); } finally { closeSync(fd); }
+    if (!readFileSync(file).equals(original)) {
+      refuse('REVIEW_ACT_SOURCE_STALE', 'project.json: record changed during comment closure validation; retry against the current record');
+    }
+    renameSync(temporary, file);
+    const result = { closure: `comment_closures[${index}]`, comment: `comments[${row.comment}]`, entry: row };
+    return {
+      stdout: json ? JSON.stringify(result, null, 2)
+        : `comment: closed comments[${row.comment}] at ${result.closure} (${row.after.length} file hash(es))`,
+      exit: 0,
+    };
+  } finally {
+    rmSync(temporary, { force: true });
+    release();
+  }
+}
+
 export function commentCommand(args: string[], now: number, hooks: CommentHooks = {}): { stdout: string; exit: number } {
+  if (args.includes('--close') && !args.includes('--from-review')) return closeCommentCommand(args, now);
   let actId: string | undefined;
   let config: string | undefined;
   let json = false;

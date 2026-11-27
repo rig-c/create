@@ -12,27 +12,61 @@ rig-create job open <project> --reviewer <id> --role <owner|delegate> [--draft <
 
 ## Recovery rules
 
-- **Pending outbox entries must reconcile first.** If `.rig-create-review/outbox/`
-  holds a pending publication, `job close` refuses `JOB_PUBLISH_PENDING` until
-  that publication is reconciled against its original host configuration.
-- **`job close` preserves `project.json`.** Retiring the bound host revokes the
-  active job's fetch grant and removes the matching `.rig-create-review-binding.json`
-  while leaving `project.json` byte-identical. The subsequent `job open` starts a
+- **Pending outbox entries block close.** If `.rig-create-review/outbox/`
+  holds a pending publication, `job close` refuses `JOB_PUBLISH_PENDING`
+  whether the host is running or stopped. Reconcile against the original host
+  configuration first, or pass `job close --retire-refused` to archive failed
+  pending receipts under `retired-publications/` and close without publishing
+  them; unfailed pending publications still refuse `JOB_PUBLISH_PENDING`.
+- **`job close` preserves `project.json`.** Retiring the bound job revokes the
+  active job's fetch grant (when the Review store is present) and removes the
+  matching `.rig-create-review-binding.json` while leaving `project.json`
+  byte-identical, except when `--discard-acts` explicitly appends `discarded`
+  receipts to `project.json.review_acts[]`. The subsequent `job open` starts a
   fresh job at the current pin and updates `project.json.review_job` and the
   private binding.
 - **Host identity and capability checks remain enforced on close.** `job close`
   still verifies the project `root` (path and inode), `stateDir`, `fingerprint`,
   `reviewer` (`id` and `role`), `jobId`, `origin`, `listenerIncarnation`, and
   host descriptor agreement (`JOB_HOST_REUSE_MISMATCH` or `JOB_HOST_ATTACH_REFUSED`),
-  and verifies that the stored `fetchCapability` is authorized for the bound live
-  job before closing (`JOB_BINDING_INVALID`). A copied binding or unauthorized
-  grant is refused before any unrelated or bound host is retired.
-- **`job close` needs the bound live host.** It reads the job's finalized owner
-  acts from that host and retires the job there, so a stopped host refuses
-  `JOB_HOST_ATTACH_REFUSED` and the message names the `job open` restart. The
-  restart serves the same job. A restarted host holds the job write lock while it
-  publishes; `job close` waits up to 120 s for it, then refuses `JOB_WRITE_BUSY`
-  naming the holding process.
+  and verifies that the stored `fetchCapability` is authorized for the bound
+  job before closing (`JOB_BINDING_INVALID`). A copied, replaced or foreign
+  binding is refused before any unrelated or bound job is retired.
+- **Same-pin stopped hosts restart; older-pin stopped hosts retire directly.**
+  When the binding matches the current pin and producer hook identifiers, a
+  stopped host refuses `JOB_HOST_ATTACH_REFUSED` and names the `job open`
+  restart so the same job can be resumed and its finalized owner acts ingested
+  before closing (`job close` waits up to 120 s for a restarted host's job
+  write lock, then refuses `JOB_WRITE_BUSY` naming the holding process). When
+  the binding was made under an older `@rig-c/parts` pin or an earlier hook
+  identifier that `job open` refuses with `JOB_HOST_REUSE_MISMATCH`, and the
+  bound host is not running (its recorded loopback port refuses connections),
+  `job close` retires the binding without needing the older pin installed:
+  - **What stopped-host retirement records and cannot do.** It removes the
+    matching `.rig-create-review-binding.json`, closes the active job row in
+    `stateDir/jobs.sqlite` when that store is still on disk, and leaves
+    `project.json` byte-identical unless `--discard-acts` records discarded act
+    receipts. It cannot keep the previous Review page or URL alive, cannot
+    collect new owner submissions, and cannot serve `--from-review` ingestion
+    from the stopped job.
+  - **Unfetched finalized owner acts on a stopped older-pin job.**
+    - *When `stateDir/jobs.sqlite` is still on disk:* finalized acts committed
+      before the host stopped are still on disk in Review's SQLite store.
+      `job close` opens that store with fail-closed producer callbacks, reads
+      its finalized acts, and refuses `JOB_ACTS_PENDING` if any un-ingested act
+      is pending so acts are not silently dropped. Because the stopped older-pin
+      host cannot serve `--from-review`, pass
+      `job close --discard-acts <reason> --by agent` (or relayed owner-chat
+      flags) to record `discarded` receipts in `project.json.review_acts[]` and
+      close the job; the historical act rows remain in the closed SQLite store
+      but can no longer be fetched once closed.
+    - *When the canonical managed `stateDir/jobs.sqlite` under the system
+      temporary directory is already absent (`reason=missing, phase=state`):*
+      the stopped host has no store left on disk, so any acts that were never
+      fetched were lost with that temporary host state. `job close` records no
+      act receipts, leaves `project.json` byte-identical, and removes the
+      binding after verifying the canonical `stateDir` and that the recorded
+      port refuses connections.
 - **Ordinary `job open`, `job reconcile` and bound writers stay strict.** Only
   `job close` accepts the stored binding's earlier hook identifiers and Parts
   enumerator version (within Review's supported `>=2.25.0 <3.0.0` range), with

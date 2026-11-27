@@ -19,6 +19,7 @@ import type { Json, JsonObject } from './templates.ts';
 
 export const DIRECTION_SPEC = 'rig-create/direction@1';
 export const DIRECTION_SCENE_SPEC = 'rig-create/direction@2';
+const CURRENT_DIRECTION_SCHEMA = 'rig-create/direction@4';
 /** Landing day at 00:00Z; earlier direction@1 posts WARN. */
 export const DIRECTION_SCENE_SINCE = '2026-11-08T00:00:00Z';
 export const DIRECTION_CONTRACT = 'rig-create/direction-contract@1';
@@ -163,8 +164,37 @@ export function validateDirectionCitations(dir: string, project: JsonObject, doc
   }
   if (refusals[0]) directionFail('DIRECTION_CITATION',refusals[0].path,refusals[0].message);
   if (!current) return;
+  if (doc.schema === CURRENT_DIRECTION_SCHEMA) {
+    const invalid = invalidCurrentDirectionStep(project, items);
+    if (invalid) directionFail('DIRECTION_CITATION', `plan.steps[${invalid.id}]`, invalid.why);
+    return;
+  }
   const [missing] = missingDirectionStepApprovals(project, items);
   if (missing) directionFail('DIRECTION_CITATION', `plan.steps[${missing}]`, 'live post-interview approval and matching step hash required');
+}
+
+function invalidCurrentDirectionStep(project: JsonObject, items: readonly Item[]): { id: string; why: string } | undefined {
+  const reopens = collectReopens(project, []);
+  const steps = objects(isObject(project.plan) ? project.plan.steps : undefined);
+  const approvals = collectSignoffs(project, []).filter(s => s.stage === 'post-interview'
+    && s.checkpoint === null && liveSignoff(reopens, s.stage, s.at));
+  for (const id of ['camera', 'timing'] as const) {
+    const matches = steps.filter(step => step.id === id && step.phase === 'post');
+    if (matches.length !== 1) return { id, why: 'unique post plan step required' };
+    const covering = approvals.filter(s => s.steps === null || s.steps.includes(id));
+    if (covering.length === 0) continue;
+    const hash = stepHash(matches[0]!);
+    const state = items.find(item => item.id === (id === 'camera' ? 'camera_depth' : 'post_timing'))?.state;
+    const answer = state && (state.state === 'user' || state.state === 'delegated' || state.state === 'not_applicable')
+      ? state.answer : null;
+    const times = answer ? [answer.at, isObject(answer.agent_decision) ? answer.agent_decision.at : undefined,
+      ...objects(answer.additions).map(addition => addition.at)]
+      .filter((value): value is string => typeof value === 'string').map(Date.parse) : [];
+    if (!covering.some(s => isObject(s.record.step_hashes)
+      && s.record.step_hashes[id] === hash && times.every(at => Number.isFinite(at) && at <= s.at))) {
+      return { id, why: 'live post-interview approval and matching step hash required' };
+    }
+  }
 }
 
 /** All authored direction formats cite the camera and timing plan approvals. */

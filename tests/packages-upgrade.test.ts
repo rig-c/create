@@ -1,8 +1,9 @@
 import { afterEach, expect, test } from 'bun:test';
+import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, relative } from 'node:path';
 import { packagesCommand } from '../src/packages-upgrade.ts';
-import { packageUpgradeFindings } from '../src/package-upgrades.ts';
+import { packageUpgradeFindings, packageUpgradeWarnings } from '../src/package-upgrades.ts';
 import { PINNED_PACKAGES } from '../src/pins.ts';
 import { readTemplate } from '../src/templates.ts';
 import { checkProject } from '../src/check.ts';
@@ -277,3 +278,114 @@ test('a refused upgrade with a pending question_set move leaves the record byte-
   refusal(() => packagesCommand(['upgrade', dir, '--by', 'operator'], EXAMPLE_NOW), 'PACKAGE_UPGRADE_REFUSAL');
   expect(snapshot(dir)).toEqual(before);
 }, 30000);
+
+function packTinyPackage(): { pkgDir: string; tgz: string; sha256: string } {
+  const root = tempDir(); roots.push(root);
+  const pkgDir = join(root, 'tiny-rehearsal-pkg');
+  mkdirSync(pkgDir, { recursive: true });
+  writeFileSync(join(pkgDir, 'package.json'), `${JSON.stringify({ name: 'tiny-rehearsal-pkg', version: '0.0.1', type: 'module', main: 'index.js' }, null, 2)}\n`);
+  writeFileSync(join(pkgDir, 'index.js'), 'export const rehearsed = true;\n');
+  const packed = Bun.spawnSync([process.execPath, 'pm', 'pack'], { cwd: pkgDir, stdout: 'pipe', stderr: 'pipe' });
+  expect(packed.exitCode).toBe(0);
+  const tgz = join(pkgDir, 'tiny-rehearsal-pkg-0.0.1.tgz');
+  const sha256 = createHash('sha256').update(readFileSync(tgz)).digest('hex');
+  return { pkgDir, tgz, sha256 };
+}
+
+test('packages upgrade --rehearsal stages an absolute file:.tgz tarball, records rehearsal:true + sha256, and check WARNs PACKAGE_UPGRADE_REHEARSAL', () => {
+  const { tgz, sha256 } = packTinyPackage();
+  const { dir } = fixture({ ...pins, 'tiny-rehearsal-pkg': `file:${tgz}` });
+  const original = readFileSync(join(dir, 'project.json'), 'utf8');
+  const stale = original.replace(`@rig-c/parts ${pins['@rig-c/parts']}`, '@rig-c/parts 2.23.4');
+  writeFileSync(join(dir, 'project.json'), stale);
+  rmSync(join(dir, 'bun.lock'));
+
+  const output = packagesCommand(['upgrade', dir, '--by', 'operator', '--rehearsal'], EXAMPLE_NOW);
+  expect(output).toContain('(rehearsal)');
+  expect(JSON.parse(readFileSync(join(dir, 'node_modules/tiny-rehearsal-pkg/package.json'), 'utf8')).version).toBe('0.0.1');
+
+  const written = JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8'));
+  expect(written.package_upgrades).toHaveLength(1);
+  expect(written.package_upgrades[0]).toMatchObject({
+    by: 'operator',
+    at: new Date(EXAMPLE_NOW).toISOString(),
+    rehearsal: true,
+    local_dependencies: [{ name: 'tiny-rehearsal-pkg', sha256 }],
+  });
+  expect(packageUpgradeFindings(written)).toEqual([]);
+  expect(packageUpgradeWarnings(written).map(f => `${f.code} ${f.path}`)).toEqual(['PACKAGE_UPGRADE_REHEARSAL package_upgrades[0]']);
+
+  const report = checkProject(dir, undefined, { now: EXAMPLE_NOW, readOnly: true });
+  expect(report.refusals.map(f => f.code)).not.toContain('PACKAGE_UPGRADE_REHEARSAL');
+  expect(report.refusals.map(f => f.code)).not.toContain('PACKAGE_UPGRADE_MALFORMED');
+  expect(report.warnings.map(f => f.code)).not.toContain('QUESTION_SET_STALE');
+  const rehearsalWarn = report.warnings.find(f => f.code === 'PACKAGE_UPGRADE_REHEARSAL');
+  expect(rehearsalWarn).toBeDefined();
+  expect(rehearsalWarn!.path).toBe('package_upgrades[0]');
+  expect(rehearsalWarn!.message).toContain('package_upgrades[0]');
+  expect(rehearsalWarn!.message).toContain('rerun rig-create packages upgrade against the published release');
+}, 30000);
+
+test('a later published upgrade clears PACKAGE_UPGRADE_REHEARSAL on the earlier rehearsal row', () => {
+  const lock = 'a'.repeat(64);
+  const pins = ['@rig-c/core', '@rig-c/parts', '@rig-c/review'].map(name => ({ name, from: '1.0.0', to: '1.0.1' }));
+  const rehearsal = { by: 'agent', at: '2026-01-02T00:00:00.000Z', packages: pins, lock_sha256: lock, rehearsal: true, local_dependencies: [{ name: '@rig-c/create', sha256: 'b'.repeat(64) }] };
+  const published = { by: 'agent', at: '2026-01-03T00:00:00.000Z', packages: pins, lock_sha256: lock };
+  expect(packageUpgradeWarnings({ package_upgrades: [rehearsal] }).map(f => f.path)).toEqual(['package_upgrades[0]']);
+  expect(packageUpgradeWarnings({ package_upgrades: [rehearsal, published] })).toEqual([]);
+  expect(packageUpgradeWarnings({ package_upgrades: [published, rehearsal] }).map(f => f.path)).toEqual(['package_upgrades[1]']);
+  expect(packageUpgradeFindings({ package_upgrades: [rehearsal, published] })).toEqual([]);
+});
+
+test('local dependencies without --rehearsal, and non-absolute-tarball local specs with --rehearsal, refuse with PACKAGE_UPGRADE_INPUT and leave bytes untouched', () => {
+  const { pkgDir, tgz } = packTinyPackage();
+  const withoutFlag = fixture({ ...pins, 'tiny-rehearsal-pkg': `file:${tgz}` });
+  writeFileSync(join(withoutFlag.dir, 'project.json'), readFileSync(join(withoutFlag.dir, 'project.json'), 'utf8').replace(`@rig-c/parts ${pins['@rig-c/parts']}`, '@rig-c/parts 2.23.4'));
+  const beforeWithoutFlag = snapshot(withoutFlag.dir);
+  refusal(() => packagesCommand(['upgrade', withoutFlag.dir, '--by', 'operator'], EXAMPLE_NOW), 'PACKAGE_UPGRADE_INPUT');
+  expect(snapshot(withoutFlag.dir)).toEqual(beforeWithoutFlag);
+
+  const cases: ((projectDir: string) => string)[] = [
+    projectDir => `file:${relative(projectDir, tgz)}`,
+    () => 'file:./local.tgz',
+    () => `link:${pkgDir}`,
+    () => `link:${tgz}`,
+    () => 'workspace:*',
+    () => tgz,
+    () => `file:${pkgDir}`,
+    () => `file:${join(pkgDir, 'missing.tgz')}`,
+  ];
+  for (const makeSpec of cases) {
+    const { dir } = fixture(pins);
+    const pkg = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'));
+    pkg.dependencies['tiny-rehearsal-pkg'] = makeSpec(dir);
+    writeFileSync(join(dir, 'package.json'), `${JSON.stringify(pkg, null, 2)}\n`);
+    writeFileSync(join(dir, 'project.json'), readFileSync(join(dir, 'project.json'), 'utf8').replace(`@rig-c/parts ${pins['@rig-c/parts']}`, '@rig-c/parts 2.23.4'));
+    const before = snapshot(dir);
+    refusal(() => packagesCommand(['upgrade', dir, '--by', 'operator', '--rehearsal'], EXAMPLE_NOW), 'PACKAGE_UPGRADE_INPUT');
+    expect(snapshot(dir)).toEqual(before);
+  }
+});
+
+test('malformed rehearsal history rows refuse identically in check and writer', () => {
+  const baseRow = { by: 'operator', at: new Date(EXAMPLE_NOW).toISOString(), packages: Object.entries(pins).map(([name, to]) => ({ name, from: to, to })), lock_sha256: '0'.repeat(64) };
+  const malformedRows = [
+    { ...baseRow, rehearsal: false },
+    { ...baseRow, rehearsal: true },
+    { ...baseRow, local_dependencies: [] },
+    { ...baseRow, rehearsal: true, local_dependencies: [{ name: 'tiny-pkg', sha256: 'short' }] },
+    { ...baseRow, rehearsal: true, local_dependencies: [{ name: 'tiny-pkg', sha256: 'a'.repeat(64), extra: true }] },
+    { ...baseRow, rehearsal: true, local_dependencies: [{ name: 'tiny-pkg', sha256: 'a'.repeat(64) }, { name: 'tiny-pkg', sha256: 'b'.repeat(64) }] },
+  ];
+  for (const badRow of malformedRows) {
+    const { dir } = fixture({ ...pins, '@rig-c/parts': '2.23.4' });
+    const project = readTemplate('project.json');
+    project.package_upgrades = [badRow];
+    writeFileSync(join(dir, 'project.json'), `${JSON.stringify(project, null, 2)}\n`);
+    expect(packageUpgradeFindings(project).map(f => f.code)).toContain('PACKAGE_UPGRADE_MALFORMED');
+    expect(checkProject(dir, project, { now: EXAMPLE_NOW, readOnly: true }).refusals.map(f => f.code)).toContain('PACKAGE_UPGRADE_MALFORMED');
+    const before = snapshot(dir);
+    refusal(() => packagesCommand(['upgrade', dir, '--by', 'operator'], EXAMPLE_NOW), 'PACKAGE_UPGRADE_MALFORMED');
+    expect(snapshot(dir)).toEqual(before);
+  }
+});

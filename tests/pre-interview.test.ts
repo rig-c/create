@@ -1,13 +1,17 @@
 import { describe, expect, test } from 'bun:test';
 import { createHash } from 'node:crypto';
-import { mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { cpSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { collectItems, isCurrentPathProject } from '../src/check.ts';
+import { hasNumberedOutputs } from '../src/current.ts';
+import { freshProjectRecord } from '../src/init.ts';
+import { nextProject } from '../src/next.ts';
 import { PRE_INTERVIEW_VERDICTS } from '../src/pre-interview.ts';
 import { latestAccepted, readVersions } from '../src/review.ts';
 import type { Json, JsonObject } from '../src/templates.ts';
 import { arr, codes, fixture, framing, obj, version, withCode, type Mutate } from './fixtures.ts';
 import { cli, gitEnv, tempDir } from './helpers.ts';
-import { checkProject } from './clock.ts';
+import { checkProject, testClock } from './clock.ts';
 
 const historical = JSON.parse(readFileSync(join(import.meta.dir, 'data/pre-interview.json'), 'utf8')) as {
   versions: JsonObject[];
@@ -471,5 +475,82 @@ describe('lost pre-interview configs (#133)', () => {
     const dir = migrated(p => { version(p, 1).config_lost = loss; });
     expect(checkProject(dir).refusals).toEqual([]);
     expect(cli(['handoff', dir], dir, env).code).toBe(0);
+  });
+});
+
+describe('pre-interview classification (#1075)', () => {
+  function partsCheckpoint(mutate: Mutate): { dir: string; project: JsonObject } {
+    const dir = join(tempDir(), 'parts-pre-interview');
+    cpSync(join(import.meta.dir, '../templates/example-chain/checkpoints/1-parts-verdict'), dir, { recursive: true });
+    for (const [rel, content] of Object.entries(historical.files)) {
+      mkdirSync(dirname(join(dir, rel)), { recursive: true });
+      writeFileSync(join(dir, rel), content);
+    }
+    const file = join(dir, 'project.json');
+    const project = JSON.parse(readFileSync(file, 'utf8')) as JsonObject;
+    mutate(project);
+    writeFileSync(file, `${JSON.stringify(project, null, 2)}\n`);
+    return { dir, project };
+  }
+
+  test('a project with only pre_interview: true rows is not numbered and gets current-path moves at parts', () => {
+    const { dir, project } = partsCheckpoint((p) => {
+      delete p.drafts;
+      p.versions = structuredClone(historical.versions);
+    });
+    expect(hasNumberedOutputs(project)).toBe(false);
+    expect(checkProject(dir).refusals).toEqual([]);
+    const report = nextProject(dir, testClock.now());
+    expect(report.refusals).toEqual([]);
+    expect(report.awaits).toContain('current.parts');
+    expect(report.moves).toContainEqual(expect.objectContaining({
+      role: 'producer',
+      field: 'current.parts',
+      awaits: 'current.parts',
+      command: expect.stringContaining('rig-parts assemble '),
+    }));
+    expect(report.moves.some(move => move.field === 'drafts' || /draft-rig/.test(`${move.command} ${move.act}`))).toBe(false);
+
+    // A fresh interview record with only pre-interview history also classifies on the current path.
+    const freshWithHistory = freshProjectRecord('synthetic-migrated', testClock.now());
+    freshWithHistory.versions = structuredClone(historical.versions);
+    expect(isCurrentPathProject(freshWithHistory, collectItems(freshWithHistory, { collection: null }))).toBe(true);
+
+    // Pre-interview output integrity still runs when the project is not classified numbered.
+    writeFileSync(join(dir, 'outputs/v1/rig.json'), 'tampered\n');
+    expect(codes(checkProject(dir))).toContain('PRE_INTERVIEW_OUTPUT_CHANGED');
+  });
+
+  test('a project with a pre-interview row plus a real numbered row, draft or scene stays numbered', () => {
+    const withRealVersionDir = migrated((p) => {
+      p.stage = 'direction-review';
+      version(p, 4).verdicts = [];
+      p.signoffs = arr(p.signoffs).filter(s => obj(s).stage !== 'direction-review');
+      p.advances = arr(p.advances).filter(a => obj(a).stage !== 'accepted');
+    });
+    const withRealVersion = JSON.parse(readFileSync(join(withRealVersionDir, 'project.json'), 'utf8')) as JsonObject;
+    expect(withRealVersion.drafts).toBeUndefined();
+    expect(withRealVersion.scenes).toBeUndefined();
+    expect(hasNumberedOutputs(withRealVersion)).toBe(true);
+    expect(isCurrentPathProject(withRealVersion, collectItems(withRealVersion, { collection: null }))).toBe(false);
+    expect(checkProject(withRealVersionDir).refusals).toEqual([]);
+    const nextWithVersion = nextProject(withRealVersionDir, testClock.now());
+    expect(nextWithVersion.refusals).toEqual([]);
+    expect(nextWithVersion.awaits).toContain('versions[n=4].verdicts[review=direction-review]');
+    expect(nextWithVersion.moves.some(move => move.field === 'stage' && move.command?.includes('advance accepted'))).toBe(false);
+
+    const withDraft = partsCheckpoint((p) => {
+      p.versions = structuredClone(historical.versions);
+    });
+    expect(hasNumberedOutputs(withDraft.project)).toBe(true);
+    expect(checkProject(withDraft.dir).refusals).toEqual([]);
+    const nextWithDraft = nextProject(withDraft.dir, testClock.now());
+    expect(nextWithDraft.moves.some(move => move.field === 'drafts[chain]')).toBe(true);
+    expect(nextWithDraft.moves.some(move => move.field === 'current.parts')).toBe(false);
+
+    expect(hasNumberedOutputs({
+      versions: structuredClone(historical.versions),
+      scenes: [{ n: 1 }],
+    })).toBe(true);
   });
 });

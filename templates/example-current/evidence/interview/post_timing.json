@@ -9,13 +9,13 @@
     "kind": "current-rig",
     "target": {
       "subject": "current.rig",
-      "record_sha256": "9b8b26ec008aef68c143c3d800efa74f8e9d93842a489456a0a31f86645fe224",
+      "record_sha256": "ba43b1dfed19a429eb1e50c172d470cbe9cde2d5f05b52a4d0cf9ce4439ed3e5",
       "files_sha256": "58cf4dc9dcbe9126788c8ee4c588ba3927d4f2cc9984647032a701ce5c5fcde9"
     },
     "signoff_at": "2026-11-27T00:00:40.000Z",
     "run": {
       "path": "outputs/rig/run.json",
-      "sha256": "f2b41e919c0706bc36f227b22fac6328438a1b5b017d58b7da918d4b20039400"
+      "sha256": "bfa76645af882d4773e5d09990bc96421382c02f7e6ab1a30cbd1a42eb0faca6"
     },
     "config": {
       "path": "specs/rig/config.json",

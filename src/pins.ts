@@ -26,8 +26,8 @@ export function runningCreateVersion(): string {
  * bumping parts here without re-reading the waypoints fails.
  */
 export const PINNED_PACKAGES = {
-  '@rig-c/core': '3.10.0',
-  '@rig-c/parts': '2.61.0',
+  '@rig-c/core': '3.11.0',
+  '@rig-c/parts': '2.62.0',
 } as const satisfies Record<string, string>;
 
 /** Exact dependencies `init` writes into a new project or collection manifest. */

@@ -24,6 +24,7 @@ import { currentScene, sceneReference } from '../src/scene.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { plantLegacyReopen } from './fixtures.ts';
 import { seedHistoricalCheckpointAct, seedHistoricalCheckpointAsk } from './historical-review-fixture.ts';
+import { seedRetainedDraft } from './numbered-seed.ts';
 
 const roots: string[] = [];
 const hosts: JobOwnerHost[] = [];
@@ -120,7 +121,7 @@ function preparedParts(): string {
   advanceCommand(['parts-review', root, '--parts-check', 'evidence/parts-check.json', '--parts', 'derived/drafts/chain/input'], prepNow);
   return root;
 }
-const draftArgs = ['draft-rig', 'chain', '--config', 'derived/drafts/chain/config.json', '--from', 'derived/drafts/chain/out', '--parts', 'derived/drafts/chain/input', '--json'];
+const draftArgs = (root: string, id = 'chain') => [id, root, '--config', `derived/drafts/${id}/config.json`, '--from', `derived/drafts/${id}/out`, '--parts', `derived/drafts/${id}/input`, '--json'];
 
 const rigVerdictSubject = { kind: 'review-verdict', stage: 'rig-review' } as const;
 const rigResult = { path: 'review-live-v1.json', selector: { kind: 'rig', version: 1 } } as const;
@@ -217,8 +218,7 @@ test('a fresh rig version published in rig-review folds its approval into the di
 
 test('an act for a subject create did not declare refuses by name and leaves the record byte-identical', async () => {
   const root = partsAtCheckpoint();
-  const drafted = await cli(root, draftArgs);
-  expect({ exit: drafted.exit, stderr: drafted.stderr }).toEqual({ exit: 0, stderr: '' });
+  expect(seedRetainedDraft(draftArgs(root)).exit).toBe(0);
   // Model a historical host that declared and finalized more than Create's receipt allowed.
   const subject = { kind: 'checkpoint', checkpointId: 'assemble' } as const;
   const wider = (options: JobHostOptions) => startJobHost({ ...options, readPublished: async input => {
@@ -256,14 +256,7 @@ test('bar: draft publications at parts-review declare no parts-verdict asks befo
   expect((await readHostActsAndAsks(host)).asks).toEqual([]);
 
   cpSync(join(root, 'derived/drafts/chain'), join(root, 'derived/drafts/chain-2'), { recursive: true });
-  const drafted = await cli(root, [
-    'draft-rig', 'chain-2', root,
-    '--config', 'derived/drafts/chain-2/config.json',
-    '--from', 'derived/drafts/chain-2/out',
-    '--parts', 'derived/drafts/chain-2/input',
-    '--json',
-  ]);
-  expect({ exit: drafted.exit, stderr: drafted.stderr }).toEqual({ exit: 0, stderr: '' });
+  expect(seedRetainedDraft(draftArgs(root, 'chain-2')).exit).toBe(0);
   structureSnapshotCommand([root, '--draft', 'chain-2', '--out', 'evidence/structure-chain-2.json']);
   enqueuePublication(root, readWriterBinding(root)!, draftPublicationResult('chain-2'));
   expect(await reconcileCreateJob(root)).toBe(1);

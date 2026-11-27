@@ -11,9 +11,10 @@ import { jobRuntimeExecArgv } from '../src/job-writer.ts';
 import { locateParts } from '../src/parts-sections.ts';
 import { Refusal } from '../src/refusal.ts';
 import type { JsonObject } from '../src/templates.ts';
-import { checkProject, draftRigCommand, TEST_NOW, testClock } from './clock.ts';
+import { checkProject, TEST_NOW, testClock } from './clock.ts';
 import { arr, fixture, obj } from './fixtures.ts';
 import { clockedCli } from './helpers.ts';
+import { seedRetainedDraft } from './numbered-seed.ts';
 
 interface Raster { width: number; height: number; data: Uint8ClampedArray }
 interface PngModule {
@@ -205,7 +206,7 @@ test('#543 source-linked real build alpha receipt rebuild draft binds edited byt
     expect(arr(stageMap.parts).map(obj).find(entry => entry.name === part)!.edited_part).toEqual(metadata);
 
     const args = [id, dir, '--config', `${relativeRoot}/edited.json`, '--from', `${relativeRoot}/rebuilt`, '--json'];
-    const written = draftRigCommand(args);
+    const written = seedRetainedDraft(args, testClock.now());
     expect(written.exit).toBe(0);
     const record = JSON.parse(written.stdout) as JsonObject;
     const editedPath = `${relativeRoot}/edits/${part}.png`;
@@ -285,8 +286,9 @@ test('#543 source-linked real build alpha receipt rebuild draft binds edited byt
     const missingBindingConfig = json(depthConfigPath);
     delete obj(missingBindingConfig.assemble).edited_parts;
     writeFileSync(depthConfigPath, `${JSON.stringify(missingBindingConfig, null, 2)}\n`);
-    expect(() => draftRigCommand(depthArgs)).toThrow(expect.objectContaining({ code: 'DRAFT_EDITED_PART_UNBOUND' }));
-    expect(readFileSync(join(dir, 'project.json'))).toEqual(beforeDepthControls);
+    seedRetainedDraft(depthArgs, testClock.now());
+    expect(checkProject(dir).refusals.map(f => f.code)).toContain('DRAFT_EDITED_PART_UNBOUND');
+    writeFileSync(join(dir, 'project.json'), beforeDepthControls);
     writeFileSync(depthConfigPath, depthConfigBytes);
 
     const wrongShaManifest = json(depthManifestPath);
@@ -294,11 +296,12 @@ test('#543 source-linked real build alpha receipt rebuild draft binds edited byt
       ...receipt, sha256: 'b'.repeat(64),
     };
     writeFileSync(depthManifestPath, `${JSON.stringify(wrongShaManifest, null, 2)}\n`);
-    expect(() => draftRigCommand(depthArgs)).toThrow(expect.objectContaining({ code: 'DRAFT_EDITED_PART_UNBOUND' }));
-    expect(readFileSync(join(dir, 'project.json'))).toEqual(beforeDepthControls);
+    seedRetainedDraft(depthArgs, testClock.now());
+    expect(checkProject(dir).refusals.map(f => f.code)).toContain('DRAFT_EDITED_PART_UNBOUND');
+    writeFileSync(join(dir, 'project.json'), beforeDepthControls);
     writeFileSync(depthManifestPath, depthManifestBytes);
 
-    const depthWritten = draftRigCommand(depthArgs);
+    const depthWritten = seedRetainedDraft(depthArgs, testClock.now());
     expect(depthWritten.exit).toBe(0);
     const depthRecord = JSON.parse(depthWritten.stdout) as JsonObject;
     const depthEditedPath = `${depthRelativeRoot}/edits/${part}.png`;

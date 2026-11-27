@@ -8,8 +8,9 @@ import { Refusal } from '../src/refusal.ts';
 import { STAGE_ORDER_SPEC, STAGE_VALUES } from '../src/stages.ts';
 import { structureSnapshotCommand } from '../src/structure-snapshot.ts';
 import type { JsonObject } from '../src/templates.ts';
-import { advanceCommand, checkProject, diffClassesCommand, draftRigCommand, interviewAnswerCommand,
-  inputCommand, interviewCommand, interviewOptionsCommand, planCommand, rigVersionCommand, signoffCommand, stepStatusCommand, testClock } from './clock.ts';
+import { advanceCommand, checkProject, diffClassesCommand, interviewAnswerCommand,
+  inputCommand, interviewCommand, interviewOptionsCommand, planCommand, signoffCommand, stepStatusCommand, testClock } from './clock.ts';
+import { seedRetainedDraft } from './numbered-seed.ts';
 import { EXAMPLE_DIFF_REPORT } from './diff-fixture.ts';
 import { plantLegacyReopen, arr, fixture, obj, rehashSignoffs, step, supersede, waypoint } from './fixtures.ts';
 import { withPartsCheck } from './parts-check-fixture.ts';
@@ -40,7 +41,7 @@ function approveParts(dir: string, id: string): void {
   writeReviewedInput(dir, root);
   put(dir, `${root}/input/recomposite_rig.png`, readFileSync(join(dir, 'derived/parts/rig/recomposite_rig.png')));
   for (const file of ['rig.json', 'motion.json', 'mesh_report.json']) put(dir, `${root}/out/${file}`, '{}');
-  draftRigCommand([id, dir, '--config', `${root}/config.json`, '--from', `${root}/out`, '--parts', `${root}/input`]);
+  seedRetainedDraft([id, dir, '--config', `${root}/config.json`, '--from', `${root}/out`, '--parts', `${root}/input`], testClock.now());
   const snapshot = `evidence/structure-${id}.json`;
   structureSnapshotCommand([dir, '--draft', id, '--out', snapshot]);
   recordPartsReceipt(dir, id, testClock.now());

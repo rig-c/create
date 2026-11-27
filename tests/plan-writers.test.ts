@@ -19,6 +19,7 @@ import { directionFixture } from './direction-fixture.ts';
 import { plantLegacyReopen, arr, fixture, obj, retainSignoffs, step, waypoint } from './fixtures.ts';
 import { cli, gitEnv, tempDir } from './helpers.ts';
 import { seedStoredVersionSignoff } from './historical-review-fixture.ts';
+import { seedRetainedDirectionPost } from './numbered-seed.ts';
 
 const read = (dir: string): JsonObject => JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8'));
 const save = (dir: string, project: JsonObject): void => writeFileSync(join(dir, 'project.json'), `${JSON.stringify(project, null, 2)}\n`);
@@ -344,7 +345,7 @@ test('after a cycle and rig-review reopen, replacing camera lets post-interview 
   const dir = join(tempDir(), 'second-take');
   const f = directionFixture(dir);
   testClock.set('2026-11-04T09:01:00Z');
-  expect(directionCommand(['write', '2', dir, '--file', 'evidence/input.json', '--rig', '1']).exit).toBe(0);
+  expect(seedRetainedDirectionPost(['write', '2', dir, '--file', 'evidence/input.json', '--rig', '1'], testClock.now()).exit).toBe(0);
   const take1 = f.load();
   for (const id of ['camera', 'timing']) {
     step(take1, id).status = 'done';
@@ -386,11 +387,16 @@ test('after a cycle and rig-review reopen, replacing camera lets post-interview 
   f.save(afterAdd);
 
   testClock.set('2026-11-04T09:12:00Z');
-  unchanged(dir, 'DIRECTION_CITATION', () => directionCommand(['write', '3', dir, '--file', 'evidence/input.json', '--rig', '1']));
+  seedRetainedDirectionPost(['write', '3', dir, '--file', 'evidence/input.json', '--rig', '1'], testClock.now());
+  const unapprovedCtx = { dir, project: f.load(), refusals: [] as import('../src/check.ts').Finding[], warnings: [] as import('../src/check.ts').Finding[] };
+  checkDirections(unapprovedCtx);
+  expect(unapprovedCtx.refusals.map(r => r.code)).toContain('DIRECTION_CITATION');
   const signed = JSON.parse(signoffCommand(['post-interview', dir, '--by', 'user', '--steps', 'camera,timing', '--verbatim-file', join(dir, 'approval.txt'), '--json']).stdout) as JsonObject;
   expect(obj(signed.step_hashes).camera).toBe(stepHash(step(f.load(), 'camera')));
   expect(obj(signed.step_hashes).camera).not.toBe(stepHash(take1Camera));
-  expect(directionCommand(['write', '3', dir, '--file', 'evidence/input.json', '--rig', '1']).exit).toBe(0);
+  const approvedCtx = { dir, project: f.load(), refusals: [] as import('../src/check.ts').Finding[], warnings: [] as import('../src/check.ts').Finding[] };
+  checkDirections(approvedCtx);
+  expect(approvedCtx.refusals).toEqual([]);
   expect(obj(obj(arr(obj(f.load().plan).replaced)[0]).step).does).toBe('Author direction');
 });
 

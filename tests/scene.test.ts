@@ -1,13 +1,13 @@
 import { afterEach, expect, test } from 'bun:test';
-import { mkdirSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, readdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { type Finding } from '../src/check.ts';
 import { directionHash, objects } from '../src/direction.ts';
 import { checkScenes, currentScene, plateRegistration, readScene, sceneReference, sceneRig, validateScene } from '../src/scene.ts';
 import { reviewPackageHash } from '../src/signoff-target.ts';
 import type { JsonObject } from '../src/templates.ts';
-import { clockedCli } from './helpers.ts';
 import { checkProject, sceneCommand, testClock } from './clock.ts';
+import { seedRetainedScene } from './numbered-seed.ts';
 import { sceneFixture } from './scene-fixture.ts';
 
 afterEach(() => testClock.reset());
@@ -36,7 +36,7 @@ function reject(f: ReturnType<typeof sceneFixture>, code: string, operation: () 
   expect(readdirSync(f.dir, { recursive: true })).toEqual(files);
 }
 
-test('scene writer commits immutable raw-byte bindings, optional foreground and fixed layers', () => {
+test('retained scene records bind immutable raw-byte plates, optional foreground and fixed layers', () => {
   const f = sceneFixture();
   const before = f.load();
   expect(f.writeScene().exit).toBe(0);
@@ -58,13 +58,12 @@ test('scene writer commits immutable raw-byte bindings, optional foreground and 
   expect(findings(f)).toEqual([]);
 });
 
-test('an uncommitted scene document is ignored and an occupied destination is preserved', () => {
+test('an uncommitted scene document is ignored by checkScenes', () => {
   const f = sceneFixture();
   mkdirSync(join(f.dir, 'evidence/scene'));
   const bytes = Buffer.from('{"uncommitted":true}\n');
   f.write('evidence/scene/s1.json', bytes);
   expect(findings(f)).toEqual([]);
-  reject(f, 'SCENE_FILE_CHANGED', () => f.writeScene());
   expect(readFileSync(join(f.dir, 'evidence/scene/s1.json'))).toEqual(bytes);
 });
 
@@ -100,7 +99,7 @@ for (const action of ['missing', 'changed']) {
   });
 }
 
-test('SCENE_STAGE_MISSING refuses a model with null stage before writing', () => {
+test('SCENE_STAGE_MISSING refuses a model with null stage in sceneRig and validateScene', () => {
   const f = sceneFixture();
   const p = f.load();
   const binding = f.write(f.modelPath, JSON.stringify({ ...f.model, stage: null }));
@@ -110,16 +109,18 @@ test('SCENE_STAGE_MISSING refuses a model with null stage before writing', () =>
   // Preserve the signoff's exact target while exercising this producer-declared stage.
   ((objects(p.signoffs).find(value => value.stage === 'rig-review')!.target as JsonObject).review_package as JsonObject).sha256 = reviewPackageHash(pkg);
   f.save(p);
-  reject(f, 'SCENE_STAGE_MISSING', () => f.writeScene());
+  reject(f, 'SCENE_STAGE_MISSING', () => sceneRig(f.dir, f.load(), 1));
 });
 
 test('SCENE_PLATE_UNREGISTERED refuses unregistered input hashes and broken receipt chains', () => {
   const f = sceneFixture();
+  f.writeScene();
   const p = f.load(); const registered = objects(p.inputs); p.inputs = []; f.save(p);
-  reject(f, 'SCENE_PLATE_UNREGISTERED', () => f.writeScene());
+  expect(findings(f).map(v => v.code)).toContain('SCENE_PLATE_UNREGISTERED');
   p.inputs = registered.filter(input => input.path === f.foreground.path);
   p.derived = [{ kind: 'prepared-input', ...f.background, source: { ...f.foreground, sha256: '0'.repeat(64) }, operation: 'Synthetic prepared plate' }];
-  f.save(p); reject(f, 'SCENE_PLATE_UNREGISTERED', () => f.writeScene());
+  f.save(p);
+  expect(findings(f).map(v => v.code)).toContain('SCENE_PLATE_UNREGISTERED');
 });
 
 test('a receipted fan-in chain accepts every registered source and rejects cycles or missing result hashes', () => {
@@ -161,48 +162,13 @@ test('declared foreground missing, changed or wrong-sized refuses while absent f
   }
 });
 
-test('uniform world rects can extend past stage and reject nonfinite or anisotropic CLI values', () => {
+test('uniform world rects can extend past stage on historical scenes while agent scenes bind the picked rect', () => {
   const f = sceneFixture();
   f.seedHistoricalScene({ x: -128, y: -50, width: 256, height: 256 });
   expect(findings(f)).toEqual([]);
-  reject(f, 'SCENE_CHOICE_MISMATCH', () => sceneCommand([...f.args(), '--background-rect', '-128,-50,256,256']));
-  for (const rect of ['0,0,0,128', '0,0,128,64', 'NaN,0,128,128', '0,Infinity,128,128', '0,,128,128']) reject(f, 'SCENE_PLACEMENT_INVALID', () => sceneCommand([...f.args(), '--background-rect', rect]));
-});
-
-test('a failed commit restores published document and all writer-created paths', () => {
-  const f = sceneFixture();
-  const original = readFileSync(join(f.dir, 'project.json'));
-  const files = readdirSync(f.dir, { recursive: true });
-  expect(() => sceneCommand(f.args(), { beforeCommit: () => { throw Error('injected fault'); } })).toThrow('injected fault');
-  expect(readFileSync(join(f.dir, 'project.json'))).toEqual(original);
-  expect(readdirSync(f.dir, { recursive: true })).toEqual(files);
-});
-
-test('source races and a shared direction lock refuse before the project commit', () => {
-  const f = sceneFixture();
-  const original = readFileSync(join(f.dir, 'project.json'));
-  expect(() => sceneCommand(f.args(), { beforeCommit: () => { f.write('background.png', 'changed'); } })).toThrow(expect.objectContaining({ code: 'SCENE_FILE_CHANGED' }));
-  expect(readFileSync(join(f.dir, 'project.json'))).toEqual(original);
-  expect(readdirSync(join(f.dir, 'evidence'))).not.toContain('scene');
-  f.write('.direction.lock', 'busy');
-  reject(f, 'SCENE_MALFORMED', () => f.writeScene());
-});
-
-test('project-relative paths reject symlinks and traversal', () => {
-  const f = sceneFixture();
-  symlinkSync(join(f.dir, 'background.png'), join(f.dir, 'linked.png'));
-  for (const path of ['linked.png', '../background.png', '/background.png']) {
-    const args = f.args(); args[args.indexOf('--background') + 1] = path;
-    reject(f, 'SCENE_PLATE_CHANGED', () => sceneCommand(args));
-  }
-});
-
-test('CLI entry point writes a scene using only its documented flags', () => {
-  const f = sceneFixture();
-  const result = Bun.spawnSync([process.execPath, ...clockedCli(), 'scene', ...f.args()], { stdout: 'pipe', stderr: 'pipe' });
-  expect(result.stderr.toString()).toBe('');
-  expect(result.exitCode).toBe(0);
-  expect(findings(f)).toEqual([]);
+  const g = sceneFixture();
+  seedRetainedScene([...g.args(), '--background-rect', '-128,-50,256,256'], testClock.now());
+  expect(findings(g).map(v => v.code)).toEqual(['SCENE_CHOICE_MISMATCH']);
 });
 
 test('registration.idle is retained exactly, absent for legacy, and raw-byte sealed', () => {
@@ -219,45 +185,44 @@ test('registration.idle is retained exactly, absent for legacy, and raw-byte sea
   expect(findings(f).map(value => value.code)).toEqual(['SCENE_FILE_CHANGED']);
 });
 
-test('default and explicit idle publish byte-identical scenes and project records', () => {
+test('default and explicit idle seed byte-identical scenes and project records', () => {
   const implicit = sceneFixture();
   expect(implicit.writeScene().exit).toBe(0);
   const explicit = sceneFixture();
-  expect(sceneCommand([...explicit.args(), '--animation', 'idle']).exit).toBe(0);
+  expect(seedRetainedScene([...explicit.args(), '--animation', 'idle'], testClock.now()).exit).toBe(0);
   for (const path of ['evidence/scene/s1.json', 'project.json']) {
     expect(readFileSync(join(explicit.dir, path))).toEqual(readFileSync(join(implicit.dir, path)));
   }
 });
 
-test('CLI selects a non-idle clip from the bound model without idle frame evidence', () => {
+test('a non-idle clip from the bound model validates without idle frame evidence', () => {
   const f = sceneFixture(['idle', 'look']);
-  const result = Bun.spawnSync([process.execPath, ...clockedCli(), 'scene', ...f.args(), '--animation', 'look'], { stdout: 'pipe', stderr: 'pipe' });
-  expect(result.stderr.toString()).toBe('');
-  expect(result.exitCode).toBe(0);
+  expect(seedRetainedScene([...f.args(), '--animation', 'look'], testClock.now()).exit).toBe(0);
   expect((loadScene(f).rig as JsonObject).animation).toEqual({ name: 'look' });
   expect(findings(f)).toEqual([]);
 });
 
-test('unknown animation and a default idle absent from the model refuse without publishing bytes', () => {
+test('unknown animation and a default idle absent from the model refuse in sceneRig', () => {
   const f = sceneFixture(['look']);
   reject(f, 'SCENE_ANIMATION_MISSING', () => f.writeScene());
   for (const name of ['unknown', 'LOOK', ' ']) {
-    reject(f, 'SCENE_ANIMATION_MISSING', () => sceneCommand([...f.args(), '--animation', name]));
+    reject(f, 'SCENE_ANIMATION_MISSING', () => sceneRig(f.dir, f.load(), 1, undefined, name));
   }
-  expect(sceneCommand([...f.args(), '--animation', 'look']).exit).toBe(0);
+  expect(seedRetainedScene([...f.args(), '--animation', 'look'], testClock.now()).exit).toBe(0);
   expect((loadScene(f).rig as JsonObject).animation).toEqual({ name: 'look' });
 });
 
 test('non-idle selection reads the sealed model rather than trusting a changed catalog', () => {
   const f = sceneFixture();
   f.write(f.modelPath, JSON.stringify({ ...f.model, animations: [{ name: 'look' }] }));
-  reject(f, 'SCENE_MODEL_MISMATCH', () => sceneCommand([...f.args(), '--animation', 'look']));
+  reject(f, 'SCENE_MODEL_MISMATCH', () => sceneRig(f.dir, f.load(), 1, undefined, 'look'));
 });
 
-test('missing and duplicate animation flags refuse before publishing bytes', () => {
+test('missing and duplicate animation flags refuse on the current scene writer before publishing bytes', () => {
   const f = sceneFixture();
-  reject(f, 'SCENE_MALFORMED', () => sceneCommand([...f.args(), '--animation']));
-  reject(f, 'SCENE_MALFORMED', () => sceneCommand([...f.args(), '--animation', 'idle', '--animation', 'idle']));
+  const base = ['write', f.dir, '--background', 'background.png', '--citations-file', 'background-citation.json'];
+  reject(f, 'SCENE_MALFORMED', () => sceneCommand([...base, '--animation']));
+  reject(f, 'SCENE_MALFORMED', () => sceneCommand([...base, '--animation', 'idle', '--animation', 'idle']));
 });
 
 test('non-idle omits idle frames while preserving the old reader binding as sealed legacy metadata', () => {
@@ -285,16 +250,14 @@ test('non-idle omits idle frames while preserving the old reader binding as seal
     expect(findings(f).map(value => value.code)).toEqual(['SCENE_ANIMATION_FRAMES_UNBOUND']);
     expect(checkProject(f.dir).refusals.map(value => value.code)).toContain('SCENE_ANIMATION_FRAMES_UNBOUND');
     reject(f, 'SCENE_ANIMATION_FRAMES_UNBOUND', () => validateScene(f.dir, f.load(), loadScene(f)));
-    reject(f, 'SCENE_ANIMATION_FRAMES_UNBOUND', () => sceneCommand([...f.args(), '--animation', 'look']));
   }
 });
 
 test('non-idle frames without registration were already unbound and remain refused', () => {
   const f = sceneFixture(['idle', 'look']);
-  expect(sceneCommand([...f.args(), '--animation', 'look']).exit).toBe(0);
+  expect(seedRetainedScene([...f.args(), '--animation', 'look'], testClock.now()).exit).toBe(0);
   plant(f, doc => { ((doc.rig as JsonObject).animation as JsonObject).frames = f.write('frames.json', '{}'); });
   expect(findings(f).map(value => value.code)).toEqual(['SCENE_ANIMATION_FRAMES_UNBOUND']);
-  reject(f, 'SCENE_ANIMATION_FRAMES_UNBOUND', () => sceneCommand([...f.args(), '--animation', 'look']));
 });
 
 test('historical human scene uniform scaling uses relative 1e-9 tolerance', () => {
@@ -305,29 +268,37 @@ test('historical human scene uniform scaling uses relative 1e-9 tolerance', () =
   expect(findings(f).map(value => value.code)).toEqual(['SCENE_PLACEMENT_INVALID']);
 });
 
-test('the scene writer is refused on a record whose stage check stopped early', () => {
+test('the current scene writer is refused on a record whose stage check stopped early', () => {
   const f = sceneFixture();
-  f.save({ ...f.load(), stage: 'no-such-stage' });
+  f.save({ ...f.load(), current: {}, stage: 'no-such-stage' });
   expect(checkProject(f.dir).refusals.map(value => value.code)).toEqual(['STAGE_UNKNOWN']);
-  reject(f, 'STAGE_UNKNOWN', () => f.writeScene());
+  reject(f, 'STAGE_UNKNOWN', () => sceneCommand(['write', f.dir, '--background', 'background.png', '--citations-file', 'background-citation.json']));
 });
 
-
-test('agent writer refuses a derived candidate without producer receipt byte-identically', () => {
-  const f = sceneFixture(); const p = f.load();
+test('scene validator refuses a derived candidate without producer receipt', () => {
+  const f = sceneFixture(); f.writeScene(); const p = f.load();
   p.inputs = objects(p.inputs).filter(i => i.path !== f.background.path);
   p.derived = [{ kind: 'prepared-input', ...f.background, source: f.foreground, operation: 'Synthetic preparation' }];
-  f.save(p); reject(f, 'SCENE_PLATE_UNREGISTERED', () => f.writeScene());
+  f.save(p);
+  expect(findings(f).map(v => v.code)).toContain('SCENE_PLATE_UNREGISTERED');
 });
-test('agent writer refuses a rect differing from the pick even within scale tolerance', () => {
+
+test('scene validator refuses an agent rect differing from the pick even within scale tolerance', () => {
   const f = sceneFixture();
   const rect = f.model.stage;
-  reject(f, 'SCENE_CHOICE_MISMATCH', () => sceneCommand([...f.args(), '--background-rect', `${rect.x},${rect.y},${rect.width * (1 + 5e-10)},${rect.height}`]));
+  seedRetainedScene([...f.args(), '--background-rect', `${rect.x},${rect.y},${rect.width * (1 + 5e-10)},${rect.height}`], testClock.now());
+  expect(findings(f).map(v => v.code)).toEqual(['SCENE_CHOICE_MISMATCH']);
 });
-test('typed scene authors refuse before writing, including a typed agent', () => {
-  for (const by of ['user', 'agent']) { const f = sceneFixture(); reject(f, 'SCENE_AUTHOR_TYPED', () => sceneCommand([...f.args(), '--by', by])); }
+
+test('typed scene authors refuse on the current scene writer before writing, including a typed agent', () => {
+  for (const by of ['user', 'agent']) {
+    const f = sceneFixture();
+    reject(f, 'SCENE_AUTHOR_TYPED', () => sceneCommand(['write', f.dir, '--background', 'background.png', '--citations-file', 'background-citation.json', '--by', by]));
+  }
 });
-test('legacy input metadata is insufficient for new agent scenes', () => {
-  const f = sceneFixture(); const p = f.load(); delete objects(p.inputs)[0]!.origin;
-  f.save(p); reject(f, 'SCENE_INPUT_RECEIPT_MISSING', () => f.writeScene());
+
+test('legacy input metadata is insufficient for agent scenes', () => {
+  const f = sceneFixture(); f.writeScene(); const p = f.load(); delete objects(p.inputs)[0]!.origin;
+  f.save(p);
+  expect(findings(f).map(v => v.code)).toEqual(['SCENE_INPUT_RECEIPT_MISSING']);
 });

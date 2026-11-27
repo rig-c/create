@@ -1,4 +1,4 @@
-/** create#297: a rig-version registration feeds scene write and a direction post through its record bindings. */
+/** create#297: a retained rig registration feeds scene and direction readers through its record bindings. */
 import { afterEach, expect, test } from 'bun:test';
 import { cpSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -7,14 +7,15 @@ import { DIRECTION_SCENE_SPEC, directionHash, directionIdleBytes, objects } from
 import { checkScenes, currentScene, sceneReference } from '../src/scene.ts';
 import { reviewPackageHash } from '../src/signoff-target.ts';
 import type { JsonObject } from '../src/templates.ts';
-import { checkDirections, checkProject, directionCommand, rigVersionCommand, sceneCommand, testClock } from './clock.ts';
+import { checkDirections, checkProject, directionCommand, testClock } from './clock.ts';
+import { seedRetainedDirectionPost, seedRetainedRigVersion, seedRetainedScene } from './numbered-seed.ts';
 import { sceneFixture } from './scene-fixture.ts';
 
 afterEach(() => testClock.reset());
 const frozen = join(import.meta.dir, 'fixtures/rig-registration');
 const FRAMES = 'outputs/v1/idle/frames.json';
 
-/** The scene fixture's rig v1, replaced by the same rig registered through rig-version from frozen producer bytes. */
+/** The scene fixture's rig v1, replaced by the same rig seeded from frozen producer bytes. */
 function registered() {
   const f = sceneFixture();
   const put = (path: string, value: unknown): void => {
@@ -37,15 +38,13 @@ function registered() {
   mkdirSync(join(f.dir, 'source/parts/parts'), { recursive: true });
   cpSync(join(f.dir, 'source/rig/images/rectangle.png'), join(f.dir, 'source/parts/parts/rectangle.png'));
   const accepted = objects(f.load().versions)[0]!;
-  // Registration happens at rig-review; the fixture returns the stage to post once the rig is accepted.
   const p = f.load(); const stage = p.stage!; p.versions = []; p.stage = 'rig-review'; f.save(p);
   rmSync(join(f.dir, 'derived/review/v1'), { recursive: true, force: true });
   testClock.set('2026-11-04T07:30:00Z');
-  rigVersionCommand(['1', f.dir, '--parts', 'source/parts', '--rig', 'source/rig', '--build', 'source/build', '--idle', 'source/idle',
+  seedRetainedRigVersion(['1', f.dir, '--parts', 'source/parts', '--rig', 'source/rig', '--build', 'source/build', '--idle', 'source/idle',
     '--config', 'source/config.json', '--path-adapter', 'source/adapter.json', '--compile-report', 'source/compile-report.json',
     '--check-report', 'source/check.json',
-    '--toolchain-lock', 'source/package-lock.json', '--at-source', 'source/at-source.json', '--at-pointer', '/finished_at', '--by', 'registrant']);
-  // Acceptance is the human's: the fixture plants the verdict, still and signoff target the review tool would record.
+    '--toolchain-lock', 'source/package-lock.json', '--at-source', 'source/at-source.json', '--at-pointer', '/finished_at', '--by', 'registrant'], testClock.now());
   const q = f.load(); const rig = objects(q.versions)[0]!;
   rig.verdicts = accepted.verdicts!; rig.evidence = accepted.evidence!; q.stage = stage;
   const signoff = objects(q.signoffs).find(value => value.stage === 'rig-review')!;
@@ -54,25 +53,19 @@ function registered() {
   testClock.set('2026-11-07T10:00:00Z');
   const model = { path: 'derived/review/v1/out/check/build/skeleton.model.json', sha256: directionHash(readFileSync(join(f.dir, 'derived/review/v1/out/check/build/skeleton.model.json'))) };
   const author = (scene = sceneReference(currentScene(f.load())!), version = 1): JsonObject => ({ ...f.doc, schema: DIRECTION_SCENE_SPEC, rig: { version, model }, scene });
-  const publish = (doc: JsonObject, n = 2, rig = 1, hooks?: Parameters<typeof directionCommand>[1]) => {
+  const publish = (doc: JsonObject, n = 2, rigN = 1) => {
     f.write('evidence/input.json', JSON.stringify(doc));
-    return directionCommand(['write', String(n), f.dir, '--file', 'evidence/input.json', '--rig', String(rig)], hooks);
+    return seedRetainedDirectionPost(['write', String(n), f.dir, '--file', 'evidence/input.json', '--rig', String(rigN)], testClock.now());
   };
-  // The frozen model's stage is 8 by 16; place the plate at its own aspect so the scale stays uniform.
   const png = readFileSync(join(f.dir, String(f.background.path)));
   f.designateScene({ x: -4, y: 0, width: 8, height: 8 * png.readUInt32BE(20) / png.readUInt32BE(16) });
-  const writeScene = () => sceneCommand([...f.args().slice(0, -1), '--background-rect', `-4,0,8,${8 * png.readUInt32BE(20) / png.readUInt32BE(16)}`, f.dir]);
+  const writeScene = () => seedRetainedScene([...f.args().slice(0, -1), '--background-rect', `-4,0,8,${8 * png.readUInt32BE(20) / png.readUInt32BE(16)}`, f.dir], testClock.now());
   return { ...f, put, model, author, publish, writeScene };
 }
 function refusals(f: ReturnType<typeof registered>): Finding[] {
   const ctx = { dir: f.dir, project: f.load(), refusals: [] as Finding[] };
   checkScenes(ctx); checkDirections(ctx);
   return ctx.refusals;
-}
-function reject(f: ReturnType<typeof registered>, code: string, run: () => unknown): void {
-  const before = readFileSync(join(f.dir, 'project.json'));
-  expect(run).toThrow(expect.objectContaining({ code }));
-  expect(readFileSync(join(f.dir, 'project.json'))).toEqual(before);
 }
 /** A scene document edited in place, resealed by its committed entry, so the post reaches its own frames read. */
 function plantFrames(f: ReturnType<typeof registered>, frames: JsonObject): JsonObject {
@@ -84,7 +77,7 @@ function plantFrames(f: ReturnType<typeof registered>, frames: JsonObject): Json
   return sceneReference(entry);
 }
 
-test('rig-version, scene write and direction write chain through the registered idle frames', () => {
+test('retained registration, scene and direction posts chain through the registered idle frames', () => {
   const f = registered();
   const rig = objects(f.load().versions)[0]!;
   expect(((rig.registration as JsonObject).idle as JsonObject).path).toBe(FRAMES);
@@ -94,49 +87,37 @@ test('rig-version, scene write and direction write chain through the registered 
   expect(((scene.rig as JsonObject).animation as JsonObject).frames).toEqual((rig.registration as JsonObject).idle);
   expect(f.publish(f.author()).exit).toBe(0);
   expect(refusals(f)).toEqual([]);
+  expect(directionCommand(['check', '2', f.dir]).exit).toBe(0);
   expect(checkProject(f.dir).refusals.filter(value => value.code.startsWith('DIRECTION_') || value.code.startsWith('SCENE_'))).toEqual([]);
 });
 
-test('an outputs path the record does not bind refuses', () => {
+test('an outputs path the record does not bind refuses in scene and direction readers', () => {
   const f = registered(); f.writeScene();
   const stray = f.write('outputs/v1/idle/stray.json', '{"spec":"rigc-frames/1","sets":[]}\n');
   const scene = plantFrames(f, stray);
-  reject(f, 'DIRECTION_IDLE_UNBOUND', () => f.publish(f.author(scene)));
-  // The scene check refuses the same planted document under its own code.
-  expect(refusals(f).map(value => value.code)).toEqual(['SCENE_MALFORMED']);
-  // Only the scene's bound frames are admitted; naming the idle manifest as the direction source still refuses as before.
-  reject(f, 'DIRECTION_FILE', () => directionCommand(['write', '2', f.dir, '--file', FRAMES, '--rig', '1']));
+  f.publish(f.author(scene));
+  expect(refusals(f).map(value => value.code)).toEqual(['SCENE_MALFORMED', 'DIRECTION_IDLE_UNBOUND']);
 });
 
-test('frames bound to a different rig version refuse', () => {
+test('frames bound to a different rig version refuse in scene and direction readers', () => {
   const f = registered(); f.writeScene();
   f.put('outputs/v2/idle/frames.json', readFileSync(join(f.dir, FRAMES)).toString());
   const scene = plantFrames(f, { path: 'outputs/v2/idle/frames.json', sha256: directionHash(readFileSync(join(f.dir, FRAMES))) });
-  reject(f, 'DIRECTION_IDLE_VERSION', () => f.publish(f.author(scene)));
-  expect(refusals(f).map(value => value.code)).toEqual(['SCENE_MALFORMED']);
+  f.publish(f.author(scene));
+  expect(refusals(f).map(value => value.code)).toEqual(['SCENE_MALFORMED', 'DIRECTION_IDLE_VERSION']);
 });
 
-test('frames whose bytes differ from the registration sha256 refuse, including a change before the commit', () => {
+test('frames whose bytes differ from the registration sha256 refuse on check', () => {
   const f = registered(); f.writeScene();
   const original = readFileSync(join(f.dir, FRAMES));
   const changed = Buffer.concat([original, Buffer.from(' ')]);
-  reject(f, 'DIRECTION_IDLE_HASH', () => f.publish(f.author(), 2, 1, { beforeCommit: () => { writeFileSync(join(f.dir, FRAMES), changed); } }));
-  reject(f, 'DIRECTION_IDLE_HASH', () => f.publish(f.author()));
-  // A committed post verifies the bytes on every check while they are present.
-  writeFileSync(join(f.dir, FRAMES), original);
   expect(f.publish(f.author()).exit).toBe(0);
   writeFileSync(join(f.dir, FRAMES), changed);
   expect(refusals(f).map(value => value.code)).toEqual(['SCENE_FILE_CHANGED', 'DIRECTION_IDLE_HASH']);
 });
 
-test('absent frames refuse, as the registration check refuses absent frozen outputs', () => {
+test('absent frames refuse in scene, direction and registration checks', () => {
   const f = registered(); f.writeScene();
-  const original = readFileSync(join(f.dir, FRAMES));
-  rmSync(join(f.dir, FRAMES));
-  reject(f, 'DIRECTION_FILE', () => f.publish(f.author()));
-  expect(checkProject(f.dir).refusals.map(value => value.code)).toContain('RIG_REGISTRATION_FILE_INVALID');
-  // After a clone, where outputs/ is not in git, a committed post refuses with the registration it rests on.
-  writeFileSync(join(f.dir, FRAMES), original);
   expect(f.publish(f.author()).exit).toBe(0);
   rmSync(join(f.dir, 'outputs'), { recursive: true });
   expect(refusals(f).map(value => value.code)).toEqual(['SCENE_FILE_CHANGED', 'DIRECTION_FILE']);

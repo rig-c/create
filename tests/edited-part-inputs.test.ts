@@ -8,8 +8,9 @@ import { EDITED_PART_INPUTS_SINCE } from '../src/edited-part-inputs.ts';
 import { locateParts } from '../src/parts-sections.ts';
 import type { Finding } from '../src/check.ts';
 import type { JsonObject } from '../src/templates.ts';
-import { checkProject, derivedCommand, draftRigCommand, testClock } from './clock.ts';
+import { checkProject, derivedCommand, testClock } from './clock.ts';
 import { arr, fixture, obj } from './fixtures.ts';
+import { seedRetainedDraft } from './numbered-seed.ts';
 import { seedPartsCliReceipt } from './parts-receipt-fixture.ts';
 
 const CODE = 'DRAFT_EDITED_PART_UNBOUND';
@@ -53,15 +54,10 @@ function report(dir: string, project = read(dir)): { refusals: Finding[]; warnin
   checkDrafts(dir, project, refusals, warnings);
   return { refusals, warnings };
 }
-function refusedWithoutWrite(dir: string, args: string[], code: string): void {
-  const before = readFileSync(join(dir, 'project.json'));
-  expect(() => draftRigCommand(args)).toThrow(expect.objectContaining({ code }));
-  expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
-}
 
-test('a declared edited receipt file is bound by the existing writer and check has no refusals', () => {
+test('a declared edited receipt file is bound in a retained draft and check has no refusals', () => {
   const { dir, args } = editedDraft();
-  const result = draftRigCommand(args);
+  const result = seedRetainedDraft(args, testClock.now());
   expect(result.exit).toBe(0);
   expect((JSON.parse(result.stdout) as JsonObject).config_inputs).toEqual([{ path: INPUT, sha256: sha(PNG) }]);
   expect(report(dir).refusals).toEqual([]);
@@ -87,7 +83,7 @@ test('PART_EDIT_UNCOVERED follows the exact edited receipt input to a later part
   expect(derivedCommand(['add', dir, '--source', 'inputs/preparation-source.svg', '--file', editedPath, '--operation', 'synthetic retouch']).exit).toBe(0);
   const holes = (candidate?: JsonObject) => (checkProject(dir, candidate).holes ?? []).filter(finding => finding.code === 'PART_EDIT_UNCOVERED');
   expect(holes()).toEqual([]);
-  const draft = JSON.parse(draftRigCommand(args).stdout) as JsonObject;
+  const draft = JSON.parse(seedRetainedDraft(args, testClock.now()).stdout) as JsonObject;
   expect(draft.config_inputs).toEqual([{ path: editedPath, sha256: sha(PNG) }]);
   expect(holes()).toEqual([expect.objectContaining({ path: `derived[${index}]`, message: expect.stringContaining('part arm') })]);
 
@@ -108,7 +104,7 @@ test('PART_EDIT_UNCOVERED follows the exact edited receipt input to a later part
 
 test('an edited receipt with a producer object and no editor binds like an editor receipt', () => {
   const editor = editedDraft();
-  const editorResult = draftRigCommand(editor.args);
+  const editorResult = seedRetainedDraft(editor.args, testClock.now());
   expect(editorResult.exit).toBe(0);
   const editorBindings = (JSON.parse(editorResult.stdout) as JsonObject).config_inputs;
   const { dir, args } = editedDraft();
@@ -124,7 +120,7 @@ test('an edited receipt with a producer object and no editor binds like an edito
   obj(obj(obj(arr(manifest.parts)[0]).provenance).edited_part).receipt = receipt;
   put(dir, MANIFEST, JSON.stringify(manifest));
 
-  const result = draftRigCommand(args);
+  const result = seedRetainedDraft(args, testClock.now());
   expect(result.exit).toBe(0);
   const bindings = [{ path: INPUT, sha256: sha(PNG) }];
   expect(editorBindings).toEqual(bindings);
@@ -136,7 +132,7 @@ test('an edited receipt with a producer object and no editor binds like an edito
 for (const defect of ['omitted', 'empty', 'wrong-sha', 'directory'] as const) {
   for (const at of [new Date(Date.parse(EDITED_PART_INPUTS_SINCE) - 1).toISOString(), EDITED_PART_INPUTS_SINCE]) {
     test(`${defect} edited file binding is dated by draft.at=${at}, including with a loader declaring the ref`, () => {
-      const { dir, args } = editedDraft(); draftRigCommand(args);
+      const { dir, args } = editedDraft(); seedRetainedDraft(args, testClock.now());
       const project = read(dir), draft = obj(arr(project.drafts)[0]);
       draft.at = at;
       if (defect === 'omitted') delete draft.config_inputs;
@@ -165,13 +161,12 @@ for (const defect of ['omitted', 'empty', 'wrong-sha', 'directory'] as const) {
       const found = [...result.refusals, ...result.warnings].find(f => f.code === CODE)!;
       expect(found.message).toContain('parts[0] (arm) provenance.edited_part');
       expect(found.message).toContain(defect === 'wrong-sha' ? INPUT : 'arm.png');
-      expect(found.message).toContain('draft-rig');
     });
   }
 }
 
 test('a right-sha regular-file binding at another path is accepted, and two bound files with the same sha tie-break by /<receipt.file> when naming a finding', () => {
-  const { dir, args } = editedDraft(); draftRigCommand(args);
+  const { dir, args } = editedDraft(); seedRetainedDraft(args, testClock.now());
   put(dir, 'inputs/other-arm.png', PNG);
   put(dir, 'inputs/second-copy.png', PNG);
   const project = read(dir), draft = obj(arr(project.drafts)[0]);
@@ -211,20 +206,21 @@ test('a right-sha regular-file binding at another path is accepted, and two boun
   expect(fallback.refusals[0]!.message).toContain(`receipt inputs/other-arm.png at sha256 ${'b'.repeat(64)}`);
 });
 
-test('an install silently omitting the edited reference refuses before draft-rig writes', () => {
+test('an install silently omitting the edited reference refuses in checkDrafts', () => {
   const { dir, args } = editedDraft(false);
-  refusedWithoutWrite(dir, args, CODE);
-  expect(read(dir).drafts).toBeUndefined();
+  seedRetainedDraft(args, Date.parse(EDITED_PART_INPUTS_SINCE));
+  expect(report(dir).refusals.map(f => f.code)).toEqual([CODE]);
 });
 
-test('a receipt sha differing from the bound file refuses before draft-rig writes', () => {
+test('a receipt sha differing from the bound file refuses in checkDrafts', () => {
   const { dir, args } = editedDraft(true, 'b'.repeat(64));
-  refusedWithoutWrite(dir, args, CODE);
+  seedRetainedDraft(args, Date.parse(EDITED_PART_INPUTS_SINCE));
+  expect(report(dir).refusals.map(f => f.code)).toEqual([CODE]);
 });
 
 for (const missing of [false, true]) {
   test(`a recorded edited file that is ${missing ? 'deleted' : 'changed by one byte'} refuses DRAFT_RIG_FILE without changing project.json`, () => {
-    const { dir, args } = editedDraft(); draftRigCommand(args);
+    const { dir, args } = editedDraft(); seedRetainedDraft(args, testClock.now());
     const before = readFileSync(join(dir, 'project.json'));
     if (missing) rmSync(join(dir, INPUT));
     else { const changed = Buffer.from(PNG); changed[changed.length - 1] ^= 1; put(dir, INPUT, changed); }
@@ -234,7 +230,7 @@ for (const missing of [false, true]) {
 }
 
 test('a changed untrusted manifest is refused without interpreting its edited provenance', () => {
-  const { dir, args } = editedDraft(); draftRigCommand(args);
+  const { dir, args } = editedDraft(); seedRetainedDraft(args, testClock.now());
   put(dir, MANIFEST, JSON.stringify({ parts: [{ name: 'untrusted', provenance: { edited_part: {} } }] }));
   const result = report(dir);
   expect(result.refusals.map(f => f.code)).toContain('DRAFT_RIG_FILE');
@@ -242,7 +238,7 @@ test('a changed untrusted manifest is refused without interpreting its edited pr
 });
 
 test('regenerable manifest absence keeps the existing unavailable warning and invents no receipt', () => {
-  const { dir, args } = editedDraft(); draftRigCommand(args);
+  const { dir, args } = editedDraft(); seedRetainedDraft(args, testClock.now());
   rmSync(join(dir, MANIFEST));
   const result = report(dir);
   expect(result.refusals).toEqual([]);
@@ -255,6 +251,6 @@ test('pixel change figures are producer data and are not recalculated by the rec
   const edit = obj(obj(obj(arr(manifest.parts)[0]).provenance).edited_part);
   edit.changed_px = 999; edit.removed_opaque_px = 888;
   put(dir, MANIFEST, JSON.stringify(manifest));
-  expect(draftRigCommand(args).exit).toBe(0);
+  expect(seedRetainedDraft(args, testClock.now()).exit).toBe(0);
   expect(report(dir).refusals).toEqual([]);
 });

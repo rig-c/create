@@ -60,7 +60,7 @@ function setup(density?: number, reopen = true, productionParts = false): string
     testClock.set(new Date('2026-11-20T00:00:00Z'));
   }
   if (!reopen) return dir;
-  draftRigCommand(['shape', dir, '--config', `${root}/config.json`, '--from', `${root}/out`, '--parts', `${root}/input`]);
+  seedRetainedDraft(['shape', dir, '--config', `${root}/config.json`, '--from', `${root}/out`, '--parts', `${root}/input`], testClock.now());
   recordPartsReceipt(dir, 'shape', testClock.now());
   diffClassesCommand([dir, '--diff-report', EXAMPLE_DIFF_REPORT, '--component', 'p10-n3=in-painting:synthetic', '--component', 'p1000-n3=in-painting:synthetic', '--by', 'agent']);
   const draft = obj(arr(read(dir).drafts)[0]);
@@ -172,7 +172,8 @@ test.each([false, true])('structure writer refuses ignored storage, including a 
   try { partsSign(dir, 'shape', path); throw Error('expected refusal'); } catch (error) { expect((error as Refusal).code).toBe('STRUCTURE_DECISIONS_INVALID'); }
   expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
 });
-import { checkProject, diffClassesCommand, draftRigCommand, advanceCommand, inputCommand, stepStatusCommand, signoffCommand, testClock } from './clock.ts';
+import { checkProject, diffClassesCommand, advanceCommand, inputCommand, stepStatusCommand, signoffCommand, testClock } from './clock.ts';
+import { seedRetainedDraft, seedRetainedRigVersion } from './numbered-seed.ts';
 
 test('reopen and re-approved density preserve v1 and bind v2 to its own build-time structure', () => {
   const dir = setup(10); partsSign(dir); freshRigInterview(dir);
@@ -203,7 +204,7 @@ test('reopen and re-approved density preserve v1 and bind v2 to its own build-ti
   writeReviewedInput(dir, root);
   writeFileSync(join(dir, `${root}/input/recomposite_rig.png`), readFileSync(join(dir, 'derived/parts/rig/recomposite_rig.png')));
   for (const file of ['rig.json', 'motion.json', 'mesh_report.json']) write(dir, `${root}/out/${file}`, '{}');
-  draftRigCommand(['revised', dir, '--config', `${root}/config.json`, '--from', `${root}/out`, '--parts', `${root}/input`]);
+  seedRetainedDraft(['revised', dir, '--config', `${root}/config.json`, '--from', `${root}/out`, '--parts', `${root}/input`], testClock.now());
   p = read(dir); const draft = obj(arr(p.drafts).at(-1));
   expect(previousPartsApproval(dir, p, 'revised')?.draft_id).toBe('shape');
   write(dir, 'evidence/revised-structure.json', JSON.stringify({ schema: STRUCTURE_SCHEMA, draft_id: 'revised', config: draft.config, entries: [{ path: '/meshes/torso', value: { density: 20 } }] }));
@@ -248,7 +249,7 @@ test('previous parts approval selects the latest eligible signature and honors l
 test('live bound plan bases nulled during adoption stay refused by check; the carried refusal does not block a draft', () => {
   const dir = setup(undefined, false);
   const carried = checkProject(dir).refusals.filter(f => f.code === 'SIGNOFF_ANSWERS_STALE').map(f => f.path);
-  draftRigCommand(['shape', dir, '--config', 'derived/drafts/shape/config.json', '--from', 'derived/drafts/shape/out', '--parts', 'derived/drafts/shape/input']);
+  seedRetainedDraft(['shape', dir, '--config', 'derived/drafts/shape/config.json', '--from', 'derived/drafts/shape/out', '--parts', 'derived/drafts/shape/input'], testClock.now());
   expect(arr(read(dir).drafts).map(d => obj(d).id)).toContain('shape');
   const stale = checkProject(dir).refusals.filter(f => f.code === 'SIGNOFF_ANSWERS_STALE');
   expect(stale.map(f => f.path)).toEqual(carried);
@@ -311,11 +312,11 @@ test.each(['valid', 'missing', 'early', 'unchanged'])('rig registration structur
   const args = ['1', dir, '--parts', 'source/parts', '--rig', 'source/rig', '--build', 'source/build', '--idle', 'source/idle', '--config', 'source/config.json', '--path-adapter', 'source/adapter.json', '--compile-report', 'source/compile-report.json', '--toolchain-lock', 'source/package-lock.json', '--run-record', 'source/run.json', '--at-source', 'source/at-source.json', '--at-pointer', '/finished_at', '--citations', 'source/citations.json', '--by', 'registrant'];
   if (mode === 'missing' || mode === 'early') {
     // #981: a build no longer waits for a rigging-interview approval of its structure.
-    expect(rigVersionCommand(args).exit).toBe(0);
+    expect(seedRetainedRigVersion(args, testClock.now()).exit).toBe(0);
     expect(readFileSync(join(dir, 'project.json'))).not.toEqual(before);
     return;
   }
-  expect(rigVersionCommand(args).exit).toBe(0);
+  expect(seedRetainedRigVersion(args, testClock.now()).exit).toBe(0);
   const p = read(dir); const provenance = obj(obj(arr(p.versions)[0]).provenance);
   if (mode === 'unchanged') {
     expect(provenance.structure_delta).toBeUndefined();
@@ -334,6 +335,5 @@ test.each(['valid', 'missing', 'early', 'unchanged'])('rig registration structur
   expect(checkProject(dir).refusals.map(f => f.code)).toContain('STRUCTURE_DELTA_MISMATCH');
 });
 
-import { rigVersionCommand } from './clock.ts';
 import { interviewCommand } from '../src/interview.ts';
 import { nextProject } from '../src/next.ts';

@@ -7,11 +7,11 @@ import type { JobAct, JobPartOutcome, JobVerdict } from '../node_modules/@rig-c/
 import { loadPartsView, verdictSource } from '../node_modules/@rig-c/review/src/parts-view.ts';
 import { partsDraftEditable } from '../node_modules/@rig-c/review/src/interview-project.ts';
 import { JOB_COMMENTS_ACT_SCHEMA, PARTS_COMMENTS_VERDICT_SCHEMA, projectComments, startJobHost, type JobComment, type JobOwnerHost } from '@rig-c/review/job-host';
-import { openCreateJob, openDraftPublication, reconcileCreateJob } from '../src/job-host.ts';
+import { openCreateJob, reconcileCreateJob } from '../src/job-host.ts';
 import { agentCall } from '../src/job-acts.ts';
 import { draftPublishedContext, partsEnumerator, prepareDraftManifest, readPublished } from '../src/job-publication.ts';
 import { acknowledgePublication, enqueuePublication, jobHash, jobHostStateRoot, pendingPublications, readWriterBinding, reconcilePublication } from '../src/job-outbox.ts';
-import { jobRuntimeExecArgv, publishCommittedVersion, takePendingNotices } from '../src/job-writer.ts';
+import { jobRuntimeExecArgv, prepareDraftIntent, publishCommittedVersion, takePendingNotices } from '../src/job-writer.ts';
 import { checkProject, collectItems } from '../src/check.ts';
 import { optionContext } from '../src/choices.ts';
 import { interviewOptionsCommand, interviewAnswerCommand } from '../src/choice-writers.ts';
@@ -27,7 +27,8 @@ import { nextProject } from '../src/next.ts';
 import { signoffCommand } from '../src/signoff.ts';
 import { structureSnapshotCommand } from '../src/structure-snapshot.ts';
 import { assertPartsActSource, partsActDraftHash, partsActFindings } from '../src/parts-act.ts';
-import { PARTS_CLI_RECEIPT, latestPartsReceipt, latestPartsVerdictStatus, partsReadFindings, partsVerdictNames, recordedPartsVerdict } from '../src/parts-verdict-record.ts';
+import { seedRetainedDraft } from './numbered-seed.ts';
+import { latestPartsReceipt, latestPartsVerdictStatus, partsReadFindings, recordedPartsVerdict } from '../src/parts-verdict-record.ts';
 import { decodeReviewAct, partsActIssues, reviewActFindings, type PartsVerdictActV5 } from '../src/review-act.ts';
 import { EXAMPLE_ANCHOR, EXAMPLE_NOW } from '../scripts/example-time.ts';
 import { seedStoredPartsSignoff, seedStoredPartsVerdictAct, seedStoredSignoffAct } from './historical-review-fixture.ts';
@@ -112,7 +113,7 @@ function expectCliRefused(result: CliResult, code: string, exit = 1): CliResult 
   return result;
 }
 
-const draftArgs = (id = 'chain') => ['draft-rig', id, '--config', `derived/drafts/${id}/config.json`, '--from', `derived/drafts/${id}/out`, '--parts', `derived/drafts/${id}/input`, '--json'];
+const draftArgs = (root: string, id = 'chain') => [id, root, '--config', `derived/drafts/${id}/config.json`, '--from', `derived/drafts/${id}/out`, '--parts', `derived/drafts/${id}/input`, '--json'];
 async function openHistoricalPartsJob(root: string, reviewer = 'synthetic-owner') {
   return openCreateJob(root, { id: reviewer, role: 'owner' }, Date.now(), options => startJobHost({
     ...options,
@@ -151,8 +152,8 @@ async function bound(ready = true, reviewer = 'synthetic-owner') {
   const root = fixture();
   const host = await openHistoricalPartsJob(root, reviewer);
   hosts.push(host);
-  const result = expectCliOk(await cli(root, draftArgs()));
-  expect(result.stderr).toBe(''); expect(result.exit).toBe(0);
+  const result = seedRetainedDraft(draftArgs(root), Date.now());
+  expect(result.exit).toBe(0);
   await publishHistoricalDraft(root, host, 'chain');
   expect(host.session.status().publication?.source.selector).toEqual({ kind: 'draft', id: 'chain' });
   expect(host.session.status().publication!.source.parts!.images.map(({ path, role }) => ({ path, role })))
@@ -485,9 +486,11 @@ test('a new-id rebuild with failed publication retries through job reconcile', a
   writeFileSync(join(root, 'evidence/structure-rebuilt.json'), JSON.stringify(snapshot));
   writeFileSync(join(root, 'review-draft-rebuilt.json'), '{}\n');
   // View-only draft registration defers auto-publish; publishCommittedVersion defers into the outbox on manifest conflict (create#844).
-  const recordedRebuild = await cli(root, draftArgs('rebuilt'));
-  expect({ exit: recordedRebuild.exit, code: recordedRebuild.code }).toEqual({ exit: 0, code: null });
-  expect((JSON.parse(recordedRebuild.stdout) as { publication: { status: string } }).publication.status).toBe('deferred');
+  expect(seedRetainedDraft(draftArgs(root, 'rebuilt'), Date.now()).exit).toBe(0);
+  expect(prepareDraftIntent(root, readFileSync(join(root, 'project.json')), 'rebuilt')).toMatchObject({
+    intent: null,
+    deferred: expect.stringContaining('no owner ask is ready'),
+  });
   expect((read(root).drafts as JsonObject[]).map(draft => draft.id)).toEqual(['chain', 'rebuilt']);
   publishCommittedVersion(root, 'rebuilt');
   const notices = takePendingNotices();
@@ -499,15 +502,17 @@ test('a new-id rebuild with failed publication retries through job reconcile', a
   expect(await reconcileCreateJob(root)).toBe(1);
   expect(host.session.status().publication!.source.selector).toEqual({ kind: 'draft', id: 'rebuilt' });
   expectCliOk(await cli(root, ['job', 'close']));
-  const before = readFileSync(join(root, 'project.json'));
-  const duplicate = expectCliRefused(await cli(root, draftArgs('rebuilt')), 'DRAFT_RIG_MALFORMED');
-  expect(duplicate.exit).toBe(1); expect(duplicate.stderr).toContain('DRAFT_RIG_MALFORMED:');
-  expect(readFileSync(join(root, 'project.json'))).toEqual(before);
+  const current = read(root);
+  const duplicateCandidate: JsonObject = {
+    ...current,
+    drafts: [...(current.drafts as JsonObject[]), (current.drafts as JsonObject[])[1]!],
+  };
+  expect(checkProject(root, duplicateCandidate).refusals.map(f => f.code)).toContain('DRAFT_RIG_MALFORMED');
 }, MULTI_SPAWN_TIMEOUT_MS);
 
-test('unbound draft registration allocates no job outbox', async () => {
+test('unbound draft seed allocates no job outbox', () => {
   const root = fixture();
-  const result = expectCliOk(await cli(root, draftArgs()));
+  const result = seedRetainedDraft(draftArgs(root), Date.now());
   expect(result.exit).toBe(0);
   expect(existsSync(join(root, '.rig-create-review'))).toBe(false);
   expect(read(root).review_job).toBeUndefined();
@@ -547,7 +552,7 @@ test('standalone draft without a compiled model publishes through image referenc
   rmSync(join(root, 'derived/drafts/chain/out/check'), { recursive: true });
   const host = await openHistoricalPartsJob(root, 'synthetic-owner');
   hosts.push(host);
-  expect(expectCliOk(await cli(root, draftArgs())).exit).toBe(0);
+  expect(seedRetainedDraft(draftArgs(root), Date.now()).exit).toBe(0);
   await publishHistoricalDraft(root, host, 'chain');
   expect(host.session.status().publication!.source.model).toBeNull();
   await readyForVerdict(root, host);
@@ -564,8 +569,8 @@ test('build-root draft binds its own parts inventory and compiled output', async
   rmSync(join(draft, 'build/rig/check'), { recursive: true });
   const host = await openHistoricalPartsJob(root, 'synthetic-owner');
   hosts.push(host);
-  const result = expectCliOk(await cli(root, ['draft-rig', 'chain', '--config', 'derived/drafts/chain/config.json', '--from', 'derived/drafts/chain/build']));
-  expect(result.stderr).toBe(''); expect(result.exit).toBe(0);
+  const result = seedRetainedDraft(['chain', root, '--config', 'derived/drafts/chain/config.json', '--from', 'derived/drafts/chain/build'], Date.now());
+  expect(result.exit).toBe(0);
   await publishHistoricalDraft(root, host, 'chain');
   expect(host.session.status().publication!.source.parts!.manifest.path).toBe('derived/drafts/chain/build/parts.json');
   expect(host.session.status().publication!.source.model!.path).toBe('derived/drafts/chain/build/check/build/skeleton.model.json');

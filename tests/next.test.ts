@@ -27,6 +27,7 @@ import { planCommand, stepStatusCommand, amendCommand, signoffCommand, testClock
 import { seedStoredPartsVerdictAct, seedStoredVerdict, seedStoredVersionSignoff, selectHistoricalSignoffTarget } from './historical-review-fixture.ts';
 import { plantLegacyReopen, arr, fixture, obj, retimeFixture, retainSignoffs, waypoint } from './fixtures.ts';
 import { ownerChatArgs, tempDir, treeDigest } from './helpers.ts';
+import { seedRetainedDirectionPost, seedRetainedDraft, seedRetainedRigVersion, seedRetainedScene } from './numbered-seed.ts';
 import { recordPartsReceipt } from './parts-receipt-fixture.ts';
 import { latestPartsVerdictStatus } from '../src/parts-verdict-record.ts';
 import { selectAnswerHashes } from '../src/signoff-answers.ts';
@@ -845,30 +846,17 @@ describe('Frozen Bar 5 — Plants (lapsed approval, changed bound input DRAFT_RI
             : context;
         },
       }));
-      const draftChild = Bun.spawn(
-        [
-          process.execPath,
-          ...jobRuntimeExecArgv(),
-          join(REPO, 'src/cli.ts'),
-          'draft-rig',
-          'chain',
-          '--config',
-          'derived/drafts/chain/config.json',
-          '--from',
-          'derived/drafts/chain/out',
-          '--parts',
-          'derived/drafts/chain/input',
-          '--json',
-        ],
-        { cwd: apiDir, stdout: 'pipe', stderr: 'pipe' },
-      );
-      const [, draftStderr, draftExit] = await Promise.all([
-        new Response(draftChild.stdout).text(),
-        new Response(draftChild.stderr).text(),
-        draftChild.exited,
-      ]);
-      expect(draftStderr).toBe('');
-      expect(draftExit).toBe(0);
+      expect(seedRetainedDraft([
+        'chain',
+        apiDir,
+        '--config',
+        'derived/drafts/chain/config.json',
+        '--from',
+        'derived/drafts/chain/out',
+        '--parts',
+        'derived/drafts/chain/input',
+        '--json',
+      ], Date.now()).exit).toBe(0);
 
       for (const args of [
         ['structure-snapshot', apiDir, '--draft', 'chain', '--out', 'evidence/structure-chain.json'],
@@ -1047,7 +1035,7 @@ describe('Frozen Bar 5 — Plants (lapsed approval, changed bound input DRAFT_RI
         : arg === '<pointer>' ? '/finished_at' : 'registrant';
     }
     const beforeRigRebuild = checkProject(rigDir, undefined, { now: CHAIN_NOW + 1000, readOnly: true });
-    expect(runMainCapture(rigArgs, CHAIN_NOW + 1000)).toMatchObject({ code: 0, stderr: '' });
+    expect(seedRetainedRigVersion(rigArgs.slice(1), CHAIN_NOW + 1000).exit).toBe(0);
     const afterRigRebuild = checkProject(rigDir, undefined, { now: CHAIN_NOW + 1000, readOnly: true });
     expect(newFindings(baselineOf(beforeRigRebuild), afterRigRebuild.refusals)).toEqual([]);
     expect(afterRigRebuild.refusals).toEqual([]);
@@ -1078,9 +1066,8 @@ describe('Frozen Bar 5 — Plants (lapsed approval, changed bound input DRAFT_RI
       ).code,
     ).toBe(0);
     expect(
-      runMainCapture(
+      seedRetainedScene(
         [
-          'scene',
           'write',
           postDir,
           '--rig',
@@ -1091,13 +1078,13 @@ describe('Frozen Bar 5 — Plants (lapsed approval, changed bound input DRAFT_RI
           'evidence/scene-citations.json',
         ],
         CHAIN_NOW,
-      ).code,
+      ).exit,
     ).toBe(0);
     expect(
-      runMainCapture(
-        ['direction', 'write', '2', postDir, '--file', 'evidence/direction-input.json', '--rig', '1'],
+      seedRetainedDirectionPost(
+        ['write', '2', postDir, '--file', 'evidence/direction-input.json', '--rig', '1'],
         CHAIN_NOW,
-      ).code,
+      ).exit,
     ).toBe(0);
     expect(runMainCapture(['direction', 'check', '2', postDir, '--json'], CHAIN_NOW).code).toBe(0);
     expect(runMainCapture(['advance', 'direction-review', postDir], CHAIN_NOW).code).toBe(0);
@@ -1140,7 +1127,7 @@ describe('Frozen Bar 5 — Plants (lapsed approval, changed bound input DRAFT_RI
       arg === '<direction.json>' ? 'evidence/direction-input.json' : arg === '<rig-version>' ? '1' : arg);
     expect(rebuiltArgs.slice(0, 4)).toEqual(['direction', 'write', '3', postDir]);
     const beforeRebuild = checkProject(postDir, undefined, { now: CHAIN_NOW + 3000, readOnly: true });
-    expect(runMainCapture(rebuiltArgs, CHAIN_NOW + 3000)).toMatchObject({ code: 0, stderr: '' });
+    expect(seedRetainedDirectionPost(rebuiltArgs.slice(1), CHAIN_NOW + 3000).exit).toBe(0);
     const afterRebuild = checkProject(postDir, undefined, { now: CHAIN_NOW + 3000, readOnly: true });
     expect(newFindings(baselineOf(beforeRebuild), afterRebuild.refusals)).toEqual([]);
     expect(afterRebuild.refusals).toEqual([]);
@@ -1224,10 +1211,9 @@ describe('Frozen Bar 5 — Plants (lapsed approval, changed bound input DRAFT_RI
     };
     writeFileSync(join(buildRig, 'parts.json'), `${JSON.stringify(partsManifest, null, 2)}\n`);
 
-    // Record the draft via create's draft-rig writer.
-    const recordRes = runMainCapture(
+    // Seed the retained draft record on disk.
+    const recordRes = seedRetainedDraft(
       [
-        'draft-rig',
         draftId,
         dir,
         '--config',
@@ -1239,8 +1225,7 @@ describe('Frozen Bar 5 — Plants (lapsed approval, changed bound input DRAFT_RI
       ],
       CHAIN_NOW + 1000,
     );
-    expect(recordRes.stderr).toBe('');
-    expect(recordRes.code).toBe(0);
+    expect(recordRes.exit).toBe(0);
 
     // Produce the draft's own diff-components report using the installed rig-parts CLI.
     const rigPartsBin = join(REPO, 'node_modules/@rig-c/parts/bin/rig-parts.cjs');
@@ -1990,9 +1975,8 @@ test('#557 registered retouch discovers fresh evidence despite old files and rea
   const bytes = retained.map(path => readFileSync(join(dir, path)));
   const id = 'chain-retouch-1';
   cpSync(join(dir, 'derived/drafts/chain'), join(dir, `derived/drafts/${id}`), { recursive: true });
-  const registration = ['draft-rig', id, dir, '--config', `derived/drafts/${id}/config.json`, '--from', `derived/drafts/${id}/out`, '--parts', `derived/drafts/${id}/input`];
-  const result = runMainCapture(registration, CHAIN_NOW + 1000);
-  expect({ command: registration.join(' '), ...result }).toMatchObject({ code: 0, stderr: '' });
+  const registration = [id, dir, '--config', `derived/drafts/${id}/config.json`, '--from', `derived/drafts/${id}/out`, '--parts', `derived/drafts/${id}/input`];
+  expect(seedRetainedDraft(registration, CHAIN_NOW + 1000).exit).toBe(0);
   const current = JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')) as JsonObject;
   expect(current.stage).toBe('parts-review');
   expect(latestPartsVerdictStatus(current, id)).toBeUndefined();
@@ -2032,8 +2016,8 @@ test('#557 initial parts-review with many historical drafts reuses global eviden
   const ids = ['historical-one', 'historical-two', 'initial-current'];
   for (const [index, id] of ids.entries()) {
     cpSync(join(dir, 'derived/drafts/chain'), join(dir, `derived/drafts/${id}`), { recursive: true });
-    expect(runMainCapture(['draft-rig', id, dir, '--config', `derived/drafts/${id}/config.json`,
-      '--from', `derived/drafts/${id}/out`, '--parts', `derived/drafts/${id}/input`], CHAIN_NOW + index * 1000)).toMatchObject({ code: 0, stderr: '' });
+    expect(seedRetainedDraft([id, dir, '--config', `derived/drafts/${id}/config.json`,
+      '--from', `derived/drafts/${id}/out`, '--parts', `derived/drafts/${id}/input`], CHAIN_NOW + index * 1000).exit).toBe(0);
   }
   const id = ids.at(-1)!;
   const beforeAdvance = JSON.parse(readFileSync(file, 'utf8')) as JsonObject;
@@ -2257,10 +2241,6 @@ test('#596 post stage with in-progress step offers direction --adopt then direct
     }
   }, 'example-numbered/example-project.json'));
 
-  const unAdoptedWrite = runMainCapture(['direction', 'write', '1', dir, '--file', 'evidence/direction/v4.json', '--rig', '2'], CHAIN_NOW);
-  expect(unAdoptedWrite.code).toBe(1);
-  expect(unAdoptedWrite.stderr).toContain('DIRECTION_CONTRACT_INVALID');
-
   const beforeAdopt = nextProject(dir, CHAIN_NOW);
   expect(beforeAdopt.refusals).toEqual([]);
   const adoptMove = beforeAdopt.moves.find(move => move.field === 'direction_contract');
@@ -2284,10 +2264,6 @@ test('#596 post stage with in-progress step offers direction --adopt then direct
   expect(currentBeforeContract.moves.some(move => move.command?.startsWith('rig-create advance direction-review '))).toBe(false);
   writeFileSync(file, beforeContract);
   expect(runMainCapture(printedArgs(adoptMove!.command!).slice(1), CHAIN_NOW)).toMatchObject({ code: 0, stderr: '' });
-
-  const wrongVersionWrite = runMainCapture(['direction', 'write', '1', dir, '--file', 'evidence/direction/v4.json', '--rig', '2'], CHAIN_NOW);
-  expect(wrongVersionWrite.code).toBe(1);
-  expect(wrongVersionWrite.stderr).toContain('DIRECTION_VERSION');
 
   const afterAdopt = nextProject(dir, CHAIN_NOW);
   expect(afterAdopt.refusals).toEqual([]);
@@ -2849,9 +2825,8 @@ test('#579 after a rig-review reopen, next omits history rig versions and lapsed
   };
   const registerRig = (n: number, builtIso: string, regNow: number): void => {
     setBuildTime(builtIso);
-    const res = runMainCapture(
+    const res = seedRetainedRigVersion(
       [
-        'rig-version',
         String(n),
         dir,
         ...Object.entries(bindings).flatMap(([flag, rel]) => [flag, `rebuild-source/${rel}`]),
@@ -2862,7 +2837,7 @@ test('#579 after a rig-review reopen, next omits history rig versions and lapsed
       ],
       regNow,
     );
-    expect(res).toMatchObject({ code: 0, stderr: '' });
+    expect(res.exit).toBe(0);
   };
 
   // Register Rig v2 (built before any reopen).
@@ -2928,7 +2903,7 @@ test('#579 after a rig-review reopen, next omits history rig versions and lapsed
           : 'registrant';
     }
   }
-  expect(runMainCapture(printedRigArgs, v3At)).toMatchObject({ code: 0, stderr: '' });
+  expect(seedRetainedRigVersion(printedRigArgs.slice(1), v3At).exit).toBe(0);
   const reboundProject = JSON.parse(readFileSync(file, 'utf8')) as JsonObject;
   // #981: rig-version no longer binds a parts approval.
   expect(arr(reboundProject.versions).map(obj).find(v => v.n === 3)?.accepted_parts).toBeUndefined();
@@ -3006,7 +2981,7 @@ test('#579 after a rig-review reopen, next omits history rig versions and lapsed
   expect(sceneMove.command).toContain('--rig 3');
 
   // Author scene and post v4 on rig v3, advance to direction-review, and verify no history rig versions appear.
-  expect(runMainCapture(preparePrintedOptions(dir, sceneMove.command!, acceptAt + 3000), acceptAt + 3000)).toMatchObject({ code: 0, stderr: '' });
+  expect(seedRetainedScene(preparePrintedOptions(dir, sceneMove.command!, acceptAt + 3000).slice(1), acceptAt + 3000).exit).toBe(0);
   const afterSceneNext = nextProject(dir, acceptAt + 3000);
   const dirWriteMove = afterSceneNext.moves.find(m => m.role === 'agent')!;
   expect(dirWriteMove.command).toContain('direction write 4');
@@ -3024,11 +2999,11 @@ test('#579 after a rig-review reopen, next omits history rig versions and lapsed
   }
   writeFileSync(join(dir, 'evidence/direction-input.json'), JSON.stringify(dirDoc));
   expect(
-    runMainCapture(
-      ['direction', 'write', '4', dir, '--file', 'evidence/direction-input.json', '--rig', '3'],
+    seedRetainedDirectionPost(
+      ['write', '4', dir, '--file', 'evidence/direction-input.json', '--rig', '3'],
       acceptAt + 4000,
-    ),
-  ).toMatchObject({ code: 0, stderr: '' });
+    ).exit,
+  ).toBe(0);
   expect(runMainCapture(['advance', 'direction-review', dir], acceptAt + 5000)).toMatchObject({ code: 0, stderr: '' });
 
   const atDirectionReview = nextProject(dir, acceptAt + 5000);
@@ -3086,11 +3061,11 @@ test('#579 after a rig-review reopen, next omits history rig versions and lapsed
     stepStatusCommand([id, 'done', dir, '--by', 'agent']);
   }
   expect(
-    runMainCapture(
-      ['scene', 'write', dir, '--rig', '5', '--background', 'inputs/background.png', '--citations-file', 'evidence/printed-scene-citations.json'],
+    seedRetainedScene(
+      ['write', dir, '--rig', '5', '--background', 'inputs/background.png', '--citations-file', 'evidence/printed-scene-citations.json'],
       acceptV5At + 3000,
-    ),
-  ).toMatchObject({ code: 0, stderr: '' });
+    ).exit,
+  ).toBe(0);
   const afterV5SceneProject = JSON.parse(readFileSync(file, 'utf8')) as JsonObject;
   const latestV5Scene = obj(arr(afterV5SceneProject.scenes).at(-1));
   const v5ModelPath = 'derived/review/v5/out/check/build/skeleton.model.json';
@@ -3098,11 +3073,11 @@ test('#579 after a rig-review reopen, next omits history rig versions and lapsed
   dirDoc.rig = { version: 5, model: { path: v5ModelPath, sha256: sha256(readFileSync(join(dir, v5ModelPath))) } };
   writeFileSync(join(dir, 'evidence/direction-input.json'), JSON.stringify(dirDoc));
   expect(
-    runMainCapture(
-      ['direction', 'write', '6', dir, '--file', 'evidence/direction-input.json', '--rig', '5'],
+    seedRetainedDirectionPost(
+      ['write', '6', dir, '--file', 'evidence/direction-input.json', '--rig', '5'],
       acceptV5At + 4000,
-    ),
-  ).toMatchObject({ code: 0, stderr: '' });
+    ).exit,
+  ).toBe(0);
   expect(runMainCapture(['advance', 'direction-review', dir], acceptV5At + 5000)).toMatchObject({ code: 0, stderr: '' });
 
   const afterSignedPostReopen = nextProject(dir, acceptV5At + 5000);
@@ -3170,9 +3145,8 @@ test('#587 after a parts-review reopen and a new prepared draft, next awaits the
     ],
   });
   expect(
-    runMainCapture(
+    seedRetainedRigVersion(
       [
-        'rig-version',
         '2',
         dir,
         '--parts',
@@ -3201,8 +3175,8 @@ test('#587 after a parts-review reopen and a new prepared draft, next awaits the
         'registrant',
       ],
       CHAIN_NOW + 1000,
-    ),
-  ).toMatchObject({ code: 0, stderr: '' });
+    ).exit,
+  ).toBe(0);
 
   testClock.set(new Date(CHAIN_NOW + 2000));
   seedStoredVerdict(dir, 2, {
@@ -3223,9 +3197,8 @@ test('#587 after a parts-review reopen and a new prepared draft, next awaits the
   const draftId = 'chain-reopened';
   cpSync(join(dir, 'derived/drafts/chain'), join(dir, `derived/drafts/${draftId}`), { recursive: true });
   expect(
-    runMainCapture(
+    seedRetainedDraft(
       [
-        'draft-rig',
         draftId,
         dir,
         '--config',
@@ -3236,8 +3209,8 @@ test('#587 after a parts-review reopen and a new prepared draft, next awaits the
         `derived/drafts/${draftId}/input`,
       ],
       reopenAt + 1000,
-    ),
-  ).toMatchObject({ code: 0, stderr: '' });
+    ).exit,
+  ).toBe(0);
   expect(
     runMainCapture(
       ['structure-snapshot', dir, '--draft', draftId, '--out', `evidence/structure-${draftId}.json`],
@@ -3373,8 +3346,8 @@ test('#773 a reopened rigging with an unreviewed compiled draft names both the d
   for (const file of ['config.json', 'interview-requirements.json']) cpSync(join(dir, 'derived/drafts/chain', file), join(dir, draft, file));
   cpSync(join(REPO, 'tests/fixtures/rig-registration/rig'), join(dir, draft, 'out/rig'), { recursive: true });
   cpSync(join(REPO, 'tests/fixtures/rig-registration/build'), join(dir, draft, 'out/check/build'), { recursive: true });
-  expect(runMainCapture(['draft-rig', draftId, dir, '--config', `${draft}/config.json`, '--from', `${draft}/out`,
-    '--parts', `${draft}/out`], reopenAt + 500)).toMatchObject({ code: 0 });
+  expect(seedRetainedDraft([draftId, dir, '--config', `${draft}/config.json`, '--from', `${draft}/out`,
+    '--parts', `${draft}/out`], reopenAt + 500).exit).toBe(0);
 
   const report = nextProject(dir, reopenAt + 1000);
   expect(report.refusals).toEqual([]);

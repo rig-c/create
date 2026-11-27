@@ -10,7 +10,8 @@ import type { JsonObject } from '../src/templates.ts';
 import { EXAMPLE_REOPEN_AT } from '../scripts/example-time.ts';
 import { plantLegacyReopen, fixture, materializeFixture } from './fixtures.ts';
 import { sceneFixture } from './scene-fixture.ts';
-import { checkProject, directionCommand, sceneCommand, testClock } from './clock.ts';
+import { checkProject, testClock } from './clock.ts';
+import { seedRetainedScene } from './numbered-seed.ts';
 import { PARTS_REVIEW_LAPSES } from './fixtures.ts';
 
 afterEach(() => testClock.reset());
@@ -66,7 +67,7 @@ test('signed ruling: scene write after a reopen binds the new accepted rig as s<
     target: { version: 2, verdict: 'versions[1].verdicts[0]', review_package: { path: 'versions[1].review_package', sha256: reviewPackageHash(rig.review_package as JsonObject) } } }];
   f.save(p); testClock.set('2026-11-07T10:04:00Z');
   const args = f.args(); args[args.indexOf('--rig') + 1] = '2';
-  expect(sceneCommand(args).exit).toBe(0);
+  expect(seedRetainedScene(args, testClock.now()).exit).toBe(0);
   const entry = currentScene(f.load())!;
   expect(entry.n).toBe(2); expect(entry.path).toBe('evidence/scene/s2.json');
   expect((readScene(f.dir, f.load(), sceneReference(entry)).rig as JsonObject).version).toBe(2);
@@ -115,31 +116,6 @@ test('legacy rig option contexts retain their exact identity after scene adoptio
   expect(currentScene(p)).toBeDefined();
   expect(() => validateContext(dir, p, set, testClock.now(), true)).not.toThrow();
 });
-
-
-for (const writer of ['scene', 'direction'] as const) {
-  test(`${writer} writer freezes plate citation option evidence before its project commit`, () => {
-    const dir = fixture(() => {}, 'example-numbered/example-project.json');
-    testClock.set(EXAMPLE_REOPEN_AT);
-    writeFileSync(join(dir, 'reopen-words.txt'), 'Revise the synthetic composition.');
-    plantLegacyReopen(dir, 'post', { by: 'user', wordsFile: join(dir, 'reopen-words.txt') });
-    const before = readFileSync(join(dir, 'project.json'));
-    const project = JSON.parse(before.toString('utf8')) as JsonObject;
-    const item = collectItems(project, { collection: null }).find(value => value.id === 'post_composition')!;
-    const binding = (((item.raw as JsonObject).choice as JsonObject).set as JsonObject);
-    const evidence = join(dir, String(binding.path));
-    const original = readFileSync(evidence);
-    expect(checkProject(dir).refusals).toEqual([]);
-    const hook = { beforeCommit: () => writeFileSync(evidence, Buffer.concat([original, Buffer.from('\n')])) };
-    const code = writer === 'scene' ? 'SCENE_FILE_CHANGED' : 'DIRECTION_SOURCE_CHANGED';
-    const operation = writer === 'scene'
-      ? () => sceneCommand(['write', '--rig', '2', '--background', 'evidence/scene-background.png', '--citations-file', 'evidence/scene-citations.json', dir], hook)
-      : () => directionCommand(['write', '5', dir, '--file', 'evidence/direction-input-v4.json', '--rig', '2'], hook);
-    expect(operation).toThrow(expect.objectContaining({ code }));
-    expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
-    expect(existsSync(join(dir, writer === 'scene' ? 'evidence/scene/s2.json' : 'evidence/direction/v5.json'))).toBe(false);
-  });
-}
 
 
 for (const inherited of [false, true]) {

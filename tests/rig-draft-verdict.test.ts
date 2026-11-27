@@ -6,7 +6,6 @@ import { join } from 'node:path';
 import { startJobHost, type JobSubject } from '@rig-c/review/job-host';
 import { EXAMPLE_NOW, EXAMPLE_SOURCE_DATE_EPOCH } from '../scripts/example-time.ts';
 import { checkProject } from '../src/check.ts';
-import { draftRigCommand } from '../src/drafts.ts';
 import { acknowledgePublication, enqueuePublication, jobHash, jobHostStateRoot, pendingPublications, readAcknowledgedPublication, readWriterBinding, reconcilePublication } from '../src/job-outbox.ts';
 import { askDeclaredSubjects, openCreateJob } from '../src/job-host.ts';
 import { draftPackageIdentity, prepareDraftManifest, publishedSourcePainting, readPublished } from '../src/job-publication.ts';
@@ -16,6 +15,7 @@ import { nextProject } from '../src/next.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { staleRecordPlant, treeDigest } from './helpers.ts';
 import { meshEdits } from './mesh-edit-fixture.ts';
+import { seedRetainedDraft, seedRetainedRigVersion } from './numbered-seed.ts';
 
 const subject = { kind: 'review-verdict', stage: 'rig-review' } as const;
 const draftId = 'synthetic-review';
@@ -181,7 +181,7 @@ function prepareDraft(root: string, citations: JsonObject[string], draftAt: numb
     cpSync(join(root, 'producer/rig'), join(root, draft, 'out/rig'), { recursive: true });
     cpSync(join(root, 'producer/build'), join(root, draft, 'out/check/build'), { recursive: true });
   }
-  expect(draftRigCommand([draftId, root, '--config', `${draft}/config.json`, '--from', `${draft}/out`,
+  expect(seedRetainedDraft([draftId, root, '--config', `${draft}/config.json`, '--from', `${draft}/out`,
     '--parts', `${draft}/out`], draftAt).exit).toBe(0);
 }
 
@@ -362,7 +362,7 @@ test('#773 a draft act@8 Request changes decodes two mesh edits while review --d
   expect(treeDigest(root)).toEqual(before);
 }, testTimeoutMs);
 
-async function register(root: string, variant: 'identical' | 'changed', n = 1, flags: string[] = []) {
+function register(root: string, variant: 'identical' | 'changed', n = 1, flags: string[] = []) {
   const reviewedConfig = readFileSync(join(root, draft, 'config.json'));
   const registrationConfig = variant === 'identical' ? reviewedConfig : Buffer.concat([reviewedConfig, Buffer.from('\n')]);
   // Preserve the shown inputs. The changed case has an unchanged model and
@@ -375,13 +375,13 @@ async function register(root: string, variant: 'identical' | 'changed', n = 1, f
     started_at: new Date(fixtureNow - 1000).toISOString(), finished_at: at,
     inputs: ['rig', 'motion'].map(role => ({ role, path: `rig/${role}.json`, sha256: jobHash(readFileSync(join(root, 'producer/rig', `${role}.json`))) })),
     outputs: [{ path: 'build/skeleton.model.json', sha256: jobHash(readFileSync(join(root, 'producer/build/skeleton.model.json'))) }] });
-  return await cli(root, ['rig-version', String(n), root, '--parts', `${draft}/out`, '--rig', 'producer/rig',
+  return seedRetainedRigVersion([String(n), root, '--parts', `${draft}/out`, '--rig', 'producer/rig',
     '--build', 'producer/build', '--idle', 'producer/idle', '--config', 'producer/config.json', '--path-adapter', 'producer/adapter.json',
     '--compile-report', 'producer/compile-report.json', '--toolchain-lock', 'producer/package-lock.json', '--run-record', 'producer/run.json',
-    '--at-source', 'producer/at-source.json', '--at-pointer', '/finished_at', '--citations', 'producer/citations.json', '--by', 'synthetic-registrant', ...flags]);
+    '--at-source', 'producer/at-source.json', '--at-pointer', '/finished_at', '--citations', 'producer/citations.json', '--by', 'synthetic-registrant', ...flags], Date.now() + 1000);
 }
 
-test.each(['identical', 'changed', 'historical still'] as const)('#712 registration preserves the reviewed bytes and evidence for %s', async mode => {
+test.each(['identical', 'changed', 'historical still'] as const)('#712 retained registration preserves the reviewed bytes and evidence for %s', async mode => {
   const variant = mode === 'changed' ? 'changed' : 'identical';
   const root = rigging();
   const url = await openLegacyVerdict(root);
@@ -397,12 +397,11 @@ test.each(['identical', 'changed', 'historical still'] as const)('#712 registrat
     writeFileSync(join(root, still.path), readFileSync(join(root, 'producer/build/rectangle.png')));
     write(root, 'project.json', project);
   }
-  const registration = await register(root, variant);
-  assertSuccess(registration);
+  const registration = register(root, variant);
+  expect(registration.exit).toBe(0);
   const version = (read(root).versions as JsonObject[])[0]!;
   expect(version).toMatchObject({ n: 1, kind: 'rig' });
   expect(readFileSync(join(root, 'outputs/v1/out/check/build/skeleton.model.json'))).toEqual(readFileSync(join(root, model)));
-  expect(registration.stdout).toContain('rig-version: v1 committed without publishing');
   expect(pendingPublications(root)).toEqual([]);
   expect(existsSync(join(root, 'review-live-v1.json'))).toBe(false);
   if (variant === 'changed') {
@@ -412,8 +411,6 @@ test.each(['identical', 'changed', 'historical still'] as const)('#712 registrat
   expect(version.verdicts).toEqual([expect.objectContaining({ review: subject.stage, verdict: 'accepted', verbatim,
     carried_from_draft: expect.objectContaining({ draft_id: draftId, job_id: approval.jobId, act_id: approval.actId }) })]);
   expect(version.evidence).toEqual(still ? [still] : []);
-  expect(registration.stdout).not.toContain('ask review-verdict rig-review');
-  expect(registration.stdout).not.toContain('asked review-verdict rig-review');
   const project = read(root);
   if (still) {
     writeFileSync(join(root, still.path), 'changed after carry');
@@ -427,7 +424,7 @@ test.each(['identical', 'changed', 'historical still'] as const)('#712 registrat
     expect.objectContaining({ code: 'REVIEW_ACT_LEDGER_INVALID', path: 'versions[v1].verdicts[0]' }));
 }, testTimeoutMs);
 
-test('#803 a pending correction refuses carry and offers same-input registration without the verdict', async () => {
+test('#803 a pending correction refuses carry on check and next offers same-input registration without the verdict', async () => {
   const root = checkpoint('3-rig-review');
   const check = () => checkProject(root, undefined, { now: Date.now() + 2000, readOnly: true });
   const initial = read(root);
@@ -437,7 +434,6 @@ test('#803 a pending correction refuses carry and offers same-input registration
   writeFileSync(words, 'Revise the synthetic rig.\n');
   const amendAt = fixtureNow - 2000;
   cpSync(join(root, 'derived/drafts/chain/config.json'), join(root, 'revised-config.json'));
-  // A forward amendment is the current writer that returns the effective stage to rigging.
   assertSuccess(await cli(root, ['amend', 'rigging', root, '--kind', 'config-field', '--target', 'motion',
     '--change', 'revised-config.json', '--by', 'synthetic-owner', '--owner-chat', words,
     '--said-at', new Date(amendAt).toISOString(), '--relayed-by', 'synthetic-operator'], undefined, undefined, amendAt));
@@ -459,14 +455,14 @@ test('#803 a pending correction refuses carry and offers same-input registration
   expect(move?.act).toContain('CORRECTION_PENDING');
   expect(move?.command).toStartWith('rig-create rig-version 2 ');
   expect(move?.command).toEndWith(' --no-draft-verdict');
-  const carrying = await register(root, 'identical', 2);
-  expect(carrying.exit).toBe(1);
-  expect(carrying.stderr).toMatch(/\bCORRECTION_PENDING:/);
-  expect(carrying.stderr.trimEnd()).toEndWith('--by synthetic-registrant --no-draft-verdict');
-  expect(readFileSync(join(root, 'project.json'))).toEqual(before);
-  expect(check().refusals.map(f => f.code)).toEqual([]);
-  const plain = await register(root, 'identical', 2, ['--no-draft-verdict']);
-  assertSuccess(plain);
+
+  register(root, 'identical', 2);
+  expect(check().refusals.map(f => f.code)).toContain('CORRECTION_PENDING');
+  writeFileSync(join(root, 'project.json'), before);
+  for (const p of ['outputs/v2', 'evidence/v2', 'derived/review/v2']) rmSync(join(root, p), { recursive: true, force: true });
+
+  const plain = register(root, 'identical', 2, ['--no-draft-verdict']);
+  expect(plain.exit).toBe(0);
   expect((read(root).versions as JsonObject[]).at(-1)).toMatchObject({ n: 2, verdicts: [], evidence: [] });
   expect(read(root).corrections).toEqual((JSON.parse(before.toString()) as JsonObject).corrections);
   expect(check().refusals.map(f => f.code)).toEqual([]);

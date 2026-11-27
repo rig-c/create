@@ -10,6 +10,8 @@ import type { JsonObject } from '../src/templates.ts';
 import { arr, fixture, obj } from './fixtures.ts';
 import { checkProject, testClock } from './clock.ts';
 import { clockedCli, tempDir } from './helpers.ts';
+import { sceneRig } from '../src/scene.ts';
+import { seedRetainedReviewPackage } from './numbered-seed.ts';
 
 const chain = join(import.meta.dir, '../templates/example-chain');
 const read = (dir: string): JsonObject => JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')) as JsonObject;
@@ -68,7 +70,7 @@ test('#981 parts edited after the rig exists rebuild into a new rig version with
   // The edit: one part's pixels change after rig v1 was built from the approved parts.
   cpSync(join(dir, 'outputs/v2/out/parts/eye_r.png'), join(dir, 'outputs/v2/out/parts/eye_l.png'));
   seedRig(dir, 2, 'Rebuild from the edited left eye.');
-  ok(dir, 'review-package', '2', '--config', 'evidence/v1/config.json', '--from', 'outputs/v2/out');
+  seedRetainedReviewPackage(['2', dir, '--config', 'evidence/v1/config.json', '--from', 'outputs/v2/out']);
   const project = read(dir);
   expect(project.stage).toBe('rig-review');
   expect(arr(project.reopens ?? []).length).toBe(0);
@@ -89,7 +91,7 @@ test('#981 old-process projects still open, check and build', () => {
   expect(checked.exit).toBe(0);
   expect(JSON.parse(checked.stdout).ok).toBe(true);
   seedRig(dir, 3, 'Rebuild on the old-process record.');
-  ok(dir, 'review-package', '3', '--config', 'evidence/v1/config.json', '--from', 'outputs/v1/out');
+  seedRetainedReviewPackage(['3', dir, '--config', 'evidence/v1/config.json', '--from', 'outputs/v1/out']);
   expect(arr(read(dir).versions).map(obj).find(v => v.n === 3)!.review_package).toBeDefined();
 }, 120_000);
 
@@ -102,7 +104,7 @@ test('#981 an accepted project gains a capability by editing current data, up to
   ok(dir, 'step-status', 'motion', 'in-progress', '--by', 'agent');
   ok(dir, 'step-status', 'motion', 'done', '--by', 'agent');
   seedRig(dir, 3, 'Add a wave motion.');
-  ok(dir, 'review-package', '3', '--config', 'evidence/v1/config.json', '--from', 'outputs/v1/out');
+  seedRetainedReviewPackage(['3', dir, '--config', 'evidence/v1/config.json', '--from', 'outputs/v1/out']);
   const project = read(dir);
   expect(project.stage).toBe('accepted');
   expect(arr(project.signoffs).length).toBe(signoffs);
@@ -110,9 +112,7 @@ test('#981 an accepted project gains a capability by editing current data, up to
   expect(project.amendments).toBeUndefined();
   // Kept, out of #981's reach (version numbers, #984/#985): post work binds the latest accepted rig.
   expect(codes(dir).refusals).toEqual(['SCENE_RIG_STALE']);
-  const scene = run(dir, 'scene', 'write', '--rig', '3', '--background', 'inputs/background.png', '--citations-file', 'evidence/scene-citations.json');
-  expect(scene.exit).toBe(1);
-  expect(scene.stderr).toContain('SCENE_ACCEPTANCE_STALE');
+  expect(() => sceneRig(dir, project, 3)).toThrow(expect.objectContaining({ code: 'SCENE_ACCEPTANCE_STALE' }));
   const handoff = run(dir, 'handoff', '--json');
   expect(handoff.exit).toBe(1);
   expect(handoff.stderr).toContain('RIG_VERSION_UNACCEPTED');

@@ -62,11 +62,13 @@ jobs:
         run: bun scripts/check-source-pins.ts
       - name: Install external workspace with isolated linker
         run: |
+          # Resolve the dev Core even when its manifest version has moved past Create's release pin.
           bun -e '
             import { writeFileSync } from "node:fs";
             writeFileSync("package.json", JSON.stringify({
               private: true,
-              workspaces: ["core", "parts", "play", "review", "create"]
+              workspaces: ["core", "parts", "play", "review", "create"],
+              overrides: { "@rig-c/core": "workspace:*" }
             }, null, 2) + "\n");
           '
           bun install --linker=isolated

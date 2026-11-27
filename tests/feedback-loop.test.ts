@@ -1,7 +1,7 @@
 import { afterEach, expect, test } from 'bun:test';
 import { cpSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { nextCommand, nextProject } from '../src/next.ts';
+import { nextCommand, nextProject, type NextReport } from '../src/next.ts';
 import { jobHash } from '../src/job-outbox.ts';
 import { Refusal } from '../src/refusal.ts';
 import type { JsonObject } from '../src/templates.ts';
@@ -39,6 +39,18 @@ function refused(dir: string, code: string, fn: () => unknown) {
   expect(existsSync(join(dir, 'evidence/direction/v3.json'))).toBe(false);
 }
 
+function expectRetiredPostVerdict(report: NextReport) {
+  const field = 'versions[v3].verdicts';
+  const awaits = 'versions[n=3].verdicts[review=direction-review]';
+  expect(report.awaits).toContain(awaits);
+  const moves = report.moves.filter(move => move.field === field || move.awaits === awaits || move.review_act?.kind === 'review-verdict');
+  expect(moves).toEqual([{
+    role: 'human', field, awaits, command: null,
+    act: 'NUMBERED_ACT_RETIRED: Post v3 needs an accepted live direction-review verdict. To continue on the current path, follow the adoption or rebuild instructions in docs/PROJECT.md#adopting-existing-numbered-outputs. To complete the numbered verdict gate, use Create 1.26.0.',
+  }]);
+  return moves[0]!;
+}
+
 test('#454 direction write -> human bounce -> next -> repeatable answers -> check -> new verdict', () => {
   const { dir, load } = setup();
   for (let i = 0; i < 2; i++) reviewCommand(['2', dir, '--verdict', 'bounced', '--by', 'user', '--review', 'direction-review', '--verbatim-file', join(dir, 'words.txt'), '--source', 'synthetic review']);
@@ -57,7 +69,7 @@ test('#454 direction write -> human bounce -> next -> repeatable answers -> chec
   expect(checked.refusals).toEqual([]);
   expect(checked.warnings.filter(w => w.code === 'FEEDBACK_OPEN')).toEqual([]);
   const next = nextProject(dir, testClock.now());
-  expect(next.moves.find(m => m.review_act?.kind === 'review-verdict')).toMatchObject({ role: 'human', review_act: { version_id: 'v3', review: 'direction-review' } });
+  expectRetiredPostVerdict(next);
   expect(next.moves.some(m => m.command?.includes('--answers'))).toBe(false);
 });
 test.each(['missing', 'accepted', 'agent', 'later', 'malformed', 'duplicate'])('#454 direction write refuses %s byte-identically', kind => {
@@ -87,9 +99,18 @@ test('#454 no-bounce direction write and next preserve previous bytes and output
   expect(after.stage).toBe(before.stage);
   expect(versions.slice(0, -1)).toEqual(previousVersions);
   expect(versions.at(-1)).toMatchObject({ n: 3, answers_feedback: [] });
-  const output = (json = false): string => nextCommand([dir, ...(json ? ['--json'] : [])], testClock.now()).stdout.replaceAll(dir, '<project>');
-  const nextJson = output(true);
-  const nextText = output();
-  expect({ exit: result.exit, stdout: jobHash(result.stdout), nextJson: jobHash(nextJson), nextText: jobHash(nextText) }).toMatchSnapshot();
+  expect({ exit: result.exit, stdout: jobHash(result.stdout) }).toMatchSnapshot();
+  const json = nextCommand([dir, '--json'], testClock.now());
+  const text = nextCommand([dir], testClock.now());
+  expect([json.exit, text.exit]).toEqual([0, 0]);
+  const report = JSON.parse(json.stdout) as NextReport;
+  const projectId = String(before.name ?? '');
+  expect(report).toMatchObject({
+    schema: 'rig-create/next@1', project_id: projectId, stage: 'direction-review', effective_stage: 'direction-review',
+    accepted: false, refusals: [],
+  });
+  const migration = expectRetiredPostVerdict(report);
+  expect(text.stdout.split('\n')[0]).toBe(`next: ${projectId || '(unnamed)'} — stage: direction-review`);
+  expect(text.stdout).toContain(`  [human] (${migration.field} -> ${migration.awaits}) ${migration.act}`);
   expect(readFileSync(recordPath)).toEqual(record);
 });

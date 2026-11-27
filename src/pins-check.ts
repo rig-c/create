@@ -225,7 +225,11 @@ type CollectionGit = (args: string[]) => Buffer | undefined;
 function openCollectionGit(dir: string): CollectionGit | undefined {
   const env: NodeJS.ProcessEnv = { ...process.env, GIT_NO_LAZY_FETCH: '1', GIT_ALLOW_PROTOCOL: '', GIT_OPTIONAL_LOCKS: '0' };
   // Resolve the repository at the collection root even when invoked from another Git command.
-  for (const key of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_COMMON_DIR', 'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES']) delete env[key];
+  delete env.GIT_DIR;
+  delete env.GIT_WORK_TREE;
+  delete env.GIT_COMMON_DIR;
+  delete env.GIT_OBJECT_DIRECTORY;
+  delete env.GIT_ALTERNATE_OBJECT_DIRECTORIES;
   const git: CollectionGit = (args) => {
     try {
       const result = Bun.spawnSync(['git', '--no-replace-objects', '--literal-pathspecs', ...args], { cwd: dir, env, stdout: 'pipe', stderr: 'ignore' });

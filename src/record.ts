@@ -11,6 +11,7 @@ import { existsSync, lstatSync, readFileSync, realpathSync } from './check-reads
 import { activeCurrentSignoffTargetPath, checkProject, isObject, PROJECT_SCHEMA } from './check.ts';
 import { literalFile } from './choices.ts';
 import { readDirectionOutput } from './current-direction.ts';
+import { directionLoopSeamFindings } from './direction-loop-seam.ts';
 import { builtFromNameAllowed, CURRENT_KINDS, CURRENT_RIG_MODEL, currentFileBinding, currentHash, currentShapeFindings, isRunRecordFile, outputRoot, outputSetHash, RUN_RECORD_NAME, sha256, treeFiles, type CurrentKind, type RebuildRunSpec } from './current.ts';
 import { DirectionError } from './direction.ts';
 import { readProject } from './feedback.ts';
@@ -573,11 +574,18 @@ export function recordCommand(args: string[], now: number): CommandResult {
 
     const at = new Date(now).toISOString();
     const snapshots = new Map<string, Buffer>();
-    const details: RecordDetails = kind === 'motion'
-      ? recordMotion(dir, project, from, byPath)
-      : kind === 'direction'
-        ? readDirectionOutput(dir, project, from, options['--direction']!, byPath, snapshots)
-        : recordPartsOrRig(dir, kind, from, config!, at, files, byPath);
+    let details: RecordDetails;
+    let stagedDirectionSeam = false;
+    if (kind === 'direction') {
+      const { policy, finding } = readMotionLoopSeamPolicy(dir);
+      const direction = readDirectionOutput(dir, project, from, options['--direction']!, byPath, snapshots);
+      const seamProblem = finding ?? (policy && directionLoopSeamFindings(dir, policy, byPath, from, direction.report, direction.takeDuration)[0]);
+      if (seamProblem) refuse(seamProblem.code, seamProblem.message);
+      stagedDirectionSeam = policy !== undefined;
+      details = direction;
+    } else {
+      details = kind === 'motion' ? recordMotion(dir, project, from, byPath) : recordPartsOrRig(dir, kind, from, config!, at, files, byPath);
+    }
     const node: JsonObject = {
       at,
       built_by: options['--by'] ?? 'agent',
@@ -616,7 +624,7 @@ export function recordCommand(args: string[], now: number): CommandResult {
     };
     // The staged report was checked against its staged files. The project-level
     // check reads canonical bindings, so run it once those files are in place.
-    const stagedSeam = kind === 'motion' && from !== root && hasMotionLoopSeam(byPath);
+    const stagedSeam = from !== root && (stagedDirectionSeam || (kind === 'motion' && hasMotionLoopSeam(byPath)));
     let after = stagedSeam ? before : checkCandidate();
     if (kind === 'motion' || kind === 'direction') {
       const requireHash = (path: string, expected: string): void => {

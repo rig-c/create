@@ -5,8 +5,8 @@
     "": {
       "name": "@rig-c/create",
       "dependencies": {
-        "@rig-c/core": "3.10.0",
-        "@rig-c/parts": "2.61.0",
+        "@rig-c/core": "3.11.0",
+        "@rig-c/parts": "2.62.0",
         "@rig-c/review": "4.24.0",
       },
       "devDependencies": {
@@ -74,9 +74,9 @@
 
     "@napi-rs/canvas-win32-x64-msvc": ["@napi-rs/canvas-win32-x64-msvc@1.0.11", "", { "os": "win32", "cpu": "x64" }, "sha512-DFYp/ZQRdKunI/LPc0UkRXG1vlNjJKOJf8O8Ctb8+wm2Nt2ELg9Eamc31D2VoakkfGo8L+z0Iejz6WtFbQwyGw=="],
 
-    "@rig-c/core": ["@rig-c/core@3.10.0", "", { "bin": { "rigc": "bin/rigc.cjs" } }, "sha512-CPsV8t/nLzObAVuXKO0nelIc45Sy4EcWFGLCHbM1wLvoP2RxgIT8uGjhICGv53ix2y0JAkWnO3cbxFBS2Hva6w=="],
+    "@rig-c/core": ["@rig-c/core@3.11.0", "", { "bin": { "rigc": "bin/rigc.cjs" } }, "sha512-WLwNnl0G3ovgF1gdft/NXi8PbL7lkNr5iaugZFUy1QT2p++U/Q8HmlZ+PROmr2oo9RLEgpFb6uKnDht61NoKfQ=="],
 
-    "@rig-c/parts": ["@rig-c/parts@2.61.0", "", { "dependencies": { "@rig-c/core": "3.10.0", "ag-psd": "^31.0.2" }, "bin": { "rig-parts": "bin/rig-parts.cjs", "spine-parts": "bin/rig-parts.cjs" } }, "sha512-Udd1bNidQ/HEzBple/q0KLL1qvuQnjwzpbhdqiBk5mcxB7LUECU5HZFs0fwNOJdb5d2B0QbarXOJPZT38MNL7g=="],
+    "@rig-c/parts": ["@rig-c/parts@2.62.0", "", { "dependencies": { "@rig-c/core": "3.11.0", "ag-psd": "^31.0.2" }, "bin": { "rig-parts": "bin/rig-parts.cjs", "spine-parts": "bin/rig-parts.cjs" } }, "sha512-EZLUzpySu9W6QX3oOG2MoCh9+vLMy95+a7J9tt9/MsoHpM/HCeQnNDDk9FEhvbX2dfR3yKvynXGyjUPp+KdbRw=="],
 
     "@rig-c/play": ["@rig-c/play@1.27.0", "", {}, "sha512-OZZstt8UyMVUOnKfxzMoy4Y3EVQGvyzSLBT20gio44QkLMultlnT/OpZu1xbGtchIoyQmC0yP0BQlRHFjPwBPg=="],
 

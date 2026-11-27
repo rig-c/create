@@ -84,7 +84,7 @@
     ],
     "warnings": []
   },
-  "project_sha256": "798f7b6e7f8678ac3c3844da5a37d6fcd96b6279e7dd176bb24f905865b30cfc",
+  "project_sha256": "d8328a081c8444bd76566dd0214c3065792a8ad19dd3a699c1caeaccdef81e94",
   "files": [
     {
       "path": ".gitignore",
@@ -92,7 +92,7 @@
     },
     {
       "path": "AGENT-REFERENCE.md",
-      "sha256": "385cfa83cc2a2e167c13b61a44473cac74fe1690c592674a42ba50e6ce50b75c"
+      "sha256": "f5f48641543a9fccf22e6418d2cef58159601ed301e943e6ff2e2bd54cc58bdc"
     },
     {
       "path": "AGENTS.md",
@@ -148,7 +148,7 @@
     },
     {
       "path": "derived/drafts/chain/out/check/build/run.json",
-      "sha256": "409faf920a10ba826d30e73e6515863bc2d9fb9aea192bad91c67e2b76396147"
+      "sha256": "5b25d44fb093986a31e4f05cd6708588285191177a502147a394b7f648cfad37"
     },
     {
       "path": "derived/drafts/chain/out/check/build/skeleton.atlas",
@@ -204,7 +204,7 @@
     },
     {
       "path": "derived/drafts/chain/out/run.json",
-      "sha256": "e36388c6b6e2529fe6bf4c66a15895957801e27b101287912fde4d1d1ed8dcca"
+      "sha256": "e5647be981f7526e61bf64337f7496ba88955b6759d0345442f5ba088c26307c"
     },
     {
       "path": "evidence/.gitkeep",
@@ -268,11 +268,11 @@
     },
     {
       "path": "package.json",
-      "sha256": "b51992ac3971db535884596373d27c0791f5b3e47f94710807083b886dade48f"
+      "sha256": "fd2dd74d4030c7821b093c0d6b0223ad2694e6f7863789b31b145ed8928978a3"
     },
     {
       "path": "project.json",
-      "sha256": "798f7b6e7f8678ac3c3844da5a37d6fcd96b6279e7dd176bb24f905865b30cfc"
+      "sha256": "d8328a081c8444bd76566dd0214c3065792a8ad19dd3a699c1caeaccdef81e94"
     }
   ]
 }

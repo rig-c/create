@@ -1,0 +1,44 @@
+{
+  "spec": "rigc-loop-seam/1",
+  "animation": "idle",
+  "period": 4,
+  "fps": 12,
+  "viewport": {
+    "x": -73.5120046599979,
+    "y": -10.411999974250776,
+    "width": 147.0240063497426,
+    "height": 148.82399994850152,
+    "scale": 4.300381660360312,
+    "pixelWidth": 632,
+    "pixelHeight": 640
+  },
+  "status": "met",
+  "warmup": 0,
+  "bar": {
+    "channelDelta": 8,
+    "pixelsAbove": 0
+  },
+  "cap": 12,
+  "first": {
+    "time": 0,
+    "path": "idle/f0000.png",
+    "sha256": "dbff805d0d11531fb9c7c88a752a32ca7a705168679c3fade929184dbedc0c52"
+  },
+  "wrap": {
+    "time": 4,
+    "encoding": "png",
+    "path": "idle/loop-wrap.png",
+    "sha256": "dbff805d0d11531fb9c7c88a752a32ca7a705168679c3fade929184dbedc0c52"
+  },
+  "differingPixels": 0,
+  "maxChannelDelta": 0,
+  "pixelsAbove": 0,
+  "series": [
+    {
+      "warmup": 0,
+      "differingPixels": 0,
+      "maxChannelDelta": 0,
+      "pixelsAbove": 0
+    }
+  ]
+}

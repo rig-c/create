@@ -6,9 +6,10 @@ import { checkpointEnabled, checkpointRequired, completedPlanStepNeedsAmendment,
 import { createHash } from 'node:crypto';
 import { existsSync, lstatSync, readdirSync, readFileSync, realpathSync } from './check-reads.ts';
 import { isDeepStrictEqual } from 'node:util';
-import { CURRENT_KINDS, CURRENT_RIG_MODEL, currentFileBinding, isCurrentProject, outputRoot, RUN_RECORD_NAME, type CurrentKind } from './current.ts';
-import { readMotionLoopSeamPolicy } from './motion-loop-seam.ts';
+import { CURRENT_KINDS, CURRENT_RIG_MODEL, currentFileBinding, isCurrentProject, outputRoot, RUN_RECORD_NAME, sha256, type CurrentKind } from './current.ts';
+import { motionLoopSeamFindings, readMotionLoopSeamPolicy } from './motion-loop-seam.ts';
 import { COMPOSE_CHECK_PATH, COMPOSE_RUN_PATH, CURRENT_DIRECTION_PATH, currentDirectionSource } from './current-direction.ts';
+import { directionLoopSeamFindings } from './direction-loop-seam.ts';
 import { currentAdvanceOutputFinding, isPublishAdvanceStage } from './job-advance.ts';
 import { eligibleRigDraftModel, optionPublicationStage, publicationFile, riggingDraftPartsChange, SUPPORTED_CURRENT_PUBLICATION_OUTPUTS } from './job-publication.ts';
 import { latestRigDraftVerdict } from './rig-draft-verdict.ts';
@@ -1491,15 +1492,58 @@ function currentBuildMove(dir: string, project: JsonObject, kind: 'parts' | 'rig
     'Check the staged rig against the recorded painting and the requirements named by its spec. Supply any requested check options that the spec leaves open.');
 }
 
+/** Snapshot only the seam evidence. The record writer inventories the full producer tree. */
+function stagedSeamInventory(dir: string, root: string, from: string, kind: 'motion' | 'direction'): Map<string, string> {
+  const inventory = new Map<string, string>();
+  function include(path: string): Buffer | undefined {
+    try {
+      const bytes = readFileSync(literalFile(dir, `${from}/${path}`));
+      inventory.set(`${root}/${path}`, sha256(bytes));
+      return bytes;
+    } catch { /* The seam reader reports missing or unreadable evidence. */ }
+  }
+  const framesRoot = kind === 'direction' ? 'check/idle_frames/' : '';
+  if (kind === 'direction') include(COMPOSE_CHECK_PATH);
+  const bytes = include(`${framesRoot}frames.json`);
+  if (!bytes) return inventory;
+  let frames: Json;
+  try { frames = JSON.parse(bytes.toString('utf8')); }
+  catch { return inventory; }
+  if (!isObject(frames)) return inventory;
+  for (const set of asArray(frames.sets)) {
+    if (!isObject(set) || typeof set.dir !== 'string' || !/^[^/\\:]+$/.test(set.dir) || set.dir === '.' || set.dir === '..') continue;
+    const path = `${framesRoot}${set.dir}`;
+    if (kind === 'motion' && !include(`${path}/loop-seam.json`)) continue;
+    include(`${path}/f0000.png`);
+    include(`${path}/loop-wrap.png`);
+  }
+  return inventory;
+}
+
 function currentPostOutputMove(dir: string, project: JsonObject, kind: 'motion' | 'direction'): NextMove | undefined {
   const inProject = (command: string) => `(cd ${shellWord(dir)} && ${command})`;
+  const root = outputRoot(kind);
+  const from = `${root}.next`;
+  const field = `current.${kind}`;
+  const { policy: seam } = readMotionLoopSeamPolicy(dir);
+  const flags = seam ? ` --loop-seam-bar ${seam.channel_delta},${seam.pixels_above} --loop-seam-cap ${seam.warmup_cap}` : '';
+  const preserveStaging = (reason: string): NextMove => ({
+    role: 'producer', field, awaits: field, command: null,
+    act: `${reason} Preserve ${from} by moving the whole tree to an unused path, then run next again for the fresh producer command.`,
+  });
   if (kind === 'motion') {
     if (!currentFileBinding(project, 'rig', CURRENT_RIG_MODEL)) return;
-    if (existsSync(join(dir, 'outputs/motion.next/frames.json'))) return currentOutputMove(dir, kind, shellWord);
-    const { policy: seam } = readMotionLoopSeamPolicy(dir);
-    const flags = seam ? ` --loop-seam-bar ${seam.channel_delta},${seam.pixels_above} --loop-seam-cap ${seam.warmup_cap}` : '';
+    if (existsSync(join(dir, from, 'frames.json'))) {
+      if (seam) {
+        const inventory = stagedSeamInventory(dir, root, from, kind);
+        const [problem] = motionLoopSeamFindings(dir, seam, inventory, root, from);
+        if (problem) return preserveStaging(`${problem.code}: ${problem.message}.`);
+      }
+      return currentOutputMove(dir, kind, shellWord);
+    }
+    if (seam && retouchPathExists(dir, from)) return preserveStaging(`Inspect the incomplete render in ${from}.`);
     return { role: 'producer', field: 'current.motion', awaits: 'current.motion',
-      command: inProject(`rigc render --candidate outputs/rig/check/build --out outputs/motion.next --animation idle --fps '<frames-per-second>'${flags}`),
+      command: inProject(`rigc render --candidate outputs/rig/check/build --out ${from} --animation idle --fps '<frames-per-second>'${flags}`),
       act: 'Render the recorded rig at the requested sample rate, then record the staged motion.' };
   }
   if (!isObject(project.current) || !isObject(project.current.motion)) return;
@@ -1514,11 +1558,11 @@ function currentPostOutputMove(dir: string, project: JsonObject, kind: 'motion' 
       act: "Author the Parts scene from the owner's composition choice and registered plate, then seal it against the recorded rig and motion." };
   }
 
-  let sourcePath: string;
+  let input: ReturnType<typeof currentDirectionSource>;
   try {
     const snapshots = new Map<string, Buffer>();
     const document = directionJson(sceneBytes(dir, CURRENT_DIRECTION_PATH, 'DIRECTION_SOURCE_CHANGED', snapshots), CURRENT_DIRECTION_PATH);
-    sourcePath = currentDirectionSource(dir, project, document, snapshots).source.path;
+    input = currentDirectionSource(dir, project, document, snapshots);
   } catch (error) {
     if (!(error instanceof SceneError || error instanceof DirectionError)) throw error;
     return { role: 'agent', field: CURRENT_DIRECTION_PATH, awaits: CURRENT_DIRECTION_PATH,
@@ -1526,11 +1570,18 @@ function currentPostOutputMove(dir: string, project: JsonObject, kind: 'motion' 
       act: 'Author a looping take and citations for the current camera, timing and composition choices, then seal the direction spec.' };
   }
 
-  if ([COMPOSE_RUN_PATH, COMPOSE_CHECK_PATH].every(path => existsSync(join(dir, 'outputs/direction.next', path)))) {
+  if ([COMPOSE_RUN_PATH, COMPOSE_CHECK_PATH].every(path => existsSync(join(dir, from, path)))) {
+    if (seam) {
+      const inventory = stagedSeamInventory(dir, root, from, kind);
+      const path = `${root}/${COMPOSE_CHECK_PATH}`;
+      const [problem] = directionLoopSeamFindings(dir, seam, inventory, from, { path, sha256: inventory.get(path) ?? null }, input.takeDuration);
+      if (problem) return preserveStaging(`${problem.code}: ${problem.message}.`);
+    }
     return currentOutputMove(dir, kind, shellWord);
   }
+  if (seam && retouchPathExists(dir, from)) return preserveStaging(`Inspect the incomplete compose output and the Parts diagnostics for ${from}.`);
   return { role: 'producer', field: 'current.direction', awaits: 'current.direction',
-    command: inProject(`rig-parts compose --scene ${shellWord(sourcePath)} --out outputs/direction.next`),
+    command: inProject(`rig-parts compose --scene ${shellWord(input.source.path)} --out ${from}${flags}`),
     act: 'Compose the scene bound by the direction spec, then record the staged direction.' };
 }
 
@@ -2054,6 +2105,24 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
       readyToResign.set(signoff.stage, readyToResign.get(signoff.stage) !== false && ready);
     }
     const moves = [...depthMoves, ...registrations];
+    if (currentPath && stage !== PAUSED_STAGE && stageIndex(effectiveStage) >= stageIndex('post')
+      && blockingHoles.length === 0 && blockingRefusals.length > 0) {
+      const repairKinds = blockingRefusals.map(finding => (['motion', 'direction'] as const).find(kind => {
+        const code = `${kind.toUpperCase()}_LOOP_SEAM_`;
+        return (finding.code === `${code}MISSING` || finding.code === `${code}UNJUDGED`)
+          && finding.path.startsWith(`${outputRoot(kind)}/`);
+      }));
+      const kind = repairKinds.includes('motion') ? 'motion' : 'direction';
+      if (!repairKinds.includes(undefined) && !report.warnings.some(finding => finding.code === 'OUTPUT_STALE'
+        && (finding.path === 'current.rig' || (kind === 'direction' && finding.path === 'current.motion')))) {
+        const repair = currentPostOutputMove(dir, project, kind);
+        if (repair) moves.push(repair.command?.startsWith(`rig-create record ${kind} `) ? {
+          ...repair,
+          command: null,
+          act: `Copy the existing ${outputRoot(kind)} tree to an unused backup path before replacing it. Then run ${repair.command}.`,
+        } : repair);
+      }
+    }
     for (const [stage, ready] of readyToResign) {
       if (!ready) continue;
       if (hasStaleApprovalStep(stage)) continue;

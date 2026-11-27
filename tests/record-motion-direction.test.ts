@@ -7,6 +7,7 @@ import { checkProject } from '../src/check.ts';
 import { COMPOSE_CHECK_PATH, COMPOSE_RUN_PATH, CURRENT_DIRECTION_PATH } from '../src/current-direction.ts';
 import { CURRENT_MOTION_FRAMES, CURRENT_RIG_MODEL, currentShapeFindings, outputRoot, outputSetHash, sha256, treeFiles } from '../src/current.ts';
 import { directionCommand } from '../src/direction-writers.ts';
+import { LOOP_SEAM_REPORT_SINCE } from '../src/motion-loop-seam.ts';
 import { nextProject } from '../src/next.ts';
 import { recordCommand } from '../src/record.ts';
 import { CURRENT_SCENE_PATH } from '../src/scene.ts';
@@ -109,12 +110,19 @@ function seamReport(dir: string, status: 'met' | 'unjudged', pixelsAbove = 0): v
   });
 }
 
-test('#1073 opt-in seam budget warns for existing motion and refuses a fresh record without a verdict', () => {
+test('#1073 a missing requested motion verdict warns before the contract date and refuses from that date', () => {
   const f = sceneFixture();
   currentRig(f);
   render(f.dir, false);
   expect(recordMotion(f.dir).exit).toBe(0);
   write(f.dir, seamSpec, seamBudget);
+  const project = f.load();
+  const motion = (project.current as JsonObject).motion as JsonObject;
+  motion.at = new Date(LOOP_SEAM_REPORT_SINCE).toISOString();
+  f.save(project);
+  expect(check(f.dir).refusals.map(finding => finding.code)).toContain('MOTION_LOOP_SEAM_MISSING');
+  motion.at = new Date(Date.parse(LOOP_SEAM_REPORT_SINCE) - 1).toISOString();
+  f.save(project);
   expect(check(f.dir).warnings.map(finding => finding.code)).toContain('MOTION_LOOP_SEAM_MISSING');
   const original = raw(f.dir, 'project.json');
   render(f.dir, false);
@@ -146,11 +154,14 @@ test('#1073 motion records producer seam hashes and check detects drift of eithe
 
 test('#1073 motion can retain an unjudged measurement without a declared budget', () => {
   const f = sceneFixture();
+  testClock.set(LOOP_SEAM_REPORT_SINCE);
   currentRig(f);
   render(f.dir, false);
   seamReport(f.dir, 'unjudged');
   expect(recordMotion(f.dir).exit).toBe(0);
   expect(check(f.dir).warnings.map(finding => finding.code)).toContain('MOTION_LOOP_SEAM_UNJUDGED');
+  write(f.dir, seamSpec, seamBudget);
+  expect(check(f.dir).refusals.map(finding => finding.code)).toContain('MOTION_LOOP_SEAM_UNJUDGED');
 });
 
 test('#1029 first record motion migrates the legacy pattern without contaminating JSON stdout', () => {
@@ -274,6 +285,32 @@ test('direction write seals current scene and record direction binds the real co
   expect(f.load().versions).toEqual(before.versions);
   expect(check(f.dir).refusals).toEqual(baseline);
   expect(check(f.dir).warnings.map(f => f.code)).not.toContain('OUTPUT_STALE');
+});
+
+test('#1073 direction refuses missing staged evidence and dates the check of a recorded take', () => {
+  const f = composeFixture();
+  currentRig(f);
+  render(f.dir, false);
+  recordMotion(f.dir);
+  stagedDirection(f);
+  const original = raw(f.dir, 'project.json');
+  write(f.dir, seamSpec, seamBudget);
+  expect(() => recordDirection(f.dir)).toThrow(expect.objectContaining({ code: 'DIRECTION_LOOP_SEAM_MISSING' }));
+  expect(raw(f.dir, 'project.json')).toEqual(original);
+  expect(existsSync(join(f.dir, directionFrom))).toBe(true);
+
+  rmSync(join(f.dir, seamSpec));
+  expect(recordDirection(f.dir).exit).toBe(0);
+  write(f.dir, seamSpec, seamBudget);
+  const project = f.load();
+  const direction = (project.current as JsonObject).direction as JsonObject;
+  const since = Date.parse(LOOP_SEAM_REPORT_SINCE);
+  direction.at = new Date(since - 1).toISOString();
+  f.save(project);
+  expect(check(f.dir).warnings.map(f => f.code)).toContain('DIRECTION_LOOP_SEAM_MISSING');
+  direction.at = new Date(since).toISOString();
+  f.save(project);
+  expect(check(f.dir).refusals.map(f => f.code)).toContain('DIRECTION_LOOP_SEAM_MISSING');
 });
 
 test('a changed motion PNG with identical frames.json refuses new authoring and stales recorded direction', () => {

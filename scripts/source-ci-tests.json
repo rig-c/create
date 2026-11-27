@@ -254,5 +254,10 @@
     "file": "tests/job-open-current.test.ts",
     "name": "Bar (#1065 §5a): agent writes to project.json do not republish an open current output, while output file changes do republish",
     "reason": "Exercises Contract §5a skip-republish and output-change republish behavior against the pinned Review source"
+  },
+  {
+    "file": "tests/motion-seam-source.test.ts",
+    "name": "#1073 records real Core loop seam evidence and refuses wrong endpoint identities and hashes",
+    "reason": "Requires the sibling Core render loop seam bar and cap flags."
   }
 ]

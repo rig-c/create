@@ -21,6 +21,8 @@ const requirements = 'specs/rig/interview-requirements.json';
 const partsRoot = 'outputs/parts/rig';
 const partsCheck = 'evidence/parts-check.json';
 const scenePath = 'specs/direction/compose-scene.json';
+const seamBudget = { channel_delta: 8, pixels_above: 0, warmup_cap: 12 };
+const seamFlags = ['--loop-seam-bar', `${seamBudget.channel_delta},${seamBudget.pixels_above}`, '--loop-seam-cap', String(seamBudget.warmup_cap)];
 const postSteps = [['camera', 'camera_depth'], ['timing', 'post_timing'], ['composition', 'post_composition']] as const;
 const rigSteps = ['bones', 'meshes', 'constraints', 'motion'];
 const partsSteps = ['seethrough', 'assemble'];
@@ -200,8 +202,9 @@ export function generateExampleCurrent(destination: string): string {
   advance('post');
   const postIds = postSteps.map(([step]) => step);
   status(postIds, 'in-progress');
+  put('specs/motion/loop-seam.json', jsonBytes(seamBudget));
   produce('@rig-c/core/bin/rigc.cjs', 'render', '--candidate', 'outputs/rig/check/build', '--out', 'outputs/motion.next',
-    '--animation', 'idle', '--fps', '1', '--max', '32', '--poser', 'core');
+    '--animation', 'idle', '--fps', '1', '--max', '32', '--poser', 'core', ...seamFlags);
   record('motion', []);
   const characterBuild = 'derived/compose-character';
   copy(join(dir, partsRoot), characterBuild);
@@ -221,7 +224,7 @@ export function generateExampleCurrent(destination: string): string {
     camera: cite('camera_depth'), timing: cite('post_timing'), composition: cite('post_composition'),
   } }));
   write(['direction', 'write', dir, '--file', intent], ['direction', 'write'], true);
-  parts('compose', '--scene', scenePath, '--out', 'outputs/direction.next');
+  parts('compose', '--scene', scenePath, '--out', 'outputs/direction.next', ...seamFlags);
   record('direction', ['--direction', 'specs/direction/direction.json']);
   status(postIds, 'done');
   advance('direction-review');

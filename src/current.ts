@@ -11,7 +11,8 @@ import { join, posix } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import { existsSync, lstatSync, readdirSync, readFileSync, realpathSync, withExternalCheckRead } from './check-reads.ts';
 import { asArray, isObject, type Finding } from './check.ts';
-import { motionLoopSeamFindings, readMotionLoopSeamPolicy } from './motion-loop-seam.ts';
+import { LOOP_SEAM_REPORT_SINCE, motionLoopSeamFindings, readMotionLoopSeamPolicy } from './motion-loop-seam.ts';
+import { directionLoopSeamFindings } from './direction-loop-seam.ts';
 import { adoptedOutputBindings } from './record-adopt.ts';
 import { runArgvProblem } from './run-record.ts';
 import type { Json, JsonObject } from './templates.ts';
@@ -339,7 +340,19 @@ export function currentFindings(dir: string, project: JsonObject, warnings: Find
     const inventory = new Map(asArray(motion.files).filter(isObject).map(file => [String(file.path), String(file.sha256)]));
     const root = outputRoot('motion');
     for (const finding of motionLoopSeamFindings(dir, policy, inventory, root, root)) {
-      (finding.code === 'MOTION_LOOP_SEAM_MISSING' || finding.code === 'MOTION_LOOP_SEAM_UNJUDGED' ? warnings : refusals).push(finding);
+      const needsJudgment = finding.code === 'MOTION_LOOP_SEAM_MISSING' || finding.code === 'MOTION_LOOP_SEAM_UNJUDGED';
+      const historicOrUndeclared = policy === undefined || Date.parse(String(motion.at)) < Date.parse(LOOP_SEAM_REPORT_SINCE);
+      (needsJudgment && historicOrUndeclared ? warnings : refusals).push(finding);
+    }
+  }
+  const direction = nodes.get('direction');
+  if (policy && direction && direction.adopted === undefined) {
+    const inventory = new Map(asArray(direction.files).filter(isObject).map(file => [String(file.path), String(file.sha256)]));
+    const root = outputRoot('direction');
+    for (const finding of directionLoopSeamFindings(dir, policy, inventory, root, direction.report)) {
+      const needsJudgment = finding.code === 'DIRECTION_LOOP_SEAM_MISSING' || finding.code === 'DIRECTION_LOOP_SEAM_UNJUDGED';
+      const historic = Date.parse(String(direction.at)) < Date.parse(LOOP_SEAM_REPORT_SINCE);
+      (needsJudgment && historic ? warnings : refusals).push(finding);
     }
   }
   const rig = nodes.get('rig');

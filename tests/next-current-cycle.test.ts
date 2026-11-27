@@ -136,15 +136,19 @@ async function replay(destination: string, skipSignoffs = false): Promise<void> 
       if (options?.cwd === dir && Array.isArray(command) && typeof command[1] === 'string') {
         if (command[1].endsWith('/rigc.cjs') && command[2] === 'render') {
           const { offered } = assertOffered('rigc render', now);
-          expect(offered[0]).not.toContain('--loop-seam');
+          const declared = offered[0]!;
+          expect(declared).toEndWith(' --loop-seam-bar 8,0 --loop-seam-cap 12)');
           const spec = join(dir, 'specs/motion/loop-seam.json');
-          mkdirSync(join(dir, 'specs/motion'), { recursive: true });
-          writeFileSync(spec, JSON.stringify({ channel_delta: 9, pixels_above: 2, warmup_cap: 6 }));
+          const original = readFileSync(spec);
           try {
+            unlinkSync(spec);
+            const unjudged = declared.replace(' --loop-seam-bar 8,0 --loop-seam-cap 12)', ')');
+            expect(commands(nextProject(dir, now), 'rigc render')).toEqual([unjudged]);
+            writeFileSync(spec, JSON.stringify({ channel_delta: 9, pixels_above: 2, warmup_cap: 6 }));
             expect(commands(nextProject(dir, now), 'rigc render')).toEqual([
-              offered[0]!.replace(/\)$/, ' --loop-seam-bar 9,2 --loop-seam-cap 6)'),
+              unjudged.replace(/\)$/, ' --loop-seam-bar 9,2 --loop-seam-cap 6)'),
             ]);
-          } finally { unlinkSync(spec); }
+          } finally { writeFileSync(spec, original); }
         }
         if (command[1].endsWith('/rig-parts.cjs') && typeof command[2] === 'string') {
           const prefix = `rig-parts ${command[2]}`;
@@ -438,7 +442,7 @@ if (process.argv[2] === '--replay-current-example') {
     }
 
     expect(nextProject(rigDir, t += 1000).moves[0]?.command).toBe(
-      `(cd ${rigDir} && rig-parts compose --scene specs/direction/compose-scene.json --out outputs/direction.next)`,
+      `(cd ${rigDir} && rig-parts compose --scene specs/direction/compose-scene.json --out outputs/direction.next --loop-seam-bar 8,0 --loop-seam-cap 12)`,
     );
     cpSync(join(rigDir, 'outputs/direction'), join(rigDir, 'outputs/direction.next'), { recursive: true });
     expect(nextProject(rigDir, t += 1000).moves[0]?.command).toBe(
@@ -477,7 +481,7 @@ if (process.argv[2] === '--replay-current-example') {
     const postNext = nextProject(postDir, t);
     expect(postNext.effective_stage).toBe('post');
     expect(postNext.moves.map(m => m.command)).toEqual([
-      `(cd ${postDir} && rig-parts compose --scene specs/direction/compose-scene.json --out outputs/direction.next)`,
+      `(cd ${postDir} && rig-parts compose --scene specs/direction/compose-scene.json --out outputs/direction.next --loop-seam-bar 8,0 --loop-seam-cap 12)`,
       `rig-create step-status camera in-progress ${postDir} --by agent`,
       `rig-create step-status timing in-progress ${postDir} --by agent`,
       `rig-create step-status composition in-progress ${postDir} --by agent`,

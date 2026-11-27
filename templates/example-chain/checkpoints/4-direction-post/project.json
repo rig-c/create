@@ -129,7 +129,7 @@
         "verdict": "versions[0].verdicts[0]",
         "review_package": {
           "path": "versions[0].review_package",
-          "sha256": "4793a1370db8d9476f00e125d392c0cfe435b91738febe32af78b04138386a8e"
+          "sha256": "4d457979e9a5c25189ba9a04631475f9aa9a806d2680c4e088b6c25103b4ef75"
         }
       }
     },
@@ -157,7 +157,7 @@
     }
   ],
   "interview": {
-    "question_set": "rig-create/interview@2 (waypoints read from @rig-c/parts 2.61.0)",
+    "question_set": "rig-create/interview@2 (waypoints read from @rig-c/parts 2.62.0)",
     "turn_question": "rig-create/turn-question@1",
     "held": false,
     "date": null,
@@ -1524,8 +1524,8 @@
       "at": "2026-11-06T01:01:00.000Z",
       "built_by": "agent",
       "built_with": {
-        "@rig-c/parts": "2.61.0",
-        "@rig-c/core": "3.10.0"
+        "@rig-c/parts": "2.62.0",
+        "@rig-c/core": "3.11.0"
       },
       "changed": "Build the synthetic approved parts.",
       "outputs": [
@@ -1661,7 +1661,7 @@
           },
           {
             "path": "out/check/build/run.json",
-            "sha256": "409faf920a10ba826d30e73e6515863bc2d9fb9aea192bad91c67e2b76396147"
+            "sha256": "5b25d44fb093986a31e4f05cd6708588285191177a502147a394b7f648cfad37"
           },
           {
             "path": "out/check/build/skeleton.atlas",
@@ -1745,7 +1745,7 @@
           },
           {
             "path": "out/rig/run.json",
-            "sha256": "e36388c6b6e2529fe6bf4c66a15895957801e27b101287912fde4d1d1ed8dcca"
+            "sha256": "e5647be981f7526e61bf64337f7496ba88955b6759d0345442f5ba088c26307c"
           }
         ],
         "open": "rig-review open 'derived/review/v1/out'"
@@ -2373,7 +2373,7 @@
       "at": "2026-11-06T01:00:32.000Z",
       "producer": {
         "name": "@rig-c/parts",
-        "version": "2.61.0"
+        "version": "2.62.0"
       },
       "config": {
         "path": "derived/drafts/chain/config.json",
@@ -2419,7 +2419,7 @@
       "files": [
         {
           "path": "derived/drafts/chain/out/check/build/run.json",
-          "sha256": "409faf920a10ba826d30e73e6515863bc2d9fb9aea192bad91c67e2b76396147"
+          "sha256": "5b25d44fb093986a31e4f05cd6708588285191177a502147a394b7f648cfad37"
         },
         {
           "path": "derived/drafts/chain/out/check/build/skeleton.atlas",
@@ -2475,7 +2475,7 @@
         },
         {
           "path": "derived/drafts/chain/out/run.json",
-          "sha256": "e36388c6b6e2529fe6bf4c66a15895957801e27b101287912fde4d1d1ed8dcca"
+          "sha256": "e5647be981f7526e61bf64337f7496ba88955b6759d0345442f5ba088c26307c"
         },
         {
           "path": "derived/drafts/chain/input/recomposite_rig.png",

@@ -1,12 +1,15 @@
 import { expect, spyOn, test } from 'bun:test';
 import { cpSync, existsSync, mkdirSync, readFileSync, renameSync, symlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { checkProject } from '../src/check.ts';
+import { EXAMPLE_ANCHOR } from '../scripts/example-time.ts';
+import { checkProject, type CheckReport } from '../src/check.ts';
 import { CURRENT_RIG_MODEL, currentFileBinding, currentShapeFindings, outputSetHash, sha256, treeFiles, type CurrentKind } from '../src/current.ts';
+import { interviewCommand } from '../src/interview.ts';
 import { OWNER_CHAT_SOURCE } from '../src/owner-chat.ts';
 import { resolveAdoptSource } from '../src/record-adopt.ts';
 import { recordCommand } from '../src/record.ts';
 import { readTemplate, TEMPLATES_DIR, type JsonObject } from '../src/templates.ts';
+import { fixture as exampleFixture } from './fixtures.ts';
 import { tempDir } from './helpers.ts';
 
 const at = '2026-10-01T00:00:00.000Z';
@@ -275,4 +278,72 @@ test('record motion --from clears adoption and leaves the original idle output a
   expect(node.built_from).toEqual([{ path: model.path, sha256: model.sha256 }]);
   expect(existsSync(join(f.dir, from))).toBe(false);
   expect(treeFiles(f.dir, `${outputs}/idle`)).toEqual(idle);
+});
+
+test('adopts a numbered post with <id>:<pose> output directories and checks with 0 refusals', () => {
+  const checkNow = EXAMPLE_ANCHOR + 60 * 60_000;
+  const composeFiles: Record<string, string> = {
+    'outputs/v4/compose/compose-run.json': '{"spec":"rig-compose-run/1"}',
+    'outputs/v4/compose/check/check.json': '{"spec":"rig-parts-check/1","PASS":true}',
+    'outputs/v4/compose/check/build/skeleton.model.json': '{"spec":"rigc-compiled/3"}',
+    'outputs/v4/compose/check/extremes/actor:body_turn/extremes.json': '{"extremes":[]}',
+    'outputs/v4/compose/check/extremes/actor:body_turn/extremes.png': 'synthetic extreme pose',
+    'outputs/v4/compose/check/extremes/actor:tilt/extremes.json': '{"extremes":[]}',
+  };
+  const dir = exampleFixture(project => {
+    const post = (project.versions as JsonObject[]).find(version => version.n === 4)!;
+    post.outputs = [
+      ...(post.outputs as JsonObject[]),
+      ...Object.entries(composeFiles).map(([path, body]) => ({
+        path, sha256: sha256(body), bytes: Buffer.byteLength(body),
+      })),
+    ];
+  }, 'example-project.json', composeFiles);
+
+  const adopted = recordCommand(['direction', dir, '--adopt', '--json'], checkNow);
+  expect(adopted.exit).toBe(0);
+  const node = JSON.parse(adopted.stdout) as JsonObject;
+  expect(node.adopted).toEqual({ version: 4 });
+  const paths = (node.files as { path: string }[]).map(file => file.path);
+  expect(paths).toContain('outputs/v4/compose/check/extremes/actor:body_turn/extremes.json');
+  expect(paths).toContain('outputs/v4/compose/check/extremes/actor:body_turn/extremes.png');
+  expect(paths).toContain('outputs/v4/compose/check/extremes/actor:tilt/extremes.json');
+
+  const checked = interviewCommand(['--check', dir, '--json'], checkNow);
+  const report = JSON.parse(checked.stdout) as CheckReport;
+  expect(report.refusals.map(finding => finding.code)).toEqual([]);
+  expect(checked.exit).toBe(0);
+});
+
+test.each([
+  'outputs/v7/compose\\extremes.json',
+  'outputs/v7/compose/\0extremes.json',
+  '/outputs/v7/compose/extremes.json',
+  'C:/outputs/v7/compose/extremes.json',
+  'outputs/v7/compose//extremes.json',
+  'outputs/v7/compose/./extremes.json',
+  'outputs/v7/compose/../compose/extremes.json',
+])('continues refusing non-literal adopted or current paths (%j)', malformedPath => {
+  const f = fixture();
+  const valid = f.write('outputs/v7/compose/check/extremes/actor:turn/extremes.json', '{}');
+  f.project.versions = [f.version, {
+    n: 7, kind: 'post', rig_version: 4, at, built_by: f.version.built_by, built_with: f.version.built_with,
+    ...(malformedPath.startsWith('outputs/v7/compose/')
+      ? { outputs: [{ path: malformedPath, sha256: valid.sha256 }] }
+      : { provenance: { direction: { path: malformedPath, sha256: valid.sha256 } }, outputs: [valid] }),
+  }];
+  f.save();
+  const original = f.original();
+  if (malformedPath.startsWith('outputs/v7/compose/')) {
+    expect(() => f.record('direction')).toThrow(expect.objectContaining({ code: 'RECORD_ADOPT_SOURCE_INVALID' }));
+    expect(f.original()).toEqual(original);
+  } else {
+    const adopted = f.record('direction');
+    expect(adopted.built_from).toEqual([]);
+  }
+  const files = [{ path: malformedPath, sha256: valid.sha256, bytes: valid.bytes }];
+  expect(currentShapeFindings('direction', {
+    at, built_by: 'synthetic-builder', built_with: {}, files, files_sha256: outputSetHash(files), built_from: [],
+    run: { path: malformedPath, sha256: valid.sha256 }, report: { path: malformedPath, sha256: valid.sha256 },
+  }).map(finding => finding.code)).toContain('CURRENT_MALFORMED');
 });

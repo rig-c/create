@@ -1,6 +1,6 @@
 import { asArray, isObject } from './check.ts';
 import type { CurrentKind } from './current.ts';
-import { readVersions } from './review.ts';
+import { humanReviewVerdicts, readVersions } from './review.ts';
 import type { Json, JsonObject } from './templates.ts';
 
 type Binding = { path: string; sha256: string };
@@ -72,6 +72,7 @@ export function resolveAdoptSource(project: JsonObject, kind: CurrentKind): Sour
   builtFrom: Binding[];
   run?: Binding;
   report?: Binding;
+  bouncedDirectionVerdict?: number;
 } {
   if (project.current !== undefined && !isObject(project.current)) {
     return { ok: false, code: 'RECORD_ADOPT_SOURCE_INVALID', path: 'current', why: 'expected an object of current outputs' };
@@ -113,5 +114,7 @@ export function resolveAdoptSource(project: JsonObject, kind: CurrentKind): Sour
   const report = kind === 'parts' ? find('plate-assemble/check/parts-check.json')
     : kind === 'rig' ? find('out/check/check.json')
       : kind === 'direction' ? find('compose/check/check.json') : undefined;
-  return { ok: true, version, at: new Date(at).toISOString(), builtBy, builtWith, files, builtFrom: builtFrom.sort(byPath), run, report };
+  const directionVerdict = kind === 'direction' ? humanReviewVerdicts(source.verdicts, 'direction-review').at(-1) : undefined;
+  return { ok: true, version, at: new Date(at).toISOString(), builtBy, builtWith, files, builtFrom: builtFrom.sort(byPath), run, report,
+    ...(directionVerdict?.record.verdict === 'bounced' ? { bouncedDirectionVerdict: directionVerdict.index } : {}) };
 }

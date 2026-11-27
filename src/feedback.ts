@@ -123,6 +123,16 @@ function feedbackAsk(item: Item, ctx: Pick<Ctx, 'collection'>, ask: Json | undef
 
 // -------------------------------------------------------- interview --check
 
+export interface OpenDirectionComment {
+  readonly field: 'current.direction';
+  readonly verdict: string;
+  readonly by: string | null;
+  readonly at: string | null;
+  readonly source: Json;
+  readonly verbatim: string;
+  readonly on_items: Json[];
+}
+
 export interface FeedbackSummary {
   /** `versions[v1].verdicts[0]` */
   readonly verdict: string;
@@ -137,6 +147,8 @@ export interface FeedbackSummary {
   readonly answered_by: number[];
   /** `true` once a later human acceptance of the same review on the same version withdrew it. */
   readonly withdrawn: boolean;
+  /** Read through the adopted version binding while this bounce is open. */
+  readonly open_direction_comment?: OpenDirectionComment;
 }
 
 interface VersionRec {
@@ -204,6 +216,8 @@ export function parseFeedbackAnswers(project: JsonObject, n: number, values: str
 /** Feedback refusals and warnings, appended to the context; returns one summary per human bounced verdict. */
 export function checkFeedback(ctx: Ctx): FeedbackSummary[] {
   const versions = versionsOf(ctx.project);
+  const direction = isObject(ctx.project.current) ? ctx.project.current.direction : undefined;
+  const adopted = isObject(direction) && isObject(direction.adopted) ? direction.adopted.version : undefined;
   const summaries: FeedbackSummary[] = [];
   const push = (code: string, path: string, message: string): void => {
     ctx.refusals.push({ code, path, message });
@@ -310,6 +324,14 @@ export function checkFeedback(ctx: Ctx): FeedbackSummary[] {
         .slice(index + 1)
         .some((later) => isObject(later) && later.review === d.review && later.verdict === 'accepted' && isHuman(asString(later.by)));
       const by = answeredBy.get(`${v.n}:${index}`) ?? [];
+      const unresolved = !withdrawn && by.length === 0;
+      const later = unresolved ? versions.filter((x) => x.n > v.n).map((x) => `v${x.n}`) : [];
+      const openDirectionComment: OpenDirectionComment | undefined =
+        unresolved && later.length === 0 && v.n === adopted && v.record.kind === 'post'
+          && d.review === 'direction-review' && typeof d.verbatim === 'string'
+          ? { field: 'current.direction', verdict: path, by: asString(d.by), at: asString(d.at),
+            source: d.source ?? null, verbatim: d.verbatim, on_items: asArray(d.on_items) }
+          : undefined;
       summaries.push({
         verdict: path,
         version: v.n,
@@ -320,9 +342,9 @@ export function checkFeedback(ctx: Ctx): FeedbackSummary[] {
         items: counts,
         answered_by: by,
         withdrawn,
+        ...(openDirectionComment ? { open_direction_comment: openDirectionComment } : {}),
       });
-      if (withdrawn || by.length > 0) return;
-      const later = versions.filter((x) => x.n > v.n).map((x) => `v${x.n}`);
+      if (!unresolved) return;
       if (later.length > 0) {
         push(
           'FEEDBACK_UNANSWERED',
@@ -330,7 +352,10 @@ export function checkFeedback(ctx: Ctx): FeedbackSummary[] {
           `${path}: v${v.n} was bounced, and ${later.join(', ')} ${later.length === 1 ? 'was' : 'were'} built since without listing it in answers_feedback ({ "version": ${v.n}, "verdict": ${index} }); the next version answers the feedback it was built from`,
         );
       } else {
-        ctx.warnings.push({ code: 'FEEDBACK_OPEN', path, message: `${path}: v${v.n} was bounced and no later version is built yet; the next version lists { "version": ${v.n}, "verdict": ${index} } in answers_feedback` });
+        const message = openDirectionComment
+          ? `${path}: current.direction uses bounced v${v.n}. Open comment from ${openDirectionComment.by}: ${JSON.stringify(openDirectionComment.verbatim)}. Use this feedback when rebuilding current.direction.`
+          : `${path}: v${v.n} was bounced and no later version is built yet; the next version lists { "version": ${v.n}, "verdict": ${index} } in answers_feedback`;
+        ctx.warnings.push({ code: 'FEEDBACK_OPEN', path, message });
       }
     });
   }

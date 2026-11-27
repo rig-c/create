@@ -509,7 +509,9 @@ function recordAdoption(dir: string, file: string, original: Buffer, project: Js
     process.stderr.write('Adopting this output will stop numbered verdict moves from being offered for this project. To sign off on an adopted output, rebuild it and use rig-create record <kind> --from <producer out>.\n');
   }
   writeRecord(file, original, candidate, `record-${kind}-adopt`, 'RECORD_SOURCE_CHANGED');
-  return { stdout: json ? JSON.stringify(node, null, 2) : `record ${kind}: adopted v${source.version} in place (${files.length} files)`, exit: 0 };
+  const stderr = source.bouncedDirectionVerdict === undefined ? undefined
+    : `WARN [RECORD_ADOPT_DIRECTION_BOUNCED]: current.direction adopted bounced v${source.version} in place (versions[v${source.version}].verdicts[${source.bouncedDirectionVerdict}]); run rig-create next to read the open direction feedback before rebuilding`;
+  return { stdout: json ? JSON.stringify(node, null, 2) : `record ${kind}: adopted v${source.version} in place (${files.length} files)`, exit: 0, ...(stderr ? { stderr } : {}) };
 }
 
 export function recordCommand(args: string[], now: number): CommandResult {

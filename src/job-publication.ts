@@ -164,14 +164,6 @@ export function optionPublicationRemedy(root: string, project: JsonObject, item:
     const register = `rig-create interview-options ${question} ${dir} --file '<option-set.json>'`;
     const answer = `rig-create interview-answer ${question} ${dir} --set '<path>' --sha256 '<sha>' --by '<owner>' --pick '<ask>=<option>' --owner-chat '<words file>' --said-at '<ISO>' --relayed-by '<operator>'`;
     const chat = `Review publication is not available at this stage. For an owner-chat correction, register a fresh set with ${register}, show it to the owner in chat, record their pick with ${answer}, then re-sign the approvals named by rig-create next ${dir}`;
-    if (rigVerdictIngestible(stage) && item.kind === 'waypoint' && item.state.state === 'user'
-      && isObject(item.raw) && item.raw.basis !== 'inherited') {
-      const n = Math.max(...readVersions(project).rigs.filter(rig => rig.live).map(rig => rig.n));
-      if (Number.isFinite(n) && reviewVerdictSignable(project, n, 'rig-review')) {
-        const approval = approvalStageOfGuide(item.id, false, split);
-        return `get a fresh owner changes-requested verdict on the latest live rig v${n} with exactly one page-level comment, then run rig-create review ${n} --from-review '<act>' ${dir} --item ${question}:not-asked and re-sign ${approval}. ${chat}`;
-      }
-    }
     return `run ${check} to inspect the current record and its stage requirements. ${chat}`;
   }
   if (publicationIndex >= 0 && publicationIndex < interviewIndex) {
@@ -1336,7 +1328,7 @@ export function draftPublishedContext(root: string, project: JsonObject, id: str
   const plan = project.plan as JsonObject | undefined;
   return { selector: { kind: 'draft', id }, plan: plan ? { steps: (plan.steps as JsonObject[] ?? []).map(step => ({ id: String(step.id), hash: stepHash(step) })) } : null,
     parts: { enumeratorVersion: partsEnumerator.version, manifest: { path: manifestPath, sha256: jobHash(manifest) }, images },
-    subjects: latestPartsApproval(project, Infinity, undefined, id) ? [] : [{ kind: 'parts-verdict', draftId: id }],
+    subjects: [],
     partIds: (JSON.parse(manifest.toString('utf8')).parts as { name: string }[]).map(part => part.name), files };
 }
 
@@ -1443,25 +1435,18 @@ function describeDraftPublication(root: string, project: JsonObject, id: string,
 } {
   // Validate the mandatory closure before looking for optional comparison evidence.
   const context = draftPublishedContext(root, project, id);
-  let subjects = [...context.subjects];
   const errors: Finding[] = [];
   if (stage === 'parts-review') {
     checkDiffMap(root, { stage: 'parts-review', checkpoint: null, draft_id: id }, `signoffs[${asArray(project.signoffs).length}]`,
       resolve(root, context.parts!.manifest.path), errors, [], project);
-    if (errors.length) {
-      warnings.push(...errors);
-      subjects = subjects.filter(subject => subject.kind !== 'parts-verdict');
-    }
+    if (errors.length) warnings.push(...errors);
   }
   const structure = stage === 'parts-review' ? partsStructureSnapshot(root, project, id) : undefined;
-  const missingStructure = structure && !structure.valid && context.subjects.some(subject => subject.kind === 'parts-verdict')
-    ? structure.path : undefined;
-  if (stage !== 'parts-review' || missingStructure !== undefined) subjects = subjects.filter(subject => subject.kind !== 'parts-verdict');
-  if (rigging) subjects.unshift({ kind: 'parts-verdict', draftId: id });
+  const missingStructure = structure && !structure.valid ? structure.path : undefined;
   const files = [...context.files];
   const checkpoints = checkpointEvidenceContext(root, project, files);
   const comparison = previousDraftContext(root, project, id, context.parts!.manifest, files, warnings);
-  return { context: { ...context, subjects, files, ...checkpoints, ...comparison }, missingStructure, diffFinding: errors[0], rigging };
+  return { context: { ...context, subjects: [], files, ...checkpoints, ...comparison }, missingStructure, diffFinding: errors[0], rigging };
 }
 
 function readDraftPublished(root: string, project: JsonObject, id: string, path: string): JobPublishedContext {

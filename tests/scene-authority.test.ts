@@ -2,6 +2,7 @@ import { afterEach, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { collectItems } from '../src/check.ts';
+import { resolveAnswerValue } from '../src/scene-authority.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { sceneCommand, testClock } from './clock.ts';
 import { sceneFixture } from './scene-fixture.ts';
@@ -23,6 +24,18 @@ test('a changed retained option file cannot authorize a scene', () => {
     f.write(String(binding.path), '{}');
   });
 });
+test('#1084 a scene choice resolves a stored zero against the retained negative-zero fragment', () => {
+  const f = sceneFixture();
+  f.designateScene({ ...f.model.stage, y: 0 });
+  const project = f.load();
+  const choice = answerOf(project).choice as JsonObject;
+  const path = (choice.set as JsonObject).path as string;
+  const optionBytes = readFileSync(join(f.dir, path), 'utf8').replaceAll('"y":0', '"y":-0.0');
+  expect(optionBytes).toContain('"y":-0.0');
+  choice.set = f.write(path, optionBytes);
+  f.save(project);
+  expect(f.writeScene().exit).toBe(0);
+});
 test('a mismatched picked plate path refuses without changing the project', () => {
   const f = sceneFixture(); const args = f.args(); args[args.indexOf('--background') + 1] = 'foreground.png';
   const before = readFileSync(join(f.dir, 'project.json'));
@@ -30,7 +43,9 @@ test('a mismatched picked plate path refuses without changing the project', () =
   expect(readFileSync(join(f.dir, 'project.json'))).toEqual(before);
 });
 test('a pending delegation refuses and a decided delegation supplies exact placement', () => {
-  const f = sceneFixture(); const p = f.load(); const answer = answerOf(p);
+  const f = sceneFixture();
+  f.designateScene({ ...f.model.stage, y: 0 });
+  const p = f.load(); const answer = answerOf(p);
   const value = answer.value!; const choice = answer.choice as JsonObject;
   const binding = choice.set as JsonObject;
   const set = JSON.parse(readFileSync(join(f.dir, String(binding.path)), 'utf8')) as JsonObject;
@@ -43,7 +58,9 @@ test('a pending delegation refuses and a decided delegation supplies exact place
   const before = readFileSync(join(f.dir, 'project.json'));
   expect(() => f.writeScene()).toThrow(expect.objectContaining({ code: 'SCENE_CHOICE_MISSING' }));
   expect(readFileSync(join(f.dir, 'project.json'))).toEqual(before);
-  answer.agent_decision = { by: 'agent', at: testClock.iso(), reasoning: 'Use the declared synthetic scene.', covers: 'post_composition', fragments: [{ ask: 'post_composition', fragment: value }], value };
+  const fragment = JSON.parse(JSON.stringify(value).replace('"y":0', '"y":-0.0')) as JsonObject;
+  answer.agent_decision = { by: 'agent', at: testClock.iso(), reasoning: 'Use the declared synthetic scene.', covers: 'post_composition', fragments: [{ ask: 'post_composition', fragment }], value };
+  expect(resolveAnswerValue(f.dir, 'interview.post', answer, { delegated: true }).value).toBe(value);
   f.save(p);
   expect(f.writeScene().exit).toBe(0);
 });

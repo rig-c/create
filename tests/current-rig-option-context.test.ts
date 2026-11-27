@@ -11,7 +11,7 @@ import { recordCommand } from '../src/record.ts';
 import { selectSignoffTarget } from '../src/signoff-target.ts';
 import { stageIndex } from '../src/stages.ts';
 import { TEMPLATES_DIR, type JsonObject } from '../src/templates.ts';
-import { interviewAnswerCommand, interviewOptionsCommand, planCommand, signoffCommand, TEST_NOW, testClock } from './clock.ts';
+import { interviewAnswerCommand, interviewCommand, interviewOptionsCommand, planCommand, signoffCommand, TEST_NOW, testClock } from './clock.ts';
 import { arr, fixture, obj, retainSignoffs } from './fixtures.ts';
 import { tempDir } from './helpers.ts';
 import { sceneFixture } from './scene-fixture.ts';
@@ -164,6 +164,22 @@ test('#1062 current-rig option set can be drafted and answered with no signoff a
   expect(checkProject(dir, undefined, { now: Date.parse(rebuiltAt), readOnly: true }).refusals).toEqual([]);
 });
 
+test('#1084 a current-rig owner-chat choice with negative zero allows a later plan write', () => {
+  const dir = postProject();
+  expect(recordCommand(stageProducerRig(dir, 'specs/rig/unsigned.json'), Date.parse(builtAt)).exit).toBe(0);
+  const registered = registerCamera(dir, true);
+  const words = write(dir, 'camera-pick.txt', 'Keep the proposed camera_depth.\n');
+  const answer = JSON.parse(interviewAnswerCommand([questionId, dir, '--by', 'owner', '--set', registered.pending.path,
+    '--sha256', registered.pending.sha256, '--owner-chat', join(dir, words.path), '--said-at', selectedAt,
+    '--relayed-by', 'operator', '--pick', registered.pick])) as JsonObject;
+  expect(answer.value).toEqual({ offset: [0, 2] });
+  expect(obj(registered.context).kind).toBe('current-rig');
+  expect(interviewCommand(['--check', dir]).stdout).not.toContain('INTERVIEW_CHOICE_INVALID');
+  testClock.set(afterSelectionAt);
+  expect(planCommand(['revise', 'camera', dir, '--by', 'agent', '--reason', 'Use the recorded camera choice.']).exit).toBe(0);
+  expect(interviewCommand(['--check', dir]).exit).toBe(0);
+});
+
 test('scene-first drafting preserves the current-rig context already authored before a later scene', () => {
   const f = sceneFixture();
   const rig = installRig(f.dir, f.load());
@@ -212,16 +228,18 @@ function load(dir: string): JsonObject {
   return JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')) as JsonObject;
 }
 
-function registerCamera(dir: string) {
+function registerCamera(dir: string, signedZero = false) {
   const project = load(dir);
   const item = collectItems(project, { collection: null }).find(item => item.id === questionId)!;
   const { set } = optionFile(dir, obj(obj(item.raw).choice).set);
   const context = optionContext(project, stage, draftTime, dir);
-  const pending = write(dir, `evidence/interview/${setId}.json`, JSON.stringify({ ...set, id: setId, drafted_at: draftedAt, context }));
-  testClock.set(selectionTime);
-  expect(JSON.parse(interviewOptionsCommand([questionId, dir, '--file', pending.path]))).toEqual(pending);
   const ask = obj(arr(set.asks)[0]);
   const pick = arr(ask.options).map(obj).find(option => option.recommended === true)!;
+  if (signedZero) pick.fragment = { offset: ['negative-zero-fixture', 2] };
+  const bytes = JSON.stringify({ ...set, id: setId, drafted_at: draftedAt, context }).replace('"negative-zero-fixture"', '-0.0');
+  const pending = write(dir, `evidence/interview/${setId}.json`, bytes);
+  testClock.set(selectionTime);
+  expect(JSON.parse(interviewOptionsCommand([questionId, dir, '--file', pending.path]))).toEqual(pending);
   return { pending, context, pick: `${String(ask.id)}=${String(pick.id)}` };
 }
 

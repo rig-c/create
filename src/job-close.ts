@@ -1,5 +1,6 @@
 import { OWNER_CHAT_USAGE, readOwnerChat } from './owner-chat.ts';
-import { readdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
+import { existsSync, lstatSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import {
@@ -13,16 +14,20 @@ import {
 } from '@rig-c/review/job-host';
 import { asArray, checkProject } from './check.ts';
 import { pendingActRemedy, pendingJobActs, pendingJobAsksForTarget, readHostActs, readHostActsAndAsks, shellWord, type JobAskTarget } from './job-acts.ts';
+import { hostPortRefuses } from './job-host-state.ts';
 import { reportOwnerSubmitRefusal } from './job-refusal.ts';
 import {
   acquireJobLock,
   JOB_BINDING_FILE,
+  jobHostStateRoot,
   pendingPublications,
+  privateJson,
   retireRefusedPublications,
   readWriterBinding,
   type JobIdentity,
   type WriterBinding,
 } from './job-outbox.ts';
+import { currentJobIdentity } from './job-publication.ts';
 import { baselineOf, newFindings } from './refusal-baseline.ts';
 import { refuse, USAGE_EXIT } from './refusal.ts';
 import { appendWithdrawalReceipt, buildDiscardActReceipt, reviewActFindings } from './review-act.ts';
@@ -149,6 +154,60 @@ function assertStoredCloseBinding(root: string, binding: WriterBinding): void {
   }
 }
 
+function refuseCloseAttach(
+  root: string,
+  binding: WriterBinding,
+  error: Extract<JobHostAttachFailure, { code: 'JOB_HOST_ATTACH_REFUSED' }>,
+): never {
+  // Close reads the finalized owner acts and retires the job through the live host when the
+  // current checkout can still reopen that host: a stopped same-pin host restarts first.
+  const reopen = `rig-create job open ${shellWord(root)} --reviewer ${shellWord(binding.identity.reviewer.id)} --role ${binding.identity.reviewer.role}`;
+  refuse('JOB_HOST_ATTACH_REFUSED', `project.json: live host attach refused (reason=${error.reason}, phase=${error.phase}); job close reads the job's finalized owner acts from the bound live host, so restart it with ${reopen} and retry rig-create job close, which waits out the restarted host's publication freeze`);
+}
+
+function handleCloseStartError(root: string, binding: WriterBinding, error: unknown): never {
+  if (isAttachRefused(error)) refuseCloseAttach(root, binding, error);
+  if (isReuseMismatch(error)) {
+    refuse('JOB_HOST_REUSE_MISMATCH', `project.json: ${error.field} expected=${JSON.stringify(error.expected)} found=${JSON.stringify(error.actual)}; restore the bound host configuration, then run rig-create job close`);
+  }
+  if (error instanceof Error) {
+    const code = (error as Error & { code?: string }).code;
+    if (code === 'JOB_HOST_REUSE_MISMATCH') {
+      refuse('JOB_HOST_REUSE_MISMATCH', `project.json: ${error.message}; restore the bound host options before rig-create job close`);
+    }
+    if (code && ['JOB_REQUEST_INVALID', 'JOB_AUTHORITY_REFUSED', 'JOB_PARTS_ENUMERATOR_UNSUPPORTED', 'JOB_SOURCE_UNRETAINABLE'].includes(code)) {
+      refuse('JOB_BINDING_INVALID', `project.json: malformed private live-job binding (${code}); reopen the job through rig-create job open`);
+    }
+  }
+  throw error;
+}
+
+function isRetiredCloseBinding(root: string, binding: WriterBinding): boolean {
+  const { identity } = binding;
+  const current = currentJobIdentity({
+    root,
+    stateDir: identity.stateDir,
+    fingerprint: identity.fingerprint,
+    reviewer: identity.reviewer,
+    ...(identity.publicationMode ? { publicationMode: identity.publicationMode } : {}),
+  }, root);
+  return !isDeepStrictEqual(identity, current);
+}
+
+function stoppedCloseHostOptions(binding: WriterBinding): JobHostOptions {
+  const { reuseOnly: _reuseOnly, ...base } = closeHostOptions(binding);
+  return {
+    ...base,
+    port: 0,
+    installWriterBinding: async () => {},
+  };
+}
+
+type CloseAttachment =
+  | { kind: 'live'; host: JobOwnerHost }
+  | { kind: 'stopped-store'; host: JobOwnerHost; finish: () => void }
+  | { kind: 'absent-store' };
+
 /**
  * Close-only attachment boundary: uses the stored private binding's hook IDs and
  * `enumeratorVersion` so a live host opened before a pin bump or reader ID bump can
@@ -164,31 +223,122 @@ export async function attachCreateJobForClose(
   try {
     host = await startHost(closeHostOptions(binding));
   } catch (error) {
-    if (isAttachRefused(error)) {
-      // Close reads the finalized owner acts and retires the job through the live host only:
-      // a stopped host's acts are never read from the record, so restarting it is the remedy.
-      const reopen = `rig-create job open ${shellWord(root)} --reviewer ${shellWord(binding.identity.reviewer.id)} --role ${binding.identity.reviewer.role}`;
-      refuse('JOB_HOST_ATTACH_REFUSED', `project.json: live host attach refused (reason=${error.reason}, phase=${error.phase}); job close reads the job's finalized owner acts from the bound live host, so restart it with ${reopen} and retry rig-create job close, which waits out the restarted host's publication freeze`);
-    }
-    if (isReuseMismatch(error)) {
-      refuse('JOB_HOST_REUSE_MISMATCH', `project.json: ${error.field} expected=${JSON.stringify(error.expected)} found=${JSON.stringify(error.actual)}; restore the bound host configuration, then run rig-create job close`);
-    }
-    if (error instanceof Error) {
-      const code = (error as Error & { code?: string }).code;
-      if (code === 'JOB_HOST_REUSE_MISMATCH') {
-        refuse('JOB_HOST_REUSE_MISMATCH', `project.json: ${error.message}; restore the bound host options before rig-create job close`);
-      }
-      if (code && ['JOB_REQUEST_INVALID', 'JOB_AUTHORITY_REFUSED', 'JOB_PARTS_ENUMERATOR_UNSUPPORTED', 'JOB_SOURCE_UNRETAINABLE'].includes(code)) {
-        refuse('JOB_BINDING_INVALID', `project.json: malformed private live-job binding (${code}); reopen the job through rig-create job open`);
-      }
-    }
-    throw error;
+    handleCloseStartError(root, binding, error);
   }
   if (!host.reused || host.session.jobId !== binding.jobId || host.origin !== binding.origin) {
     host.stop();
     refuse('JOB_HOST_REUSE_MISMATCH', `project.json: host incarnation expected=${binding.jobId}@${binding.origin} found=${host.session.jobId}@${host.origin} reused=${host.reused}; restore the original live host before rig-create job close`);
   }
   return host;
+}
+
+async function openJobForClose(
+  root: string,
+  binding: WriterBinding,
+  startHost: (options: JobHostOptions) => Promise<JobOwnerHost>,
+): Promise<CloseAttachment> {
+  assertStoredCloseBinding(root, binding);
+  let attachError: Extract<JobHostAttachFailure, { code: 'JOB_HOST_ATTACH_REFUSED' }>;
+  try {
+    const host = await startHost(closeHostOptions(binding));
+    if (!host.reused || host.session.jobId !== binding.jobId || host.origin !== binding.origin) {
+      host.stop();
+      refuse('JOB_HOST_REUSE_MISMATCH', `project.json: host incarnation expected=${binding.jobId}@${binding.origin} found=${host.session.jobId}@${host.origin} reused=${host.reused}; restore the original live host before rig-create job close`);
+    }
+    return { kind: 'live', host };
+  } catch (error) {
+    if (!isAttachRefused(error)) handleCloseStartError(root, binding, error);
+    attachError = error;
+  }
+
+  // A binding that matches the current pin and hooks can still restart its host via `job open`.
+  if (!isRetiredCloseBinding(root, binding)) refuseCloseAttach(root, binding, attachError);
+  if (binding.identity.fingerprint !== 'rig-create/live-review/1') {
+    refuse('JOB_HOST_REUSE_MISMATCH', `project.json: fingerprint expected="rig-create/live-review/1" found=${JSON.stringify(binding.identity.fingerprint)}; restore the bound host configuration, then run rig-create job close`);
+  }
+  if (!/^[a-f0-9]{64}$/.test(binding.fetchCapability)) {
+    refuse('JOB_BINDING_INVALID', 'project.json: malformed private live-job binding; reopen the job through rig-create job open');
+  }
+  let rootInfo;
+  try { rootInfo = lstatSync(root); } catch { refuseCloseAttach(root, binding, attachError); }
+  if (!rootInfo.isDirectory() || rootInfo.isSymbolicLink() || realpathSync(root) !== root) {
+    refuseCloseAttach(root, binding, attachError);
+  }
+  let port: number;
+  try {
+    const parsedOrigin = new URL(binding.origin);
+    port = Number(parsedOrigin.port);
+    if (parsedOrigin.protocol !== 'http:' || parsedOrigin.hostname !== '127.0.0.1'
+      || parsedOrigin.origin !== binding.origin || !Number.isSafeInteger(port) || port <= 0 || port > 65535) {
+      throw Error();
+    }
+  } catch {
+    refuse('JOB_BINDING_INVALID', 'project.json: malformed private live-job binding; reopen the job through rig-create job open');
+  }
+  if (!await hostPortRefuses(port)) refuseCloseAttach(root, binding, attachError);
+
+  if (attachError.phase === 'state' && attachError.reason === 'missing') {
+    const canonicalStateDir = join(jobHostStateRoot(root), 'host');
+    if (binding.identity.stateDir !== canonicalStateDir || existsSync(join(canonicalStateDir, 'jobs.sqlite'))) {
+      refuseCloseAttach(root, binding, attachError);
+    }
+    return { kind: 'absent-store' };
+  }
+  if (attachError.phase === 'state' && attachError.reason === 'closed') {
+    const descriptorPath = join(binding.identity.stateDir, 'job-ui', `${binding.jobId}.json`);
+    if (existsSync(descriptorPath)) {
+      let descriptor: { jobId?: unknown; origin?: unknown; listenerIncarnation?: unknown };
+      try { descriptor = privateJson(descriptorPath) as { jobId?: unknown; origin?: unknown; listenerIncarnation?: unknown }; }
+      catch { refuseCloseAttach(root, binding, attachError); }
+      if (descriptor.jobId !== binding.jobId) {
+        refuse('JOB_HOST_REUSE_MISMATCH', `project.json: jobId expected=${JSON.stringify(binding.jobId)} found=${JSON.stringify(descriptor.jobId ?? null)}; restore the bound host configuration, then run rig-create job close`);
+      }
+      if (descriptor.origin !== binding.origin) {
+        refuse('JOB_HOST_REUSE_MISMATCH', `project.json: origin expected=${JSON.stringify(binding.origin)} found=${JSON.stringify(descriptor.origin ?? null)}; restore the bound host configuration, then run rig-create job close`);
+      }
+      if (descriptor.listenerIncarnation !== binding.listenerIncarnation) {
+        refuse('JOB_HOST_REUSE_MISMATCH', `project.json: listenerIncarnation expected=${JSON.stringify(binding.listenerIncarnation)} found=${JSON.stringify(descriptor.listenerIncarnation ?? null)}; restore the bound host configuration, then run rig-create job close`);
+      }
+    }
+    return { kind: 'absent-store' };
+  }
+  if (
+    (attachError.reason === 'probe' && (attachError.phase === 'record' || attachError.phase === 'probe'))
+    || (attachError.reason === 'missing' && attachError.phase === 'record')
+  ) {
+    const descriptorPath = join(binding.identity.stateDir, 'job-ui', `${binding.jobId}.json`);
+    const savedDescriptor = existsSync(descriptorPath) ? readFileSync(descriptorPath) : null;
+    const restoreDescriptor = (): void => {
+      if (savedDescriptor === null) {
+        rmSync(descriptorPath, { force: true });
+        return;
+      }
+      const temporary = `${descriptorPath}.${randomUUID()}.restore.tmp`;
+      try {
+        writeFileSync(temporary, savedDescriptor, { flag: 'wx', mode: 0o600 });
+        renameSync(temporary, descriptorPath);
+      } finally {
+        rmSync(temporary, { force: true });
+      }
+    };
+    let host: JobOwnerHost;
+    try {
+      host = await startHost(stoppedCloseHostOptions(binding));
+    } catch {
+      restoreDescriptor();
+      refuseCloseAttach(root, binding, attachError);
+    }
+    const finish = (): void => {
+      host.stop();
+      restoreDescriptor();
+    };
+    if (host.reused || host.session.jobId !== binding.jobId) {
+      finish();
+      refuse('JOB_HOST_REUSE_MISMATCH', `project.json: host incarnation expected=${binding.jobId}@${binding.origin} found=${host.session.jobId}@${host.origin} reused=${host.reused}; restore the original live host before rig-create job close`);
+    }
+    return { kind: 'stopped-store', host, finish };
+  }
+  refuseCloseAttach(root, binding, attachError);
 }
 
 export async function assertNoPendingJobAsk(
@@ -451,11 +601,36 @@ export async function closeCreateJob(
     discardEvidence = { by, at: new Date(now).toISOString(), ...chat, ...(reason ? { reason } : {}) };
   }
   let pending: ReturnType<typeof pendingPublications> = [];
-  await withBoundJobRecord(
-    root,
-    startHost,
-    'close',
-    async ({ root, file, host, binding, project, original }) => {
+  root = realpathSync(root);
+  const release = await acquireJobLockWaiting(root, lockWaitMs, 'close', holder => {
+    process.stderr.write(`job: waiting up to ${Math.ceil(lockWaitMs / 1000)} s for ${holder === null ? 'another rig-create process' : `process ${holder}`} to release the job write lock\n`);
+  });
+  try {
+    pending = pendingPublications(root);
+    if (pending.length && (!retireRefused || pending.some(entry => !entry.failure))) {
+      refuse('JOB_PUBLISH_PENDING', 'project.json: a committed publication remains pending; run rig-create job reconcile, or job close --retire-refused to archive failed publications and close without publishing them');
+    }
+    const binding = readWriterBinding(root);
+    if (!binding) refuse('JOB_BINDING_INVALID', 'project.json: no writer-owned job binding; open the live job first');
+    const attachment = await openJobForClose(root, binding, startHost);
+    const file = join(root, 'project.json');
+    if (attachment.kind === 'absent-store') {
+      const original = readFileSync(file);
+      assertUnchangedBindingAndRecord(root, file, binding, original, 'close', false);
+      if (retireRefused) retireRefusedPublications(root, pending);
+      rmSync(join(root, JOB_BINDING_FILE));
+      return;
+    }
+    const { host } = attachment;
+    const temporary = join(root, '.rig-create-job-record.tmp');
+    try {
+      try {
+        host.session.authorize('consumer', `Bearer ${binding.fetchCapability}`);
+      } catch {
+        refuse('JOB_BINDING_INVALID', 'project.json: writer binding fetchCapability is not authorized for the bound live job; restore the writer-owned binding before rig-create job close');
+      }
+      const original = readFileSync(file);
+      const project = JSON.parse(original.toString('utf8')) as JsonObject;
       // Close at the generation the act scan saw: a finalized act bumps it, so an act
       // submitted after the scan makes Review refuse the close instead of dropping it.
       const inspectedGeneration = host.session.status().generation;
@@ -464,7 +639,10 @@ export async function closeCreateJob(
       if (acts.length > 0) {
         if (!discardEvidence) {
           const listed = acts.map(act => `${act.actId} (${pendingActRemedy(act)})`).join('; ');
-          refuse('JOB_ACTS_PENDING', `project.json.review_acts: un-ingested finalized review act(s) ${listed}; ingest each act before closing, or run rig-create job close --discard-acts <reason> --by agent to record and discard them`);
+          const action = attachment.kind === 'stopped-store'
+            ? 'the bound host has stopped across a pin or hook change and cannot serve --from-review, so run rig-create job close --discard-acts <reason> --by agent to record and discard them'
+            : 'ingest each act before closing, or run rig-create job close --discard-acts <reason> --by agent to record and discard them';
+          refuse('JOB_ACTS_PENDING', `project.json.review_acts: un-ingested finalized review act(s) ${listed}; ${action}`);
         }
         next = appendDiscardedJobActs(root, project, acts.map(act => buildDiscardActReceipt(binding.jobId, act.actId, discardEvidence)), now);
       }
@@ -484,20 +662,19 @@ export async function closeCreateJob(
       }));
       const result = await response.json() as { ok: boolean };
       if (!result.ok) refuse('JOB_BINDING_INVALID', 'project.json: review refused close; restore the bound live host and retry rig-create job close');
-      return {
-        next,
-        afterWrite: () => {
-          if (retireRefused) retireRefusedPublications(root, pending);
-          rmSync(join(root, JOB_BINDING_FILE));
-        },
-      };
-    },
-    resolvedRoot => {
-      pending = pendingPublications(resolvedRoot);
-      if (pending.length && (!retireRefused || pending.some(entry => !entry.failure))) {
-        refuse('JOB_PUBLISH_PENDING', 'project.json: a committed publication remains pending; run rig-create job reconcile, or job close --retire-refused to archive failed publications and close without publishing them');
+      assertUnchangedBindingAndRecord(root, file, binding, original, 'close', next !== undefined);
+      if (next !== undefined) {
+        writeFileSync(temporary, `${JSON.stringify(next, null, 2)}\n`, { flag: 'wx' });
+        renameSync(temporary, file);
       }
-    },
-    lockWaitMs,
-  );
+      if (retireRefused) retireRefusedPublications(root, pending);
+      rmSync(join(root, JOB_BINDING_FILE));
+    } finally {
+      rmSync(temporary, { force: true });
+      if (attachment.kind === 'stopped-store') attachment.finish();
+      else host.stop();
+    }
+  } finally {
+    release();
+  }
 }

@@ -251,13 +251,19 @@ test('lost acknowledgment replays the same request without a second publication'
     await publishPending(entry);
     refuse('JOB_PUBLISH_PENDING', 'project.json: planted acknowledgment loss');
   })).rejects.toMatchObject({ code: 'JOB_PUBLISH_PENDING' });
-  // One publication and its declared asks; the replay publishes and asks nothing again.
-  const asked = host.session.status();
-  expect(asked.pending.length).toBeGreaterThan(0);
-  expect(asked.generation).toBe(1 + asked.pending.length);
+  const first = host.session.status();
+  expect(first.generation).toBe(1);
+  expect(first.pending).toEqual([]);
+  expect(first.publication).not.toBeNull();
+  const publicationId = first.publication!.publicationId;
+  expect(readAcknowledgedPublication(root, host.session.jobId, publicationId)?.subjects).toEqual([]);
+
   expect(await reconcileCreateJob(root)).toBe(1);
-  expect(host.session.status().generation).toBe(asked.generation);
-  expect(host.session.status().pending).toEqual(asked.pending);
+  const replay = host.session.status();
+  expect(replay.generation).toBe(1);
+  expect(replay.publication?.publicationId).toBe(publicationId);
+  expect(replay.pending).toEqual([]);
+  expect(readAcknowledgedPublication(root, host.session.jobId, publicationId)?.subjects).toEqual([]);
   expect(pendingPublications(root)).toEqual([]);
 });
 

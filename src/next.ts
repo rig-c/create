@@ -6,7 +6,7 @@ import { checkpointEnabled, checkpointRequired, completedPlanStepNeedsAmendment,
 import { createHash } from 'node:crypto';
 import { existsSync, lstatSync, readdirSync, readFileSync, realpathSync } from './check-reads.ts';
 import { isDeepStrictEqual } from 'node:util';
-import { CURRENT_KINDS, CURRENT_RIG_MODEL, currentFileBinding, currentRigFileBinding, isCurrentProject, outputRoot, RUN_RECORD_NAME, sha256, verifiedLegacyMotionProvenance, type CurrentKind } from './current.ts';
+import { CURRENT_KINDS, currentRigFileBinding, isCurrentProject, outputRoot, RUN_RECORD_NAME, sha256, verifiedLegacyMotionProvenance, type CurrentKind } from './current.ts';
 import { ADOPTED_COMPOSE_BUILD, adoptedComposeBuildMatches } from './adopted-compose.ts';
 import { motionLoopSeamFindings, readMotionLoopSeamPolicy } from './motion-loop-seam.ts';
 import { COMPOSE_CHECK_PATH, COMPOSE_RUN_PATH, CURRENT_DIRECTION_PATH, currentDirectionSource } from './current-direction.ts';
@@ -1562,7 +1562,8 @@ function currentPostOutputMove(dir: string, project: JsonObject, kind: 'motion' 
     act: `${reason} Preserve ${from} by moving the whole tree to an unused path, then run next again for the fresh producer command.`,
   });
   if (kind === 'motion') {
-    if (!currentFileBinding(project, 'rig', CURRENT_RIG_MODEL)) return;
+    const model = currentRigFileBinding(project, 'check/build/skeleton.model.json');
+    if (!model) return;
     if (existsSync(join(dir, from, 'frames.json'))) {
       if (seam) {
         const inventory = stagedSeamInventory(dir, root, from, kind);
@@ -1573,7 +1574,7 @@ function currentPostOutputMove(dir: string, project: JsonObject, kind: 'motion' 
     }
     if (seam && retouchPathExists(dir, from)) return preserveStaging(`Inspect the incomplete render in ${from}.`);
     return { role: 'producer', field: 'current.motion', awaits: 'current.motion',
-      command: inProject(`rigc render --candidate outputs/rig/check/build --out ${from} --animation idle --fps '<frames-per-second>'${flags}`),
+      command: inProject(`rigc render --candidate ${shellWord(posix.dirname(model.path))} --out ${from} --animation idle --fps '<frames-per-second>'${flags}`),
       act: 'Render the recorded rig at the requested sample rate, then record the staged motion.' };
   }
   if (!isObject(project.current) || !isObject(project.current.motion)) return;
@@ -1971,7 +1972,6 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
           return [[kind, { adoption, producer, usesAdoptedInputs: adoptedInputs }]] as const;
         }
         if (node !== undefined && !(kind === 'direction' && preCutoffDirection)) return [];
-        if (prepareDirection && adoptedInputs && (kind === 'rig' || kind === 'motion')) return [];
         let producer: NextMove | undefined;
         if (reviseDirection && kind === 'motion') {
           producer = currentPostOutputMove(dir, project, kind);

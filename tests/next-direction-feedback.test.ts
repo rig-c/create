@@ -92,7 +92,9 @@ test('#1106 next routes a live numbered direction bounce through current outputs
     expect(adopted).toMatchObject({ versions: beforeAdoption.versions, current: { rig: { adopted: { version: 1 } } } });
 
     const current = expectDeferredDirectionFeedback(dir, 3, 0);
-    expectDirectionOnly(current);
+    expect(current.moves.some(move => move.field === 'current.rig')).toBe(false);
+    expect(current.moves).toContainEqual(expect.objectContaining({ field: 'current.motion',
+      command: expect.stringContaining('rigc render --candidate outputs/v1/out/check/build') }));
     expect(current.moves.find(move => move.field === 'current.direction')?.act).toContain('SCENE_CURRENT_MOTION_REQUIRED');
     expect(readFileSync(recordPath)).toEqual(adoptedBytes);
 
@@ -107,6 +109,66 @@ test('#1106 next routes a live numbered direction bounce through current outputs
   } finally {
     testClock.reset();
   }
+});
+
+test('#1114 next offers adoption and a render from the adopted rig when current-path post needs motion', () => {
+  const dir = join(tempDir('next-adopted-rig-motion-'), 'project');
+  cpSync(join(import.meta.dir, '../templates/example-current'), dir, { recursive: true });
+  const recordPath = join(dir, 'project.json');
+  const project = JSON.parse(readFileSync(recordPath, 'utf8')) as JsonObject;
+  const current = obj(project.current);
+  project.stage = 'post';
+  project.advances = arr(project.advances).slice(0, -2);
+  const retainSignoff = (row: JsonObject) => !['rig-review', 'post-interview', 'direction-review'].includes(String(row.stage));
+  project.signoffs = arr(project.signoffs).map(obj).filter(retainSignoff);
+  for (const advance of arr(project.advances).map(obj)) {
+    advance.signoffs_before = arr(advance.signoffs_before).map(obj).filter(retainSignoff);
+    if (advance.signoff !== null && !retainSignoff(obj(advance.signoff))) advance.signoff = null;
+  }
+  // Keep the post picks and their shown rig snapshot without the optional rig signature.
+  for (const item of arr(obj(obj(project.interview).post).items).map(obj)) {
+    const binding = obj(obj(obj(item.guide).choice).set);
+    const path = join(dir, String(binding.path));
+    const set = JSON.parse(readFileSync(path, 'utf8')) as JsonObject;
+    delete obj(set.context).signoff_at;
+    const bytes = `${JSON.stringify(set, null, 2)}\n`;
+    writeFileSync(path, bytes);
+    binding.sha256 = sha256(bytes);
+  }
+  for (const step of arr(obj(project.plan).steps).map(obj)) {
+    if (step.phase !== 'post') continue;
+    step.status = 'in-progress';
+    step.status_history = arr(step.status_history).slice(0, 1);
+  }
+  delete current.motion;
+  delete current.direction;
+  rmSync(join(dir, 'specs/motion/loop-seam.json'), { force: true });
+  const save = () => writeFileSync(recordPath, `${JSON.stringify(project, null, 2)}\n`);
+  const motionMoves = () => {
+    const report = JSON.parse(nextCommand([dir, '--json'], TEST_NOW).stdout) as NextReport;
+    expect(report).toMatchObject({ stage: 'post', effective_stage: 'post', refusals: [] });
+    expect(report.open_direction_comments).toBeUndefined();
+    expect(report.moves.some(move => move.field === 'current.rig')).toBe(false);
+    return report.moves.filter(move => move.field === 'current.motion');
+  };
+  const render = (build: string) => `(cd ${dir} && rigc render --candidate ${build} --out outputs/motion.next --animation idle --fps '<frames-per-second>')`;
+  save();
+  expect(motionMoves().map(move => move.command)).toEqual([render('outputs/rig/check/build')]);
+
+  const build = 'outputs/v1/out/check/build';
+  const idle = 'outputs/v1/idle';
+  mkdirSync(join(dir, dirname(build)), { recursive: true });
+  cpSync(join(dir, 'outputs/rig/check/build'), join(dir, build), { recursive: true });
+  cpSync(join(dir, 'outputs/motion'), join(dir, idle), { recursive: true });
+  project.versions = [{ n: 1, kind: 'rig', pre_interview: true, original_n: 1, original_verdicts: [], verdicts: [],
+    at: '2026-11-01T00:00:00.000Z', built_by: 'agent', built_with: {}, outputs: [...treeFiles(dir, build), ...treeFiles(dir, idle)] }];
+  delete current.rig;
+  save();
+  expect(recordCommand(['rig', dir, '--adopt'], TEST_NOW).exit).toBe(0);
+  expect(motionMoves().map(move => [move.role, move.command])).toEqual([
+    ['agent', `rig-create record motion --adopt ${dir}`],
+    ['producer', render(build)],
+  ]);
 });
 
 test('#1111 next routes an adopted direction redo and its offered writer closes the numbered comment', async () => {
@@ -195,6 +257,31 @@ test('#1111 next routes an adopted direction redo and its offered writer closes 
     tick();
     expect(signoffCommand(['post-interview', dir, ...say('Use the three revised direction choices.')]).exit).toBe(0);
 
+    // Partial numbered adoption at post must preserve offers for whichever input is still missing.
+    const recordPath = join(dir, 'project.json');
+    const next = (): NextReport => JSON.parse(nextCommand([dir, '--json'], testClock.now()).stdout) as NextReport;
+    const beforePostAdoption = readFileSync(recordPath);
+    expect(recordCommand(['rig', dir, '--adopt'], testClock.now()).exit).toBe(0);
+    const missingMotion = next();
+    expect(missingMotion).toMatchObject({ effective_stage: 'post', refusals: [] });
+    expect(missingMotion.open_direction_comments).toBeUndefined();
+    expect(missingMotion.moves.filter(move => move.field === 'current.motion').map(move => move.command)).toEqual([
+      `rig-create record motion --adopt ${dir}`,
+      `rig-create record motion ${dir} --from outputs/motion.next`,
+    ]);
+    expect(missingMotion.moves.some(move => move.field === 'current.rig')).toBe(false);
+    expect(recordCommand(['motion', dir, '--adopt'], testClock.now()).exit).toBe(0);
+    const bothRecorded = next();
+    expect(bothRecorded).toMatchObject({ effective_stage: 'post', refusals: [] });
+    expect(bothRecorded.moves.some(move => move.field === 'current.rig' || move.field === 'current.motion')).toBe(false);
+    writeFileSync(recordPath, beforePostAdoption);
+    expect(recordCommand(['motion', dir, '--adopt'], testClock.now()).exit).toBe(0);
+    const missingRig = next();
+    expect(missingRig).toMatchObject({ effective_stage: 'post', refusals: [] });
+    expect(missingRig.moves).toContainEqual(expect.objectContaining({ field: 'current.rig', command: `rig-create record rig --adopt ${dir}` }));
+    expect(missingRig.moves.some(move => move.field === 'current.motion')).toBe(false);
+    writeFileSync(recordPath, beforePostAdoption);
+
     // Supply the same synthetic compose receipt shape as the compose writer tests.
     const scenePath = 'compose-revision.scene.json';
     const plate = obj(arr(composition.plates)[0]);
@@ -255,8 +342,6 @@ test('#1111 next routes an adopted direction redo and its offered writer closes 
     expect(checked).toMatchObject({ stage: 'accepted', effective_stage: 'direction-review', refusals: [] });
     expect(checked.warnings).toContainEqual(expect.objectContaining({ code: 'FEEDBACK_OPEN', path }));
     expect(checked.feedback.flatMap(feedback => feedback.open_direction_comment ?? [])).toEqual([openComment]);
-    const next = (): NextReport => JSON.parse(nextCommand([dir, '--json'], testClock.now()).stdout) as NextReport;
-    const recordPath = join(dir, 'project.json');
     // Proof remains optional in old rows. Derive it again from the accepted registration and its retained bytes.
     const adopted = read();
     delete obj(obj(adopted.current).motion).provenance;

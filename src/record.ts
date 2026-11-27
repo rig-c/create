@@ -12,7 +12,7 @@ import { activeCurrentSignoffTargetPath, asArray, checkProject, isObject, PROJEC
 import { literalFile } from './choices.ts';
 import { readDirectionOutput } from './current-direction.ts';
 import { directionLoopSeamFindings } from './direction-loop-seam.ts';
-import { builtFromNameAllowed, CURRENT_KINDS, currentHash, currentRigFileBinding, currentShapeFindings, isRunRecordFile, outputRoot, outputSetHash, rigModelAtlasRelatives, RUN_RECORD_NAME, sha256, treeFiles, verifiedLegacyMotionProvenance, type CurrentKind, type RebuildRunSpec } from './current.ts';
+import { builtFromNameAllowed, CURRENT_KINDS, currentFileBinding, currentHash, currentRigFileBinding, currentShapeFindings, isRunRecordFile, outputRoot, outputSetHash, rigModelAtlasRelatives, RUN_RECORD_NAME, sha256, treeFiles, verifiedLegacyMotionProvenance, type CurrentKind, type RebuildRunSpec } from './current.ts';
 import { DirectionError } from './direction.ts';
 import { directionFeedbackRefFinding, parseFeedbackPair, readProject } from './feedback.ts';
 import { recordCurrentPartsLedger } from './fix-ledger.ts';
@@ -548,7 +548,8 @@ function recordAdoption(dir: string, file: string, original: Buffer, project: Js
 }
 
 function adoptedRigReplacementWarning(dir: string, project: JsonObject, config: string, details: RecordDetails, byPath: Map<string, string>): string | undefined {
-  const rig = isObject(project.current) ? project.current.rig : undefined;
+  const current = isObject(project.current) ? project.current : {};
+  const { rig, parts } = current;
   if (!isObject(rig) || !isObject(rig.adopted) || typeof rig.adopted.version !== 'number'
     || currentShapeFindings('rig', rig, project).length || !wasNumberedRigAccepted(project, rig.adopted.version)) return undefined;
   const model = currentRigFileBinding(project, MODEL_FILE);
@@ -557,25 +558,44 @@ function adoptedRigReplacementWarning(dir: string, project: JsonObject, config: 
     return old !== undefined && old.sha256 !== byPath.get(`${outputRoot('rig')}/${relative}`);
   });
   if (!differences.length) return undefined;
-  const oldInputs = asArray(rig.built_from).filter(isObject);
-  const newInputs = new Map(details.built_from.map(input => [input.path, input.sha256]));
-  const changedInputs = new Set<string>();
-  for (const old of oldInputs) {
-    if (typeof old.path === 'string' && newInputs.has(old.path) && newInputs.get(old.path) !== old.sha256) changedInputs.add(old.path);
-  }
-  // An adopted config may have moved from its retained numbered path to specs/rig/.
+  const oldInputs = new Map(asArray(rig.built_from).filter(isObject).map(input => [input.path, input.sha256]));
   const legacy = adoptedOutputBindings(project, 'rig', rig.adopted.version);
   const oldConfig = legacy.ok ? adoptedRigConfigBinding(legacy.source) : undefined;
-  const newConfig = details.built_from.find(input => input.path === config);
-  if (oldConfig && newConfig && oldConfig.sha256 !== newConfig.sha256
-    && oldInputs.some(input => input.path === oldConfig.path && input.sha256 === oldConfig.sha256)) {
-    changedInputs.add(oldConfig.path === newConfig.path ? oldConfig.path : `${oldConfig.path} -> ${newConfig.path}`);
+  const legacyParts = adoptedOutputBindings(project, 'parts', rig.adopted.version);
+  const numberedParts = new Map(legacyParts.ok ? legacyParts.files.map(file => [file.path, file.sha256]) : []);
+  const numberedRoot = `outputs/v${rig.adopted.version}`;
+  const partsRoot = isObject(parts) && isObject(parts.adopted)
+    ? `outputs/v${String(parts.adopted.version)}` : outputRoot('parts');
+  const changedInputs: string[] = [];
+  const uncoveredInputs: string[] = [];
+  for (const { path, sha256 } of details.built_from) {
+    let oldHash = oldInputs.get(path);
+    let label = path;
+    if (path === config) {
+      // An adopted config may have moved from its retained numbered path to specs/rig/.
+      oldHash = oldConfig?.sha256 ?? oldHash;
+      if (oldConfig && oldConfig.path !== path) label = `${oldConfig.path} -> ${path}`;
+    } else {
+      if (!path.startsWith(`${partsRoot}/`) || currentFileBinding(project, 'parts', path)?.sha256 !== sha256) continue;
+      const relative = path.slice(partsRoot.length + 1);
+      // The numbered registration packages rig-ready Parts under out/ and can also retain the assembly tree.
+      oldHash ??= partsRoot === outputRoot('parts')
+        ? numberedParts.get(`${numberedRoot}/out/${relative.replace(/^rig\//, '')}`)
+          ?? numberedParts.get(`${numberedRoot}/plate-assemble/${relative}`)
+        : numberedParts.get(`${numberedRoot}/${relative}`);
+    }
+    if (oldHash === undefined) uncoveredInputs.push(path);
+    else if (sha256 !== oldHash) changedInputs.push(label);
   }
   const message = `current.rig.files: replacement of accepted v${rig.adopted.version} changes ${differences.join(', ')}`;
-  if (!changedInputs.size) {
+  const reasons = [
+    changedInputs.length && `recorded inputs changed at ${changedInputs.sort().join(', ')}`,
+    uncoveredInputs.length && `recorded inputs without a retained binding were used at ${uncoveredInputs.sort().join(', ')}`,
+  ].filter(Boolean);
+  if (!reasons.length) {
     refuse('RECORD_ADOPTED_RIG_OUTPUT_CHANGED', `${message} with no changed recorded input; keep the adopted rig or rebuild from the intended changed inputs`);
   }
-  return `rig-create: WARN RECORD_ADOPTED_RIG_INPUT_CHANGED: ${message} after recorded inputs changed at ${[...changedInputs].sort().join(', ')}; rebuild any stale downstream outputs`;
+  return `rig-create: WARN RECORD_ADOPTED_RIG_INPUT_CHANGED: ${message} after ${reasons.join(' and ')}; rebuild any stale downstream outputs`;
 }
 
 export function recordCommand(args: string[], now: number): CommandResult {

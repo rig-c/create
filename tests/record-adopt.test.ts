@@ -1,6 +1,6 @@
 import { expect, spyOn, test } from 'bun:test';
 import { cpSync, existsSync, mkdirSync, readFileSync, renameSync, symlinkSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { dirname, join, posix } from 'node:path';
 import { EXAMPLE_ANCHOR } from '../scripts/example-time.ts';
 import { asArray, checkProject, formatReport, isObject, type CheckReport } from '../src/check.ts';
 import { CURRENT_RIG_MODEL, currentFileBinding, currentFindings, currentHash, currentMotionSetBinding, currentRigFileBinding, currentShapeFindings, legacyMotionProvenance, outputSetHash, sha256, treeFiles, verifiedLegacyMotionProvenance, type CurrentKind } from '../src/current.ts';
@@ -406,6 +406,64 @@ test('warns when changed recorded input replaces accepted adopted rig bytes', ()
   expect(treeFiles(f.dir, outputs)).toEqual(legacy);
   expect(staleOutputs(f.dir).map(finding => finding.path)).toContain('current.motion');
 });
+
+test.each(['changed', 'uncovered', 'unchanged', 'unrecorded'] as const)(
+  'replaces an accepted adopted rig on unchanged config only with changed or uncovered recorded Parts (%s)',
+  coverage => {
+    const f = acceptedLegacyFixture();
+    const staged = stagedRig(f);
+    f.version.registration.config_source = f.write(config, staged.configBytes);
+    const producer = join(TEMPLATES_DIR, 'example-current');
+    const partsFrom = 'outputs/parts.next';
+    const manifest = 'outputs/parts/rig/parts.json';
+    const legacyManifest = `${outputs}/out/parts.json`;
+    const oldManifestIndex = f.version.outputs.findIndex(file => file.path === legacyManifest);
+    if (coverage === 'uncovered') f.version.outputs.splice(oldManifestIndex, 1);
+    if (coverage === 'unchanged') {
+      f.version.outputs[oldManifestIndex] = f.write(legacyManifest, readFileSync(join(producer, manifest), 'utf8'));
+    }
+    f.save();
+    f.record('rig');
+    f.record('parts');
+
+    cpSync(join(producer, 'outputs/parts'), join(f.dir, partsFrom), { recursive: true });
+    for (const path of ['inputs/painting.png', 'derived/layers', 'specs/rig/assemble.json']) {
+      const target = join(f.dir, path);
+      mkdirSync(dirname(target), { recursive: true });
+      cpSync(join(producer, path), target, { recursive: true });
+    }
+    f.record('parts', ['--from', partsFrom, '--config', 'specs/rig/assemble.json']);
+
+    const input = coverage === 'unrecorded'
+      ? f.write('outputs/parts/rig/unrecorded.json', '{}')
+      : currentFileBinding(f.load(), 'parts', manifest)!;
+    const runPath = `${staged.from}/check/build/run.json`;
+    const run = JSON.parse(readFileSync(join(f.dir, runPath), 'utf8')) as JsonObject;
+    (run.inputs as JsonObject[]).push({ role: 'manifest', path: posix.relative(posix.dirname(runPath), input.path), sha256: input.sha256 });
+    f.write(runPath, JSON.stringify(run));
+
+    const before = f.original();
+    const args = ['rig', f.dir, ...staged.args, '--json'];
+    if (coverage === 'unchanged' || coverage === 'unrecorded') {
+      expect(() => recordCommand(args, now)).toThrow(expect.objectContaining({ code: 'RECORD_ADOPTED_RIG_OUTPUT_CHANGED' }));
+      expect(f.original()).toEqual(before);
+      expect(existsSync(join(f.dir, 'outputs/rig'))).toBe(false);
+      return;
+    }
+
+    const result = recordCommand(args, now);
+    expect(result.exit).toBe(0);
+    expect(result.stderr).toContain('WARN RECORD_ADOPTED_RIG_INPUT_CHANGED');
+    const reason = coverage === 'changed' ? 'changed' : 'without a retained binding were used';
+    expect(result.stderr).toContain(`after recorded inputs ${reason} at ${manifest}`);
+    const rig = (f.load().current as JsonObject).rig;
+    expect(rig).toEqual(JSON.parse(result.stdout!));
+    expect(rig).toMatchObject({ built_from: expect.arrayContaining([{ path: manifest, sha256: input.sha256 }]) });
+    expect(rig).not.toHaveProperty('adopted');
+    expect(currentRigFileBinding(f.load(), 'check/build/skeleton.model.json')?.path).toBe(CURRENT_RIG_MODEL);
+    expect(existsSync(join(f.dir, staged.from))).toBe(false);
+  },
+);
 
 test('allows a byte-identical rig replacement while retaining the adopted motion’s historical provenance', () => {
   const f = acceptedLegacyFixture();

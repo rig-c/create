@@ -3,7 +3,7 @@ import { readFileSync, realpathSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { startJobHost } from '@rig-c/review/job-host';
 import { assertNoPendingJobAsk, attachCreateJobForClose, withdrawCreateJobAct } from './job-close.ts';
-import { askOutcomeLines, subjectLabel, assertRequestedDraft, assertRequestedRig, closeCreateJob, listCreateJobActs, openCreateJob, openDraftPublication, openRecordPublication, requestedRecordResult, publishPending, reconcileCreateJob, refuseAskOutcomes, type AskOutcome } from './job-host.ts';
+import { askOutcomeLines, subjectLabel, assertRequestedCurrent, assertRequestedDraft, assertRequestedRig, closeCreateJob, listCreateJobActs, openCreateJob, openCurrentPublication, openDraftPublication, openRecordPublication, requestedRecordResult, publishPending, reconcileCreateJob, refuseAskOutcomes, type AskOutcome } from './job-host.ts';
 import { failPublication, pendingPublications, readWriterBinding, reconcilePublication } from './job-outbox.ts';
 import { postJobProgress, type JobProgressUpdate } from './job-progress.ts';
 import { jobActsText, type JobWriteAskTarget } from './job-acts.ts';
@@ -22,7 +22,7 @@ export function publicationFailure(error: unknown, root: string): Refusal | unde
 }
 
 async function run(): Promise<void> {
-  const input = JSON.parse(readFileSync(0, 'utf8')) as { root: string; id?: string; actId?: string; askTarget?: JobWriteAskTarget; reviewer?: string; role?: 'owner' | 'delegate'; draft?: string; rig?: string; question?: Parameters<typeof requestedRecordResult>[1]; plan?: boolean; now: number; retireRefused?: boolean; discardActs?: Record<string, string>; json?: boolean; timeoutMs?: number; jobId?: string; listenerIncarnation?: string; update?: JobProgressUpdate };
+  const input = JSON.parse(readFileSync(0, 'utf8')) as { root: string; id?: string; actId?: string; askTarget?: JobWriteAskTarget; reviewer?: string; role?: 'owner' | 'delegate'; draft?: string; rig?: string; current?: string; question?: Parameters<typeof requestedRecordResult>[1]; plan?: boolean; now: number; retireRefused?: boolean; discardActs?: Record<string, string>; json?: boolean; timeoutMs?: number; jobId?: string; listenerIncarnation?: string; update?: JobProgressUpdate };
   const root = resolve(input.root);
   switch (process.argv[2]) {
     case 'progress': {
@@ -98,11 +98,14 @@ async function run(): Promise<void> {
     case 'open': {
       if (!input.reviewer || !input.role) refuse('JOB_BINDING_INVALID', 'project.json: job open needs --reviewer and --role owner|delegate');
       const record = requestedRecordResult(root, input.question, input.plan, input.now);
+      const current = assertRequestedCurrent(root, input.current, input.draft, input.rig);
       const rig = assertRequestedRig(root, input.rig, input.draft);
-      const { bytes, draftId } = assertRequestedDraft(root, input.draft, input.now);
+      const { bytes, draftId } = current
+        ? { bytes: Buffer.alloc(0), draftId: undefined }
+        : assertRequestedDraft(root, input.draft, input.now);
       if (rig || draftId !== undefined) requireOwnerLanguage(JSON.parse(bytes.toString('utf8')) as JsonObject);
-      const target = record ?? rig ?? (draftId !== undefined ? { kind: 'draft' as const, id: draftId } : undefined);
-      // Refuse before attaching or writing; openRecordPublication/openDraftPublication repeat it under the job lock (#737, #740).
+      const target = record ?? current ?? rig ?? (draftId !== undefined ? { kind: 'draft' as const, id: draftId } : undefined);
+      // Refuse before attaching or writing; openRecordPublication/openCurrentPublication/openDraftPublication repeat it under the job lock (#737, #740).
       if (target) await assertNoPendingJobAsk(root, target);
       let stopping = false;
       let stopHost: (() => void) | null = null;
@@ -122,7 +125,14 @@ async function run(): Promise<void> {
       console.log(host.ownerUrl);
       // The page shows the record's current draft and its asks. A refused publish or ask is
       // named here; a foreground host keeps serving so `job reconcile` and `job open` can retry.
-      try { console.log((await (record ? openRecordPublication(root, host, input.question, Boolean(input.plan), input.now) : openDraftPublication(root, host, input.now, input.draft, input.rig))).join('\n')); }
+      try {
+        const lines = await (record
+          ? openRecordPublication(root, host, input.question, Boolean(input.plan), input.now)
+          : current
+            ? openCurrentPublication(root, host, current.output, input.now)
+            : openDraftPublication(root, host, input.now, input.draft, input.rig));
+        console.log(lines.join('\n'));
+      }
       catch (error) {
         if (host.reused) {
           process.off('SIGINT', onSignal);

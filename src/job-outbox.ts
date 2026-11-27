@@ -4,9 +4,27 @@ import { existsSync, JOB_PRIVATE_DIRECTORY, lstatSync, readFileSync, readdirSync
 import { basename, dirname, join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { isDeepStrictEqual } from 'node:util';
-import type { JobPublishRequest, JobReviewerBinding, JobSubject, RecordSubject, RecordResult } from '@rig-c/review/job-host';
+import type { JobReviewerBinding, JobSubject, RecordSubject, RecordResult } from '@rig-c/review/job-host';
 
 export type PublicationSubject = JobSubject | RecordSubject;
+export const CURRENT_PUBLICATION_OUTPUTS = ['parts', 'rig', 'direction'] as const;
+export type CurrentPublicationOutput = (typeof CURRENT_PUBLICATION_OUTPUTS)[number];
+export interface CurrentPublicationSelector {
+  readonly kind: 'current';
+  readonly output: CurrentPublicationOutput;
+  readonly record: string;
+}
+export type NumberedPublicationSelector =
+  | { readonly kind: 'rig'; readonly version: number }
+  | { readonly kind: 'post'; readonly version: number; readonly rigVersion: number };
+export type CreateJobSelector =
+  | { readonly kind: 'draft'; readonly id: string }
+  | NumberedPublicationSelector
+  | CurrentPublicationSelector;
+export interface PackagePublicationResult {
+  readonly path: string;
+  readonly selector?: CreateJobSelector;
+}
 import { refuse } from './refusal.ts';
 import { requireOwnerLanguage } from './owner-language.ts';
 import type { JsonObject } from './templates.ts';
@@ -39,7 +57,7 @@ export interface WriterBinding {
   listenerIncarnation: string;
 }
 
-export type PublicationResult = JobPublishRequest['result'] | (RecordResult & { readonly selector?: never; readonly path?: never });
+export type PublicationResult = PackagePublicationResult | (RecordResult & { readonly selector?: never; readonly path?: never });
 export const isRecordResult = (result: PublicationResult): result is RecordResult & { readonly selector?: never; readonly path?: never } => 'kind' in result && (result.kind === 'option-set' || result.kind === 'plan');
 
 export interface PendingPublication {
@@ -52,6 +70,7 @@ export interface PendingPublication {
   recordHash: string;
   versionHash?: string;
   previousVersionHash?: string;
+  commit?: string;
   result: PublicationResult;
   failure: { code: string; message: string } | null;
   generation?: number;
@@ -228,7 +247,7 @@ export function assertJobIdentity(expected: JobIdentity, found: JobIdentity): vo
   }
 }
 
-export function enqueuePublication<R extends PublicationResult>(root: string, binding: WriterBinding, result: R, intentBytes?: Buffer): PendingPublication & { result: R } {
+export function enqueuePublication<R extends PublicationResult>(root: string, binding: WriterBinding, result: R, intentBytes?: Buffer, commit?: string): PendingPublication & { result: R } {
   const bytes = intentBytes ?? readFileSync(join(root, 'project.json'));
   requireOwnerLanguage(JSON.parse(bytes.toString('utf8')) as JsonObject);
   const recordHash = jobHash(bytes);
@@ -238,6 +257,7 @@ export function enqueuePublication<R extends PublicationResult>(root: string, bi
   const pending: PendingPublication & { result: R } = {
     schema: 'rig-create/job-pending@1', root: realpathSync(root), id, jobId: binding.jobId, origin: binding.origin,
     identity: binding.identity, recordHash, versionHash,
+    ...(commit !== undefined ? { commit } : {}),
     ...(intentBytes && publicationVersionHash(readFileSync(join(root, 'project.json')), result) !== versionHash
       ? { previousVersionHash: publicationVersionHash(readFileSync(join(root, 'project.json')), result) ?? undefined } : {}),
     result, failure: null, phase: intentBytes ? 'intent' : 'pending',
@@ -256,6 +276,12 @@ export function publicationVersionHash(bytes: Buffer, result: PublicationResult)
   if (isRecordResult(result)) return jobHash(bytes);
   const selector = result.selector;
   if (!selector) refuse('JOB_PUBLICATION_INVALID', 'project.json: publication requires a result selector; restore the writer result');
+  if (selector.kind === 'current') {
+    const project = JSON.parse(bytes.toString('utf8')) as { current?: Record<string, { files?: unknown }> };
+    const node = project.current?.[selector.output];
+    if (!node || typeof node !== 'object' || !Array.isArray(node.files) || node.files.length === 0) return null;
+    return jobHash(JSON.stringify([selector.output, node.files]));
+  }
   if (selector.kind === 'draft') {
     const project = JSON.parse(bytes.toString('utf8')) as { drafts?: { id: string }[] };
     const found = project.drafts?.filter(draft => draft.id === selector.id) ?? [];
@@ -289,7 +315,9 @@ export function pendingPublications(root: string, recoverIntents = false): Pendi
     if (entry?.schema !== 'rig-create/job-pending@1' || `${entry.id}.json` !== name
       || entry.root !== realpathSync(root) || !/^[a-f0-9]{64}$/.test(entry.recordHash)
       || entry.versionHash !== undefined && !/^[a-f0-9]{64}$/.test(entry.versionHash)
-      || entry.previousVersionHash !== undefined && !/^[a-f0-9]{64}$/.test(entry.previousVersionHash) || !entry.result || !entry.identity) {
+      || entry.previousVersionHash !== undefined && !/^[a-f0-9]{64}$/.test(entry.previousVersionHash)
+      || entry.commit !== undefined && !/^[a-f0-9]{40}$/.test(entry.commit)
+      || !entry.result || !entry.identity) {
       refuse('JOB_OUTBOX_INVALID', 'project.json: malformed pending publication; restore the writer-owned outbox before reconciling');
     }
     if (!entry.versionHash) {
@@ -343,7 +371,14 @@ export async function reconcilePublication(root: string, entry: PendingPublicati
     refuse('JOB_PUBLICATION_STALE', 'project.json: the pending version entry is absent or changed; restore that retained version and its files before rig-create job reconcile');
   }
   const recordHash = jobHash(readFileSync(join(root, 'project.json')));
-  if (recordHash !== entry.recordHash) { entry.recordHash = recordHash; delete entry.generation; }
+  if (recordHash !== entry.recordHash) {
+    entry.recordHash = recordHash;
+    delete entry.generation;
+    delete entry.commit;
+    if (!isRecordResult(entry.result) && entry.result.selector?.kind === 'current') {
+      entry.result = { ...entry.result, selector: { ...entry.result.selector, record: recordHash } };
+    }
+  }
   entry.phase = 'pending';
   failPublication(root, entry, entry.failure);
   await publish(entry);

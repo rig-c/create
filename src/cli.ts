@@ -53,7 +53,7 @@ export const BOUND_WRITE_HELP = 'Keep the job host up across bound writes; if it
 const HELP = `rig-create — create and run a rig project
 
 Usage:
-  rig-create job open [<dir>] --reviewer <id> --role owner|delegate [--draft <id> | --rig <n> | --questions | --question <question>... | --plan]
+  rig-create job open [<dir>] --reviewer <id> --role owner|delegate [--draft <id> | --rig <n> | --current parts|rig|direction | --questions | --question <question>... | --plan]
   rig-create job acts [<dir>] [--json] [--wait [--timeout-ms N]]
                                               list finalized acts and their ingest commands
                                               wait 1–600000 ms (default 600000), timeout exit 3
@@ -149,6 +149,8 @@ ${INPUT_CLI}  rig-create init <dir> [--no-install]              create a project
 job open:
   --rig <n>      selects a registered rig OR post version; the flag name is shared
   ${BOUND_WRITE_HELP}
+  --current <parts|rig|direction>
+                 publishes current.<output> in review-live.json for looking and commenting
 
 job reconcile:
   ${BOUND_WRITE_HELP}
@@ -349,7 +351,7 @@ export function main(argv: string[], now: number): number {
           if (!value || value.startsWith('-')) refuse('JOB_BINDING_INVALID', 'project.json: job open requires a value for each --question', USAGE_EXIT);
           questions.push(value);
           options[arg] = value;
-        } else if (action === 'open' && ['--reviewer', '--role', '--draft', '--rig'].includes(arg)) {
+        } else if (action === 'open' && ['--reviewer', '--role', '--draft', '--rig', '--current'].includes(arg)) {
           const value = args[++index];
           if (!value || value.startsWith('-') || options[arg]) refuse('JOB_BINDING_INVALID', 'project.json: job open requires one value for each reviewer option', USAGE_EXIT);
           options[arg] = value;
@@ -410,12 +412,15 @@ export function main(argv: string[], now: number): number {
       if ((action !== 'withdraw-act' && positional.length > 1) || action === 'open' && (!options['--reviewer'] || !['owner', 'delegate'].includes(options['--role'] ?? ''))) {
         refuse('JOB_BINDING_INVALID', 'project.json: job open needs --reviewer <id> --role owner|delegate and one optional directory', USAGE_EXIT);
       }
-      if (['--draft', '--rig', '--question', '--questions', '--plan'].filter(flag => options[flag] !== undefined).length > 1) {
-        refuse('JOB_BINDING_INVALID', 'project.json: job open takes one of --draft, --rig, --question, --questions or --plan; choose one recorded result', USAGE_EXIT);
+      if (['--draft', '--rig', '--current', '--question', '--questions', '--plan'].filter(flag => options[flag] !== undefined).length > 1) {
+        refuse('JOB_BINDING_INVALID', 'project.json: job open takes one of --draft, --rig, --current, --question, --questions or --plan; choose one recorded result', USAGE_EXIT);
+      }
+      if (options['--current'] !== undefined && !['parts', 'rig', 'direction'].includes(options['--current'])) {
+        refuse('JOB_BINDING_INVALID', 'project.json: job open --current expects parts, rig or direction', USAGE_EXIT);
       }
       const rootArg = action === 'withdraw-act' ? (positional[1] ?? process.cwd()) : (positional[0] ?? process.cwd());
       const question = options['--questions'] ? true : questions.length > 1 ? questions : questions[0];
-      const stdin = Buffer.from(JSON.stringify({ root: rootArg, actId: action === 'withdraw-act' ? positional[0] : undefined, reviewer: options['--reviewer'], role: options['--role'], draft: options['--draft'], rig: options['--rig'], question, plan: options['--plan'] === 'true', json: options['--json'] === 'true', timeoutMs, retireRefused: options['--retire-refused'] === 'true', discardActs: action === 'withdraw-act' || options['--discard-acts'] !== undefined ? options : undefined, now }));
+      const stdin = Buffer.from(JSON.stringify({ root: rootArg, actId: action === 'withdraw-act' ? positional[0] : undefined, reviewer: options['--reviewer'], role: options['--role'], draft: options['--draft'], rig: options['--rig'], current: options['--current'], question, plan: options['--plan'] === 'true', json: options['--json'] === 'true', timeoutMs, retireRefused: options['--retire-refused'] === 'true', discardActs: action === 'withdraw-act' || options['--discard-acts'] !== undefined ? options : undefined, now }));
       const runtime = join(import.meta.dir, 'job-runtime.ts');
       if (action === 'open' || timeoutMs !== undefined) {
         const child = Bun.spawn(jobRuntimeCommand(action, runtime), {

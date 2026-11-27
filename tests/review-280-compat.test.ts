@@ -1,7 +1,7 @@
 import { afterEach, expect, test } from 'bun:test';
 import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import {
   JOB_ACT_SCHEMA,
   JOB_API_SCHEMA,
@@ -27,6 +27,7 @@ import { jobHostStateRoot, jobPrivateRoot, readWriterBinding } from '../src/job-
 import { currentJobIdentity, JOB_BINDING_ID, JOB_ENUMERATOR_ID, JOB_READER_ID } from '../src/job-publication.ts';
 import { Refusal } from '../src/refusal.ts';
 import { decodeReviewAct, decodeReviewResponse, isRecordPicksAct, picksActComments } from '../src/review-act.ts';
+import { isSourceLinkedRun } from './source-only.ts';
 
 function expectRefusalCode(fn: () => unknown, code: string): void {
   try {
@@ -67,9 +68,41 @@ function makeProject(): string {
   return root;
 }
 
-test('installed Review 4.22.0 exports the act and previous-draft contracts and retains package-only job schemas', () => {
-  expect(reviewPackage.version).toBe('4.22.0');
-  expect(reviewPackage.dependencies['@rig-c/play']).toBe('1.27.0');
+function expectedPinnedReview(): { version: string; playVersion: string } {
+  const repoRoot = resolve(import.meta.dir, '..');
+  if (isSourceLinkedRun()) {
+    const pins = JSON.parse(readFileSync(join(repoRoot, 'scripts/source-ci-pins.json'), 'utf8')) as { review: string };
+    const reviewDir = realpathSync(join(repoRoot, 'node_modules/@rig-c/review'));
+    const shown = Bun.spawnSync(['git', 'show', `${pins.review}:package.json`], {
+      cwd: reviewDir,
+      stdout: 'pipe',
+      stderr: 'pipe',
+    });
+    if (shown.exitCode !== 0) {
+      throw new Error(`git show ${pins.review}:package.json failed in ${reviewDir}: ${shown.stderr.toString('utf8')}`);
+    }
+    const pinned = JSON.parse(shown.stdout.toString('utf8')) as {
+      version: string;
+      dependencies: Record<string, string>;
+    };
+    return { version: pinned.version, playVersion: pinned.dependencies['@rig-c/play']! };
+  }
+  const createPkg = JSON.parse(readFileSync(join(repoRoot, 'package.json'), 'utf8')) as {
+    dependencies: Record<string, string>;
+  };
+  const lock = Bun.JSONC.parse(readFileSync(join(repoRoot, 'bun.lock'), 'utf8')) as {
+    packages: Record<string, [string, string, { dependencies?: Record<string, string> }]>;
+  };
+  return {
+    version: createPkg.dependencies['@rig-c/review']!,
+    playVersion: lock.packages['@rig-c/review']![2].dependencies!['@rig-c/play']!,
+  };
+}
+
+test('installed Review exports the act and previous-draft contracts and retains package-only job schemas', () => {
+  const expectedReview = expectedPinnedReview();
+  expect(reviewPackage.version).toBe(expectedReview.version);
+  expect(reviewPackage.dependencies['@rig-c/play']).toBe(expectedReview.playVersion);
   expect(JOB_API_SCHEMA).toBe('rig-review/job-api@2');
   expect(JOB_ACT_SCHEMA).toBe('rig-review/act@2');
   expect(JOB_API_V3_SCHEMA).toBe('rig-review/job-api@3');

@@ -2,6 +2,7 @@
 import { JOB_COMMENT_ONLY_ACT_SCHEMA, type ActV3, type JobEventV3, type JobOwnerHost, type JobSelector, type PendingAskV3, type SourceV3 } from '@rig-c/review/job-host';
 import { isDeepStrictEqual } from 'node:util';
 import { recordOptionSets, type RecordPublicationResult } from './job-publication.ts';
+import type { CreateJobSelector } from './job-outbox.ts';
 import { asArray, collectItems, collectSignoffs, isObject, loadCollection, type Finding } from './check.ts';
 import { optionFile } from './choices.ts';
 import { existsSync, readFileSync } from './check-reads.ts';
@@ -378,7 +379,7 @@ function actMatchesAsk(act: ActV3, ask: PendingAskV3): boolean {
 }
 
 /** A record-only write has no publication target and cannot carry an ask forward. */
-export type JobWriteAskTarget = JobSelector | { kind: 'record-only'; writer?: 'interview' };
+export type JobWriteAskTarget = CreateJobSelector | { kind: 'record-only'; writer?: 'interview' };
 export type JobAskTarget = JobWriteAskTarget | RecordPublicationResult;
 
 function sameTarget(source: SourceV3, target: JobAskTarget): boolean {
@@ -388,10 +389,11 @@ function sameTarget(source: SourceV3, target: JobAskTarget): boolean {
   return false;
 }
 
-function sourceTargetInfo(source: SourceV3): { label: string; selector: JobSelector | null; version: number | null } {
+function sourceTargetInfo(source: SourceV3): { label: string; selector: CreateJobSelector | null; version: number | null } {
   if ('selector' in source && source.selector) {
-    const selector = source.selector;
+    const selector = source.selector as CreateJobSelector;
     if (selector.kind === 'draft') return { label: `draft ${selector.id}`, selector, version: null };
+    if (selector.kind === 'current') return { label: `current ${selector.output}`, selector, version: null };
     return { label: `${selector.kind} v${selector.version}`, selector, version: selector.version };
   }
   if ('selection' in source && source.selection) {

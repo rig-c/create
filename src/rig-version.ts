@@ -78,7 +78,7 @@ function refuseRegisteredVersion(dir: string, project: JsonObject, n: number): v
   let publication: string;
   try {
     const pending = pendingPublications(dir).find(entry => !isRecordResult(entry.result)
-      && entry.result.selector?.kind !== 'draft' && entry.result.selector?.version === n);
+      && entry.result.selector && 'version' in entry.result.selector && entry.result.selector.version === n);
     publication = pending
       ? `its publication is pending (JOB_PUBLISH_PENDING${pending.failure ? `: ${pending.failure.code}` : ''}); do not register it again: restore the bound host and run rig-create job reconcile`
       : 'no publication of it is pending; to register changed inputs, use a version number after all registered versions';

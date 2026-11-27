@@ -1,13 +1,14 @@
-import { readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import { startJobHost, waitForJobAct, type JobHostAttachFailure, type JobHostOptions, type JobHostReuseBinding, type JobOwnerHost, type JobReviewerBinding, type JobSelector } from '@rig-c/review/job-host';
 import { asArray, checkProject, collectItems, loadCollection, isObject, type Finding } from './check.ts';
 import { baselineOf, newFindings } from './refusal-baseline.ts';
 import { assembleOnlyDraftTarget, assembleOnlyVersionFinding, assertDraftHasRig, readAssembleOnlyDraftTarget } from './draft-layout.ts';
-import { Refusal, refuse } from './refusal.ts';
-import { liveManifestPath, livePublicationSubjects, draftPackageIdentity, draftPublishedContext, eligibleRigDraftModel, inspectDraftPublication, currentJobIdentity, optionPublicationRemedy, optionPublicationStage, partsEnumerator, prepareDraftManifest, prepareLiveManifest, publicationFile, publicationSelector, publishedDraft, publishedSourcePainting, readPublished, readRecordPublished, recordOptionSets, riggingDraftPartsChange, type RecordPublicationResult } from './job-publication.ts';
-import { acknowledgePublication, acquireJobLock, assertJobIdentity, enqueuePublication, ensureJobPrivateIgnores, failPublication, JOB_BINDING_FILE, jobHash, jobHostStateRoot, pendingPublications, privateDirectory, publicationVersionHash, readAcknowledgedPublication, readWriterBinding, reconcilePublication, refuseJobIdentityMismatch, writePrivateJson, isRecordResult, type PublicationResult, type JobIdentity, type PendingPublication, type WriterBinding, type PublicationSubject } from './job-outbox.ts';
+import { Refusal, refuse, USAGE_EXIT } from './refusal.ts';
+import { assertSupportedCurrentPublicationOutput, CURRENT_LIVE_MANIFEST, liveManifestPath, livePublicationSubjects, draftPackageIdentity, draftPublishedContext, eligibleRigDraftModel, inspectCurrentPublication, inspectDraftPublication, currentJobIdentity, optionPublicationRemedy, optionPublicationStage, partsEnumerator, prepareCurrentManifest, prepareDraftManifest, prepareLiveManifest, publicationFile, publicationSelector, publishedDraft, publishedSourcePainting, readPublished, readRecordPublished, recordOptionSets, riggingDraftPartsChange, type RecordPublicationResult } from './job-publication.ts';
+import { acknowledgePublication, acquireJobLock, assertJobIdentity, CURRENT_PUBLICATION_OUTPUTS, enqueuePublication, ensureJobPrivateIgnores, failPublication, JOB_BINDING_FILE, jobHash, jobHostStateRoot, pendingPublications, privateDirectory, publicationVersionHash, readAcknowledgedPublication, readWriterBinding, reconcilePublication, refuseJobIdentityMismatch, writePrivateJson, isRecordResult, type CreateJobSelector, type CurrentPublicationOutput, type CurrentPublicationSelector, type NumberedPublicationSelector, type PublicationResult, type JobIdentity, type PendingPublication, type WriterBinding, type PublicationSubject } from './job-outbox.ts';
+import { commitCurrentPublication } from './project-step-commit.ts';
 import { draftPublicationResult } from './job-writer.ts';
 import { attachCreateJobForClose, refusePendingJobAsks } from './job-close.ts';
 import { actionablePendingAct, agentCall, ingestedJobActs, ingestedSummary, jobEvents, pendingJobActs, readHostActsAndAsks, shellWord, type AgentReply, type IngestedJobAct, type PendingJobAct } from './job-acts.ts';
@@ -212,18 +213,27 @@ export async function publishPending(
     const bytes = readFileSync(join(entry.root, 'project.json'));
     if (publicationVersionHash(bytes, entry.result) !== entry.versionHash) refuse('JOB_PUBLICATION_STALE', 'project.json: pending version changed; restore its retained entry/files before reconciling');
     const currentHash = jobHash(bytes);
-    if (currentHash !== entry.recordHash) { entry.recordHash = currentHash; delete entry.generation; }
+    if (currentHash !== entry.recordHash) {
+      entry.recordHash = currentHash;
+      delete entry.generation;
+      delete entry.commit;
+      if (!isRecordResult(entry.result) && entry.result.selector?.kind === 'current') {
+        entry.result = { ...entry.result, selector: { ...entry.result.selector, record: currentHash } };
+      }
+    }
     const project = JSON.parse(bytes.toString('utf8')) as JsonObject;
     const selector = entry.result.selector;
-    const viewOnly = isCurrentProject(project) && (selector?.kind === 'rig' || selector?.kind === 'post');
+    const isCurrentSelector = selector?.kind === 'current';
+    const viewOnly = isCurrentSelector || (isCurrentProject(project) && (selector?.kind === 'rig' || selector?.kind === 'post'));
     let subjects: readonly PublicationSubject[];
     if (isRecordResult(entry.result)) {
       subjects = readRecordPublished({ root: entry.root, record: { path: 'project.json', sha256: entry.recordHash }, result: entry.result, phase: 'inventory' }, now).subjects;
     } else {
       if (!entry.result.selector) refuse('JOB_PUBLICATION_INVALID', 'project.json: a result selector is required for reconciliation');
       if (entry.result.selector.kind === 'draft') prepareDraftManifest(entry.root, project, entry.result.selector.id, entry.result.path);
+      else if (entry.result.selector.kind === 'current') prepareCurrentManifest(entry.root, project, entry.result.selector.output, entry.recordHash);
       else prepareLiveManifest(entry.root, project, entry.result.selector.version);
-      subjects = (await readPublished({ root: entry.root, record: { path: 'project.json', sha256: entry.recordHash }, result: entry.result })).subjects;
+      subjects = (await readPublished({ root: entry.root, record: { path: 'project.json', sha256: entry.recordHash }, result: entry.result as Parameters<typeof readPublished>[0]['result'] })).subjects;
     }
     const status = host.session.status();
     if (entry.generation === undefined) {
@@ -293,7 +303,7 @@ export async function publishPending(
     }
     const { publicationId, generation } = result.value;
     let acknowledgedSubjects: readonly PublicationSubject[] | undefined = subjects;
-    if (viewOnly) {
+    if (viewOnly && !isCurrentSelector) {
       // A replay can return a publication from before this workflow became view-only.
       const retained = host.session.retainedSource(publicationId).subjects;
       const prior = readAcknowledgedPublication(entry.root, entry.jobId, publicationId);
@@ -490,7 +500,7 @@ function inRecordOrder(root: string, entries: PendingPublication[], last?: strin
       const index = drafts.indexOf(selector.id);
       return [1, index < 0 ? unknown : index];
     }
-    return [2, typeof selector?.version === 'number' ? selector.version : unknown];
+    return [2, selector && 'version' in selector && typeof selector.version === 'number' ? selector.version : unknown];
   };
   return entries.map((entry, index) => ({ entry, index, rank: rank(entry) }))
     .sort((left, right) => left.rank[0] - right.rank[0] || left.rank[1] - right.rank[1] || left.index - right.index)
@@ -580,7 +590,7 @@ export function assertRequestedDraft(root: string, requested?: string, now = Dat
 }
 
 /** Validate an explicit registered rig or post before job open installs a binding or starts a host. */
-export function assertRequestedRig(root: string, requested?: string, draft?: string): Exclude<JobSelector, { kind: 'draft' }> | undefined {
+export function assertRequestedRig(root: string, requested?: string, draft?: string): NumberedPublicationSelector | undefined {
   if (requested === undefined) return undefined;
   if (draft !== undefined) refuse('JOB_BINDING_INVALID', 'project.json: job open takes either --draft <id> or --rig <n>; choose one recorded result');
   const n = Number(requested.replace(/^v/, ''));
@@ -626,14 +636,41 @@ export function assertRequestedRig(root: string, requested?: string, draft?: str
   return selector;
 }
 
-function selectorResult(root: string, selector: JobSelector, rigging = false): PendingPublication['result'] {
-  return selector.kind === 'draft'
-    ? draftPublicationResult(selector.id, rigging)
-    : { path: liveManifestPath(root, JSON.parse(readFileSync(join(root, 'project.json'), 'utf8')), selector.version), selector };
+/** Validate `--current <parts|rig|direction>` before any file write or Review host startup. */
+export function assertRequestedCurrent(
+  root: string,
+  requested?: string,
+  draft?: string,
+  rig?: string,
+): CurrentPublicationSelector | undefined {
+  if (requested === undefined) return undefined;
+  if (draft !== undefined || rig !== undefined) {
+    refuse('JOB_BINDING_INVALID', 'project.json: job open takes one of --draft, --rig or --current; choose one recorded result', USAGE_EXIT);
+  }
+  if (!(CURRENT_PUBLICATION_OUTPUTS as readonly string[]).includes(requested)) {
+    refuse('JOB_BINDING_INVALID', 'project.json: job open --current expects parts, rig or direction', USAGE_EXIT);
+  }
+  const output = requested as CurrentPublicationOutput;
+  assertSupportedCurrentPublicationOutput(output);
+  root = realpathSync(root);
+  const bytes = readFileSync(join(root, 'project.json'));
+  const project = JSON.parse(bytes.toString('utf8')) as JsonObject;
+  requireOwnerLanguage(project);
+  const record = jobHash(bytes);
+  inspectCurrentPublication(root, project, output, record);
+  return { kind: 'current', output, record };
 }
 
-function selectorLabel(selector: JobSelector): string {
-  return selector.kind === 'draft' ? `draft ${selector.id}` : `${selector.kind} v${selector.version}`;
+function selectorResult(root: string, selector: CreateJobSelector, rigging = false): PendingPublication['result'] {
+  if (selector.kind === 'draft') return draftPublicationResult(selector.id, rigging);
+  if (selector.kind === 'current') return { path: CURRENT_LIVE_MANIFEST, selector };
+  return { path: liveManifestPath(root, JSON.parse(readFileSync(join(root, 'project.json'), 'utf8')), selector.version), selector };
+}
+
+function selectorLabel(selector: CreateJobSelector): string {
+  if (selector.kind === 'draft') return `draft ${selector.id}`;
+  if (selector.kind === 'current') return `current ${selector.output}`;
+  return `${selector.kind} v${selector.version}`;
 }
 
 /** A single --question, repeated --question values, or --questions for the stage. */
@@ -746,12 +783,12 @@ export async function openDraftPublication(root: string, host: JobOwnerHost, now
   const rigSelector = assertRequestedRig(root, requestedRig, requested);
   const { bytes, ids, stage, draftId } = assertRequestedDraft(root, requested, now);
   const head = host.session.status().publication;
-  const source = head?.source as { selector?: JobSelector; projectHash?: unknown; package?: { id: string } } | undefined;
+  const source = head?.source as { selector?: CreateJobSelector; projectHash?: unknown; package?: { id: string } } | undefined;
   const acknowledged = head ? readAcknowledgedPublication(root, host.session.jobId, head.publicationId) : null;
-  const headSelector = acknowledged?.result.selector ?? source?.selector ?? null;
-  const targetSelector: JobSelector | undefined = rigSelector ?? (draftId !== undefined
+  const headSelector = (acknowledged?.result.selector ?? source?.selector ?? null) as CreateJobSelector | null;
+  const targetSelector: Exclude<CreateJobSelector, CurrentPublicationSelector> | undefined = rigSelector ?? (draftId !== undefined
     ? { kind: 'draft', id: draftId }
-    : headSelector && headSelector.kind !== 'draft'
+    : headSelector && headSelector.kind !== 'draft' && headSelector.kind !== 'current'
       ? headSelector
       : undefined);
   const warnings: Finding[] = [];
@@ -769,10 +806,10 @@ export async function openDraftPublication(root: string, host: JobOwnerHost, now
     : undefined);
   const sameDraftPackage = targetSelector?.kind !== 'draft'
     || Boolean(draft?.rigging) === (source?.package?.id === draftPackageIdentity(targetSelector.id, true).id);
-  const reuseHead = Boolean(head && headSelector && sameDraftPackage && source?.projectHash === jobHash(bytes) && (
+  const reuseHead = Boolean(head && headSelector && headSelector.kind !== 'current' && sameDraftPackage && source?.projectHash === jobHash(bytes) && (
     targetSelector === undefined || isDeepStrictEqual(headSelector, targetSelector)
   ) && (viewOnly && acknowledged !== null || currentSubjects === undefined || isDeepStrictEqual(acknowledged?.subjects, currentSubjects)));
-  let selector: JobSelector;
+  let selector: CreateJobSelector;
   let outcomes: AskOutcome[];
   let publicationId: string;
   let published: boolean;
@@ -815,6 +852,96 @@ export async function openDraftPublication(root: string, host: JobOwnerHost, now
     `job: ${selectorLabel(selector)} ${published ? 'published' : 'already published'} (publication ${publicationId})`, ...others, ...askOutcomeLines(outcomes)];
   refuseAskOutcomes(outcomes);
   return lines;
+}
+
+function canReuseCurrentHead(
+  root: string,
+  project: JsonObject,
+  output: CurrentPublicationOutput,
+  headRecordHash: string,
+  warnings: Finding[],
+  sealedFiles?: readonly { path: string; sha256: string }[],
+): boolean {
+  if (!existsSync(join(root, CURRENT_LIVE_MANIFEST))) return false;
+  const { manifestBytes, closureFiles } = inspectCurrentPublication(root, project, output, headRecordHash, warnings);
+  const manifestDisk = publicationFile(root, CURRENT_LIVE_MANIFEST);
+  if (!manifestDisk.equals(manifestBytes)) return false;
+  if (!sealedFiles) return true;
+  const expected = new Map<string, string>([
+    ...closureFiles.map(file => [file.path, file.sha256] as const),
+    [CURRENT_LIVE_MANIFEST, jobHash(manifestDisk)],
+  ]);
+  for (const [path, sha256] of expected) {
+    const match = sealedFiles.find(file => file.path === path);
+    if (!match || match.sha256 !== sha256) return false;
+  }
+  return sealedFiles.filter(file => file.path !== 'project.json').every(file => {
+    try { return jobHash(publicationFile(root, file.path)) === file.sha256; }
+    catch { return false; }
+  });
+}
+
+/**
+ * Publish `current.<output>` to Review as `review-live.json` with `{ kind: 'current', output, record }`.
+ * Per Contract §5a, agent writes to `project.json` alone do not republish an already-open `current`
+ * head whose own output files and manifest seals are unchanged on disk.
+ */
+export async function openCurrentPublication(
+  root: string,
+  host: JobOwnerHost,
+  output: CurrentPublicationOutput,
+  now: number,
+): Promise<string[]> {
+  root = realpathSync(root);
+  assertSupportedCurrentPublicationOutput(output);
+  const release = acquireJobLock(root)!;
+  let outcomes: AskOutcome[] = [];
+  let publicationId: string;
+  let published = false;
+  let others: string[] = [];
+  const warnings: Finding[] = [];
+  try {
+    const binding = readWriterBinding(root);
+    if (!binding || binding.jobId !== host.session.jobId) {
+      refuse('JOB_BINDING_INVALID', 'project.json: the open job has no matching writer-owned binding; restore the writer-owned binding and retry rig-create job open to publish into the existing job');
+    }
+    const bytes = readFileSync(join(root, 'project.json'));
+    const project = JSON.parse(bytes.toString('utf8')) as JsonObject;
+    requireOwnerLanguage(project);
+    const recordHash = jobHash(bytes);
+    const candidateSelector: CurrentPublicationSelector = { kind: 'current', output, record: recordHash };
+    const outputHash = publicationVersionHash(bytes, { path: CURRENT_LIVE_MANIFEST, selector: candidateSelector });
+    const head = host.session.status().publication;
+    const source = head?.source as { selector?: CreateJobSelector; files?: readonly { path: string; sha256: string }[] } | undefined;
+    const acknowledged = head ? readAcknowledgedPublication(root, host.session.jobId, head.publicationId) : null;
+    const headSelector = (acknowledged?.result.selector ?? source?.selector ?? null) as CreateJobSelector | null;
+    const reuseWarnings: Finding[] = [];
+    if (head && acknowledged && headSelector?.kind === 'current' && headSelector.output === output
+      && outputHash !== null && acknowledged.versionHash === outputHash
+      && pendingPublications(root, true).length === 0
+      && canReuseCurrentHead(root, project, output, headSelector.record, reuseWarnings, source?.files)) {
+      warnings.push(...reuseWarnings);
+      publicationId = head.publicationId;
+    } else {
+      if (pendingPublications(root, true).some(entry => isRecordResult(entry.result))) {
+        refuse('JOB_PUBLISH_PENDING', 'project.json: a record publication is pending; run rig-create job reconcile before opening the current output');
+      }
+      await refusePendingJobAsks(root, binding.jobId, host, candidateSelector);
+      const { closurePaths } = prepareCurrentManifest(root, project, output, recordHash, warnings);
+      const committed = commitCurrentPublication(root, output, recordHash, closurePaths);
+      if (committed.warning) warnings.push(committed.warning);
+      const pending = enqueuePublication(root, binding, { path: CURRENT_LIVE_MANIFEST, selector: candidateSelector }, undefined, committed.commit);
+      ({ outcomes, publicationId, others } = await reconcileOpenPublication(root, pending.id, now, pending.id));
+      published = true;
+    }
+  } finally { release(); }
+  refuseAskOutcomes(outcomes);
+  return [
+    ...warnings.map(finding => `WARN ${finding.code}: ${finding.message}`),
+    `job: current ${output} ${published ? 'published' : 'already published'} (publication ${publicationId})`,
+    ...others,
+    ...askOutcomeLines(outcomes),
+  ];
 }
 
 export { closeCreateJob, withdrawCreateJobAct } from './job-close.ts';

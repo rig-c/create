@@ -244,5 +244,15 @@
     "file": "tests/job-acts.test.ts",
     "name": "#698 wait wakes on a finalized pick and reuses the strict attach without timer re-listing",
     "reason": "Exercises the host-bound waiter against the pinned Review source"
+  },
+  {
+    "file": "tests/job-open-current.test.ts",
+    "name": "#1065 job open --current parts and --current rig publish review-live.json, bind git commits, and ingest act@10 comments with commit verified",
+    "reason": "Exercises live Review current parts/rig publication, commit binding, and act@10 comment ingestion against the pinned Review source"
+  },
+  {
+    "file": "tests/job-open-current.test.ts",
+    "name": "Bar (#1065 §5a): agent writes to project.json do not republish an open current output, while output file changes do republish",
+    "reason": "Exercises Contract §5a skip-republish and output-change republish behavior against the pinned Review source"
   }
 ]

@@ -10,7 +10,7 @@ import { CURRENT_KINDS, CURRENT_RIG_MODEL, currentFileBinding, isCurrentProject,
 import { readMotionLoopSeamPolicy } from './motion-loop-seam.ts';
 import { COMPOSE_CHECK_PATH, COMPOSE_RUN_PATH, CURRENT_DIRECTION_PATH, currentDirectionSource } from './current-direction.ts';
 import { currentAdvanceOutputFinding, isPublishAdvanceStage } from './job-advance.ts';
-import { eligibleRigDraftModel, optionPublicationStage, publicationFile, riggingDraftPartsChange } from './job-publication.ts';
+import { eligibleRigDraftModel, optionPublicationStage, publicationFile, riggingDraftPartsChange, SUPPORTED_CURRENT_PUBLICATION_OUTPUTS } from './job-publication.ts';
 import { latestRigDraftVerdict } from './rig-draft-verdict.ts';
 import { basename, dirname, isAbsolute, join, posix, relative, resolve, sep } from 'node:path';
 import {
@@ -41,7 +41,7 @@ import {
   validateDiffMapRecord,
 } from './diff-map.ts';
 import { partsStructureSnapshot } from './job-acts.ts';
-import { JOB_BINDING_FILE, readWriterBinding, type WriterBinding } from './job-outbox.ts';
+import { JOB_BINDING_FILE, readWriterBinding, type CurrentPublicationOutput, type WriterBinding } from './job-outbox.ts';
 import { beginJobProgress } from './job-writer.ts';
 import { isPartsCheckMove, PARTS_CHECK_FILE, partsCheckFindings, partsCheckRecord } from './parts-check.ts';
 import { isPartsReviewReceipt, latestPartsVerdictStatus, latestRiggingDraftFeedback, recordedPartsVerdict } from './parts-verdict-record.ts';
@@ -1382,6 +1382,26 @@ function optionalCurrentSignoffMove(
   };
 }
 
+function optionalCurrentOpenMove(
+  dir: string,
+  project: JsonObject,
+  report: CheckReport,
+  kind: CurrentPublicationOutput,
+): NextMove | undefined {
+  if (!SUPPORTED_CURRENT_PUBLICATION_OUTPUTS.has(kind)) return;
+  const path = `current.${kind}`;
+  if (!isObject(project.current) || !isObject(project.current[kind])) return;
+  if (report.refusals.some(r => r.path === path || r.path.startsWith(`${path}.`))) return;
+  if (report.warnings.some(w => w.code === 'OUTPUT_STALE' && w.path === path)) return;
+  return {
+    role: 'agent',
+    field: path,
+    awaits: path,
+    command: `rig-create job open ${shellWord(dir)} --current ${kind} --reviewer '<reviewer>' --role owner`,
+    act: `optional: publish the recorded ${kind} output to Review to look together and comment; ${OPEN_REVIEW_HOST}`,
+  };
+}
+
 function stagedBuild(dir: string, kind: 'parts' | 'rig', from: string): { config: string; packed: boolean } | undefined {
   const runPath = `${from}/${RUN_RECORD_NAME}`;
   const buildPath = `${from}/build-run.json`;
@@ -2715,17 +2735,24 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
         if (currentPath && refusals.length === 0
           && isObject(project.current) && isObject(project.current.parts)
           && existsSync(join(dir, outputRoot('parts'), 'rig', 'parts.json'))) {
+          let advanced = false;
           if (stage === 'parts') {
             const command = candidateAdvance(dir, project, 'parts-review', now,
               { report: `evidence/${PARTS_CHECK_FILE}`, root: `${outputRoot('parts')}/rig` });
             moves.push(command ? { role: 'agent', field: 'stage', awaits: 'project.stage', command,
               act: 'Advance to parts-review with the retained check of the recorded parts.' } : currentPartsAdvanceMove(dir));
+            advanced = true;
           } else if (!report.warnings.some(w => w.code === 'OUTPUT_STALE' && w.path === 'current.parts')) {
             const command = candidateAdvance(dir, project, 'parts-review', now);
             if (command !== null) {
               moves.push({ role: 'agent', field: 'stage', awaits: 'project.stage', command,
                 act: 'advance stage from parts to parts-review' });
+              advanced = true;
             }
+          }
+          if (advanced) {
+            const lookMove = optionalCurrentOpenMove(dir, project, report, 'parts');
+            if (lookMove) moves.push(lookMove);
           }
         }
       } else if (currentPath) {
@@ -2827,6 +2854,10 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
             command: advCmd,
             act: 'advance stage from rigging to rig-review',
           });
+          if (currentPath) {
+            const lookMove = optionalCurrentOpenMove(dir, project, report, 'rig');
+            if (lookMove) moves.push(lookMove);
+          }
         }
       }
 
@@ -3001,6 +3032,10 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
             command: advCmd,
             act: 'advance stage from post to direction-review',
           });
+          if (currentPath) {
+            const lookMove = optionalCurrentOpenMove(dir, project, report, 'direction');
+            if (lookMove) moves.push(lookMove);
+          }
         }
       }
 

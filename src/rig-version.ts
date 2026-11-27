@@ -27,6 +27,7 @@ import { checkRigReport, parseRigCheckReport, RIG_CHECK_REPORT_FILE, SOURCE_EXPO
 import { lockedPackage, type ToolchainKind } from './toolchain-lock.ts';
 import { rigVersionDateFinding } from './rig-version-date.ts';
 import { checkRegisteredRuns, FROZEN_RUN_SPECS, RUN_RECORD_SINCE, RunRecordError, validateRunRecord, type FrozenRunSpec } from './run-record.ts';
+import { isScratchBindingPath } from './scratch-bindings.ts';
 import { approvedStructureDelta, rigPartsApproval, structurePathIsIgnored } from './structure.ts';
 import { stageOfStep } from './stages.ts';
 import { checkVersionDeclarations, formatDeclarations } from './version-declarations.ts';
@@ -1166,7 +1167,7 @@ function mapRegistrationAssets(
       const reqSourceRel = insideOrEqual(dir, reqSourcePath) ? relative(dir, reqSourcePath).split(sep).join('/') : undefined;
       requirementsSourceBinding = {
         ...retain(`${evidence}/requirements-source.json`, reqOriginalBytes),
-        ...(reqSourceRel && literal(reqSourceRel) ? { source_path: reqSourceRel } : {}),
+        ...(reqSourceRel && literal(reqSourceRel) && !isScratchBindingPath(reqSourceRel) ? { source_path: reqSourceRel } : {}),
       };
       const runtimeReqBytes = isDeepStrictEqual(originalReq, portableReq)
         ? reqOriginalBytes : Buffer.from(`${JSON.stringify(portableReq, null, 2)}\n`);

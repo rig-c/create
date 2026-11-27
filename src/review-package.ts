@@ -11,6 +11,7 @@ import { asArray, isObject, readJsonObject, type Ctx } from './check.ts';
 import { draftVersionFindings } from './drafts.ts';
 import { assembleOnlyDraftPath, assembleOnlyDraftTarget, assertDraftHasRig } from './draft-layout.ts';
 import { Refusal, refuse, USAGE_EXIT } from './refusal.ts';
+import { assertNotScratchBinding } from './scratch-bindings.ts';
 import { assertRigVersionDate, rigVersionDateFinding } from './rig-version-date.ts';
 import { beginJobProgress } from './job-writer.ts';
 import type { Json, JsonObject } from './templates.ts';
@@ -456,6 +457,8 @@ function packageCommand(args: string[], candidate?: JsonObject, imagePaths?: rea
       }
       for (const input of named) if (!readFileSync(input.source).equals(input.bytes)) refuse('REVIEW_PACKAGE_SOURCE_CHANGED', `${input.path}: config input changed during copy`);
       const files = filesAt(scratch);
+      assertNotScratchBinding(relative(dir, config), `versions[v${n}].review_package.config.path`);
+      assertNotScratchBinding(relative(dir, from), `versions[v${n}].review_package.from`);
       const record: JsonObject = { config: { path: relative(dir, config), sha256: hash(configBytes) }, from: relative(dir, from), files: files.map((f) => ({ ...f })), open: openCommand(n) };
       const identity = { dir, project, refusals: [] as Ctx['refusals'], warnings: [] as Ctx['warnings'] };
       checkBuildIdentity(identity, version, record);

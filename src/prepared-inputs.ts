@@ -7,6 +7,7 @@ import { asArray, isObject, readJsonObject, type Ctx } from './check.ts';
 import { sourceSha256, type FileBinding } from './parts-verdict.ts';
 import { checkDerivedReceipt, checkPlateRegistrations, maskReceiptSpec, MASK_RECEIPT_SPECS, readDerivedReceipt } from './plate-receipt.ts';
 import { refuse, USAGE_EXIT } from './refusal.ts';
+import { assertNotScratchBinding } from './scratch-bindings.ts';
 import type { Json, JsonObject } from './templates.ts';
 
 const nonempty = (v: Json | undefined): v is string => typeof v === 'string' && v.trim() !== '';
@@ -255,6 +256,9 @@ export function derivedCommand(args: string[], now: number): { stdout: string; e
   if (project.schema !== 'rig-create/project@0') refuse('SCHEMA_UNKNOWN', 'derived add reads rig-create/project@0');
   if (project.derived !== undefined && !Array.isArray(project.derived)) refuse('DERIVED_MALFORMED', 'derived must be an array');
   if (![...sources, output].every((p) => inside(dir, p)) || sources.some((p) => (isRun ? underFolder(dir, output, p) : resolve(dir, p) === resolve(dir, output)))) refuse('DERIVED_PATH_INVALID', 'source and derived file must be distinct project-relative files other than project.json');
+  sources.forEach((p, idx) => assertNotScratchBinding(relative(dir, resolve(dir, p)), sources.length === 1 ? 'derived[].source.path' : `derived[].sources[${idx}].path`));
+  assertNotScratchBinding(relative(dir, resolve(dir, output)), 'derived[].path');
+  if (receiptPath !== undefined) assertNotScratchBinding(relative(dir, resolve(dir, receiptPath)), 'derived[].receipt.path');
   let receipt: ReturnType<typeof readDerivedReceipt>['binding'] | undefined;
   if (receiptPath !== undefined) {
     try { receipt = readDerivedReceipt(dir, receiptPath).binding; }

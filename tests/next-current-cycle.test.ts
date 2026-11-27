@@ -347,15 +347,16 @@ if (process.argv[2] === '--replay-current-example') {
     const acceptedUnsigned = stripSignoffs(full);
     const rigSignoff = structuredClone(asArray(full.signoffs).filter(isObject).find(s => s.stage === 'rig-review')!);
     acceptedUnsigned.signoffs = [rigSignoff];
+    const reopenAt = new Date(EXAMPLE_ANCHOR + 40_500).toISOString();
     acceptedUnsigned.reopens = [{
       id: 'reopen-rig',
       stage: 'rig-review',
       from_stage: 'rig-review',
       by: 'owner',
-      at: '2026-11-26T00:00:40.500Z',
+      at: reopenAt,
       verbatim: 'Adjust the rig timing.\n',
       source: OWNER_CHAT_SOURCE,
-      said_at: '2026-11-26T00:00:40.500Z',
+      said_at: reopenAt,
       relayed_by: 'operator',
       steps_before: [],
     }];
@@ -381,10 +382,11 @@ if (process.argv[2] === '--replay-current-example') {
     expect(walkedRecord.stage).toBe('accepted');
     expect(asArray(walkedRecord.signoffs)).toEqual([]);
 
-    let t = Date.parse('2026-11-26T00:05:00.000Z');
+    let t = EXAMPLE_ANCHOR + 5 * 60_000;
     const recordAmend = (dir: string, stage: string) => {
+      mkdirSync(join(dir, 'evidence'), { recursive: true });
       mkdirSync(join(dir, 'scratch'), { recursive: true });
-      writeFileSync(join(dir, 'scratch/change.json'), `{"amended":"${stage}"}\n`);
+      writeFileSync(join(dir, 'evidence/change.json'), `{"amended":"${stage}"}\n`);
       const wordsFile = join(dir, 'scratch/amend-words.txt');
       writeFileSync(wordsFile, `Owner requested adjustment at ${stage}.\n`);
       const saidAt = new Date(t - 500).toISOString();
@@ -392,7 +394,7 @@ if (process.argv[2] === '--replay-current-example') {
         stage, dir,
         '--kind', 'config-field',
         '--target', 'motion',
-        '--change', 'scratch/change.json',
+        '--change', 'evidence/change.json',
         '--by', 'owner',
         '--owner-chat', wordsFile,
         '--said-at', saidAt,

@@ -4,18 +4,18 @@
   "question": "camera_depth",
   "stage": "post-interview",
   "drafted_by": "agent",
-  "drafted_at": "2026-11-26T00:00:42.000Z",
+  "drafted_at": "2026-11-27T00:00:42.000Z",
   "context": {
     "kind": "current-rig",
     "target": {
       "subject": "current.rig",
-      "record_sha256": "8aabe9559945bb3ed438185e9c53b5a4a4fdcc263a36a3c4380ae5dc24cb5e09",
+      "record_sha256": "23e19079cbe339be16861068e9738a8577a80dc5e17d10a01cd436f2bc2be8b8",
       "files_sha256": "a1493faa8c4de2e13339b7f8cd5919693bb76805cd277b212ac9107efda9673a"
     },
-    "signoff_at": "2026-11-26T00:00:40.000Z",
+    "signoff_at": "2026-11-27T00:00:40.000Z",
     "run": {
       "path": "outputs/rig/run.json",
-      "sha256": "cf2c282234dab6bdf8f119731622a595ccb9b8823b911e2ab5233d6ce77b72a3"
+      "sha256": "94c2cee98ee163e89e82a615e5ff04b1555eaebb3bf5e16c85183a661cd35de0"
     },
     "config": {
       "path": "specs/rig/config.json",

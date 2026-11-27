@@ -332,7 +332,7 @@ test('next offers preparation and recording for missing current direction before
     load: () => json(dir, 'project.json'), save: (value: JsonObject) => write(dir, 'project.json', value) };
   currentRig(f);
   render(dir, false);
-  const now = Date.parse('2026-11-26T01:00:00Z');
+  const now = EXAMPLE_ANCHOR + 60 * 60_000;
   expect(nextProject(dir, now).moves).toContainEqual(expect.objectContaining({ field: 'current.motion' }));
   recordMotion(dir);
   const directionMove = expect.objectContaining({ field: 'current.direction', awaits: 'current.direction',

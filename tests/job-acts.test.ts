@@ -2128,7 +2128,8 @@ test('#502 all post-interview picks and plan signoff execute next host and expor
   expectExit0(await cli(root, ['signoff', 'post-interview', root, '--by', 'synthetic-owner',
     '--owner-chat', postWords, '--said-at', testClock.iso(), '--relayed-by', 'synthetic-operator']));
   expect(arr(read(root).signoffs).map(obj).some(row => row.stage === 'post-interview')).toBe(true);
-}, 30_000);
+  // Measured 19.3 s green in CI (#994); 60 s gives ~3x headroom on slow runners.
+}, 60_000);
 
 test('#502 direction verdict then owner-chat signoff execute next host and exported-act ingest commands', async () => {
   testClock.set(Date.now());

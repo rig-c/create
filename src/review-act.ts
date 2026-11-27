@@ -536,12 +536,24 @@ export function decodeReviewResponse(text: string, jobId: string, actId: string,
   return { act, bytes };
 }
 
+export const REVIEW_ACT_FETCH_TIMEOUT_MS = 10_000;
+let defaultReviewActFetchTimeoutMs = REVIEW_ACT_FETCH_TIMEOUT_MS;
+
+/** Override the default live Review fetch abort in tests; production keeps 10 s. */
+export function setReviewActFetchTimeoutMs(timeoutMs = REVIEW_ACT_FETCH_TIMEOUT_MS): void {
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1) {
+    throw new RangeError(`timeoutMs must be a positive safe integer, got ${String(timeoutMs)}`);
+  }
+  defaultReviewActFetchTimeoutMs = timeoutMs;
+}
+
 export interface ReviewActTransport {
   origin: string;
   jobId: string;
   actId: string;
   fetchCapability: string;
   kind?: Exclude<ReviewActKind, 'review-verdict' | 'reopen'>;
+  timeoutMs?: number;
 }
 
 export interface BustPublicationQuery {
@@ -553,7 +565,10 @@ export interface BustPublicationQuery {
 
 /** Synchronous writers use the same authenticated fetch/decoder through the private runtime. */
 export function fetchReviewActRuntime(transport: ReviewActTransport): { bytes: string } {
-  return reviewActRuntime<{ bytes: string }>(transport);
+  const input = transport.timeoutMs === undefined && defaultReviewActFetchTimeoutMs !== REVIEW_ACT_FETCH_TIMEOUT_MS
+    ? { ...transport, timeoutMs: defaultReviewActFetchTimeoutMs }
+    : transport;
+  return reviewActRuntime<{ bytes: string }>(input);
 }
 
 export function fetchBustPublicationSeeds(root: string, act: Pick<ChestReviewVerdictAct, 'jobId' | 'publicationId'> & {
@@ -612,13 +627,20 @@ export function retainedVersionVerdict(project: JsonObject, actId: string): (Fet
   return { ...match, bytes, act: decodeReviewAct(bytes) };
 }
 
-export async function fetchReviewAct(transport: ReviewActTransport, fetchAdapter: typeof fetch = fetch): Promise<{ act: DecodedReviewAct; bytes: string }> {
+export async function fetchReviewAct(
+  transport: ReviewActTransport,
+  fetchAdapter: typeof fetch = fetch,
+  timeoutMs = transport.timeoutMs ?? defaultReviewActFetchTimeoutMs,
+): Promise<{ act: DecodedReviewAct; bytes: string }> {
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1) {
+    return failure('REVIEW_ACT_FETCH_REFUSED', 'live Review fetch failed');
+  }
   const requestId = randomUUID();
   const request = JSON.stringify({ schema: 'rig-review/job-api@2', verb: 'fetch-act', jobId: transport.jobId, actId: transport.actId, requestId });
   async function read(accept: string): Promise<Response> {
     try {
       const response = await fetchAdapter(`${transport.origin}/jobs/${transport.jobId}/api`, {
-        method: 'POST', redirect: 'error', signal: AbortSignal.timeout(10_000),
+        method: 'POST', redirect: 'error', signal: AbortSignal.timeout(timeoutMs),
         headers: { authorization: `Bearer ${transport.fetchCapability}`, 'content-type': 'application/json', accept }, body: request,
       });
       if (!response.ok) return failure('REVIEW_ACT_FETCH_REFUSED', 'live Review refused fetch');

@@ -99,7 +99,7 @@ import { validateRunRecord } from './run-record.ts';
 import { latestPartsApproval, partsApprovalIdentity } from './structure.ts';
 import { postCompositionSetOffersScene, resolveAgentCitationSpec } from './scene-authority.ts';
 import { DIRECTION_COMPOSE_SPEC } from './direction-compose.ts';
-import { DirectionError, directionJson, missingDirectionStepApprovals } from './direction.ts';
+import { DirectionError, directionJson, directionPath, missingDirectionStepApprovals } from './direction.ts';
 import { type NextComment, withCurrentComments } from './comment-closures.ts';
 import { currentOutputMove, withStaleOutputs } from './next-stale.ts';
 
@@ -1523,7 +1523,7 @@ function stagedSeamInventory(dir: string, root: string, from: string, kind: 'mot
   return inventory;
 }
 
-function currentPostOutputMove(dir: string, project: JsonObject, kind: 'motion' | 'direction'): NextMove | undefined {
+function currentPostOutputMove(dir: string, project: JsonObject, kind: 'motion' | 'direction', directionRecord?: NextMove): NextMove | undefined {
   const inProject = (command: string) => `(cd ${shellWord(dir)} && ${command})`;
   const root = outputRoot(kind);
   const from = `${root}.next`;
@@ -1580,7 +1580,7 @@ function currentPostOutputMove(dir: string, project: JsonObject, kind: 'motion' 
       const [problem] = directionLoopSeamFindings(dir, seam, inventory, from, { path, sha256: inventory.get(path) ?? null }, input.takeDuration);
       if (problem) return preserveStaging(`${problem.code}: ${problem.message}.`);
     }
-    return currentOutputMove(dir, kind, shellWord);
+    return directionRecord ?? currentOutputMove(dir, kind, shellWord);
   }
   if (seam && retouchPathExists(dir, from)) return preserveStaging(`Inspect the incomplete compose output and the Parts diagnostics for ${from}.`);
   return { role: 'producer', field: 'current.direction', awaits: 'current.direction',
@@ -1882,19 +1882,44 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
   const collection = loadCollection(dir);
   const allItems = collectItems(project, { collection });
   const currentPath = isCurrentPathProject(project, allItems);
+  const currentComments = currentPath || isCurrentProject(project);
+  const openVerdicts = new Set(report.warnings.filter(warning => warning.code === 'FEEDBACK_OPEN').map(warning => warning.path));
+  const openComments = (report.comments ?? []).filter(comment => comment.status === 'current' && !comment.closed);
   const { blocksOutputMoves, ...derived } = deriveNextProject(dir, project, report, now, steps, staleSteps, currentPath, collection, allItems);
   let next = derived;
   if (!blocksOutputMoves && derived.stage !== PAUSED_STAGE) {
     const current = project.current === undefined && currentPath ? {} : project.current;
     if (isObject(current)) {
+      const postQuestionsPending = optionPublicationStage(project, derived.effective_stage, now) === 'post-interview'
+        && allItems.some(item => item.kind === 'post' && pendingInterviewOptions(item));
+      const canReviseDirection = stageIndex(derived.effective_stage) >= stageIndex('post') && !postQuestionsPending;
+      const directionVerdicts = canReviseDirection ? report.feedback.filter(feedback =>
+        feedback.review === 'direction-review' && openVerdicts.has(feedback.verdict)) : [];
+      const feedbackFields = [
+        ...directionVerdicts.map(feedback => feedback.verdict),
+        ...(canReviseDirection ? directionCommentFields(current.direction, openComments) : []),
+      ];
+      const reviseDirection = feedbackFields.length > 0;
+      const directionField = 'current.direction';
+      const directionRecord = currentOutputMove(dir, 'direction', shellWord);
+      const recordCommand = [directionRecord.command, ...directionVerdicts.map(feedback =>
+        `--answers-feedback ${feedback.version}:${feedback.index}`)].join(' ');
+      const pendingDirection: NextMove = { role: 'agent', field: directionField, awaits: directionField, command: null,
+        act: `Prepare the current rig and motion first. Run next again for the scene and direction writers, then compose the revised take. After compose succeeds, run\n    ${recordCommand}` };
       const reopens = collectReopens(project, []);
-      const missing = new Map(CURRENT_KINDS.flatMap(kind => {
+      const missing = new Map(CURRENT_KINDS.flatMap<readonly [CurrentKind, { adoption?: NextMove; producer: NextMove }]>(kind => {
         const node = current[kind];
+        if (reviseDirection && kind === 'direction') {
+          const producer = currentPostOutputMove(dir, project, kind, { ...directionRecord, command: recordCommand }) ?? pendingDirection;
+          return [[kind, { producer }]] as const;
+        }
         const preCutoffDirection = kind === 'direction' && currentPath && isObject(node)
           && !liveSignoff(reopens, 'post', Date.parse(String(node.at)));
         if (node !== undefined && !preCutoffDirection) return [];
         let producer: NextMove | undefined;
-        if (!currentPath) {
+        if (reviseDirection && kind === 'motion') {
+          producer = currentPostOutputMove(dir, project, kind);
+        } else if (!currentPath) {
           producer = currentOutputMove(dir, kind, shellWord);
         } else if (kind === 'parts' || kind === 'rig') {
           if (derived.effective_stage === (kind === 'parts' ? 'parts' : 'rigging')) {
@@ -1905,7 +1930,21 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
         }
         return producer ? [[kind, { adoption: adoptionMove(dir, project, kind), producer }]] as const : [];
       }));
-      next = withStaleOutputs(dir, current, report.warnings, derived, shellWord, missing);
+      const outputWarnings = reviseDirection
+        ? report.warnings.filter(warning => warning.code !== 'OUTPUT_STALE' || warning.path !== directionField)
+        : report.warnings;
+      next = withStaleOutputs(dir, current, outputWarnings, derived, shellWord, missing);
+      if (reviseDirection) {
+        const feedbackAct = `Use the owner's recorded feedback in ${feedbackFields.map(field => `project.json.${field}`).join(', ')} for the replacement take.`;
+        const isDirectionMove = (move: NextMove) => [directionField, CURRENT_SCENE_PATH, CURRENT_DIRECTION_PATH].includes(move.field);
+        const needsPending = !next.moves.some(isDirectionMove);
+        const moves = needsPending ? [...next.moves, pendingDirection] : next.moves;
+        next = {
+          ...next, accepted: false,
+          awaits: needsPending && !next.awaits.includes(directionField) ? [...next.awaits, directionField] : next.awaits,
+          moves: moves.map(move => isDirectionMove(move) ? { ...move, act: `${feedbackAct} ${move.act}` } : move),
+        };
+      }
     }
   }
   const languageMove = next.stage !== PAUSED_STAGE && !next.accepted
@@ -1963,11 +2002,29 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
     awaits: [...revisionMoves.map(move => move.awaits), ...next.awaits, ...commentMoves.map(move => move.awaits)],
     moves: [...revisionMoves, ...next.moves, ...commentMoves],
   };
+  const finished = combined.accepted && (!currentComments || (openVerdicts.size === 0 && openComments.length === 0));
   const directionComments = report.feedback.flatMap(feedback => feedback.open_direction_comment ?? []);
-  return withCurrentComments(dir, project, {
-    ...combined,
+  const result = withCurrentComments(dir, project, {
+    ...combined, accepted: finished,
     ...(directionComments.length ? { open_direction_comments: directionComments } : {}),
-  }, shellWord, now, currentPath || isCurrentProject(project));
+  }, shellWord, now, currentComments);
+  if (result.accepted || result.moves.length || result.awaits.length || result.refusals.length) return result;
+  const code = 'NEXT_NO_FORWARD_MOVE';
+  const message = `project.json.stage: no move was derived at effective stage ${result.effective_stage}; inspect the checked record and report the missing workflow route`;
+  return { ...result, refusals: [{ code, field: 'project.json.stage', message, fix: remedyForFinding(code, message) }] };
+}
+
+function directionCommentFields(direction: Json | undefined, openComments: NextComment[]): string[] {
+  if (!isObject(direction)) return [];
+  const version = isObject(direction.adopted) ? direction.adopted.version : undefined;
+  const specPath = typeof version === 'number' ? directionPath(version) : CURRENT_DIRECTION_PATH;
+  const bindings = [
+    ...asArray(direction.files).filter(isObject),
+    ...asArray(direction.built_from).filter(isObject).filter(binding => binding.path === specPath),
+  ];
+  return openComments.filter(comment => comment.saw.some(seen =>
+    bindings.some(binding => binding.path === seen.path && binding.sha256 === seen.sha256)))
+    .map(comment => `comments[${comment.comment}]`);
 }
 
 function deriveNextProject(dir: string, project: JsonObject, report: CheckReport, now: number,
@@ -3297,12 +3354,12 @@ export function formatNext(report: NextReport | NextCollectionReport): string {
     lines.push('no remaining move (project is accepted)');
     return lines.join('\n');
   }
-  if (report.moves.length === 0) {
-    lines.push('no forward move (resolve refusals first)');
-    return lines.join('\n');
-  }
   if (report.awaits.length > 0) {
     lines.push(`awaits: ${report.awaits.join(', ')}`);
+  }
+  if (report.moves.length === 0) {
+    if (report.refusals.length > 0) lines.push('no forward move (resolve refusals first)');
+    return lines.join('\n');
   }
   lines.push(`moves (${report.moves.length}):`);
   for (const move of report.moves) {

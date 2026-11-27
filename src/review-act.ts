@@ -273,6 +273,8 @@ function failure(code: string, detail: string): never {
   refuse(code, `project.json.review_acts: ${detail}; restore the original evidence or request a new act in the live Review job`);
 }
 
+const RETIRED_IMAGE_REVIEW_STAGE = 'image-review';
+
 /** The shared decoder validates grammar; Create separately admits its existing source adapters. */
 function decodeCommentsReviewAct(raw: JsonObject, kind: ReviewActKind): ReviewVerdictAct | PartsVerdictAct | InterviewPicksAct | CheckpointAct | SignoffAct {
   // Review's parsers own the grammar: picks decode at act@6 only, and later versions refuse them.
@@ -294,8 +296,9 @@ function decodeCommentsReviewAct(raw: JsonObject, kind: ReviewActKind): ReviewVe
     if (act.kind !== 'checkpoint' || source.subject !== 'plan') failure('REVIEW_ACT_KIND_MISMATCH', 'this record-source kind has no Create writer mapping');
     return act as CheckpointAct;
   }
-  if (source.subject === 'image-set' || act.kind === 'review-verdict' && act.value.stage === 'image-review') {
-    failure('REVIEW_ACT_KIND_MISMATCH', 'image-review has no rig/post writer mapping');
+  const rawStage = object(raw.value) && typeof raw.value.stage === 'string' ? raw.value.stage : undefined;
+  if (source.subject === 'image-set' || act.kind === 'review-verdict' && rawStage === RETIRED_IMAGE_REVIEW_STAGE) {
+    failure('REVIEW_ACT_KIND_MISMATCH', `${RETIRED_IMAGE_REVIEW_STAGE} has no rig/post writer mapping`);
   }
   const parts = source.parts;
   const selector = source.selector;
@@ -497,7 +500,10 @@ export function decodeReviewAct(bytes: string, kind: ReviewActKind = 'review-ver
       || value.verdict === 'changes-requested' && !outcomes.includes('flagged')) failure('REVIEW_ACT_INVALID', 'parts verdict contradicts its outcomes');
     return act as unknown as PartsVerdictAct;
   }
-  if (source.subject === 'image-set' || value.stage === 'image-review') failure('REVIEW_ACT_KIND_MISMATCH', 'image-review has no rig/post writer mapping');
+  const stage = typeof value.stage === 'string' ? value.stage : undefined;
+  if (source.subject === 'image-set' || stage === RETIRED_IMAGE_REVIEW_STAGE) {
+    failure('REVIEW_ACT_KIND_MISMATCH', `${RETIRED_IMAGE_REVIEW_STAGE} has no rig/post writer mapping`);
+  }
   const selector = source.selector;
   if (!object(selector) || !['rig', 'post'].includes(String(selector.kind)) || !Number.isSafeInteger(selector.version) || Number(selector.version) < 1
     || selector.kind === 'post' && (!Number.isSafeInteger(selector.rigVersion) || Number(selector.rigVersion) < 1)

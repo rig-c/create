@@ -9,7 +9,6 @@ import { jobHostStateRoot, jobPrivateRoot, readWriterBinding } from '../src/job-
 import { prepareDraftManifest, readPublished } from '../src/job-publication.ts';
 import { jobRuntimeExecArgv } from '../src/job-writer.ts';
 import { locateParts } from '../src/parts-sections.ts';
-import { Refusal } from '../src/refusal.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { checkProject, TEST_NOW, testClock } from './clock.ts';
 import { arr, fixture, obj } from './fixtures.ts';
@@ -448,13 +447,9 @@ test('#543 source-linked real build alpha receipt rebuild draft binds edited byt
     expect(arr((JSON.parse(red.stdout.toString()) as JsonObject).refusals).map(obj).map(finding => finding.code)).toContain('DRAFT_RIG_FILE');
     expect(readFileSync(join(dir, 'project.json'))).toEqual(frozenProject);
     expect(readFileSync(join(dir, nextRoot, 'edits', `${part}.png`))).toEqual(Buffer.from(editedBytes));
-    try {
-      draftRigCommand([nextId, dir, '--config', `${nextRoot}/edited.json`, '--from', `${nextRoot}/rebuilt`, '--json']);
-      throw new Error('expected the writer to refuse the drifted existing draft');
-    } catch (error) {
-      expect(error).toBeInstanceOf(Refusal);
-      expect((error as Refusal).code).toBe('DRAFT_RIG_FILE');
-    }
+    seedRetainedDraft([nextId, dir, '--config', `${nextRoot}/edited.json`, '--from', `${nextRoot}/rebuilt`, '--json']);
+    expect(checkProject(dir).refusals.map(finding => finding.code)).toEqual(['DRAFT_RIG_FILE']);
+    writeFileSync(join(dir, 'project.json'), frozenProject);
     expect(readFileSync(join(dir, 'project.json'))).toEqual(frozenProject);
   } finally {
     if (project !== undefined) {

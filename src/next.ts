@@ -2,7 +2,6 @@ import { LAST_NUMBERED_CREATE_RELEASE } from './numbered-retirement.ts';
 import { missingPickSignoffSteps, pickSignoffEvidence, requiredInterviewSteps } from './pick-signoff.ts';
 import { ChoiceError, hasPendingOther, isUndecidedDelegation, literalFile, optionFile, pendingInterviewOptions, pendingInterviewOptionsPath, selection } from './choices.ts';
 import { reviewVerdictSignable, rigVerdictIngestible } from './signable.ts';
-import { ownerChatSignoffAllowed } from './owner-chat.ts';
 import { checkpointEnabled, checkpointRequired, completedPlanStepNeedsAmendment, planStepCompleted } from './plan-history.ts';
 import { createHash } from 'node:crypto';
 import { existsSync, lstatSync, readdirSync, readFileSync, realpathSync } from './check-reads.ts';
@@ -565,14 +564,14 @@ function currentReviewOutput(dir: string, project: JsonObject, stage: 'rig-revie
 }
 
 function ownerChatSignoffCommand(dir: string, project: JsonObject, act: NextReviewAct, writer: string): string | undefined {
-  if (act.kind === 'signoff' && isCurrentProject(project) && isPublishAdvanceStage(act.stage)) {
+  if (act.kind !== 'signoff') return;
+  if (isCurrentProject(project) && isPublishAdvanceStage(act.stage)) {
     if (!currentReviewOutput(dir, project, act.stage) || correctionApprovalFindings(project, act.stage).length > 0) return;
     return `rig-create ${writer} ${shellWord(dir)} ${OWNER_CHAT_COMMAND_FLAGS}`;
   }
-  if (act.kind !== 'signoff' || !ownerChatSignoffAllowed(dir, project, act.stage, act.draft_id, act.version_id?.slice(1))) return;
-  const version = act.stage === 'rig-review' || act.stage === 'direction-review'
-    ? ` --version ${shellWord(act.version_id?.slice(1) ?? '<current-version>')}` : '';
-  return `rig-create ${writer} ${shellWord(dir)}${version} ${OWNER_CHAT_COMMAND_FLAGS}`;
+  if (['interview', 'plan-approved', 'rigging-interview', 'post-interview'].includes(act.stage)) {
+    return `rig-create ${writer} ${shellWord(dir)} ${OWNER_CHAT_COMMAND_FLAGS}`;
+  }
 }
 
 interface PendingQuestionMove {
@@ -622,31 +621,15 @@ function reviewCommands(dir: string, project: JsonObject, move: NextMove): NextM
   const act = move.review_act;
   if (move.role !== 'human' || move.unanswered_by_record || move.field === 'pauses' || !act) return [move];
   if (act.kind === 'signoff') {
-    let writer: string | undefined;
-    if (['interview', 'plan-approved', 'rigging-interview', 'post-interview', 'direction-review'].includes(act.stage)) {
-      writer = `signoff ${act.stage}`;
-    } else if (act.stage === 'parts-review' && act.draft_id) {
-      const structure = partsStructureSnapshot(dir, project, act.draft_id);
-      writer = `signoff parts-review --draft ${shellWord(act.draft_id)} --structure-file ${shellWord(structure.path)}`;
-    } else if (act.stage === 'rig-review' && act.version_id) {
-      writer = 'signoff rig-review';
-    }
+    const writer = ['interview', 'plan-approved', 'rigging-interview', 'post-interview'].includes(act.stage)
+      || (isCurrentProject(project) && isPublishAdvanceStage(act.stage))
+      ? `signoff ${act.stage}` : undefined;
     const chatSignoff = writer ? ownerChatSignoffCommand(dir, project, act, writer) : undefined;
     return chatSignoff
       ? [{ ...move, command: chatSignoff, act: 'Relay the owner chat signoff with exact words, owner date and relay identity.', review_act: undefined }]
       : [move];
   }
-  if (act.kind !== 'parts-verdict' || !act.draft_id) return [move];
-  const agent = (command: string, description: string): NextMove => ({
-    role: 'agent', field: move.field, awaits: move.awaits, command, act: description,
-  });
-  const root = shellWord(dir);
-  return [
-    agent(`rig-create job open ${root} --draft ${shellWord(act.draft_id)} --reviewer '<reviewer>' --role owner`, `publish this Review page; ${OPEN_REVIEW_HOST}`),
-    move,
-    agent(`rig-create job acts ${root} --json --wait`, 'wait in the background for the person to submit in Review, then use the matching actId below; approval also records the prepared parts-review signature'),
-    agent(`rig-create parts-review ${root} --from-review '<actId>'`, 'ingest the matching exported Review act; never supply the human answer or words'),
-  ];
+  return [move];
 }
 
 function stageQuestionCommands(dir: string, project: JsonObject, questions: { move: NextMove; meta: PendingQuestionMove }[]): NextMove[] {
@@ -1667,7 +1650,7 @@ function partsRetouchMoves(dir: string, project: JsonObject, draft: JsonObject):
     move('agent', `drafts[${id}]`, `rig-create structure-snapshot ${shellWord(dir)} --draft ${shellWord(id)}`, 'retain a NEW structure snapshot of the retouched draft'),
     move('producer', `drafts[${id}].parts`, diff.command, diff.act),
     move('agent', 'diff_map', resolveDiffClassesCommand(dir, evidence.diff, evidence.triage), `classify the NEW diff report ${evidence.diff}; rerun next after producing it to omit triage when no components exist`),
-    move('agent', 'review_acts', `rig-create job open ${shellWord(dir)} --draft ${shellWord(id)} --reviewer '<reviewer>' --role owner`, `only after the new evidence is ready, publish NEW draft ${id} and ask for one parts-verdict; approval also records its parts-review signature`),
+    numberedVerdictUnavailable('review_acts', `review_acts[kind=parts-verdict,draft_id=${id}]`, `Draft ${id} requires a numbered parts-verdict, which is retired.`),
   ];
 }
 
@@ -1829,19 +1812,7 @@ function partsDraftEvidenceMoves(
   }
   if (draftId !== undefined && !hasApprovedPartsVerdict && effectiveStage === 'parts-review' && currentCheck && structure?.valid && currentDiff) {
     const verdictAwait = `review_acts[kind=parts-verdict,draft_id=${draftId}]`;
-    moves.push({
-      role: 'human',
-      field: 'review_acts',
-      awaits: verdictAwait,
-      command: null,
-      act: `review-tool act parts-verdict for drafts[${draftId}]; approve once to record the verdict and parts-review signature`,
-      review_act: {
-        kind: 'parts-verdict',
-        stage: 'parts-review',
-        draft_id: draftId,
-        ...(jobId ? { job_id: jobId } : {}),
-      },
-    });
+    moves.push(numberedVerdictUnavailable('review_acts', verdictAwait, `Draft ${draftId} needs an accepted live parts-review verdict.`));
   }
   return {
     draftId,
@@ -2539,28 +2510,42 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
         : `signoffs[stage=${lapsedStage}]`;
       addAwait(awaitTarget);
       recordedLapseTargets.add(awaitTarget);
-      moves.push({
-        role: 'human',
-        field: reopenField,
-        awaits: awaitTarget,
-        command: null,
-        act: checkpoint
-          ? `re-approve lapsed checkpoint ${checkpoint} (${warning.path}, lapsed by ${reopenField}${reopenId ? ` ${reopenId}` : ''}: ${warning.code}) via review-tool act signoff-checkpoint`
-          : `re-approve lapsed stage ${lapsedStage} (${warning.path}, lapsed by ${reopenField}${reopenId ? ` ${reopenId}` : ''}: ${warning.code}) via review-tool act signoff`,
-        review_act: {
-          kind: checkpoint ? 'signoff-checkpoint' : 'signoff',
-          stage: lapsedStage,
-          ...(checkpoint ? { step_id: checkpoint } : {}),
-          ...(jobId ? { job_id: jobId } : {}),
-        },
-        lapse: {
-          code: warning.code,
-          source_field: reopenField,
-          target_field: warning.path,
-          ...(reopenId ? { reopen_id: reopenId } : {}),
-          message: warning.message,
-        },
-      });
+      const lapse = {
+        code: warning.code,
+        source_field: reopenField,
+        target_field: warning.path,
+        ...(reopenId ? { reopen_id: reopenId } : {}),
+        message: warning.message,
+      };
+      if (checkpoint !== null) {
+        moves.push({
+          role: 'human',
+          field: reopenField,
+          awaits: awaitTarget,
+          command: null,
+          act: `re-approve lapsed checkpoint ${checkpoint} (${warning.path}, lapsed by ${reopenField}${reopenId ? ` ${reopenId}` : ''}: ${warning.code})`,
+          lapse,
+        });
+      } else if (legacyWrites && (lapsedStage === 'parts-review' || lapsedStage in SIGNOFF_TARGET_KINDS)) {
+        moves.push({
+          ...numberedVerdictUnavailable(reopenField, awaitTarget, `The ${lapsedStage} signoff at ${warning.path} lapsed after ${reopenField}${reopenId ? ` (${reopenId})` : ''} (${warning.code}).`),
+          lapse,
+        });
+      } else {
+        moves.push({
+          role: 'human',
+          field: reopenField,
+          awaits: awaitTarget,
+          command: null,
+          act: `re-approve lapsed stage ${lapsedStage} (${warning.path}, lapsed by ${reopenField}${reopenId ? ` ${reopenId}` : ''}: ${warning.code})`,
+          review_act: {
+            kind: 'signoff',
+            stage: lapsedStage,
+            ...(jobId ? { job_id: jobId } : {}),
+          },
+          lapse,
+        });
+      }
     } else if (legacyWrites && warning.code === 'REOPEN_VERDICT_LAPSED') {
       const vMatch = /^versions\[v(\d+)\]\.verdicts\[(\d+)\]$/.exec(warning.path);
       const n = vMatch ? Number(vMatch[1]) : 1;
@@ -2625,26 +2610,42 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
       if (recordedLapseTargets.has(awaitTarget)) continue;
       addAwait(awaitTarget);
       recordedLapseTargets.add(awaitTarget);
-      moves.push({
-        role: 'human',
-        field: amendField,
-        awaits: awaitTarget,
-        command: null,
-        act: `re-approve ${lapsedApproval.path} (${targetStage}) lapsed by ${amendField}${targetId ? ` (${targetId})` : ''} via review-tool act ${checkpoint ? 'signoff-checkpoint' : 'signoff'}`,
-        review_act: {
-          kind: checkpoint ? 'signoff-checkpoint' : 'signoff',
-          stage: targetStage,
-          ...(checkpoint ? { step_id: checkpoint } : {}),
-          ...(jobId ? { job_id: jobId } : {}),
-        },
-        lapse: {
-          code: 'AMENDED_STEP',
-          source_field: amendField,
-          target_field: lapsedApproval.path,
-          ...(targetId ? { amendment_id: targetId } : {}),
-          message: lapsedApproval.reason,
-        },
-      });
+      const lapse = {
+        code: 'AMENDED_STEP' as const,
+        source_field: amendField,
+        target_field: lapsedApproval.path,
+        ...(targetId ? { amendment_id: targetId } : {}),
+        message: lapsedApproval.reason,
+      };
+      if (checkpoint !== null) {
+        moves.push({
+          role: 'human',
+          field: amendField,
+          awaits: awaitTarget,
+          command: null,
+          act: `re-approve ${lapsedApproval.path} (${targetStage}) lapsed by ${amendField}${targetId ? ` (${targetId})` : ''}`,
+          lapse,
+        });
+      } else if (legacyWrites && (targetStage === 'parts-review' || targetStage in SIGNOFF_TARGET_KINDS)) {
+        moves.push({
+          ...numberedVerdictUnavailable(amendField, awaitTarget, `The ${targetStage} approval at ${lapsedApproval.path} lapsed after ${amendField}${targetId ? ` (${targetId})` : ''}.`),
+          lapse,
+        });
+      } else {
+        moves.push({
+          role: 'human',
+          field: amendField,
+          awaits: awaitTarget,
+          command: null,
+          act: `re-approve ${lapsedApproval.path} (${targetStage}) lapsed by ${amendField}${targetId ? ` (${targetId})` : ''}`,
+          review_act: {
+            kind: 'signoff',
+            stage: targetStage,
+            ...(jobId ? { job_id: jobId } : {}),
+          },
+          lapse,
+        });
+      }
     }
     // An interview-answer amendment names each step resting on the changed answer until it is done again.
     if (amendment.target.kind !== 'interview-answer') continue;
@@ -2885,22 +2886,9 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
       }
 
       const signoffAwait = 'signoffs[stage=parts-review]';
-      // Already-ingested approvals from before the fold retain their separate signing route.
       if (hasApprovedPartsVerdict && !hasLiveStageSignoff('parts-review') && !recordedLapseTargets.has(signoffAwait)) {
         addAwait(signoffAwait);
-        moves.push({
-          role: 'human',
-          field: 'signoffs',
-          awaits: signoffAwait,
-          command: null,
-          act: `legacy approval already recorded: review-tool act signoff for stage parts-review; after structure-snapshot, ingest rig-create signoff parts-review ${shellWord(dir)} --draft ${shellWord(draftId!)} --structure-file ${shellWord(structure!.path)} --from-review '<actId>'`,
-          review_act: {
-            kind: 'signoff',
-            stage: 'parts-review',
-            ...(draftId ? { draft_id: draftId } : {}),
-            ...(jobId ? { job_id: jobId } : {}),
-          },
-        });
+        moves.push(numberedVerdictUnavailable('signoffs', signoffAwait, `Draft ${draftId ?? '<draft>'} needs a numbered parts-review signoff.`));
       }
 
       if (effectiveStage === 'parts') {
@@ -3062,20 +3050,7 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
       if (!currentPath && legacyWrites && !hasLiveStageSignoff('rig-review') && !recordedLapseTargets.has(signoffAwait)
         && !((effectiveStage === 'rig-review' || hasHistoryRig) && (rigN === null || reviewVerdictSignable(project, rigN, 'rig-review')))) {
         addAwait(signoffAwait);
-        moves.push({
-          role: 'human',
-          field: 'signoffs',
-          awaits: signoffAwait,
-          command: null,
-          act: 'review-tool act signoff for stage rig-review',
-          review_act: {
-            kind: 'signoff',
-            stage: 'rig-review',
-            ...(rigN !== null ? { version_id: `v${rigN}` } : {}),
-            ...(jobId ? { job_id: jobId } : {}),
-          },
-          ...(rigN === null ? { unanswered_by_record: 'versions[kind=rig]' } : {}),
-        });
+        moves.push(numberedVerdictUnavailable('signoffs', signoffAwait, `Rig${rigN !== null ? ` v${rigN}` : ''} needs a numbered rig-review signoff.`));
       } else if (!currentPath && effectiveStage === 'rig-review' && hasLiveStageSignoff('rig-review')) {
         const nextStage = nextStageInOrder(project, stage);
         if (nextStage !== null) {
@@ -3214,19 +3189,7 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
         const needsSignoff = !hasLiveStageSignoff('direction-review') && !recordedLapseTargets.has(signoffAwait);
         if (needsSignoff) addAwait(signoffAwait);
         if (needsSignoff && postN !== null && hasLiveAcceptedPostVerdict) {
-          moves.push({
-            role: 'human',
-            field: 'signoffs',
-            awaits: signoffAwait,
-            command: null,
-            act: `With the accepted direction-review verdict for v${postN} already recorded, record the owner's signoff for direction-review.`,
-            review_act: {
-              kind: 'signoff',
-              stage: 'direction-review',
-              version_id: `v${postN}`,
-              ...(jobId ? { job_id: jobId } : {}),
-            },
-          });
+          moves.push(numberedVerdictUnavailable('signoffs', signoffAwait, `Post v${postN} needs a numbered direction-review signoff.`));
         }
       }
 

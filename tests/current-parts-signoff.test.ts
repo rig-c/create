@@ -20,6 +20,7 @@ import { TEMPLATES_DIR, type JsonObject } from '../src/templates.ts';
 import { arr, obj } from './fixtures.ts';
 import { tempDir } from './helpers.ts';
 import { recordPartsReceipt } from './parts-receipt-fixture.ts';
+import { seedStoredPartsSignoff } from './historical-review-fixture.ts';
 
 const chain = join(TEMPLATES_DIR, 'example-chain');
 const stage = 'parts-review';
@@ -70,10 +71,15 @@ function approveNumberedParts(dir: string) {
   const before = project(dir);
   const words = 'Approve the synthetic numbered parts.\n';
   put(dir, 'numbered-approval.txt', words);
-  const result = signoffCommand([stage, dir, '--draft', draft, '--structure-file', 'evidence/structure-chain.json',
-    '--by', owner, '--verbatim-file', join(dir, 'numbered-approval.txt'), '--json'], EXAMPLE_NOW + 3000);
-  expect(result.exit).toBe(0);
-  const signed = JSON.parse(result.stdout) as JsonObject;
+  refusesUnchanged(dir, 'NUMBERED_WRITER_REMOVED', () => signoffCommand([stage, dir, '--draft', draft,
+    '--structure-file', 'evidence/structure-chain.json', '--by', owner,
+    '--verbatim-file', join(dir, 'numbered-approval.txt'), '--json'], EXAMPLE_NOW + 3000));
+  const signed = seedStoredPartsSignoff(dir, draft, {
+    by: owner,
+    at: EXAMPLE_NOW + 3000,
+    verbatim: words,
+    structureFile: 'evidence/structure-chain.json',
+  });
   expect(signed).toMatchObject({ stage, checkpoint: null, by: owner, verbatim: words, draft_id: draft,
     evidence: { ...obj(receipt.evidence), spec: PARTS_CLI_RECEIPT } });
   expect(signed.target).toBeUndefined();
@@ -145,7 +151,7 @@ test('current parts requires every owner relay flag, refuses a draft, and signs 
   for (const omitted of ['--owner-chat', '--said-at', '--relayed-by']) {
     refusesUnchanged(dir, 'OWNER_CHAT_REQUIRED', () => signoffCommand(chat.args(omitted), signedAt));
   }
-  refusesUnchanged(dir, 'SIGNOFF_OPTION_INVALID', () => signoffCommand([...chat.args(), '--draft', draft], signedAt));
+  refusesUnchanged(dir, 'NUMBERED_WRITER_REMOVED', () => signoffCommand([...chat.args(), '--draft', draft], signedAt));
 
   const result = signoffCommand(chat.args(), signedAt);
   expect(result.exit).toBe(0);

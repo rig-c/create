@@ -13,7 +13,8 @@ import { plantLegacyReopen, arr, bindFixtureAnswers, fixture, obj, rehashSignoff
 import { clockedCli, tempDir } from './helpers.ts';
 import { directionFixture } from './direction-fixture.ts';
 import { withPartsCheck } from './parts-check-fixture.ts';
-import { checkProject, planCommand, advanceCommand, handoff, stepStatusCommand, signoffCommand, reviewCommand, interviewAnswerCommand, interviewOptionsCommand, testClock } from './clock.ts';
+import { seedStoredVerdict, seedStoredVersionSignoff } from './historical-review-fixture.ts';
+import { checkProject, planCommand, advanceCommand, handoff, stepStatusCommand, signoffCommand, interviewAnswerCommand, interviewOptionsCommand, testClock } from './clock.ts';
 
 const read = (dir: string): JsonObject => JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8'));
 const save = (dir: string, project: JsonObject): void => writeFileSync(join(dir, 'project.json'), JSON.stringify(project, null, 2) + '\n');
@@ -54,8 +55,8 @@ function interviewArrival(stage: string): string {
     project.advances = arr(project.advances ?? []).filter(raw => obj(raw).stage !== stage);
     save(dir, project);
   } else {
-    reviewCommand(['1', dir, '--verdict', 'accepted', '--by', 'user', '--review', 'rig-review', '--verbatim-file', words(dir), '--source', 'synthetic approval']);
-    signoffCommand(['rig-review', dir, '--by', 'user', '--version', '1', '--verbatim-file', words(dir)]);
+    seedStoredVerdict(dir, 1, { review: 'rig-review', verdict: 'accepted', by: 'user', at: testClock.now(), verbatim: readFileSync(words(dir), 'utf8'), source: 'synthetic approval' });
+    seedStoredVersionSignoff(dir, 'rig-review', 1, { by: 'user', at: testClock.now(), verbatim: readFileSync(words(dir), 'utf8') });
     const project = read(dir);
     const complete = JSON.parse(readFileSync(join(import.meta.dir, '../templates/example-chain/project.json'), 'utf8')) as JsonObject;
     obj(project.plan).steps = [...arr(obj(project.plan).steps), ...arr(obj(complete.plan).steps)
@@ -530,9 +531,7 @@ test('a rig acceptance lapsed by a reopen is named with the reopen, not reported
   cpSync(join(import.meta.dir, '../templates/example-chain'), dir, { recursive: true });
   plantLegacyReopen(dir, 'rig-review', { by: 'owner', wordsFile: words(dir) });
   testClock.set(new Date('2026-11-20T00:01:00Z'));
-  // #243: the writer refuses to sign rig-review on the lapsed acceptance and names it.
-  const signature = refused(dir, 'RIG_VERSION_UNACCEPTED', () => signoffCommand(['rig-review', dir, '--by', 'owner', '--verbatim-file', words(dir)]));
-  expect(signature).toStartWith(`signoffs[${arr(read(dir).signoffs).length}]: `);
+  refused(dir, 'NUMBERED_WRITER_REMOVED', () => signoffCommand(['rig-review', dir, '--by', 'owner', '--verbatim-file', words(dir)]));
   // A signature recorded before #243 is not refused at rig-review; handoff still stops on it (#981: advance does not).
   const reviewed = read(dir);
   const earlier = arr(reviewed.signoffs).map(obj).find(s => s.stage === 'rig-review')!;
@@ -542,15 +541,11 @@ test('a rig acceptance lapsed by a reopen is named with the reopen, not reported
   // No rig refusal at rig-review (#981: nor a lagging-stage finding).
   expect(codes(dir)).toEqual(carried);
   expect(checkProject(dir).warnings.map(f => f.code)).not.toContain('RIG_VERSION_UNACCEPTED');
-  for (const message of [
-    signature,
-    refused(dir, 'RIG_VERSION_UNACCEPTED', () => handoff(dir, null)),
-  ]) {
-    expect(message).toContain('versions[v1].verdicts[0]');
-    expect(message).toContain('(reopens[0])');
-    expect(message).toContain('rig-create rig-version <n>');
-    expect(message).toContain('rig-create review <n> --verdict accepted');
-  }
+  const message = refused(dir, 'RIG_VERSION_UNACCEPTED', () => handoff(dir, null));
+  expect(message).toContain('versions[v1].verdicts[0]');
+  expect(message).toContain('(reopens[0])');
+  expect(message).toContain('rig-create rig-version <n>');
+  expect(message).toContain('rig-create review <n> --verdict accepted');
 });
 
 test('a skipped or finished step status names the next writer call', () => {

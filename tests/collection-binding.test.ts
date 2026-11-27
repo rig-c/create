@@ -685,17 +685,30 @@ test('bound member supports reopen -> review-tool answer override -> check -> in
     },
   };
 
+  const wordsFile = join(dirname(memberRoot), 'override-owner-chat.txt');
+  writeFileSync(wordsFile, 'Override the seethrough settings for this member.\n');
+  const picks = selections.flatMap(sel => ['--pick', `${String(sel.itemId)}=${String(sel.optionId)}`]);
   const rawSelected = interviewAnswerCommand(
-    ['seethrough', realpathSync(memberRoot), '--from-review', actId, '--why-file', whyFile],
+    [
+      'seethrough',
+      realpathSync(memberRoot),
+      '--set',
+      seethroughPath,
+      '--sha256',
+      seethroughSha,
+      '--by',
+      'user',
+      ...picks,
+      '--owner-chat',
+      wordsFile,
+      '--said-at',
+      new Date(TEST_NOW - 1000).toISOString(),
+      '--relayed-by',
+      'operator',
+      '--why-file',
+      whyFile,
+    ],
     TEST_NOW,
-    {
-      fetch: (transport) => {
-        expect(transport.jobId).toBe(jobId);
-        expect(transport.actId).toBe(actId);
-        expect(transport.kind).toBe('interview-picks');
-        return { bytes: JSON.stringify(act) };
-      },
-    },
   );
   const selected = JSON.parse(rawSelected) as JsonObject;
   expect(selected.basis).toBe('overridden');

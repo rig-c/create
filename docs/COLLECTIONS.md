@@ -185,8 +185,7 @@ even when its agent decision says `"per-member"`. These cases are exercised
 through the writer and member check in `tests/choices.test.ts`.
 
 When a shared answer still applies, the writer records `basis: "overridden"`.
-Supply `--why-file <file>` with either the ordinary
-pick flags or `--from-review <actId>` to ingest the finalized job act. The
+Supply `--why-file <file>` alongside the ordinary pick and `--owner-chat` flags. The
 file must contain nonblank UTF-8. Its exact text, including spaces and
 newlines, becomes `why_verbatim`; a note, an option label or agent reasoning
 is not a substitute. A fresh replacement of an overridden answer requires a

@@ -12,7 +12,8 @@ import { asArray, isObject } from '../src/check.ts';
 import { currentScene, sceneReference } from '../src/scene.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { tempDir } from './helpers.ts';
-import { advanceCommand, checkProject, interviewAnswerCommand, interviewOptionsCommand, main, reviewCommand, sceneCommand, signoffCommand, testClock } from './clock.ts';
+import { seedStoredVerdict, seedStoredVersionSignoff } from './historical-review-fixture.ts';
+import { advanceCommand, checkProject, interviewAnswerCommand, interviewOptionsCommand, main, sceneCommand, testClock } from './clock.ts';
 
 afterEach(() => testClock.reset());
 const load = (dir: string): JsonObject => JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')) as JsonObject;
@@ -63,8 +64,8 @@ function acceptNewRig(dir: string, start = 0, configBytes = false): void {
   p.versions = [...asArray(p.versions), { ...declaration, n: 3, at: testClock.iso(), verdicts: [] }];
   writeFileSync(join(dir, 'project.json'), `${JSON.stringify(p, null, 2)}\n`);
   tick(2); expect(main(['review-package', '3', dir, '--config', 'evidence/v1/config.json', '--from', 'outputs/v1/out'])).toBe(0);
-  tick(3); reviewCommand(['3', dir, '--verdict', 'accepted', '--by', 'user', '--review', 'rig-review', '--verbatim-file', words(dir), '--source', 'synthetic example']);
-  tick(4); signoffCommand(['rig-review', dir, '--by', 'user', '--verbatim-file', words(dir), '--version', '3']);
+  tick(3); seedStoredVerdict(dir, 3, { review: 'rig-review', verdict: 'accepted', by: 'user', at: testClock.now(), verbatim: readFileSync(words(dir), 'utf8'), source: 'synthetic example' });
+  tick(4); seedStoredVersionSignoff(dir, 'rig-review', 3, { by: 'user', at: testClock.now(), verbatim: readFileSync(words(dir), 'utf8') });
   tick(5); advanceCommand(['post-interview', dir]);
 }
 

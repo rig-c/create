@@ -4,7 +4,7 @@ import { currentScene, sceneReference } from '../src/scene.ts';
 import { DIRECTION_SCENE_SPEC } from '../src/direction.ts';
 import { plantLegacyReopen } from './fixtures.ts';
 import { afterEach, expect, test } from 'bun:test';
-import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { attachCreateJobForClose } from '../src/job-close.ts';
 import { readHostActsAndAsks } from '../src/job-acts.ts';
@@ -16,7 +16,7 @@ import { reviewPackageCommand } from '../src/review-package.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { directionFixture } from './direction-fixture.ts';
 import { clockedCli, tempDir } from './helpers.ts';
-import { TEST_NOW, checkProject, correctionCommand, checkCorrections, assertDirectionApproval, checkDirections, advanceCommand, directionCommand, planCommand, recordVerdict, handoff, sceneCommand, signoffCommand, testClock } from './clock.ts';
+import { TEST_NOW, checkProject, correctionCommand, checkCorrections, assertCorrectionApproval, assertDirectionApproval, checkDirections, advanceCommand, directionCommand, planCommand, handoff, sceneCommand, signoffCommand, testClock } from './clock.ts';
 
 afterEach(()=>testClock.reset());
 /** A reopen of the filled example to post or post-interview voids its direction-review sign-off and acceptance (#220). */
@@ -66,7 +66,7 @@ test('direction and correction writers replay a described closure on the frozen 
 });
 test('writer publishes exact input bytes and record points to them, check CLI succeeds',()=>{const f=setup();write(f.dir);expect(readFileSync(join(f.dir,'evidence/input.json'))).toEqual(readFileSync(join(f.dir,'evidence/direction/v2.json')));expect(checked(f.dir)).toEqual([]);expect(JSON.parse(directionCommand(['check','2',f.dir,'--json']).stdout).post).toBe(2);});
 test('#690 numbered direction commits without updating the open page', async () => {
-  const root = join(tempDir(), 'direction-job');
+  const root = join(realpathSync(tempDir()), 'direction-job');
   const example = join(import.meta.dir, '../templates/example-chain');
   const exampleRig = objects((JSON.parse(readFileSync(join(example, 'project.json'), 'utf8')) as JsonObject).versions)
     .find(version => version.n === 1)!;
@@ -147,7 +147,7 @@ test('#690 numbered direction commits without updating the open page', async () 
 
 test('legacy state and grandfathered posts do not acquire warnings; adoption idempotent',()=>{const f=setup();const before=readFileSync(join(f.dir,'project.json'));directionCommand(['--adopt',f.dir]);expect(readFileSync(join(f.dir,'project.json'))).toEqual(before);let p=f.load();delete p.direction_contract;expect(checked(f.dir,p)).toEqual([]);p.versions=[...objects(p.versions),{n:2,kind:'post',rig_version:1,at:'2026-11-04T08:40:00Z'}];f.save(p);directionCommand(['--adopt',f.dir]);expect((f.load().direction_contract as JsonObject).grandfathered_posts).toEqual([2]);expect(checked(f.dir)).toEqual([]);});
 test('malformed present adoption never becomes legacy',()=>{const f=setup();const p=f.load();p.direction_contract={schema:DIRECTION_CONTRACT,adopted_at:'bad',grandfathered_posts:[]};expect(checked(f.dir,p)).toEqual(['DIRECTION_CONTRACT_INVALID']);});
-test('new adopted post without direction refuses checker and both direct approval gates',()=>{const f=setup();const p=f.load();p.versions=[...objects(p.versions),{n:2,kind:'post',rig_version:1,at:new Date(testClock.now()).toISOString()}];f.save(p);expect(checked(f.dir)).toEqual(['DIRECTION_DOCUMENT_REQUIRED']);refuses('DIRECTION_DOCUMENT_REQUIRED',()=>assertDirectionApproval(f.dir,p,'direction-review',2));refuses('DIRECTION_DOCUMENT_REQUIRED',()=>signoffCommand(['direction-review',f.dir,'--by','user','--verbatim-file',join(f.dir,'words.txt')]));});
+test('new adopted post without direction refuses checker and direct approval gate',()=>{const f=setup();const p=f.load();p.versions=[...objects(p.versions),{n:2,kind:'post',rig_version:1,at:new Date(testClock.now()).toISOString()}];f.save(p);expect(checked(f.dir)).toEqual(['DIRECTION_DOCUMENT_REQUIRED']);refuses('DIRECTION_DOCUMENT_REQUIRED',()=>assertDirectionApproval(f.dir,p,'direction-review',2));refuses('NUMBERED_WRITER_REMOVED',()=>signoffCommand(['direction-review',f.dir,'--by','user','--verbatim-file',join(f.dir,'words.txt')]));});
 
 for(const [name,code,mutate] of [
  ['unknown field','DIRECTION_SCHEMA',(d:JsonObject)=>{d.extra=true;}],
@@ -184,7 +184,7 @@ test('direction writer accepts a handoff without a historical still', () => {
 });
 test('review-package keeps post refusal instead of creating a rig package',()=>{const f=setup();write(f.dir);refuses('REVIEW_PACKAGE_VERSION_INVALID',()=>reviewPackageCommand(['2',f.dir,'--config','evidence/input.json','--from','evidence']));});
 test('live approval must still bind current step hashes',()=>{const f=setup();const p=f.load();objects((p.plan as JsonObject).steps)[0]!.does='changed';f.save(p);refuses('DIRECTION_CITATION',()=>write(f.dir));});
-test('pending described correction warns and blocks both approval paths',()=>{const f=setup();write(f.dir);recordDescribed(f);const p=f.load();const ctx={dir:f.dir,project:p,refusals:[] as Finding[],warnings:[] as Finding[]};checkCorrections(ctx);expect(ctx.refusals).toEqual([]);expect(ctx.warnings.map(w=>w.code)).toEqual(['CORRECTION_OPEN']);refuses('CORRECTION_PENDING',()=>signoffCommand(['direction-review',f.dir,'--by','user','--verbatim-file',join(f.dir,'words.txt')]));refuses('CORRECTION_PENDING',()=>recordVerdict(f.dir,{version:2,review:'direction-review',verdict:'accepted',by:'user',verbatim:'accept',source:'synthetic',items:[],quotes:{},values:{}}));});
+test('pending described correction warns and blocks direct approval gate',()=>{const f=setup();write(f.dir);recordDescribed(f);const p=f.load();const ctx={dir:f.dir,project:p,refusals:[] as Finding[],warnings:[] as Finding[]};checkCorrections(ctx);expect(ctx.refusals).toEqual([]);expect(ctx.warnings.map(w=>w.code)).toEqual(['CORRECTION_OPEN']);refuses('CORRECTION_PENDING',()=>assertCorrectionApproval(f.dir,p,'direction-review'));refuses('NUMBERED_WRITER_REMOVED',()=>signoffCommand(['direction-review',f.dir,'--by','user','--verbatim-file',join(f.dir,'words.txt')]));});
 test('removed direction patch flags refuse byte-identically and point to direction write --answers',()=>{
   const f=setup();write(f.dir);const before=readFileSync(join(f.dir,'project.json'));
   expect(()=>correctionCommand(['record',f.dir,'--id','frame','--path','made','--stage','direction-review','--version','2','--direction-patch-file','evidence/patch.json','--by','user','--verbatim-file',join(f.dir,'words.txt')])).toThrow(expect.objectContaining({code:'CORRECTION_DIRECTION_PATCH_FILE_REMOVED',exitCode:2,message:expect.stringContaining('direction write')}));
@@ -232,7 +232,7 @@ test('post → rig / post → draft / post → parts outcomes cannot close direc
     expect(ctx.refusals.map(f => f.code)).toContain('DIRECTION_CORRECTION_OUTCOME');
   }
 });
-test('valid direction cannot be accepted through direct reader after document hash changes',()=>{const f=setup();write(f.dir);writeFileSync(join(f.dir,'evidence/direction/v2.json'),'{}');const before=readFileSync(join(f.dir,'project.json'));refuses('DIRECTION_HASH',()=>recordVerdict(f.dir,{version:2,review:'direction-review',verdict:'accepted',by:'user',verbatim:'accept',source:'synthetic',items:[],quotes:{},values:{}}));expect(readFileSync(join(f.dir,'project.json'))).toEqual(before);});
+test('valid direction cannot be accepted through direct reader after document hash changes',()=>{const f=setup();write(f.dir);writeFileSync(join(f.dir,'evidence/direction/v2.json'),'{}');const before=readFileSync(join(f.dir,'project.json'));refuses('DIRECTION_HASH',()=>assertDirectionApproval(f.dir,f.load(),'direction-review',2));expect(readFileSync(join(f.dir,'project.json'))).toEqual(before);});
 test('all post items N/A permits skipping without a document; no authoring from silence',()=>{const f=setup();const p=f.load();for(const item of objects(((p.interview as JsonObject).post as JsonObject).items))item.guide={not_applicable:true,because:'No take requested'};f.save(p);expect(checked(f.dir)).toEqual([]);refuses('DIRECTION_CITATION',()=>write(f.dir));});
 test('API correction bytes reproduce through writers while legacy fixtures remain retained',async()=>{const {generateCorrectionFixture}=await import('../scripts/generate-correction-fixture.ts');const files=generateCorrectionFixture(join(tempDir(),'legacy'));for(const[path,bytes]of Object.entries(files))expect(readFileSync(join(import.meta.dir,'fixtures/correction-api-path',path)).equals(bytes)).toBe(true);});
 test('unadopted direction writer refuses and immutable input never changes',()=>{const f=setup();const p=f.load();delete p.direction_contract;f.save(p);refuses('DIRECTION_CONTRACT_INVALID',()=>write(f.dir));expect(readFileSync(join(f.dir,'evidence/input.json'),'utf8')).toContain('rig-create/direction@1');});

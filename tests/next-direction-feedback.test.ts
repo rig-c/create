@@ -10,10 +10,11 @@ import { nextCommand, type NextReport } from '../src/next.ts';
 import { recordCommand } from '../src/record.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { amendCommand, checkProject, correctionCommand, directionCommand, interviewAnswerCommand, interviewOptionsCommand,
-  planCommand, reviewCommand, rigVersionCommand, sceneCommand, signoffCommand, stepStatusCommand, TEST_NOW, testClock } from './clock.ts';
+  planCommand, rigVersionCommand, sceneCommand, signoffCommand, stepStatusCommand, TEST_NOW, testClock } from './clock.ts';
 import { composeRunFixture } from './direction-compose-fixture.ts';
 import { arr, obj } from './fixtures.ts';
 import { ownerChatArgs, tempDir } from './helpers.ts';
+import { seedStoredVerdict, seedStoredVersionSignoff } from './historical-review-fixture.ts';
 
 const feedbackPath = 'versions[v3].verdicts[0]';
 
@@ -69,8 +70,8 @@ test('#1106 next routes a live numbered direction bounce through current outputs
     const bounce = join(dir, 'evidence/direction-bounce.txt');
     writeFileSync(bounce, 'Hold the wide view longer before the push-in.\n');
     testClock.set(TEST_NOW + 2_000);
-    expect(reviewCommand(['3', dir, '--verdict', 'bounced', '--by', 'user', '--review', 'direction-review',
-      '--verbatim-file', bounce, '--source', 'synthetic review']).exit).toBe(0);
+    seedStoredVerdict(dir, 3, { review: 'direction-review', verdict: 'bounced', by: 'user',
+      at: testClock.now(), verbatim: readFileSync(bounce, 'utf8'), source: 'synthetic review' });
     const checked = checkProject(dir);
     expect(checked).toMatchObject({ stage: 'accepted', effective_stage: 'direction-review', refusals: [] });
     expect(checked.warnings).toContainEqual(expect.objectContaining({ code: 'FEEDBACK_OPEN', path: feedbackPath }));
@@ -101,8 +102,8 @@ test('#1106 next routes a live numbered direction bounce through current outputs
     const secondBounce = join(dir, 'evidence/direction-bounce-follow-up.txt');
     writeFileSync(secondBounce, 'Keep the framing steady at the end.\n');
     testClock.set(TEST_NOW + 4_000);
-    expect(reviewCommand(['3', dir, '--verdict', 'bounced', '--by', 'user', '--review', 'direction-review',
-      '--verbatim-file', secondBounce, '--source', 'synthetic review']).exit).toBe(0);
+    seedStoredVerdict(dir, 3, { review: 'direction-review', verdict: 'bounced', by: 'user',
+      at: testClock.now(), verbatim: readFileSync(secondBounce, 'utf8'), source: 'synthetic review' });
     const repeatedBytes = readFileSync(recordPath);
     expectDeferredDirectionFeedback(dir, 3, 0, 1);
     expect(readFileSync(recordPath)).toEqual(repeatedBytes);
@@ -218,10 +219,10 @@ test('#1111 next routes an adopted direction redo and its offered writer closes 
       '--at-pointer', '/finished_at', '--citations', citationsPath, '--by', 'agent']).exit).toBe(0);
     tick();
     writeFileSync(words, 'Approve the rebuilt synthetic rig.\n');
-    expect(reviewCommand(['3', dir, '--verdict', 'accepted', '--review', 'rig-review', '--by', 'user',
-      '--verbatim-file', words, '--source', 'synthetic review']).exit).toBe(0);
+    seedStoredVerdict(dir, 3, { review: 'rig-review', verdict: 'accepted', by: 'user',
+      at: testClock.now(), verbatim: readFileSync(words, 'utf8'), source: 'synthetic review' });
     tick();
-    expect(signoffCommand(['rig-review', dir, '--version', '3', '--by', 'user', '--verbatim-file', words]).exit).toBe(0);
+    seedStoredVersionSignoff(dir, 'rig-review', 3, { by: 'user', at: testClock.now(), verbatim: readFileSync(words, 'utf8') });
     expect(checkProject(dir)).toMatchObject({ effective_stage: 'post-interview', refusals: [] });
 
     const composition: JsonObject = {
@@ -314,8 +315,8 @@ test('#1111 next routes an adopted direction redo and its offered writer closes 
     const bounceWords = 'Give the camera move more time.\n';
     const bouncedAt = testClock.iso();
     writeFileSync(words, bounceWords);
-    expect(reviewCommand(['4', dir, '--verdict', 'bounced', '--review', 'direction-review', '--by', 'user',
-      '--verbatim-file', words, '--source', 'synthetic review']).exit).toBe(0);
+    seedStoredVerdict(dir, 4, { review: 'direction-review', verdict: 'bounced', by: 'user',
+      at: bouncedAt, verbatim: bounceWords, source: 'synthetic review' });
 
     const host = await openCreateJob(dir, { id: 'user', role: 'owner' }, testClock.now());
     try {

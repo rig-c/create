@@ -6,6 +6,7 @@ import { checkProject as checkCandidate } from '../src/check.ts';
 import { isCurrentProject } from '../src/current.ts';
 import type { NextReport } from '../src/next.ts';
 import { Refusal } from '../src/refusal.ts';
+import { selectSignoffTarget } from '../src/signoff-target.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { plantLegacyReopen, arr, obj } from './fixtures.ts';
 import { cli, clockedCli, ownerChatArgs, run, tempDir } from './helpers.ts';
@@ -91,10 +92,11 @@ describe('pause and resume round trip through the writers', () => {
   test('paused rig-review still requires a live accepted verdict for closing approval', () => {
     const dir = chain('3-rig-review');
     signPaused(dir); pause(dir);
-    refused(dir, 'OWNER_CHAT_GATE_VISUAL', () => signStage(dir, 'rig-review'));
-    refused(dir, 'SIGNOFF_TARGET_STALE', () => {
+    refused(dir, 'NUMBERED_WRITER_REMOVED', () => signStage(dir, 'rig-review'));
+    refused(dir, 'NUMBERED_WRITER_REMOVED', () => {
       tick(); signoffCommand(['rig-review', dir, '--by', 'owner', '--verbatim-file', words(dir)]);
     });
+    refused(dir, 'SIGNOFF_TARGET_STALE', () => selectSignoffTarget(dir, read(dir), 'rig-review'));
     clean(dir);
     resume(dir, 'rig-review'); clean(dir);
   });

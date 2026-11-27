@@ -10,7 +10,7 @@ const scripts = readdirSync(resolve(import.meta.dir, '../scripts'))
 describe.each(scripts)('%s argument refusals', script => {
   const composed = script === 'generate-composed-direction-fixture.ts';
   test.each([
-    { args: composed ? ['output', '--check'] : ['--check'], bad: '--check' },
+    { args: composed ? ['output', '--check'] : ['--check'], bad: composed ? 'output' : '--check' },
     ...(composed ? [
       { args: ['--clip'], bad: '(missing destination)' },
       { args: ['--clip', '--clip', '--check'], bad: '--clip' },

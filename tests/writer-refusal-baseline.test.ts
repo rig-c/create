@@ -6,7 +6,7 @@ import { baselineOf, countFindings, newFindings } from '../src/refusal-baseline.
 import type { JsonObject } from '../src/templates.ts';
 import { plantLegacyReopen, arr } from './fixtures.ts';
 import { tempDir } from './helpers.ts';
-import { advanceCommand, checkProject, pauseCommand, resumeCommand, reviewCommand, signoffCommand, stepStatusCommand, testClock } from './clock.ts';
+import { advanceCommand, checkProject, pauseCommand, resumeCommand, signoffCommand, stepStatusCommand, testClock } from './clock.ts';
 
 const CHECKPOINTS = join(import.meta.dir, '../templates/example-chain/checkpoints');
 /** The one planted refusal: a second inventory row for the same input. No writer below touches inputs[]. */
@@ -47,14 +47,9 @@ function refused(dir: string, code: string, action: () => unknown): void {
 
 const reopen = (dir: string, stage: string): void => { tick(); plantLegacyReopen(dir, stage, { by: 'owner', wordsFile: words(dir) }); };
 const sign = (dir: string, stage: string, ...rest: string[]): void => { tick(); signoffCommand([stage, dir, '--by', 'user', '--verbatim-file', words(dir), ...rest]); };
-function acceptRig(dir: string): void {
-  tick();
-  reviewCommand(['1', dir, '--verdict', 'accepted', '--by', 'user', '--review', 'rig-review', '--verbatim-file', words(dir), '--source', 'synthetic example']);
-  sign(dir, 'rig-review', '--version', '1');
-}
 
 const writes: [string, string, (dir: string) => void][] = [
-  ['signoff', '3-rig-review', acceptRig],
+  ['signoff', '0b-plan-pending', dir => { sign(dir, 'plan-approved'); }],
   ['step-status', '3-rig-review', dir => { reopen(dir, 'parts'); tick(); stepStatusCommand(['assemble', 'in-progress', dir, '--by', 'agent']); }],
   ['pause and resume', '3-rig-review', dir => {
     sign(dir, 'paused');
@@ -78,16 +73,16 @@ test.each(writes)('%s succeeds on a record that already carries an unrelated ref
 });
 
 test('advance still requires check to pass: a carried refusal blocks the stage boundary', () => {
-  const clean = chain('3-rig-review', false);
-  acceptRig(clean);
-  tick(); advanceCommand(['post-interview', clean]);
-  expect(read(clean).stage).toBe('post-interview');
+  const clean = chain('0b-plan-pending', false);
+  sign(clean, 'plan-approved');
+  tick(); advanceCommand(['parts', clean]);
+  expect(read(clean).stage).toBe('parts');
   minute = 0;
-  const dir = chain('3-rig-review', true);
-  acceptRig(dir);
+  const dir = chain('0b-plan-pending', true);
+  sign(dir, 'plan-approved');
   tick();
-  refused(dir, PLANTED.code, () => advanceCommand(['post-interview', dir]));
-  expect(read(dir).stage).toBe('rig-review');
+  refused(dir, PLANTED.code, () => advanceCommand(['parts', dir]));
+  expect(read(dir).stage).toBe('plan-approved');
 });
 
 test('the baseline matches code and path with multiplicity', () => {

@@ -17,7 +17,9 @@ import { readHostActsAndAsks } from '../src/job-acts.ts';
 import { openCreateJob, openDraftPublication, publishPending, reconcileCreateJob } from '../src/job-host.ts';
 import { prepareLiveManifest } from '../src/job-publication.ts';
 import { draftPublicationResult, jobRuntimeExecArgv } from '../src/job-writer.ts';
-import { acknowledgePublication, enqueuePublication, jobHostStateRoot, readAcknowledgedPublication, readWriterBinding, type PublicationSubject } from '../src/job-outbox.ts';
+import { acknowledgePublication, enqueuePublication, jobHash, jobHostStateRoot, readAcknowledgedPublication, readWriterBinding, type PublicationSubject } from '../src/job-outbox.ts';
+import { assertActSubjectDeclared, decodeReviewAct, reviewActFindings, reviewActVerdict, reviewActVersionHash, rigVerdictSignoff } from '../src/review-act.ts';
+import { selectSignoffTarget } from '../src/signoff-target.ts';
 import { currentScene, sceneReference } from '../src/scene.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { plantLegacyReopen } from './fixtures.ts';
@@ -162,6 +164,35 @@ async function historicalRigVerdict(root: string) {
   return { host, verdict };
 }
 
+function seedFoldedRigVerdict(root: string, rawVerdict: unknown): void {
+  const bytes = JSON.stringify(rawVerdict);
+  const decoded = decodeReviewAct(bytes);
+  const project = read(root);
+  const versions = project.versions as JsonObject[];
+  const v1 = versions.find(row => row.n === 1)!;
+  const verdictIndex = (v1.verdicts as JsonObject[]).length;
+  const versionHash = reviewActVersionHash(project, decoded, verdictIndex);
+  (v1.verdicts as JsonObject[]).push(reviewActVerdict(decoded));
+  const signoffs = project.signoffs as JsonObject[];
+  const sig: JsonObject = {
+    ...rigVerdictSignoff(decoded),
+    target: selectSignoffTarget(root, project, 'rig-review', '1')!,
+  };
+  signoffs.push(sig);
+  project.review_acts = [...(Array.isArray(project.review_acts) ? project.review_acts : []), {
+    schema: 'rig-create/review-act@1',
+    jobId: decoded.jobId,
+    actId: decoded.actId,
+    bytes,
+    sha256: jobHash(bytes),
+    version: 1,
+    verdict: verdictIndex,
+    signoff: signoffs.length - 1,
+    version_hash: versionHash,
+  }];
+  write(root, project);
+}
+
 test('a fresh rig version published in rig-review folds its approval into the displayed version signature', async () => {
   const freshRoot = copy('3-rig-review');
   const freshHost = await open(freshRoot);
@@ -173,12 +204,14 @@ test('a fresh rig version published in rig-review folds its approval into the di
   const root = copy('3-rig-review');
   const { host, verdict } = await historicalRigVerdict(root);
   expect(verdict).toMatchObject({ schema: 'rig-review/act@6', kind: 'review-verdict', source: { selector: { kind: 'rig', version: 1 } }, value: { stage: 'rig-review', verdict: 'approved', comments: [{ text: WORDS }] } });
-  const reviewed = await cli(root, ['review', '1', root, '--from-review', verdict.actId, '--json']);
-  expect({ exit: reviewed.exit, stderr: reviewed.stderr }).toEqual({ exit: 0, stderr: '' });
+  const reviewed = await cli(root, ['review', '1', root, '--from-review', String(verdict.actId), '--json']);
+  expect(reviewed.exit).toBe(2);
+  expect(reviewed.stderr).toContain('NUMBERED_WRITER_REMOVED');
+  seedFoldedRigVerdict(root, verdict);
   const signature = (read(root).signoffs as JsonObject[]).at(-1)!;
   expect(signature).toMatchObject({ stage: 'rig-review', checkpoint: null, by: 'user', verbatim: `[general]\n${WORDS}`, at: verdict.at,
-    source: `review act ${host.session.jobId}/${verdict.actId}`, target: { version: 1 } });
-  // The separate advance writer records the move; the stage no longer lags behind a signature (#981).
+    source: `review act ${host.session.jobId}/${String(verdict.actId)}`, target: { version: 1 } });
+  expect(reviewActFindings(read(root))).toEqual([]);
   expect(codes(root)).toEqual([]);
 });
 
@@ -201,94 +234,47 @@ test('an act for a subject create did not declare refuses by name and leaves the
   const planted = seedHistoricalCheckpointAct(host, askId, 'pass', {
     comments: [{ text: WORDS, anchor: { checkpointId: 'assemble', planStepId: 'assemble' } }],
   });
-  // Run both CLI consumers at the stored act's instant.
-  const signoff = async () => {
-    const requested = { jobId: readWriterBinding(root)!.jobId, actId: planted.actId };
-    const commandClock = planted.at;
-    const diagnostic = JSON.stringify({
-      planted: { jobId: planted.jobId, actId: planted.actId, at: planted.at }, requested, commandClock,
-      comparisons: {
-        'act.jobId !== transport.jobId': planted.jobId !== requested.jobId,
-        'act.actId !== transport.actId': planted.actId !== requested.actId,
-        'Date.parse(act.at) > now': Date.parse(planted.at) > Date.parse(commandClock),
-      },
-    });
-    const child = Bun.spawn([process.execPath, ...jobRuntimeExecArgv(), join(import.meta.dir, 'cli-at.ts'), commandClock,
-      'signoff', 'parts', root, '--checkpoint', 'assemble', '--from-review', requested.actId], { cwd: root, stdout: 'pipe', stderr: 'pipe' });
-    const [stdout, stderr, exit] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
-    return { stdout, stderr, exit, diagnostic };
-  };
+  const decodedPlanted = decodeReviewAct(JSON.stringify(planted), 'checkpoint');
   const bytes = readFileSync(join(root, 'project.json'));
-  const result = await signoff();
-  expect(result.exit, result.diagnostic).toBe(1);
-  expect(result.stderr, result.diagnostic).toStartWith('rig-create: REVIEW_ACT_SUBJECT_UNDECLARED: signoffs.checkpoint assemble:');
+  expect(() => assertActSubjectDeclared(root, decodedPlanted, 'signoffs.checkpoint assemble'))
+    .toThrow(expect.objectContaining({ code: 'REVIEW_ACT_SUBJECT_UNDECLARED' }));
+  const retired = await cli(root, ['signoff', 'parts', root, '--checkpoint', 'assemble', '--from-review', planted.actId]);
+  expect(retired.exit).toBe(2);
+  expect(retired.stderr).toContain('SIGNOFF_FROM_REVIEW_REMOVED');
   expect(readFileSync(join(root, 'project.json'))).toEqual(bytes);
-  // Control: without the acknowledged receipt (a clone) the same act is recorded, so the receipt is what refused it.
+  // Control: without the acknowledged receipt (a clone) assertActSubjectDeclared allows the historical act.
   rmSync(join(root, '.rig-create-review/acknowledged-publications'), { recursive: true });
-  const unverified = await signoff();
-  expect({ exit: unverified.exit, stderr: unverified.stderr }, unverified.diagnostic).toEqual({ exit: 0, stderr: '' });
+  expect(() => assertActSubjectDeclared(root, decodedPlanted, 'signoffs.checkpoint assemble')).not.toThrow();
 });
 
-async function ingestChainVerdict(root: string, host: JobOwnerHost) {
-  const verdictAsk = await ask(host, { kind: 'parts-verdict', draftId: 'chain' });
-  expect(verdictAsk.ok).toBe(true);
-  const verdict = await (await page(host)).act(String(verdictAsk.value.askId), 'parts-verdict', {
-    verdict: 'approved',
-    issues: [],
-    words: WORDS,
-  });
-  const ingested = await cli(root, ['parts-review', root, '--from-review', String(verdict.actId), '--json']);
-  expect({ exit: ingested.exit, stderr: ingested.stderr }).toEqual({ exit: 0, stderr: '' });
-}
-
-test('bar: parts-verdict is not declared once the verdict for the draft is ingested', async () => {
+test('bar: draft publications at parts-review declare no parts-verdict asks before or after new drafts', async () => {
   const root = preparedParts();
   const host = await open(root);
-  enqueuePublication(root, readWriterBinding(root)!, draftPublicationResult('chain'));
-  expect(await reconcileCreateJob(root)).toBe(1);
-  expect(declared(root, host)).toEqual([{ kind: 'parts-verdict', draftId: 'chain' }]);
-  await ingestChainVerdict(root, host);
   enqueuePublication(root, readWriterBinding(root)!, draftPublicationResult('chain'));
   expect(await reconcileCreateJob(root)).toBe(1);
   expect(declared(root, host)).toEqual([]);
-});
+  expect((await readHostActsAndAsks(host)).asks).toEqual([]);
 
-test('bar: parts-verdict is declared when the draft has no receipt or a new draft is recorded', async () => {
-  const root = preparedParts();
-  const host = await open(root);
-  enqueuePublication(root, readWriterBinding(root)!, draftPublicationResult('chain'));
-  expect(await reconcileCreateJob(root)).toBe(1);
-  // Initial draft with no receipt declares parts-verdict.
-  expect(declared(root, host)).toEqual([{ kind: 'parts-verdict', draftId: 'chain' }]);
-  const originalPublication = host.session.status().publication!.publicationId;
-  // The fresh draft needs the original verdict ingested before it can be registered.
   cpSync(join(root, 'derived/drafts/chain'), join(root, 'derived/drafts/chain-2'), { recursive: true });
-  const args = [
+  const drafted = await cli(root, [
     'draft-rig', 'chain-2', root,
     '--config', 'derived/drafts/chain-2/config.json',
     '--from', 'derived/drafts/chain-2/out',
     '--parts', 'derived/drafts/chain-2/input',
     '--json',
-  ];
-  const before = readFileSync(join(root, 'project.json'));
-  expect(await cli(root, args)).toMatchObject({ exit: 1, stdout: '', stderr: expect.stringMatching(/^rig-create: JOB_ASK_PENDING: /) });
-  expect(readFileSync(join(root, 'project.json'))).toEqual(before);
-  expect(host.session.status().publication!.publicationId).toBe(originalPublication);
-  expect(declared(root, host)).toEqual([{ kind: 'parts-verdict', draftId: 'chain' }]);
-  await ingestChainVerdict(root, host);
-  const drafted = await cli(root, args);
+  ]);
   expect({ exit: drafted.exit, stderr: drafted.stderr }).toEqual({ exit: 0, stderr: '' });
   structureSnapshotCommand([root, '--draft', 'chain-2', '--out', 'evidence/structure-chain-2.json']);
   enqueuePublication(root, readWriterBinding(root)!, draftPublicationResult('chain-2'));
   expect(await reconcileCreateJob(root)).toBe(1);
-  expect(declared(root, host)).toEqual([{ kind: 'parts-verdict', draftId: 'chain-2' }]);
+  expect(declared(root, host)).toEqual([]);
+  expect((await readHostActsAndAsks(host)).asks).toEqual([]);
 });
 
-test('bar: review-verdict is not declared once the verdict for the displayed version is ingested', async () => {
+test('bar: review-verdict is not declared once the verdict for the displayed version is stored', async () => {
   const root = copy('3-rig-review');
   const { host, verdict } = await historicalRigVerdict(root);
-  const reviewed = await cli(root, ['review', '1', root, '--from-review', String(verdict.actId), '--json']);
-  expect({ exit: reviewed.exit, stderr: reviewed.stderr }).toEqual({ exit: 0, stderr: '' });
+  seedFoldedRigVerdict(root, verdict);
   await publishRigWithoutAsks(root, host);
 });
 
@@ -318,7 +304,7 @@ test('bar: a new numbered post publishes without review-verdict even when only t
 test('bar: a retained rig approval folds its signature and reopened stages publish without asks', async () => {
   const root = copy('3-rig-review');
   const { host, verdict } = await historicalRigVerdict(root);
-  expect((await cli(root, ['review', '1', root, '--from-review', String(verdict.actId), '--json'])).exit).toBe(0);
+  seedFoldedRigVerdict(root, verdict);
   expect((read(root).signoffs as JsonObject[]).at(-1)).toMatchObject({
     stage: 'rig-review', source: `review act ${host.session.jobId}/${String(verdict.actId)}`, target: { version: 1 },
   });

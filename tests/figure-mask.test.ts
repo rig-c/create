@@ -9,11 +9,13 @@ import { repackageFixtureVersion } from './review-fixture.ts';
 import { type CheckReport } from '../src/check.ts';
 import { FIGURE_MASK_MATTE_RECEIPT_SINCE, FIGURE_MASK_SINCE } from '../src/figure-mask.ts';
 import { Refusal } from '../src/refusal.ts';
+import { selectSignoffTarget } from '../src/signoff-target.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { externalMaskEvidence } from './external-receipt-fixture.ts';
 import { arr, fixture, obj, version, waypoint, type Mutate } from './fixtures.ts';
-import { checkProject, derivedCommand, reviewCommand, handoff, signoffCommand } from './clock.ts';
+import { checkProject, derivedCommand, handoff, signoffCommand } from './clock.ts';
 import { tempDir } from './helpers.ts';
+import { seedStoredVerdict } from './historical-review-fixture.ts';
 
 const load = createRequire(import.meta.url);
 const { MATTE_GRAPH_ID, MATTE_NODE, MATTE_MODEL, matteGraph, matteGraphHash, matteParams, publishMatte } = load('@rig-c/parts/src/matte.ts') as typeof import('../node_modules/@rig-c/parts/src/matte.ts');
@@ -113,10 +115,10 @@ describe('figure mask declaration and provenance', () => {
     const code = 'FIGURE_MASK_EXTERNAL_RECEIPT_INVALID';
     expect(findings(report).map(f => f.code)).toEqual([code]);
     expect(report.refusals.some(f => f.code === 'EXTERNAL_RECEIPT_INVALID')).toBe(true);
-    writeFileSync(join(dir, 'words.txt'), 'Approve synthetic rig');
+    seedStoredVerdict(dir, 1, { review: 'rig-review', verdict: 'accepted', by: 'user',
+      at: FIGURE_MASK_MATTE_RECEIPT_SINCE, verbatim: 'Approve synthetic rig', source: 'synthetic control' });
     const before = readFileSync(join(dir, 'project.json'));
-    expect(() => reviewCommand(['1', dir, '--review', 'rig-review', '--verdict', 'accepted', '--by', 'user', '--verbatim-file', join(dir, 'words.txt'), '--source', 'synthetic control']))
-      .toThrow(expect.objectContaining({ code }));
+    expect(() => selectSignoffTarget(dir, JSON.parse(before.toString('utf8')) as JsonObject, 'rig-review', '1')).toThrow(expect.objectContaining({ code }));
     expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
   });
   test('operation-only provenance warns one second before the cutoff and refuses at it', () => {
@@ -135,10 +137,10 @@ describe('figure mask declaration and provenance', () => {
     const report = checkProject(dir);
     expect(findings(report).map(f => f.code)).toEqual(['FIGURE_MASK_MATTE_RECEIPT_INVALID']);
     expect(report.refusals.some(f => f.code === 'MATTE_RECEIPT_INVALID')).toBe(true);
-    writeFileSync(join(dir, 'words.txt'), 'Approve synthetic rig');
+    seedStoredVerdict(dir, 1, { review: 'rig-review', verdict: 'accepted', by: 'user',
+      at: FIGURE_MASK_MATTE_RECEIPT_SINCE, verbatim: 'Approve synthetic rig', source: 'synthetic control' });
     const before = readFileSync(join(dir, 'project.json'));
-    expect(() => reviewCommand(['1', dir, '--review', 'rig-review', '--verdict', 'accepted', '--by', 'user', '--verbatim-file', join(dir, 'words.txt'), '--source', 'synthetic control']))
-      .toThrow(expect.objectContaining({ code: 'FIGURE_MASK_MATTE_RECEIPT_INVALID' }));
+    expect(() => selectSignoffTarget(dir, JSON.parse(before.toString('utf8')) as JsonObject, 'rig-review', '1')).toThrow(expect.objectContaining({ code: 'FIGURE_MASK_MATTE_RECEIPT_INVALID' }));
     expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
   });
   test('a receipt bound to equal mask bytes at another locator cannot authorize the frozen declaration', () => {
@@ -302,9 +304,10 @@ test.each(['unrecorded', 'requirements.json', 'figure.png'])('check, acceptance,
   expect(findings(checkProject(dir)).map(f => f.code)).toEqual([code]);
   writeFileSync(join(dir, 'words.txt'), 'Approve synthetic rig');
   const before = readFileSync(join(dir, 'project.json'));
+  expect(() => signoffCommand(['rig-review', dir, '--version', '1', '--by', 'user', '--verbatim-file', join(dir, 'words.txt')]))
+    .toThrow(expect.objectContaining({ code: 'NUMBERED_WRITER_REMOVED' }));
   const operations = [
-    () => reviewCommand(['1', dir, '--review', 'rig-review', '--verdict', 'accepted', '--by', 'user', '--verbatim-file', join(dir, 'words.txt'), '--source', 'synthetic control']),
-    () => signoffCommand(['rig-review', dir, '--version', '1', '--by', 'user', '--verbatim-file', join(dir, 'words.txt')]),
+    () => selectSignoffTarget(dir, JSON.parse(before.toString('utf8')) as JsonObject, 'rig-review', '1'),
     () => handoff(dir, 1),
   ];
   for (const operation of operations) {

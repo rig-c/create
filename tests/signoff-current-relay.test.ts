@@ -12,6 +12,7 @@ import type { JsonObject } from '../src/templates.ts';
 import { advanceCommand, checkProject, signoffCommand, testClock } from './clock.ts';
 import { arr, fixture, obj, withdrawSignature } from './fixtures.ts';
 import { clockedCli } from './helpers.ts';
+import { seedStoredVersionSignoff } from './historical-review-fixture.ts';
 
 const words = '\uFEFF  Approve this output.\r\n\r\n';
 const builtAt = '2026-11-25T01:00:00.000Z';
@@ -121,18 +122,20 @@ test.each(['verbatim', 'said_at', 'relayed_by'])('check refuses a persisted curr
   }));
 });
 
-test('numbered relay without an accepted verdict still refuses before writing', () => {
+test('numbered relay and --version signoff refuse with NUMBERED_WRITER_REMOVED before writing', () => {
   const dir = setup('rig-review', true);
-  refusesUnchanged(dir, 'OWNER_CHAT_GATE_VISUAL', () => signoffCommand([...relayArgs(dir, 'rig-review'), '--version', '2']));
+  refusesUnchanged(dir, 'NUMBERED_WRITER_REMOVED', () => signoffCommand([...relayArgs(dir, 'rig-review'), '--version', '2']));
 });
 
-test('numbered signoff still accepts a raw verbatim file for the accepted version', () => {
+test('stored numbered signoff still checks clean with raw verbatim for the accepted version', () => {
   const dir = fixture();
-  testClock.set(withdrawSignature(dir, 'rig-review'));
+  const at = withdrawSignature(dir, 'rig-review');
+  testClock.set(at);
   writeFileSync(join(dir, 'words.txt'), words);
-  const result = signoffCommand(['rig-review', dir, '--by', 'owner', '--verbatim-file', join(dir, 'words.txt'), '--version', '2', '--json']);
-  expect(result.exit).toBe(0);
-  expect(JSON.parse(result.stdout)).toMatchObject({ verbatim: words, target: { version: 2, verdict: 'versions[1].verdicts[0]' } });
+  refusesUnchanged(dir, 'NUMBERED_WRITER_REMOVED', () =>
+    signoffCommand(['rig-review', dir, '--by', 'owner', '--verbatim-file', join(dir, 'words.txt'), '--version', '2', '--json']));
+  const signed = seedStoredVersionSignoff(dir, 'rig-review', 2, { by: 'owner', at, verbatim: words });
+  expect(signed).toMatchObject({ verbatim: words, target: { version: 2, verdict: 'versions[1].verdicts[0]' } });
   expect(checkProject(dir).refusals).toEqual([]);
 });
 
@@ -145,7 +148,7 @@ test('current relay requires its current output even when a numbered verdict was
   save(dir, project);
   refusesUnchanged(dir, 'SIGNOFF_TARGET_STALE', () => signoffCommand(relayArgs(dir, 'rig-review')));
   recordFixtureOutput(dir, 'rig');
-  refusesUnchanged(dir, 'SIGNOFF_OPTION_INVALID', () => signoffCommand([...relayArgs(dir, 'rig-review'), '--version', '2']));
+  refusesUnchanged(dir, 'NUMBERED_WRITER_REMOVED', () => signoffCommand([...relayArgs(dir, 'rig-review'), '--version', '2']));
 });
 
 test('current CLI rejects --version before relay and assemble-only draft validation', () => {
@@ -163,7 +166,7 @@ test('current CLI rejects --version before relay and assemble-only draft validat
   ]) {
     const result = Bun.spawnSync([process.execPath, ...clockedCli(), 'signoff', ...args], { stdout: 'pipe', stderr: 'pipe' });
     expect(result.exitCode).toBe(2);
-    expect(result.stderr.toString()).toMatch(/^rig-create: SIGNOFF_OPTION_INVALID: .*remove --version\n$/);
+    expect(result.stderr.toString()).toMatch(/^rig-create: NUMBERED_WRITER_REMOVED: project\.json: signoff --version was removed/);
     expect(result.stdout.toString()).toBe('');
     expect(readFileSync(record)).toEqual(before);
   }
@@ -206,8 +209,9 @@ test('a numbered historical move keeps its numbered evidence rules after current
   expect(findings({ ...load(dir), direction_contract: contract })).toEqual(numberedRefusals);
 });
 
-test('Review act ingest keeps the displayed numbered target on a project with current', () => {
+test('signoff --from-review is retired, while check still validates a stored numbered target alongside current', () => {
   const dir = realpathSync(fixture());
+  const storedNumbered = structuredClone(arr(load(dir).signoffs).map(obj).find(s => s.stage === 'rig-review')!);
   recordFixtureOutput(dir, 'rig');
   const at = withdrawSignature(dir, 'rig-review');
   const jobId = 'synthetic-signoff-job';
@@ -218,17 +222,14 @@ test('Review act ingest keeps the displayed numbered target on a project with cu
   const project = load(dir);
   project.review_job = { jobId, origin };
   save(dir, project);
-  const act = { schema: 'rig-review/act@2', kind: 'signoff', jobId, actId: 'sign-rig', askId: 'ask-rig', publicationId: 'publication-one', at,
-    authority: { actor: 'human', channel: 'review-ui', reviewer },
-    source: { sourceHash: '1'.repeat(64), projectHash: '2'.repeat(64), package: { id: 'synthetic-package', revision: 'one' },
-      selector: { kind: 'rig', version: 2 }, model: null, direction: null, optionSet: null, appliedResult: null, plan: null,
-      parts: { enumeratorVersion: '2.34.0' } },
-    value: { stage: 'rig-review', decision: 'approved', words } };
-  const result = rawSignoff(['rig-review', dir, '--from-review', act.actId, '--json'], testClock.now(), {
-    fetch: () => ({ bytes: JSON.stringify(act) }),
-  });
-  expect(result.exit).toBe(0);
-  expect(JSON.parse(result.stdout).target).toMatchObject({ version: 2, verdict: 'versions[1].verdicts[0]' });
+  const before = readFileSync(join(dir, 'project.json'));
+  expect(() => rawSignoff(['rig-review', dir, '--from-review', 'sign-rig', '--json'], testClock.now()))
+    .toThrow(expect.objectContaining({ code: 'SIGNOFF_FROM_REVIEW_REMOVED', exitCode: 2 }));
+  expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
+
+  const seeded = load(dir);
+  seeded.signoffs = [...arr(seeded.signoffs), { ...storedNumbered, at }];
+  save(dir, seeded);
   expect(checkProject(dir).refusals).toEqual([]);
   const after = load(dir);
   expect(after.current).toEqual(project.current);

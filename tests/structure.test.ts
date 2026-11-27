@@ -1,4 +1,6 @@
+import { recordedPartsVerdict } from '../src/parts-verdict-record.ts';
 import { recordPartsReceipt } from './parts-receipt-fixture.ts';
+import { seedStoredPartsSignoff } from './historical-review-fixture.ts';
 import { expect, test, afterEach } from 'bun:test';
 import { createHash } from 'node:crypto';
 import { mkdirSync, readFileSync, writeFileSync, symlinkSync, cpSync, rmSync } from 'node:fs';
@@ -72,9 +74,14 @@ function completeParts(dir: string): void {
     stepStatusCommand([id, 'done', dir, '--by', 'agent']);
   }
 }
-function partsSign(dir: string, draft = 'shape', snapshot = 'evidence/structure.json'): void {
-  signoffCommand(['parts-review', dir, '--by', 'owner', '--verbatim-file', join(dir, 'words.txt'),
-    '--draft', draft, '--structure-file', snapshot]);
+function partsSign(dir: string, draft = 'shape', snapshot?: string): void {
+  seedStoredPartsSignoff(dir, draft, {
+    by: 'owner',
+    at: testClock.now(),
+    verbatim: readFileSync(join(dir, 'words.txt'), 'utf8'),
+    structureFile: snapshot === undefined ? 'evidence/structure.json' : snapshot,
+    explicitStructure: true,
+  });
 }
 function freshRigInterview(dir: string, answerAt = '2026-11-21T00:00:00Z', approvalAt = '2026-11-22T00:00:00Z'): void {
   const p = read(dir); obj(p.plan).rigging_drafted_at = answerAt;
@@ -102,7 +109,8 @@ test('human snapshot and rigging approval bind exact declarations without rewrit
 
 test('missing snapshot and contradictory declaration refuse before write; an early guide no longer does (#981)', () => {
   const dir = setup(); const before = readFileSync(join(dir, 'project.json'));
-  try { signoffCommand(['parts-review', dir, '--by', 'owner', '--verbatim-file', join(dir, 'words.txt'), '--draft', 'shape']); throw Error('expected refusal'); } catch (e) { expect((e as Refusal).code).toBe('STRUCTURE_DECISIONS_MISSING'); }
+  try { signoffCommand(['parts-review', dir, '--by', 'owner', '--verbatim-file', join(dir, 'words.txt'), '--draft', 'shape']); throw Error('expected refusal'); } catch (e) { expect((e as Refusal).code).toBe('NUMBERED_WRITER_REMOVED'); }
+  try { seedStoredPartsSignoff(dir, 'shape', { by: 'owner', at: testClock.now(), verbatim: readFileSync(join(dir, 'words.txt'), 'utf8'), explicitStructure: true }); throw Error('expected refusal'); } catch (e) { expect((e as Refusal).code).toBe('STRUCTURE_DECISIONS_MISSING'); }
   expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
   partsSign(dir); freshRigInterview(dir);
   const p = read(dir); obj(waypoint(p, 'bones').guide).at = '2026-11-19T00:00:00Z'; save(dir, p);
@@ -219,9 +227,8 @@ test('reopen and re-approved density preserve v1 and bind v2 to its own build-ti
 test('previous parts approval selects the latest eligible signature and honors later changes requested', () => {
   const dir = setup();
   const project = read(dir);
-  const receipt = obj(arr(project.review_acts).find(entry => obj(entry).draft_id === 'shape'));
   const first = { stage: 'parts-review', checkpoint: null, by: 'owner', at: '2026-11-20T00:00:00Z',
-    verbatim: 'Approve this synthetic draft.', draft_id: 'shape', evidence: obj(receipt.evidence) };
+    verbatim: 'Approve this synthetic draft.', draft_id: 'shape', evidence: recordedPartsVerdict(dir, project, 'shape').evidence };
   const repeated = { ...first, at: '2026-11-20T01:00:00Z', verbatim: 'Approve the same draft again.' };
   const checkpoint = { ...first, at: '2026-11-20T02:00:00Z', checkpoint: 'assemble' };
   const missingCheckpoint: JsonObject = { ...first, at: '2026-11-20T03:00:00Z' };

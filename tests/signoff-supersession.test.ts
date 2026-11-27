@@ -3,7 +3,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { JsonObject } from '../src/templates.ts';
 import { arr, fixture, framing, obj, waypoint } from './fixtures.ts';
-import { TEST_NOW, checkProject, directionCommand, reviewCommand, signoffCommand, testClock } from './clock.ts';
+import { TEST_NOW, checkProject, directionCommand, main, signoffCommand, testClock } from './clock.ts';
 
 afterEach(() => testClock.reset());
 const load = (dir: string): JsonObject => JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')) as JsonObject;
@@ -16,14 +16,13 @@ function sign(dir: string, stage: string, steps?: string): void {
   signoffCommand([stage, dir, '--by', 'user', '--verbatim-file', words, ...(steps ? ['--steps', steps] : [])]);
 }
 
-test('review refuses newly stale approval hashes without changing project bytes', () => {
+test('retired review writer exits 2 without changing project bytes', () => {
   const dir = fixture(p => { delete p.direction_contract; }, 'example-numbered/example-project.json', {}, true);
   testClock.set(TEST_NOW);
   directionCommand(['--adopt', dir]);
   const before = readFileSync(join(dir, 'project.json'));
-  expect(() => reviewCommand(['4', dir, '--review', 'direction-review', '--verdict', 'provisional', '--by', 'user', '--source', 'chat',
-    '--at', feedbackAt, '--verbatim', 'Add a slower pause and hold the camera.', '--item', 'motion:not-asked', '--item', 'camera_depth:not-asked']))
-    .toThrow(expect.objectContaining({ code: 'SIGNOFF_ANSWERS_STALE' }));
+  expect(main(['review', '4', dir, '--review', 'direction-review', '--verdict', 'provisional', '--by', 'user', '--source', 'chat',
+    '--at', feedbackAt, '--verbatim', 'Add a slower pause and hold the camera.', '--item', 'motion:not-asked', '--item', 'camera_depth:not-asked'])).toBe(2);
   expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
 });
 

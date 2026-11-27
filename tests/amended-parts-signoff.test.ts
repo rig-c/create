@@ -1,22 +1,24 @@
 import { afterEach, expect, test } from 'bun:test';
-import { appendFileSync, cpSync, existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { appendFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { EXAMPLE_NOW } from '../scripts/example-time.ts';
 import { amendCommand } from '../src/amend.ts';
 import { checkProject, type Finding } from '../src/check.ts';
+import { main } from '../src/cli.ts';
 import { draftRigCommand } from '../src/drafts.ts';
 import { acknowledgePublication, JOB_BINDING_FILE, jobHash, pendingPublications, publicationVersionHash, writePrivateJson, type WriterBinding } from '../src/job-outbox.ts';
 import { currentJobIdentity, draftPackageIdentity, prepareDraftManifest, readPublished } from '../src/job-publication.ts';
-import { partsReviewCommand } from '../src/parts-review.ts';
-import { latestPartsReceipt, recordedPartsVerdict } from '../src/parts-verdict-record.ts';
-import { pauseCommand, resumeCommand } from '../src/pause.ts';
+import { partsActDraftHash } from '../src/parts-act.ts';
+import { latestPartsReceipt, recordedPartsActReceipt, recordedPartsVerdict } from '../src/parts-verdict-record.ts';
+import { refuse } from '../src/refusal.ts';
 import { collectReopens, liveSignoff } from '../src/reopen.ts';
-import { reviewActFindings } from '../src/review-act.ts';
+import { decodeReviewAct, partsVerdictSignoff, reviewActFindings } from '../src/review-act.ts';
 import { checkReviewPackages } from '../src/review-package.ts';
 import { rigVersionCommand } from '../src/rig-version.ts';
+import { selectAnswerHashes } from '../src/signoff-answers.ts';
 import { signoffCommand } from '../src/signoff.ts';
-import { latestPartsApproval, partsApprovalIdentity, rigPartsApproval } from '../src/structure.ts';
+import { checkStructure, latestPartsApproval, partsApprovalIdentity, rigPartsApproval } from '../src/structure.ts';
 import { structureSnapshotCommand } from '../src/structure-snapshot.ts';
 import type { JsonObject } from '../src/templates.ts';
 
@@ -76,7 +78,7 @@ async function retainVerdict(root: string, binding: WriterBinding, verdict: 'app
   prepareDraftManifest(root, read(root), draft, identity.path);
   const context = await readPublished({ root, record: { path: 'project.json', sha256: projectHash }, result });
   const subject = { kind: 'parts-verdict' as const, draftId: draft };
-  expect(context.subjects).toContainEqual(subject);
+  expect(context.subjects).toEqual([]);
   const sourceHash = jobHash('Synthetic acknowledged draft.');
   const publicationId = 'historical-publication';
   acknowledgePublication({ schema: 'rig-create/job-pending@1', root, jobId: binding.jobId, origin: binding.origin,
@@ -95,7 +97,31 @@ async function retainVerdict(root: string, binding: WriterBinding, verdict: 'app
     })) },
   };
   const actBytes = JSON.stringify(act);
-  const ingest = () => partsReviewCommand([root, '--from-review', act.actId], reviewedAt, { fetch: () => ({ bytes: actBytes }) });
+  const ingest = () => {
+    const project = read(root);
+    const existing = Array.isArray(project.review_acts)
+      ? (project.review_acts as JsonObject[]).find(row => row.jobId === act.jobId && row.actId === act.actId)
+      : undefined;
+    if (existing) return { exit: 0 };
+    const decoded = decodeReviewAct(actBytes, 'parts-verdict');
+    const evidencePath = `evidence/review-acts/${jobHash(JSON.stringify([act.jobId, act.actId]))}.json`;
+    mkdirSync(dirname(join(root, evidencePath)), { recursive: true });
+    writeFileSync(join(root, evidencePath), actBytes);
+    const receipt: JsonObject = {
+      schema: 'rig-create/review-act@1',
+      kind: 'parts-verdict',
+      jobId: act.jobId,
+      actId: act.actId,
+      draft_id: draft,
+      version_hash: partsActDraftHash(project, decoded),
+      bytes: actBytes,
+      sha256: jobHash(actBytes),
+      evidence: { path: evidencePath, sha256: jobHash(actBytes) },
+    };
+    project.review_acts = [...(Array.isArray(project.review_acts) ? project.review_acts : []), receipt];
+    write(root, project);
+    return { exit: 0 };
+  };
   expect(ingest().exit).toBe(0);
   return { act, actBytes, ingest };
 }
@@ -107,9 +133,37 @@ function amendmentArgs(root: string, changePath = manifest, target = draft): str
     '--owner-chat', words, '--said-at', iso(amendedAt), '--relayed-by', 'synthetic-operator'];
 }
 
-function sign(root: string, actId: string, extra: string[] = [], target = draft) {
-  return signoffCommand(['parts-review', root, '--draft', target, '--from-review', actId, '--json', ...extra], signedAt,
-    { fetch: () => { throw new Error('A retained act must not be fetched'); } });
+function sign(root: string, actId: string, extra: string[] = [], target = draft): { stdout: string; exit: number } {
+  const project = read(root);
+  const sourceTag = (jobId: string) => `review act ${jobId}/${actId}`;
+  const receipt = recordedPartsActReceipt(project, actId);
+  if (!receipt) refuse('PARTS_VERDICT_RECEIPT_REQUIRED', `project.json.review_acts: no retained parts-verdict receipt ${actId}`);
+  const already = (project.signoffs as JsonObject[]).find(row => row.source === sourceTag(String(receipt.jobId)));
+  if (already) {
+    if (already.draft_id !== target) refuse('PARTS_VERDICT_DRAFT_MISMATCH', 'carried signature already targets another draft');
+    return { stdout: JSON.stringify(already, null, 2), exit: 0 };
+  }
+  const structureIndex = extra.indexOf('--structure-file');
+  const structurePath = structureIndex >= 0 ? extra[structureIndex + 1]! : `evidence/structure-${target}.json`;
+  const verified = recordedPartsVerdict(root, project, target, undefined, { carry: { receipt, now: signedAt } });
+  const structureBytes = readFileSync(join(root, structurePath));
+  const structureBinding = { path: structurePath, sha256: jobHash(structureBytes) };
+  const errors: Finding[] = [];
+  checkStructure(root, project, { draft_id: target, structure: structureBinding }, `signoffs[${(project.signoffs as JsonObject[]).length}].structure`, errors);
+  if (errors[0]) refuse(errors[0].code, errors[0].message);
+  const signature: JsonObject = {
+    ...partsVerdictSignoff(verified.carry!.act, iso(signedAt), target),
+    evidence: verified.evidence,
+    structure: structureBinding,
+  };
+  const answerHashes = selectAnswerHashes(root, project, signature);
+  if (answerHashes !== undefined) signature.answer_hashes = answerHashes;
+  const signoffs = project.signoffs as JsonObject[];
+  signoffs.push(signature);
+  receipt.signoff = signoffs.length - 1;
+  receipt.signoff_amendment = { index: verified.carry!.amendment, signed_at: iso(signedAt), draft_id: target };
+  write(root, project);
+  return { stdout: JSON.stringify(signature, null, 2), exit: 0 };
 }
 
 function refuses(root: string, code: string, command: () => unknown) {
@@ -201,21 +255,13 @@ test.each([['default', []], ['explicit', ['--structure-file', structure]]] as co
   expect(readFileSync(file(root))).toEqual(committed);
 });
 
-test('a paused project must resume before carrying a changed parts approval', async () => {
-  const { root, binding } = fixture();
-  const { act } = await retainVerdict(root, binding);
-  const words = join(root, 'pause-words.txt');
-  writeFileSync(words, 'Pause and resume the synthetic project.\n');
-  const human = ['--by', 'synthetic-owner', '--verbatim-file', words];
-  expect(signoffCommand(['paused', root, ...human], reviewedAt + 1).exit).toBe(0);
-  expect(pauseCommand([root, ...human], reviewedAt + 2).exit).toBe(0);
-  expect(resumeCommand(['rigging', root, ...human], reviewedAt + 3).exit).toBe(0);
-  expect(amendCommand(amendmentArgs(root), amendedAt).exit).toBe(0);
-  expect(signoffCommand(['paused', root, ...human], amendedAt + 2).exit).toBe(0);
-  expect(pauseCommand([root, ...human], amendedAt + 3).exit).toBe(0);
-  refuses(root, 'PARTS_REVIEW_FOLD_NOT_READY', () => sign(root, act.actId));
-  expect(resumeCommand(['rigging', root, ...human], amendedAt + 4).exit).toBe(0);
-  expect(sign(root, act.actId).exit).toBe(0);
+test('parts-review and signoff --from-review / --draft CLI writers are retired with exit 2', () => {
+  const { root } = fixture();
+  const before = readFileSync(file(root));
+  expect(main(['parts-review', root, '--from-review', 'historical-act'], reviewedAt)).toBe(2);
+  refuses(root, 'SIGNOFF_FROM_REVIEW_REMOVED', () => signoffCommand(['parts-review', root, '--from-review', 'historical-act'], signedAt));
+  refuses(root, 'NUMBERED_WRITER_REMOVED', () => signoffCommand(['parts-review', root, '--draft', draft, '--by', 'user'], signedAt));
+  expect(readFileSync(file(root))).toEqual(before);
 });
 
 test('rigging draft amendment requires owner chat and bound changed inputs', () => {
@@ -231,38 +277,25 @@ test('rigging draft amendment requires owner chat and bound changed inputs', () 
   refuses(identical, 'AMENDMENT_CHANGES_INVALID', () => amendCommand(amendmentArgs(identical), amendedAt));
 });
 
-test('an ordinary Review signoff still uses its fetch transport', () => {
-  const { root, binding } = fixture();
-  const actId = 'ordinary-signoff';
-  const fetch = (transport: { kind?: string; jobId: string; actId: string }) => {
-    expect(transport).toMatchObject({ kind: 'signoff', jobId: binding.jobId, actId });
-    return { bytes: '{' };
-  };
-  refuses(root, 'REVIEW_ACT_INVALID', () => signoffCommand(['parts-review', root, '--draft', draft, '--from-review', actId], signedAt, { fetch }));
-});
-
-test.each([false, true])('carries the retained verdict after retirement with replacement job = %s', async replacement => {
+test.each([false, true])('carries the retained verdict in check after retirement with replacement job = %s', async replacement => {
   const { root, binding } = fixture();
   const { act, actBytes } = await retainVerdict(root, binding);
   rmSync(join(root, JOB_BINDING_FILE));
   expect(amendCommand(amendmentArgs(root), amendedAt).exit).toBe(0);
   if (replacement) writePrivateJson(join(root, JOB_BINDING_FILE), { ...binding, jobId: 'replacement-job' });
-  const args = ['parts-review', root, '--from-review', act.actId];
-  const fetch = () => { throw new Error('A retained verdict must not be fetched'); };
-  refuses(root, 'PARTS_VERDICT_RECEIPT_REQUIRED', () =>
-    signoffCommand(['parts-review', root, '--from-review', 'never-ingested'], signedAt, { fetch }));
+  refuses(root, 'PARTS_VERDICT_RECEIPT_REQUIRED', () => sign(root, 'never-ingested'));
   const project = read(root);
   const receipt = (project.review_acts as JsonObject[]).at(-1)!;
   const evidence = receipt.evidence as JsonObject;
   const path = join(root, String(evidence.path));
   writeFileSync(path, actBytes + '\n');
-  refuses(root, 'REVIEW_ACT_LEDGER_INVALID', () => signoffCommand(args, signedAt, { fetch }));
+  refuses(root, 'REVIEW_ACT_LEDGER_INVALID', () => sign(root, act.actId));
   writeFileSync(path, actBytes);
-  const result = signoffCommand(args, signedAt, { fetch });
+  const result = sign(root, act.actId);
   expect(result.exit).toBe(0);
-  expect(result.stdout).toContain(`review act ${act.jobId}/${act.actId} (sha256 ${jobHash(actBytes)})`);
+  expect(JSON.parse(result.stdout)).toMatchObject({ source: `review act ${act.jobId}/${act.actId}` });
   const saved = readFileSync(file(root));
-  expect(signoffCommand(args, signedAt, { fetch }).exit).toBe(0);
+  expect(sign(root, act.actId).exit).toBe(0);
   expect(readFileSync(file(root))).toEqual(saved);
 });
 

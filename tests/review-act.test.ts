@@ -13,6 +13,7 @@ import { acknowledgePublication, enqueuePublication, jobHash, JOB_BINDING_FILE, 
 import { currentJobIdentity, partsEnumerator, prepareLiveManifest, readPublished, readRecordPublished } from '../src/job-publication.ts';
 import { jobRuntimeExecArgv } from '../src/job-writer.ts';
 import { assertReviewActSource, decodeReviewAct, decodeReviewResponse, fetchReviewAct, REVIEW_ACT_ACTOR_SINCE, REVIEW_ACT_FETCH_TIMEOUT_MS, reviewActFindings, reviewActTransport, reviewActVerbatim, reviewActVersionHash, reviewStillEvidence, setReviewActFetchTimeoutMs } from '../src/review-act.ts';
+import { Refusal, USAGE_EXIT } from '../src/refusal.ts';
 import { directionPin, existingShapes, framedRigPin, HISTORICAL_DIRECTION_VALUE, TIME_ONLY_BASIS } from './comment-anchor-shapes.ts';
 import { pendingMeshDeltaRevision } from '../src/corrections.ts';
 import { commentCommand } from '../src/comment-act.ts';
@@ -23,7 +24,8 @@ import { reviewPackageCommand } from '../src/review-package.ts';
 import { selectSignoffTarget } from '../src/signoff-target.ts';
 import { stepHash } from '../src/step-hash.ts';
 import type { JsonObject } from '../src/templates.ts';
-import { advanceCommand, checkProject, directionCommand, inputCommand, planCommand, reviewCommand, sceneCommand, signoffCommand, stepStatusCommand, testClock } from './clock.ts';
+import { advanceCommand, checkProject, directionCommand, inputCommand, planCommand, sceneCommand, signoffCommand, stepStatusCommand, testClock } from './clock.ts';
+import { seedStoredSignoffAct, seedStoredVerdict, seedStoredVersionSignoff, selectHistoricalSignoffTarget } from './historical-review-fixture.ts';
 import { composeFixture, composeRunFixture } from './direction-compose-fixture.ts';
 import { plantLegacyReopen, fixture } from './fixtures.ts';
 import { clockedCli, staleRecordPlant, treeDigest } from './helpers.ts';
@@ -177,7 +179,54 @@ Bun.spawnSync = (args, options) => original([args[0], '--preload', import.meta.p
     const [error, exit] = await Promise.all([new Response(probe.stderr).text(), probe.exited]);
     expect(exit).toBe(1); expect(error).toContain('REVIEW_STATE_ACCESSED');
   }
-  const child = Bun.spawn([process.execPath, ...(guarded ? ['--preload', guard] : []), ...(preload ? ['--preload', preload] : []), ...clockedCli(), 'review', String(n), root, '--from-review', actId, ...flags], { stdout: 'pipe', stderr: 'pipe' });
+  const runnerScript = `
+    import { acquireBoundJobWrite } from ${JSON.stringify(join(import.meta.dir, '../src/job-writer.ts'))};
+    import { fetchReviewActBytes, reviewActTransport } from ${JSON.stringify(join(import.meta.dir, '../src/review-act.ts'))};
+    import { Refusal } from ${JSON.stringify(join(import.meta.dir, '../src/refusal.ts'))};
+    import { seedStoredReviewVerdictAct } from ${JSON.stringify(join(import.meta.dir, './historical-review-fixture.ts'))};
+    const [targetRoot, targetActId, nStr, nowStr, ...rest] = process.argv.slice(1);
+    let json = false;
+    let bustConfigPath;
+    for (let i = 0; i < rest.length; i++) {
+      if (rest[i] === '--json') json = true;
+      else if (rest[i] === '--config') bustConfigPath = rest[++i];
+    }
+    try {
+      const release = acquireBoundJobWrite(targetRoot);
+      try {
+        const bytes = fetchReviewActBytes(reviewActTransport(targetRoot, targetActId));
+        const res = seedStoredReviewVerdictAct(targetRoot, Number(nStr), bytes, {
+          now: Number(nowStr),
+          foldSignoff: true,
+          checkAck: true,
+          ...(bustConfigPath !== undefined ? { bustConfigPath } : {}),
+        });
+        if (json) process.stdout.write(JSON.stringify(res) + '\\n');
+        else if (res.bust_landmark_commands) process.stdout.write(['review: recorded', ...res.bust_landmark_commands].join('\\n') + '\\n');
+        else process.stdout.write('review: recorded\\n');
+      } finally {
+        release();
+      }
+    } catch (err) {
+      if (err instanceof Refusal) {
+        process.stderr.write(\`rig-create: \${err.code}: \${err.message}\\n\`);
+        process.exit(err.exitCode);
+      }
+      throw err;
+    }
+  `;
+  const child = Bun.spawn([
+    process.execPath,
+    ...(guarded ? ['--preload', guard] : []),
+    ...(preload ? ['--preload', preload] : []),
+    '-e',
+    runnerScript,
+    root,
+    actId,
+    String(n),
+    String(testClock.now()),
+    ...flags,
+  ], { stdout: 'pipe', stderr: 'pipe' });
   const [stdout, stderr, exit] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
   return { stdout, stderr, exit };
 }
@@ -251,7 +300,7 @@ test('#888 signoff rig-review and handoff require acceptance of the latest live 
     rmSync(join(dir, JOB_BINDING_FILE));
     testClock.set(testClock.now() + 1000);
   };
-  const sign = (dir: string, n?: number) => ['signoff', 'rig-review', dir, '--by', 'user', '--verbatim-file', join(dir, 'evidence/approval.txt'),
+  const signCliArgs = (dir: string, n?: number) => ['signoff', 'rig-review', dir, '--by', 'user', '--verbatim-file', join(dir, 'evidence/approval.txt'),
     ...(n === undefined ? [] : ['--version', String(n)])];
   const checkRefused = (result: ReturnType<typeof cli>, code: string) => {
     expect(result.exit).toBe(1);
@@ -262,27 +311,44 @@ test('#888 signoff rig-review and handoff require acceptance of the latest live 
     checkRefused(result, 'RIG_VERSION_UNACCEPTED');
     expect(result.stderr).toContain('rig v2');
   };
+  const expectTargetRefused = (dir: string, code: string, n?: number) => {
+    const before = readFileSync(join(dir, 'project.json'));
+    let thrown: unknown;
+    try {
+      selectHistoricalSignoffTarget(dir, projectAt(dir), 'rig-review', n === undefined ? undefined : String(n), testClock.now());
+    } catch (err) {
+      thrown = err;
+    }
+    expect(thrown).toBeInstanceOf(Refusal);
+    expect((thrown as Refusal).code).toBe(code);
+    expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
+    return (thrown as Refusal).message;
+  };
 
   produce(root, 1);
   register(root, 1);
   success(root, ['advance', 'rig-review', root]);
-  checkRefused(cli(root, sign(root)), 'SIGNOFF_TARGET_STALE');
+  expect(cli(root, signCliArgs(root)).exit).toBe(USAGE_EXIT);
+  expectTargetRefused(root, 'SIGNOFF_TARGET_STALE');
   await accept(root, 1);
   expect((projectAt(root).signoffs as JsonObject[]).some(s => s.stage === 'rig-review')).toBe(false);
   produce(root, 2);
   const signed = temporary('create-latest-rig-signed-before-v2-');
   cpSync(root, signed, { recursive: true });
-  success(signed, sign(signed, 1));
+  seedStoredVersionSignoff(signed, 'rig-review', 1, {
+    by: 'user',
+    at: testClock.now(),
+    verbatim: readFileSync(join(signed, 'evidence/approval.txt'), 'utf8'),
+  });
   register(signed, 2);
   register(root, 2);
   expect(readVersions(projectAt(root)).rigs).toMatchObject([
     { n: 1, live: true, accepted: { verdict: 0 } },
     { n: 2, live: true, accepted: null },
   ]);
-  const staleSignoff = cli(root, sign(root));
-  checkBlocked(staleSignoff);
-  expect(staleSignoff.stderr).toContain('review 2 --verdict accepted --review rig-review');
-  checkBlocked(cli(root, sign(root, 1)));
+  const staleMessage = expectTargetRefused(root, 'RIG_VERSION_UNACCEPTED');
+  expect(staleMessage).toContain('rig v2');
+  expectTargetRefused(root, 'RIG_VERSION_UNACCEPTED', 1);
   checkBlocked(cli(root, ['handoff', root]));
 
   // #981: advance no longer waits for an acceptance; handoff still binds the accepted latest rig (#984/#985).
@@ -290,7 +356,11 @@ test('#888 signoff rig-review and handoff require acceptance of the latest live 
   checkBlocked(cli(signed, ['handoff', signed]));
 
   await accept(root, 2);
-  success(root, sign(root, 2));
+  seedStoredVersionSignoff(root, 'rig-review', 2, {
+    by: 'user',
+    at: testClock.now(),
+    verbatim: readFileSync(join(root, 'evidence/approval.txt'), 'utf8'),
+  });
   expect((projectAt(root).signoffs as JsonObject[]).find(s => s.stage === 'rig-review')).toMatchObject({ target: { version: 2 } });
   success(root, ['advance', 'post-interview', root]);
   const handoff = success(root, ['handoff', '--json', root]);
@@ -334,10 +404,9 @@ async function preparePublishedRigSignoff(view: Awaited<ReturnType<typeof publis
   testClock.set(Math.max(testClock.now(), Date.parse(signed.at)));
   // Finalize against the displayed record now; ingest only after its verdict is recorded.
   return async () => {
-    const child = Bun.spawn([process.execPath, ...clockedCli(), 'signoff', 'rig-review', root,
-      '--from-review', signed.actId, '--json'], { stdout: 'pipe', stderr: 'pipe' });
-    const [stdout, stderr, exit] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
-    return { stdout, stderr, exit };
+    const exported = host.session.readActExport(signed.actId, false).toString('utf8');
+    const row = seedStoredSignoffAct(root, 'rig-review', exported, { now: testClock.now() });
+    return { stdout: JSON.stringify(row), stderr: '', exit: 0 };
   };
 }
 
@@ -548,10 +617,13 @@ test('competing human-value flags refuse before fetching or writing', async () =
   const before = readFileSync(join(root, 'project.json'));
   for (const flag of ['--by', '--verdict', '--review', '--verbatim', '--verbatim-file', '--at', '--source', '--item', '--answers-feedback', '--ask', '--quote', '--value']) {
     const value = flag === '--answers-feedback' ? '1:0' : flag === '--ask' || flag === '--quote' ? 'a=b' : flag === '--value' ? 'a=null' : 'synthetic';
-    expect(() => reviewCommand(['1', root, '--from-review', act.actId, flag, value])).toThrow(expect.objectContaining({ code: 'REVIEW_OPTION_INVALID' }));
+    const child = Bun.spawn([process.execPath, ...clockedCli(), 'review', '1', root, '--from-review', act.actId, flag, value], { stdout: 'pipe', stderr: 'pipe' });
+    const [stderr, exit] = await Promise.all([new Response(child.stderr).text(), child.exited]);
+    expect(exit).toBe(USAGE_EXIT);
+    expect(stderr).toContain('NUMBERED_WRITER_REMOVED:');
     expect(readFileSync(join(root, 'project.json'))).toEqual(before);
   }
-});
+}, 30_000);
 
 test('check detects tampered ledger bytes, verdict, duplicate identity and malformed records', async () => {
   const { root, act } = await published();
@@ -1013,8 +1085,14 @@ test('#776 next prints only the current rig chest edit and skips superseded work
   expect(afterEdit.refusals.filter(finding => finding.field.startsWith('review_acts['))).toEqual([]);
 
   testClock.set(testClock.now() + 1);
-  reviewCommand(['2', root, '--verdict', 'bounced', '--by', 'user', '--review', 'rig-review',
-    '--source', 'chat', '--verbatim', 'Request a different change.']);
+  seedStoredVerdict(root, 2, {
+    verdict: 'bounced',
+    by: 'user',
+    review: 'rig-review',
+    at: testClock.now(),
+    source: 'chat',
+    verbatim: 'Request a different change.',
+  });
   rmSync(join(root, nextConfig));
   const afterVerdict = nextProject(root, testClock.now());
   expect(afterVerdict.effective_stage).toBe('rig-review');
@@ -1177,11 +1255,9 @@ for (const n of [1, 2] as const) {
       raw = JSON.stringify(signoff);
       for (const replaySignoff of [false, true]) {
         const beforeSignoff = readFileSync(join(root, 'project.json'));
-        const child = Bun.spawn([process.execPath, ...clockedCli(), 'signoff', stage, root,
-          '--from-review', String(signoff.actId), '--json'], { stdout: 'pipe', stderr: 'pipe' });
-        const [stdout, stderr, exit] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
-        expect(stderr).toBe(''); expect(exit).toBe(0);
-        expect(JSON.parse(stdout).verbatim).toBe('[general]\n  First\r\n\n\n[general]\nSecond');
+        const fetchedSignoff = await fetchReviewAct({ ...reviewActTransport(root, String(signoff.actId)), kind: 'signoff' });
+        const row = seedStoredSignoffAct(root, stage, fetchedSignoff.bytes, { now: testClock.now() });
+        expect(row.verbatim).toBe('[general]\n  First\r\n\n\n[general]\nSecond');
         if (replaySignoff) expect(readFileSync(join(root, 'project.json'))).toEqual(beforeSignoff);
       }
       bytes = readFileSync(join(root, 'project.json'));
@@ -1280,11 +1356,18 @@ test('manual accepted rig verdict records without a still', async () => {
   version.evidence = (version.evidence as JsonObject[]).filter(e => e.kind !== 'still');
   version.verdicts = [];
   putProject(root, project);
-  reviewCommand(['1', root, '--verdict', 'accepted', '--review', 'rig-review', '--by', 'user',
-    '--verbatim', 'Synthetic approval', '--source', 'synthetic review']);
+  seedStoredVerdict(root, 1, {
+    verdict: 'accepted',
+    review: 'rig-review',
+    by: 'user',
+    at: testClock.now(),
+    verbatim: 'Synthetic approval',
+    source: 'synthetic review',
+  });
   expect((projectAt(root).versions as JsonObject[])[0]?.verdicts).toEqual([
     expect.objectContaining({ verdict: 'accepted', review: 'rig-review' }),
   ]);
+  expect(checkProject(root, projectAt(root)).refusals).toEqual([]);
 });
 
 test.each(['added', 'deduplicated'] as const)('historical numbered verdict replays with its %s still', async mode => {
@@ -1317,11 +1400,13 @@ test('removed file route refuses by name before opening a file and preserves pro
   const { root } = await published();
   const before = readFileSync(join(root, 'project.json'));
   for (const flags of [['--from-review-file', join(root, 'missing-act.json')], ['--from-review-file'], ['--from-review-file=missing-act.json']]) {
-    expect(() => reviewCommand(['1', root, ...flags]))
-      .toThrow(expect.objectContaining({ code: 'REVIEW_FILE_ROUTE_REMOVED', exitCode: 2, message: expect.stringContaining('--from-review <actId>') }));
+    const child = Bun.spawn([process.execPath, ...clockedCli(), 'review', '1', root, ...flags], { stdout: 'pipe', stderr: 'pipe' });
+    const [stderr, exit] = await Promise.all([new Response(child.stderr).text(), child.exited]);
+    expect(exit).toBe(USAGE_EXIT);
+    expect(stderr).toContain('NUMBERED_WRITER_REMOVED:');
     expect(readFileSync(join(root, 'project.json'))).toEqual(before);
   }
-});
+}, 30_000);
 
 
 test('g2 publication verdict and signoff ingest through the writers and check', async () => {
@@ -1333,7 +1418,9 @@ test('g2 publication verdict and signoff ingest through the writers and check', 
   expect(verdict.stderr).toBe(''); expect(verdict.exit).toBe(0);
   const child = Bun.spawn([process.execPath, ...clockedCli(), 'signoff', 'rig-review', root, '--from-review', signed.actId], { stdout: 'pipe', stderr: 'pipe' });
   const [stderr, exit] = await Promise.all([new Response(child.stderr).text(), child.exited]);
-  expect(stderr).toBe(''); expect(exit).toBe(0);
+  expect(exit).toBe(USAGE_EXIT);
+  expect(stderr).toContain('SIGNOFF_FROM_REVIEW_REMOVED:');
+  seedStoredSignoffAct(root, 'rig-review', host.session.readActExport(signed.actId, false).toString('utf8'), { now: testClock.now() });
   expect(advanceCommand(['post-interview', root]).exit).toBe(0);
   const checked = checkProject(root, projectAt(root));
   expect(checked.refusals.map(f => ({ code: f.code, path: f.path }))).toEqual([
@@ -1513,10 +1600,16 @@ test('#618 composed post act@6 with parts: null decodes, ingests, signs directio
   const replay = await command(root, act.actId, n);
   expect(replay.stderr).toBe(''); expect(replay.exit).toBe(0);
   expect(readFileSync(join(root, 'project.json'))).toEqual(bytes);
-  expect(signoffCommand(['direction-review', root, '--version', '5', '--by', 'user', '--verbatim-file', join(root, 'words.txt')]).exit).toBe(0);
+  expect(() => signoffCommand(['direction-review', root, '--version', '5', '--by', 'user', '--verbatim-file', join(root, 'words.txt')]))
+    .toThrow(expect.objectContaining({ code: 'NUMBERED_WRITER_REMOVED', exitCode: USAGE_EXIT }));
+  seedStoredVersionSignoff(root, 'direction-review', 5, {
+    by: 'user',
+    at: testClock.now(),
+    verbatim: readFileSync(join(root, 'words.txt'), 'utf8'),
+  });
   expect(advanceCommand(['accepted', root]).exit).toBe(0);
   expect(checkProject(root, projectAt(root)).refusals).toEqual([]);
-});
+}, 30_000);
 
 test('#618 parts: null refuses rig and parts-verdict acts and non-composed post ingestion', async () => {
   const { act } = await publishedComposed();
@@ -1557,7 +1650,7 @@ test('#618 parts: null refuses rig and parts-verdict acts and non-composed post 
     expect(result.exit).toBe(1); expect(result.stderr).toContain('REVIEW_ACT_SOURCE_STALE:');
     expect(readFileSync(join(nonComposed.root, 'project.json'))).toEqual(before);
   } finally { server.stop(true); }
-});
+}, 30_000);
 
 test('#618 composed post act refuses differing model path, model hash or on-disk build bytes with REVIEW_ACT_SOURCE_STALE', async () => {
   const { root, act, n } = await publishedComposed();
@@ -1582,7 +1675,7 @@ test('#618 composed post act refuses differing model path, model hash or on-disk
   const staleDisk = await command(diskRoot, diskAct.actId, diskN);
   expect(staleDisk.exit).toBe(1); expect(staleDisk.stderr).toContain('REVIEW_ACT_SOURCE_STALE:');
   expect(readFileSync(join(diskRoot, 'project.json'))).toEqual(beforeDisk);
-});
+}, 30_000);
 
 /** #840: the version verdict record an owner-host act writes, as exact bytes. */
 function ownerVerdictBytes(act: { jobId: string; actId: string; at: string }, verdict: string, verbatim: string): string {
@@ -1882,7 +1975,7 @@ test('#994 production Review fetch still aborts at 10 s against a stalled server
     const started = performance.now();
     const child = Bun.spawn([
       process.execPath, ...jobRuntimeExecArgv(), join(import.meta.dir, '../src/cli.ts'),
-      'review', '1', root, '--from-review', 'stalled-act',
+      'comment', '--from-review', 'stalled-act', root,
     ], { cwd: root, stdout: 'pipe', stderr: 'pipe' });
     const [stdout, stderr, exit] = await Promise.all([
       new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited,

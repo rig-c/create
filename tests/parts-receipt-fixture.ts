@@ -1,24 +1,57 @@
-import { reviewStdout } from './review-read-fixture.ts';
 import { jobHash } from '../src/job-outbox.ts';
 import { draftRigCommand } from '../src/drafts.ts';
+import { PARTS_CLI_RECEIPT, decodePartsRead, partsVerdictNames, recordedPartsVerdict } from '../src/parts-verdict-record.ts';
+import { storeReviewRead } from '../src/review-read.ts';
 import { structureSnapshotCommand } from '../src/structure-snapshot.ts';
-/** Synthetic API stdout for receipt consumers. Review-owned paths are opaque. */
+/** Synthetic stored CLI receipts for check-time receipt consumers. Review-owned paths are opaque. */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { DIFF_MAP_AGENT_SINCE } from '../src/diff-map.ts';
-import { partsReviewCommand } from '../src/parts-review.ts';
 import type { JsonObject } from '../src/templates.ts';
+
+export function seedPartsCliReceipt(
+  root: string,
+  draftId: string,
+  now: number,
+  response: JsonObject,
+  extraArgv: string[] = ['synthetic-review'],
+  by = 'user',
+): JsonObject {
+  const raw = Buffer.from(JSON.stringify(response));
+  const decoded = decodePartsRead(raw);
+  const names = partsVerdictNames(decoded);
+  const { file } = storeReviewRead(root, raw);
+  const tool = response.tool as JsonObject;
+  const receipt: JsonObject = {
+    schema: PARTS_CLI_RECEIPT,
+    kind: 'parts-verdict',
+    route: 'cli',
+    draft_id: draftId,
+    argv: [...extraArgv],
+    evidence: { path: file.path, sha256: file.sha256 },
+    tool: { name: tool.name ?? '@rig-c/review', version: tool.version ?? '0.0.0-synthetic' },
+    status: decoded.status!,
+    flagged: names.flagged,
+    noted: names.noted,
+    by,
+    at: new Date(now).toISOString(),
+  };
+  const projectPath = join(root, 'project.json');
+  const project = JSON.parse(readFileSync(projectPath, 'utf8')) as JsonObject;
+  const acts = Array.isArray(project.review_acts) ? (project.review_acts as JsonObject[]) : [];
+  project.review_acts = [...acts, receipt];
+  writeFileSync(projectPath, `${JSON.stringify(project, null, 2)}\n`);
+  return receipt;
+}
 
 export function recordPartsReceipt(root: string, draftId: string, now: number, status = 'approved'): JsonObject {
   const project = JSON.parse(readFileSync(join(root, 'project.json'), 'utf8')) as JsonObject;
   const draft = (project.drafts as JsonObject[]).find(draft => draft.id === draftId)!;
-  const response = { schema: 'rig-review-parts-verdict/2', status,
+  const response: JsonObject = { schema: 'rig-review-parts-verdict/2', status,
     tool: { name: '@rig-c/review', version: '0.0.0-synthetic' },
     source: { sha256: 'a'.repeat(64), files: ((draft.parts as JsonObject).files as JsonObject[]).map(file => ({ sha256: file.sha256 })) },
     parts: { synthetic: { outcome: status === 'approved' ? 'clean' : status === 'pending' ? 'pending' : 'flagged', note: '' } } };
-  const result = partsReviewCommand([root, '--draft', draftId, '--from-review-cli', '--by', 'user', '--json', '--', 'synthetic-review'], now,
-    { runCli: reviewStdout(JSON.stringify(response)) });
-  return JSON.parse(result.stdout) as JsonObject;
+  return seedPartsCliReceipt(root, draftId, now, response);
 }
 
 /** Supply a labelled synthetic draft when an older writer test starts without one. */
@@ -39,15 +72,16 @@ export function preparePartsApproval(root: string, now: number, partsDir = 'deri
   const stack = existsSync(direct) ? direct : join(root, 'derived/parts/rig/recomposite_rig.png');
   if (existsSync(stack)) put(`${draftRoot}/input/rig/recomposite_rig.png`, readFileSync(stack));
   draftRigCommand([id, root, '--config', `${draftRoot}/config.json`, '--parts', `${draftRoot}/input/rig`, '--from', `${draftRoot}/out`], now);
-  const receipt = recordPartsReceipt(root, id, now);
+  recordPartsReceipt(root, id, now);
   const snapshot = `evidence/structure-${id}.json`;
   structureSnapshotCommand([root, '--draft', id, '--out', snapshot]);
   const project = JSON.parse(readFileSync(join(root, 'project.json'), 'utf8')) as JsonObject;
+  const verdict = recordedPartsVerdict(root, project, id);
   const bytes = readFileSync(join(root, snapshot));
   for (const signoff of project.signoffs as JsonObject[]) {
     if (signoff.stage !== 'parts-review') continue;
     signoff.draft_id = id;
-    signoff.evidence = { ...(receipt.evidence as JsonObject), spec: 'rig-create/parts-verdict-cli@1' };
+    signoff.evidence = verdict.evidence;
     signoff.structure = { path: snapshot, sha256: jobHash(bytes) };
     if (
       signoff.diff_map !== undefined &&

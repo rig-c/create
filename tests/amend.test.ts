@@ -6,12 +6,13 @@ import { join } from 'node:path';
 import { EXAMPLE_NOW } from '../scripts/example-time.ts';
 import { AMENDMENT_APPROVAL_GAPS, collectAmendments, keepByBinding } from '../src/amend.ts';
 import { collectSignoffs, formatReport } from '../src/check.ts';
-import { Refusal } from '../src/refusal.ts';
+import { Refusal, USAGE_EXIT } from '../src/refusal.ts';
 import { collectReopens, liveSignoff } from '../src/reopen.ts';
 import { readVersions } from '../src/review.ts';
 import { STAGES, stageIndex, stageOfStep } from '../src/stages.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { plantLegacyReopen, arr, fixture, obj, step } from './fixtures.ts';
+import { seedStoredVersionSignoff, selectHistoricalSignoffTarget } from './historical-review-fixture.ts';
 import { CLI, cli, clockedCli, gitEnv, tempDir } from './helpers.ts';
 import { amendCommand, checkProject, correctionCommand, handoff, signoffCommand, stepStatusCommand, testClock } from './clock.ts';
 import { nextProject } from '../src/next.ts';
@@ -27,10 +28,11 @@ function amend(dir: string, stage = 'parts', extra: string[] = []): void {
   writeFileSync(join(dir, 'replacement.svg'), '<svg xmlns="http://www.w3.org/2000/svg"/>\n');
   amendCommand([stage, dir, '--kind', 'part', '--target', 'panel', '--change', 'replacement.svg', '--by', 'owner', '--verbatim-file', words(dir), ...extra]);
 }
-function refusal(fn: () => unknown, code: string): void {
+function refusal(fn: () => unknown, code: string, exitCode?: number): void {
   try { fn(); throw new Error('expected refusal'); } catch (error) {
     expect(error).toBeInstanceOf(Refusal);
     expect((error as Refusal).code).toBe(code);
+    if (exitCode !== undefined) expect((error as Refusal).exitCode).toBe(exitCode);
   }
 }
 const nonLive = (p: JsonObject): number[] => {
@@ -141,7 +143,8 @@ describe('forward human amendments', () => {
     amend(dir, stage);
     if (resign) {
       testClock.set(EXAMPLE_NOW + 86_400_000);
-      signoffCommand([stage, dir, '--by', 'owner', '--verbatim-file', words(dir)]);
+      if (stage === 'post-interview') signoffCommand([stage, dir, '--by', 'owner', '--verbatim-file', words(dir)]);
+      else seedStoredVersionSignoff(dir, 'direction-review', 4, { by: 'owner', at: testClock.now(), verbatim: readFileSync(words(dir), 'utf8') });
     }
     const report = checkProject(dir);
     expect(report.refusals).toEqual([]);
@@ -165,7 +168,7 @@ describe('forward human amendments', () => {
       if (obj(raw).phase === 'post') for (const status of ['in-progress', 'at-checkpoint', 'done']) stepStatusCommand([id, status, dir, '--by', 'agent']);
     }
     expect(checkProject(dir).effective_stage).toBe('direction-review');
-    signoffCommand(['direction-review', dir, '--by', 'owner', '--verbatim-file', words(dir)]);
+    seedStoredVersionSignoff(dir, 'direction-review', 4, { by: 'owner', at: testClock.now(), verbatim: readFileSync(words(dir), 'utf8') });
     const p = read(dir);
     expect(p.stage).toBe(before.stage);
     expect(arr(p.signoffs).slice(0, arr(before.signoffs).length)).toEqual(arr(before.signoffs));
@@ -191,7 +194,8 @@ describe('forward human amendments', () => {
     amend(dir, 'rig-review');
     testClock.set(EXAMPLE_NOW + 86_400_000);
     const before = readFileSync(join(dir, 'project.json'));
-    refusal(() => signoffCommand(['rig-review', dir, '--by', 'owner', '--verbatim-file', words(dir)]), 'RIG_VERSION_UNACCEPTED');
+    refusal(() => signoffCommand(['rig-review', dir, '--by', 'owner', '--verbatim-file', words(dir)]), 'NUMBERED_WRITER_REMOVED', USAGE_EXIT);
+    refusal(() => selectHistoricalSignoffTarget(dir, read(dir), 'rig-review', undefined, testClock.now()), 'RIG_VERSION_UNACCEPTED');
     expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
     const p = read(dir);
     expect(readVersions(p).rigs.every(v => !v.live)).toBe(true);
@@ -226,7 +230,7 @@ describe('forward human amendments', () => {
     expect(checkProject(dir).warnings.map(w => w.code)).toContain('CORRECTION_OPEN');
     expect(read(dir).stage).toBe('accepted');
     const before = readFileSync(join(dir, 'project.json'));
-    refusal(() => signoffCommand(['rig-review', dir, '--by', 'owner', '--verbatim-file', words(dir)]), 'CORRECTION_PENDING');
+    refusal(() => signoffCommand(['rig-review', dir, '--by', 'owner', '--verbatim-file', words(dir)]), 'NUMBERED_WRITER_REMOVED');
     expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
   });
 

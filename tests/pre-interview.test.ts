@@ -11,6 +11,7 @@ import { latestAccepted, readVersions } from '../src/review.ts';
 import type { Json, JsonObject } from '../src/templates.ts';
 import { arr, codes, fixture, framing, obj, version, withCode, type Mutate } from './fixtures.ts';
 import { cli, gitEnv, tempDir } from './helpers.ts';
+import { seedStoredVerdict } from './historical-review-fixture.ts';
 import { checkProject, testClock } from './clock.ts';
 
 const historical = JSON.parse(readFileSync(join(import.meta.dir, 'data/pre-interview.json'), 'utf8')) as {
@@ -206,10 +207,22 @@ describe('pre-interview migration (#39)', () => {
     expect(codes(badFlag)).toContain('VERSION_MALFORMED');
   });
 
-  test('the first create version can answer pre-interview feedback through the normal review writer', () => {
+  test('the first create version can answer pre-interview feedback through a stored verdict while the retired review writer refuses', () => {
     const dir = migrated((p) => { version(p, 3).answers_feedback = []; });
-    const result = cli(['review', '3', dir, '--verdict', 'provisional', '--by', 'owner', '--review', 'direction-review', '--verbatim', 'Checking the carried timing item.', '--source', 'chat', '--answers-feedback', '1:0', '--answers-feedback', '2:0'], dir, env);
-    expect(result.code).toBe(0);
+    const before = readFileSync(join(dir, 'project.json'));
+    const retired = cli(['review', '3', dir, '--verdict', 'provisional', '--by', 'owner', '--review', 'direction-review', '--verbatim', 'Checking the carried timing item.', '--source', 'chat', '--answers-feedback', '1:0', '--answers-feedback', '2:0'], dir, env);
+    expect(retired.code).toBe(2);
+    expect(retired.stderr).toContain('NUMBERED_WRITER_REMOVED');
+    expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
+    seedStoredVerdict(dir, 3, {
+      review: 'direction-review',
+      verdict: 'provisional',
+      by: 'owner',
+      at: testClock.now(),
+      verbatim: 'Checking the carried timing item.',
+      source: 'chat',
+      answers_feedback: [{ version: 1, verdict: 0 }, { version: 2, verdict: 0 }],
+    });
     const p = JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')) as JsonObject;
     expect(version(p, 3).answers_feedback).toEqual([{ version: 1, verdict: 0 }, { version: 2, verdict: 0 }]);
     expect(checkProject(dir).ok).toBe(true);

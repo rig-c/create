@@ -317,7 +317,7 @@ test('Bun parent-to-child job runtime launch resolves a synthetic linked source/
   }
 });
 
-test('all six review-act-runtime and parts-review-cli child launchers propagate only @rig-c/source in source mode and preserve dist resolution in default mode', async () => {
+test('surviving review-act-runtime and review-cli child launchers propagate only @rig-c/source in source mode and preserve dist resolution in default mode', async () => {
   const dir = realpathSync(mkdtempSync(join(tmpdir(), 'create-child-launchers-')));
   const linkedWs = linkSourcePackages(dir);
   const actsDir = join(dir, 'served-acts');
@@ -349,9 +349,9 @@ test('all six review-act-runtime and parts-review-cli child launchers propagate 
       '    const entry = realpathSync(rawEntry);',
       '    const fetchEntry = process.env.RIG_CREATE_EXPECTED_FETCH_ENTRY;',
       '    const cliEntry = process.env.RIG_CREATE_EXPECTED_REVIEW_CLI_ENTRY;',
-      "    let kind: 'review-act-fetch' | 'parts-review-cli' | null = null;",
+      "    let kind: 'review-act-fetch' | 'review-cli' | null = null;",
       "    if (fetchEntry && entry === fetchEntry) kind = 'review-act-fetch';",
-      "    else if (cliEntry && entry === cliEntry && process.argv[2] === 'parts') kind = 'parts-review-cli';",
+      "    else if (cliEntry && entry === cliEntry && process.argv[2] === 'feedback') kind = 'review-cli';",
       '    if (kind) {',
       "      const resolvedReviewHost = kind === 'review-act-fetch'",
       "        ? realpathSync(Bun.resolveSync('@rig-c/review/job-host', dirname(entry)))",
@@ -393,9 +393,9 @@ test('all six review-act-runtime and parts-review-cli child launchers propagate 
       '    const entry = realpathSync(rawEntry);',
       '    const fetchEntry = process.env.RIG_PINS_TEST_EXPECTED_FETCH_ENTRY;',
       '    const cliEntry = process.env.RIG_PINS_TEST_EXPECTED_REVIEW_CLI_ENTRY;',
-      "    let kind: 'review-act-fetch' | 'parts-review-cli' | null = null;",
+      "    let kind: 'review-act-fetch' | 'review-cli' | null = null;",
       "    if (fetchEntry && entry === fetchEntry) kind = 'review-act-fetch';",
-      "    else if (cliEntry && entry === cliEntry && process.argv[2] === 'parts') kind = 'parts-review-cli';",
+      "    else if (cliEntry && entry === cliEntry && process.argv[2] === 'feedback') kind = 'review-cli';",
       '    if (kind) {',
       "      process.on('exit', exitCode => {",
       '        try {',
@@ -427,21 +427,13 @@ test('all six review-act-runtime and parts-review-cli child launchers propagate 
   writeFileSync(
     driverScript,
     [
-      "import { cpSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';",
+      "import { cpSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';",
       "import { join } from 'node:path';",
-      `import { partsReviewCommand } from ${JSON.stringify(join(linkedWs.createRoot, 'src/parts-review.ts'))};`,
-      `import { structureSnapshotCommand } from ${JSON.stringify(join(linkedWs.createRoot, 'src/structure-snapshot.ts'))};`,
-      `import { diffClassesCommand } from ${JSON.stringify(join(linkedWs.createRoot, 'src/diff-classes.ts'))};`,
-      `import { advanceCommand } from ${JSON.stringify(join(linkedWs.createRoot, 'src/progress-writers.ts'))};`,
-      `import { signoffCommand } from ${JSON.stringify(join(linkedWs.createRoot, 'src/signoff.ts'))};`,
-      `import { recordReviewAct } from ${JSON.stringify(join(linkedWs.createRoot, 'src/feedback.ts'))};`,
-      `import { interviewAnswerCommand } from ${JSON.stringify(join(linkedWs.createRoot, 'src/choice-writers.ts'))};`,
+      `import { commentCommand } from ${JSON.stringify(join(linkedWs.createRoot, 'src/comment-act.ts'))};`,
+      `import { readReview, retainedReviewRead } from ${JSON.stringify(join(linkedWs.createRoot, 'src/review-read.ts'))};`,
       `import { JOB_BINDING_FILE, jobHash, writePrivateJson } from ${JSON.stringify(join(linkedWs.createRoot, 'src/job-outbox.ts'))};`,
-      `import { currentJobIdentity, partsEnumerator, prepareDraftManifest, prepareLiveManifest } from ${JSON.stringify(join(linkedWs.createRoot, 'src/job-publication.ts'))};`,
+      `import { currentJobIdentity } from ${JSON.stringify(join(linkedWs.createRoot, 'src/job-publication.ts'))};`,
       `import { reviewActFindings } from ${JSON.stringify(join(linkedWs.createRoot, 'src/review-act.ts'))};`,
-      `import { partsActFindings } from ${JSON.stringify(join(linkedWs.createRoot, 'src/parts-act.ts'))};`,
-      `import { partsReadFindings } from ${JSON.stringify(join(linkedWs.createRoot, 'src/parts-verdict-record.ts'))};`,
-      `import { stepHash } from ${JSON.stringify(join(linkedWs.createRoot, 'src/step-hash.ts'))};`,
       '',
       'const [origin, runRoot, obsDir, actsDir, repoRoot] = process.argv.slice(2) as [string, string, string, string, string];',
       "const now = Date.parse('2026-11-06T01:02:00.000Z');",
@@ -476,170 +468,39 @@ test('all six review-act-runtime and parts-review-cli child launchers propagate 
       '',
       'const results: unknown[] = [];',
       '',
-      '// 1. parts-review --from-review (src/parts-review.ts -> review-act-runtime.ts)',
+      '// 1. comment --from-review (src/comment-act.ts -> fetchReviewActBytes -> review-act-runtime.ts)',
       '{',
-      '  const root = join(runRoot, "1-parts-act");',
-      '  cpSync(join(repoRoot, "templates/example-chain/checkpoints/1-parts-verdict"), root, { recursive: true });',
-      '  cpSync(join(repoRoot, "templates/example-chain/evidence/diff-components.json"), join(root, "evidence/diff-components.json"));',
-      '  structureSnapshotCommand([root, "--draft", "chain", "--out", "evidence/structure-chain.json"]);',
-      '  diffClassesCommand([root, "--diff-report", "evidence/diff-components.json", "--by", "agent"], Date.parse(at) - 1000);',
-      '  advanceCommand(["parts-review", root, "--parts-check", "evidence/parts-check.json", "--parts", "derived/drafts/chain/input"], Date.parse(at) - 1000);',
-      '  bindJob(root);',
-      '  const project = readProject(root);',
-      '  const manifestFile = prepareDraftManifest(root, project, "chain");',
-      '  const publishedManifest = JSON.parse(readFileSync(join(root, manifestFile), "utf8")) as Record<string, any>;',
-      '  const inputDir = join(root, "derived/drafts/chain/input");',
-      '  const images = partsEnumerator.enumerate(inputDir).map(row => ({ ...row, sha256: jobHash(readFileSync(join(inputDir, row.path))) }));',
-      '  const steps = (project.plan.steps as Record<string, any>[]).map(step => ({ id: String(step.id), hash: stepHash(step) }));',
-      '  const act = {',
-      '    schema: "rig-review/act@5", actId: "act-parts-1", jobId, askId: "ask-parts-1", publicationId: "pub-parts-1", kind: "parts-verdict",',
-      '    authority: { actor: "human", channel: "review-ui", reviewer: { id: "synthetic-owner", role: "owner" } }, at,',
-      '    source: {',
-      '      sourceHash: "a".repeat(64), projectHash: jobHash(readFileSync(join(root, "project.json"))),',
-      '      package: { id: "create-draft-chain", revision: String(publishedManifest.revision) },',
-      '      selector: { kind: "draft", id: "chain" },',
-      '      model: { path: "derived/drafts/chain/out/check/build/skeleton.model.json", sha256: jobHash(readFileSync(join(root, "derived/drafts/chain/out/check/build/skeleton.model.json"))) },',
-      '      direction: null, optionSet: null, appliedResult: null, plan: { steps },',
-      '      parts: { enumeratorVersion: partsEnumerator.version, manifest: { path: "derived/drafts/chain/input/parts.json", sha256: jobHash(readFileSync(join(root, "derived/drafts/chain/input/parts.json"))) }, images },',
-      '    },',
-      '    value: { verdict: "approved", issues: [], words: "Approved parts via act.\\n" },',
-      '  };',
-      '  writeFileSync(join(actsDir, "act-parts-1.json"), JSON.stringify(act));',
-      '  clearObs();',
-      '  const res = partsReviewCommand([root, "--from-review", "act-parts-1", "--json"], now);',
-      '  const after = readProject(root);',
-      '  if (res.exit !== 0 || reviewActFindings(after).length > 0 || partsActFindings(root, after).length > 0) throw new Error("parts-review --from-review failed");',
-      '  results.push({ launcher: "parts-review-act", child: takeSingleObs("parts-review-act"), outcome: { exit: res.exit, recordedActId: after.review_acts.at(-1)?.actId, verdict: JSON.parse(res.stdout).verdict } });',
-      '}',
-      '',
-      '// 2. signoff <stage> --from-review (src/signoff.ts -> review-act-runtime.ts)',
-      '{',
-      '  const root = join(runRoot, "2-signoff-stage");',
-      '  cpSync(join(repoRoot, "templates/example-chain/checkpoints/0b-plan-pending"), root, { recursive: true });',
-      '  bindJob(root);',
-      '  const project = readProject(root);',
-      '  const steps = (project.plan.steps as Record<string, any>[]).map(step => ({ id: String(step.id), hash: stepHash(step) }));',
-      '  const act = {',
-      '    schema: "rig-review/act@2", kind: "signoff", jobId, actId: "act-signoff-1", askId: "ask-signoff-1", publicationId: "pub-signoff-1", at,',
-      '    authority: { actor: "human", channel: "review-ui", reviewer: { id: "synthetic-owner", role: "owner" } },',
-      '    source: {',
-      '      sourceHash: "1".repeat(64), projectHash: "2".repeat(64), package: { id: "synthetic-package", revision: "one" },',
-      '      selector: null, model: null, direction: null, optionSet: null, appliedResult: null, plan: { steps }, parts: { enumeratorVersion: partsEnumerator.version },',
-      '    },',
-      '    value: { stage: "plan-approved", decision: "approved", words: "Approved plan via act.\\n" },',
-      '  };',
-      '  writeFileSync(join(actsDir, "act-signoff-1.json"), JSON.stringify(act));',
-      '  clearObs();',
-      '  const res = signoffCommand(["plan-approved", root, "--from-review", "act-signoff-1", "--json"], now);',
-      '  const after = readProject(root);',
-      '  if (res.exit !== 0 || reviewActFindings(after).length > 0) throw new Error("signoff --from-review failed");',
-      '  results.push({ launcher: "signoff-stage-act", child: takeSingleObs("signoff-stage-act"), outcome: { exit: res.exit, recordedActId: after.review_acts.at(-1)?.actId, signedStage: after.signoffs.at(-1)?.stage } });',
-      '}',
-      '',
-      '// 3. signoff <stage> --checkpoint <id> --from-review (src/signoff-checkpoint-act.ts -> review-act-runtime.ts)',
-      '{',
-      '  const root = join(runRoot, "3-signoff-checkpoint");',
-      '  cpSync(join(repoRoot, "templates/example-chain/checkpoints/1-parts-verdict"), root, { recursive: true });',
-      '  const initial = readProject(root);',
-      '  const checkpointAt = String((initial.signoffs as Record<string, any>[]).find(s => s.checkpoint === "assemble")!.at);',
-      '  initial.signoffs = (initial.signoffs as Record<string, any>[]).filter(s => s.checkpoint !== "assemble");',
-      '  writeProject(root, initial);',
-      '  bindJob(root);',
-      '  const project = readProject(root);',
-      '  const steps = (project.plan.steps as Record<string, any>[]).map(step => ({ id: String(step.id), hash: stepHash(step) }));',
-      '  const act = {',
-      '    schema: "rig-review/act@2", kind: "checkpoint", jobId, actId: "act-checkpoint-1", askId: "ask-checkpoint-1", publicationId: "pub-checkpoint-1", at: checkpointAt,',
-      '    authority: { actor: "human", channel: "review-ui", reviewer: { id: "synthetic-owner", role: "owner" } },',
-      '    source: {',
-      '      sourceHash: "1".repeat(64), projectHash: "2".repeat(64), package: { id: "synthetic-package", revision: "one" },',
-      '      selector: null, model: null, direction: null, optionSet: null, appliedResult: null, plan: { steps }, parts: { enumeratorVersion: partsEnumerator.version },',
-      '    },',
-      '    value: { checkpointId: "assemble", planStepId: "assemble", outcome: "pass", words: "Passed assemble checkpoint via act.\\n" },',
-      '  };',
-      '  writeFileSync(join(actsDir, "act-checkpoint-1.json"), JSON.stringify(act));',
-      '  clearObs();',
-      '  const res = signoffCommand(["parts", root, "--checkpoint", "assemble", "--from-review", "act-checkpoint-1", "--json"], now);',
-      '  const after = readProject(root);',
-      '  if (res.exit !== 0 || reviewActFindings(after).length > 0) throw new Error("signoff --checkpoint --from-review failed");',
-      '  results.push({ launcher: "signoff-checkpoint-act", child: takeSingleObs("signoff-checkpoint-act"), outcome: { exit: res.exit, recordedActId: after.review_acts.at(-1)?.actId, checkpoint: after.signoffs.at(-1)?.checkpoint } });',
-      '}',
-      '',
-      '// 4. review <n> --from-review (src/feedback.ts -> review-act-runtime.ts)',
-      '{',
-      '  const root = join(runRoot, "4-review-verdict");',
+      '  const root = join(runRoot, "1-comment-act");',
       '  cpSync(join(repoRoot, "templates/example-chain/checkpoints/3-rig-review"), root, { recursive: true });',
       '  bindJob(root);',
-      '  const project = readProject(root);',
-      '  const manifestPath = prepareLiveManifest(root, project, 1);',
-      '  const manifest = JSON.parse(readFileSync(join(root, manifestPath), "utf8")) as Record<string, any>;',
-      '  const partsRoot = "outputs/v1/out";',
-      '  const images = partsEnumerator.enumerate(join(root, partsRoot)).map(row => ({ ...row, sha256: jobHash(readFileSync(join(root, partsRoot, row.path))) }));',
-      '  const steps = (project.plan.steps as Record<string, any>[]).map(step => ({ id: String(step.id), hash: stepHash(step) }));',
+      '  const recordHash = jobHash(readFileSync(join(root, "project.json")));',
+      '  const modelPath = "derived/review/v1/out/check/build/skeleton.model.json";',
       '  const act = {',
-      '    schema: "rig-review/act@2", kind: "review-verdict", jobId, actId: "act-review-1", askId: "ask-review-1", publicationId: "pub-review-1", at,',
+      '    schema: "rig-review/act@10", actId: "act-comment-1", jobId, publicationId: "pub-comment-1", kind: "comments", at,',
       '    authority: { actor: "human", channel: "review-ui", reviewer: { id: "synthetic-owner", role: "owner" } },',
       '    source: {',
-      '      sourceHash: "1".repeat(64), projectHash: jobHash(readFileSync(join(root, "project.json"))),',
-      '      package: { id: String(manifest.id), revision: String(manifest.revision) },',
-      '      selector: { kind: "rig", version: 1 },',
-      '      model: { path: "derived/review/v1/out/check/build/skeleton.model.json", sha256: jobHash(readFileSync(join(root, "derived/review/v1/out/check/build/skeleton.model.json"))) },',
-      '      direction: null, optionSet: null, appliedResult: null, plan: { steps },',
-      '      parts: { enumeratorVersion: partsEnumerator.version, manifest: { path: `${partsRoot}/parts.json`, sha256: jobHash(readFileSync(join(root, `${partsRoot}/parts.json`))) }, images },',
+      '      sourceHash: "1".repeat(64), projectHash: recordHash, package: { id: "create-v1", revision: "v1" },',
+      '      selector: null, model: { path: modelPath, sha256: jobHash(readFileSync(join(root, modelPath))) },',
+      '      direction: null, optionSet: null, appliedResult: null, plan: null, parts: null,',
       '    },',
-      '    value: { stage: "rig-review", verdict: "approved", words: "Approved rig v1 via act.\\n" },',
+      '    value: { comments: [{ text: "Comment recorded via act@10." }] },',
       '  };',
-      '  writeFileSync(join(actsDir, "act-review-1.json"), JSON.stringify(act));',
+      '  writeFileSync(join(actsDir, "act-comment-1.json"), JSON.stringify(act));',
       '  clearObs();',
-      '  const res = recordReviewAct(root, 1, "act-review-1", now);',
+      '  const res = commentCommand(["--from-review", "act-comment-1", root, "--json"], now);',
       '  const after = readProject(root);',
-      '  if (reviewActFindings(after).length > 0) throw new Error("review --from-review failed");',
-      '  results.push({ launcher: "review-verdict-act", child: takeSingleObs("review-verdict-act"), outcome: { recordedActId: after.review_acts.at(-1)?.actId, verdict: (res.verdict as Record<string, any>).verdict } });',
+      '  if (res.exit !== 0 || reviewActFindings(after).length > 0) throw new Error("comment --from-review failed");',
+      '  results.push({ launcher: "comment-act", child: takeSingleObs("comment-act"), outcome: { exit: res.exit, recordedActId: after.review_acts.at(-1)?.actId, comment: JSON.parse(res.stdout).comment } });',
       '}',
       '',
-      '// 5. interview-answer <question> --from-review (src/choice-writers.ts -> review-act-runtime.ts)',
+      '// 2. rig-review feedback CLI read (src/review-read.ts -> review/src/entry.ts)',
       '{',
-      '  const root = join(runRoot, "5-interview-answer");',
-      '  cpSync(join(repoRoot, "templates/example-chain/checkpoints/2-rigging-answers"), root, { recursive: true });',
-      '  bindJob(root);',
-      '  const setBytes = readFileSync(join(root, "evidence/interview/bones.json"));',
-      '  const set = JSON.parse(setBytes.toString("utf8")) as Record<string, any>;',
-      '  const act = {',
-      '    schema: "rig-review/act@2", kind: "interview-picks", jobId, actId: "act-interview-1", askId: "ask-interview-1", publicationId: "pub-interview-1", at,',
-      '    authority: { actor: "human", channel: "review-ui", reviewer: { id: "synthetic-owner", role: "owner" } },',
-      '    source: {',
-      '      sourceHash: "1".repeat(64), projectHash: "2".repeat(64), package: { id: "synthetic-package", revision: "one" },',
-      '      parts: { enumeratorVersion: partsEnumerator.version }, optionSet: { id: String(set.id), sha256: jobHash(setBytes) },',
-      '    },',
-      '    value: {',
-      '      questionId: "bones",',
-      '      selections: (set.asks as Record<string, any>[]).map(ask => ({ itemId: String(ask.id), optionId: "keep", otherText: null })),',
-      '      note: "Picked bones via act.",',
-      '    },',
-      '  };',
-      '  writeFileSync(join(actsDir, "act-interview-1.json"), JSON.stringify(act));',
+      '  const root = join(runRoot, "2-review-cli");',
+      '  cpSync(join(repoRoot, "templates/example-chain/checkpoints/3-rig-review"), root, { recursive: true });',
       '  clearObs();',
-      '  const stdout = interviewAnswerCommand(["bones", root, "--from-review", "act-interview-1"], now);',
-      '  const after = readProject(root);',
-      '  if (reviewActFindings(after).length > 0) throw new Error("interview-answer --from-review failed");',
-      '  results.push({ launcher: "interview-answer-act", child: takeSingleObs("interview-answer-act"), outcome: { recordedActId: after.review_acts.at(-1)?.actId, by: JSON.parse(stdout).by } });',
-      '}',
-      '',
-      '// 6. parts-review --from-review-cli (src/review-read.ts -> review/src/entry.ts)',
-      '{',
-      '  const root = join(runRoot, "6-parts-cli");',
-      '  cpSync(join(repoRoot, "templates/example-chain/checkpoints/1-parts-verdict"), root, { recursive: true });',
-      '  const verdictDir = join(repoRoot, "templates/example-chain/checkpoints/2-rigging-answers/evidence/review-reads");',
-      '  const verdictFiles = readdirSync(verdictDir).filter(file => file.endsWith(".json"));',
-      '  if (verdictFiles.length !== 1) throw new Error("expected one generated parts verdict receipt");',
-      '  const storedVerdict = JSON.parse(readFileSync(join(verdictDir, verdictFiles[0]!), "utf8")) as Record<string, any>;',
-      '  delete storedVerdict.by;',
-      '  delete storedVerdict.savedFileSha256;',
-      '  writeFileSync(join(root, "evidence/parts-review.json"), `${JSON.stringify(storedVerdict, null, 2)}\\n`);',
-      '  clearObs();',
-      '  const res = partsReviewCommand([root, "--draft", "chain", "--from-review-cli", "--by", "user", "--json", "--", "derived/drafts/chain/input", "--verdict", "evidence/parts-review.json"], now);',
-      '  const after = readProject(root);',
-      '  if (res.exit !== 0 || partsReadFindings(root, after).length > 0) throw new Error("parts-review --from-review-cli failed");',
-      '  results.push({ launcher: "parts-review-cli", child: takeSingleObs("parts-review-cli"), outcome: { exit: res.exit, route: JSON.parse(res.stdout).route, status: JSON.parse(res.stdout).status, schema: after.review_acts.at(-1)?.schema } });',
+      '  const read = readReview(root, "derived/review/v1/out");',
+      '  retainedReviewRead(root, read.receipt, read.file);',
+      '  results.push({ launcher: "review-cli", child: takeSingleObs("review-cli"), outcome: { route: read.receipt.route, argv1: (read.receipt.argv as string[])[1] } });',
       '}',
       '',
       'console.log(JSON.stringify({ parentExecArgv: process.execArgv, results }));',
@@ -736,17 +597,17 @@ test('all six review-act-runtime and parts-review-cli child launchers propagate 
       expect({ label: c.label, exit, stderr }).toEqual({ label: c.label, exit: 0, stderr: '' });
       if (!hasHostedCiObserver) {
         const outerFiles = readdirSync(outerObsDir).sort();
-        expect(outerFiles).toHaveLength(6);
+        expect(outerFiles).toHaveLength(2);
         expect(outerFiles.filter(name => name.endsWith('-error.json'))).toEqual([]);
         const outerObs = outerFiles.map(
           name =>
             JSON.parse(readFileSync(join(outerObsDir, name), 'utf8')) as {
-              kind: 'review-act-fetch' | 'parts-review-cli';
+              kind: 'review-act-fetch' | 'review-cli';
               resolvedPlay: string;
             },
         );
-        expect(outerObs.filter(o => o.kind === 'review-act-fetch')).toHaveLength(5);
-        expect(outerObs.filter(o => o.kind === 'parts-review-cli')).toHaveLength(1);
+        expect(outerObs.filter(o => o.kind === 'review-act-fetch')).toHaveLength(1);
+        expect(outerObs.filter(o => o.kind === 'review-cli')).toHaveLength(1);
         for (const o of outerObs) {
           expect(o.resolvedPlay).toBe(c.expectedPlay);
         }
@@ -756,7 +617,7 @@ test('all six review-act-runtime and parts-review-cli child launchers propagate 
         results: {
           launcher: string;
           child: {
-            kind: 'review-act-fetch' | 'parts-review-cli';
+            kind: 'review-act-fetch' | 'review-cli';
             entry: string;
             argv: string[];
             execArgv: string[];
@@ -770,12 +631,8 @@ test('all six review-act-runtime and parts-review-cli child launchers propagate 
       };
       expect(parsed.parentExecArgv).toEqual([...c.parentFlags]);
       expect(parsed.results.map(r => r.launcher)).toEqual([
-        'parts-review-act',
-        'signoff-stage-act',
-        'signoff-checkpoint-act',
-        'review-verdict-act',
-        'interview-answer-act',
-        'parts-review-cli',
+        'comment-act',
+        'review-cli',
       ]);
 
       for (const item of parsed.results) {
@@ -783,8 +640,8 @@ test('all six review-act-runtime and parts-review-cli child launchers propagate 
         expect(item.child.execArgv).toEqual([...c.expectedChildExecArgv]);
         expect(item.child.resolvedPlay).toBe(c.expectedPlay);
         expect(item.child.loadedPlay).toBe(c.expectedPlay);
-        if (item.launcher === 'parts-review-cli') {
-          expect(item.child.kind).toBe('parts-review-cli');
+        if (item.launcher === 'review-cli') {
+          expect(item.child.kind).toBe('review-cli');
           expect(item.child.entry).toBe(linkedWs.reviewCliEntry);
           expect(item.child.resolvedReviewHost).toBeNull();
         } else {
@@ -816,12 +673,8 @@ test('all six review-act-runtime and parts-review-cli child launchers propagate 
       }
 
       expect(parsed.results.map(r => ({ launcher: r.launcher, outcome: r.outcome }))).toEqual([
-        { launcher: 'parts-review-act', outcome: { exit: 0, recordedActId: 'act-parts-1', verdict: 'approved' } },
-        { launcher: 'signoff-stage-act', outcome: { exit: 0, recordedActId: 'act-signoff-1', signedStage: 'plan-approved' } },
-        { launcher: 'signoff-checkpoint-act', outcome: { exit: 0, recordedActId: 'act-checkpoint-1', checkpoint: 'assemble' } },
-        { launcher: 'review-verdict-act', outcome: { recordedActId: 'act-review-1', verdict: 'accepted' } },
-        { launcher: 'interview-answer-act', outcome: { recordedActId: 'act-interview-1', by: 'user' } },
-        { launcher: 'parts-review-cli', outcome: { exit: 0, route: 'cli', status: 'approved', schema: 'rig-create/parts-verdict-cli@1' } },
+        { launcher: 'comment-act', outcome: { exit: 0, recordedActId: 'act-comment-1', comment: 'comments[0]' } },
+        { launcher: 'review-cli', outcome: { route: 'cli', argv1: 'feedback' } },
       ]);
     }
   } finally {
@@ -902,7 +755,11 @@ for (const [label, execFlags] of [
     expect({ exit: drafted.exitCode, stderr: drafted.stderr.toString('utf8') }).toEqual({ exit: 0, stderr: '' });
     const draftLines = drafted.stdout.toString('utf8').trim().split('\n');
     expect(draftLines[0]).toBe('draft-rig: recorded chain-2; no production version created');
-    expect(draftLines.at(-1)).toMatch(/^job: updated the open page: publication [^,]+, ask parts-verdict chain-2$/);
+    expect(draftLines.at(-1)).toStartWith('job: open page not updated: no owner ask is ready.');
+
+    const openedDraft = run(['job', 'open', projectRoot, '--draft', 'chain-2', '--reviewer', 'synthetic-owner', '--role', 'owner']);
+    expect({ exit: openedDraft.exitCode, stderr: openedDraft.stderr.toString('utf8') }).toEqual({ exit: 0, stderr: '' });
+    expect(openedDraft.stdout.toString('utf8').trim().split('\n').at(-1)).toMatch(/^job: draft chain-2 published \(publication [A-Za-z0-9][A-Za-z0-9._-]{0,127}\)$/);
 
     const reconciled = Bun.spawnSync([process.execPath, ...execFlags, activeCli, 'job', 'reconcile', projectRoot], {
       cwd: projectRoot,

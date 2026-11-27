@@ -3,11 +3,11 @@ import { createHash } from 'node:crypto';
 import { cpSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { EXAMPLE_NOW } from '../scripts/example-time.ts';
-import { reviewCommand } from '../src/feedback.ts';
 import { nextProject } from '../src/next.ts';
 import { rigVersionCommand } from '../src/rig-version.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { tempDir } from './helpers.ts';
+import { seedStoredVerdict } from './historical-review-fixture.ts';
 
 const sha256 = (bytes: Uint8Array): string => createHash('sha256').update(bytes).digest('hex');
 
@@ -80,8 +80,8 @@ test('next guides the final chained mesh revision until a later rig retains its 
     cpSync(join(import.meta.dir, '../templates/example-chain/checkpoints/3-rig-review'), dir, { recursive: true });
     const bounce = join(dir, 'bounce.txt');
     writeFileSync(bounce, 'Adjust the synthetic mesh.\n');
-    expect(reviewCommand(['1', dir, '--review', 'rig-review', '--verdict', 'bounced', '--by', 'user',
-      '--verbatim-file', bounce, '--source', 'synthetic bounce', '--item', 'meshes:user'], EXAMPLE_NOW).exit).toBe(0);
+    seedStoredVerdict(dir, 1, { review: 'rig-review', verdict: 'bounced', by: 'user', at: EXAMPLE_NOW,
+      verbatim: readFileSync(bounce, 'utf8'), source: 'synthetic bounce', on_items: [{ id: 'meshes', answer_was: 'user' }] });
 
     const source = join(dir, 'registration-source');
     cpSync(join(import.meta.dir, 'fixtures/rig-registration'), source, { recursive: true });

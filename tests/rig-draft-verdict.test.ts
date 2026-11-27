@@ -11,7 +11,7 @@ import { acknowledgePublication, enqueuePublication, jobHash, jobHostStateRoot, 
 import { askDeclaredSubjects, openCreateJob } from '../src/job-host.ts';
 import { draftPackageIdentity, prepareDraftManifest, publishedSourcePainting, readPublished } from '../src/job-publication.ts';
 import { jobRuntimeExecArgv } from '../src/job-writer.ts';
-import { decodeReviewAct, draftReviewStillEvidence, isDraftReviewVerdict, reviewActFindings } from '../src/review-act.ts';
+import { decodeReviewAct, draftReviewStillEvidence, isDraftReviewVerdict, reviewActBy, reviewActFindings, reviewActVerdict } from '../src/review-act.ts';
 import { nextProject } from '../src/next.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { staleRecordPlant, treeDigest } from './helpers.ts';
@@ -258,23 +258,46 @@ async function post(root: string, url: URL, verdict: 'approved' | 'changes-reque
 }
 
 async function submit(root: string, url: URL, verdict: 'approved' | 'changes-requested',
-  extra?: (source: JsonObject) => JsonObject, timeout?: number) {
+  extra?: (source: JsonObject) => JsonObject) {
   const { binding, act, rawAct, args } = await post(root, url, verdict, extra);
-  const ingest = await cli(root, args, undefined, timeout);
-  assertSuccess(ingest);
-  const receipt = (read(root).review_acts as JsonObject[]).at(-1)!;
-  expect(receipt).toMatchObject({ kind: subject.kind, jobId: binding.jobId, actId: act.actId, draft_id: draftId,
-    verdict: { review: subject.stage, verdict: verdict === 'approved' ? 'accepted' : 'bounced', verbatim } });
-  expect(receipt.bytes).toBe(rawAct);
-  expect(jobHash(String(receipt.bytes))).toBe(receipt.sha256 as string);
-  expect(JSON.parse(String(receipt.bytes))).toEqual(act);
+  const retired = await cli(root, args);
+  expect(retired.exit).toBe(2);
+  expect(retired.stderr).toContain('NUMBERED_WRITER_REMOVED');
+
   const decoded = decodeReviewAct(rawAct);
   if (!isDraftReviewVerdict(decoded)) throw Error('expected draft verdict');
+  const by = reviewActBy(decoded);
+  const project = read(root);
+  const draftRecord = (project.drafts as JsonObject[]).find(row => row.id === draftId)!;
+  const sha = jobHash(rawAct);
+  const actPath = `evidence/drafts/${draftId}/${sha}.act.json`;
+  cpSync(join(root, 'project.json'), join(root, 'project.json.tmp'));
+  rmSync(join(root, 'project.json.tmp'));
+  const actDir = join(root, `evidence/drafts/${draftId}`);
+  const { mkdirSync } = await import('node:fs');
+  mkdirSync(actDir, { recursive: true });
+  writeFileSync(join(root, actPath), rawAct);
+  const receipt: JsonObject = {
+    schema: 'rig-create/review-act@1',
+    kind: subject.kind,
+    jobId: binding.jobId,
+    actId: act.actId,
+    draft_id: draftId,
+    version_hash: jobHash(`${JSON.stringify(draftRecord, null, 2)}\n`),
+    verdict: reviewActVerdict(decoded, by),
+    painting: publishedSourcePainting(root, project, `drafts[${draftId}]`),
+    bytes: rawAct,
+    sha256: sha,
+  };
+  project.review_acts = [...(Array.isArray(project.review_acts) ? project.review_acts : []), receipt];
+  write(root, 'project.json', project);
+  expect(receipt).toMatchObject({ kind: subject.kind, jobId: binding.jobId, actId: act.actId, draft_id: draftId,
+    verdict: { review: subject.stage, verdict: verdict === 'approved' ? 'accepted' : 'bounced', verbatim } });
   const historicalStill = draftReviewStillEvidence(decoded);
   expect(historicalStill).toBeDefined();
   expect(receipt).not.toHaveProperty('evidence');
   expect(existsSync(join(root, historicalStill!.path))).toBe(false);
-  expect(readFileSync(join(root, `evidence/drafts/${draftId}/${String(receipt.sha256)}.act.json`), 'utf8')).toBe(rawAct);
+  expect(readFileSync(join(root, actPath), 'utf8')).toBe(rawAct);
   return receipt;
 }
 
@@ -288,23 +311,21 @@ test('#712 a compiled rigging draft publishes without a verdict ask', async () =
   expect(readAcknowledgedPublication(root, binding.jobId, publicationId)?.subjects).toEqual([]);
 }, testTimeoutMs);
 
-test('#712 a retained rigging draft verdict ingests the exact comment', async () => {
+test('#712 a retained rigging draft verdict validates in review_acts while review --draft exits 2', async () => {
   const root = rigging();
   const url = await openLegacyVerdict(root);
   const receipt = await submit(root, url, 'changes-requested');
   expect(read(root)).toMatchObject({ stage: 'rigging', versions: [] });
+  expect(reviewActFindings(read(root))).toEqual([]);
   const record = readFileSync(join(root, 'project.json'));
   const actArgs = ['review', root, '--draft', draftId, '--from-review', String(receipt.actId)];
   const replay = await cli(root, actArgs);
-  assertSuccess(replay);
+  expect(replay.exit).toBe(2);
+  expect(replay.stderr).toContain('NUMBERED_WRITER_REMOVED');
   expect(readFileSync(join(root, 'project.json'))).toEqual(record);
   const malformed = read(root);
   (malformed.review_acts as JsonObject[]).at(-1)!.evidence = null;
   expect(reviewActFindings(malformed).map(f => f.code)).toEqual(['REVIEW_ACT_LEDGER_INVALID']);
-  const wrongDraft = await cli(root, ['review', root, '--draft', 'chain', '--from-review', String(receipt.actId)]);
-  expect(wrongDraft.exit).toBe(1);
-  expect(wrongDraft.stderr).toMatch(/\bREVIEW_ACT_KIND_MISMATCH:/);
-  expect(readFileSync(join(root, 'project.json'))).toEqual(record);
 }, testTimeoutMs);
 
 test('#712 a rigging draft with a changed retained model refuses before publication', async () => {
@@ -322,51 +343,23 @@ test('#712 a rigging draft with a changed retained model refuses before publicat
   expect(existsSync(join(root, `review-draft-${draftId}.json`))).toBe(false);
 }, testTimeoutMs);
 
-test('#773 a draft Request changes with two mesh edits records two mesh-delta corrections on the draft', async () => {
+test('#773 a draft act@8 Request changes decodes two mesh edits while review --draft exits 2 without writing', async () => {
   const root = rigging(twoMeshDraft);
   const url = await openLegacyVerdict(root);
   let sent: JsonObject[] = [];
-  const receipt = await submit(root, url, 'changes-requested', source => {
+  const { rawAct, args } = await post(root, url, 'changes-requested', source => {
     sent = meshEdits(root, source, ['face', 'torso']);
     return { meshEdits: sent };
-  }, meshTimeoutMs);
-  expect(JSON.parse(String(receipt.bytes)).schema).toBe('rig-review/act@8');
-  const project = read(root);
-  const corrections = project.corrections as JsonObject[];
-  expect(corrections).toHaveLength(2);
-  for (const [index, correction] of corrections.entries()) {
-    expect(correction).toMatchObject({ source: `review act ${receipt.jobId}/${receipt.actId}`,
-      on: { kind: 'draft', id: draftId }, artifact: { kind: 'mesh-delta', payloadSha256: sent[index]!.sha256 },
-      outcome: { kind: 'mesh-delta', provenance: { request: { part: ['face', 'torso'][index] } } } });
-  }
-  // The second edit applies on the first one's revision, keyed by the draft.
-  const [first, second] = corrections.map(row => row.outcome as JsonObject);
-  expect(String(second!.revision)).not.toBe(String(first!.revision));
-  const check = await cli(root, ['interview', '--check', root]);
-  expect({ exit: check.exit, stderr: check.stderr }).toEqual({ exit: 0, stderr: '' });
-  // Replay keeps the record and makes no second revision.
-  const record = readFileSync(join(root, 'project.json'));
-  assertSuccess(await cli(root, ['review', root, '--draft', draftId, '--from-review', String(receipt.actId)], undefined, meshTimeoutMs));
-  expect(readFileSync(join(root, 'project.json'))).toEqual(record);
-}, 3 * meshTimeoutMs);
-
-test('#773 a draft ingest refused after its evidence write leaves the project tree as it was', async () => {
-  const root = rigging();
-  const url = await openLegacyVerdict(root);
-  const { args } = await post(root, url, 'changes-requested');
-  const plants = realpathSync(mkdtempSync(join(tmpdir(), 'create-draft-plant-')));
-  roots.push(plants);
-  const record = join(root, 'project.json');
-  const original = readFileSync(record);
+  });
+  const decoded = decodeReviewAct(rawAct);
+  expect(decoded.schema).toBe('rig-review/act@8');
+  if (decoded.schema !== 'rig-review/act@8') throw Error('expected act@8');
+  expect(decoded.value.meshEdits).toHaveLength(2);
   const before = treeDigest(root);
-  const refused = await cli(root, args, staleRecordPlant(plants, record, '.act.json'));
-  expect(refused.exit).toBe(1);
-  expect(refused.stderr).toMatch(/\bREVIEW_ACT_SOURCE_STALE:/);
-  writeFileSync(record, original);
+  const refused = await cli(root, args);
+  expect(refused.exit).toBe(2);
+  expect(refused.stderr).toContain('NUMBERED_WRITER_REMOVED');
   expect(treeDigest(root)).toEqual(before);
-  assertSuccess(await cli(root, args));
-  // The sidecar directory is new and was removed after the refused write.
-  expect(before.has(`evidence/drafts/${draftId}/`)).toBe(false);
 }, testTimeoutMs);
 
 async function register(root: string, variant: 'identical' | 'changed', n = 1, flags: string[] = []) {
@@ -401,17 +394,8 @@ test.each(['identical', 'changed', 'historical still'] as const)('#712 registrat
     if (!isDraftReviewVerdict(act)) throw Error('expected draft verdict');
     still = draftReviewStillEvidence(act)!;
     receipt.evidence = still;
+    writeFileSync(join(root, still.path), readFileSync(join(root, 'producer/build/rectangle.png')));
     write(root, 'project.json', project);
-    const before = readFileSync(join(root, 'project.json'));
-    const args = ['review', root, '--draft', draftId, '--from-review', act.actId];
-    const destination = join(root, still.path);
-    writeFileSync(destination, 'changed pixels');
-    const refused = await cli(root, args);
-    expect(refused.exit).toBe(1);
-    expect(refused.stderr).toMatch(/\bREVIEW_ACT_STILL_INVALID:/);
-    writeFileSync(destination, readFileSync(join(root, 'producer/build/rectangle.png')));
-    assertSuccess(await cli(root, args));
-    expect(readFileSync(join(root, 'project.json'))).toEqual(before);
   }
   const registration = await register(root, variant);
   assertSuccess(registration);
@@ -496,14 +480,15 @@ for (const [verdict, recorded] of [['approved', 'accepted'], ['changes-requested
     expect(JSON.stringify(receipt.verdict)).toBe(`{"by":"user","at":"${String(JSON.parse(String(receipt.bytes)).at)}","review":"rig-review","verdict":"${recorded}","verbatim":${JSON.stringify(verbatim)},"source":"review act ${String(receipt.jobId)}/${String(receipt.actId)}","on_items":[]}`);
   }, testTimeoutMs);
 
-  test(`#840 a ${verdict} draft verdict from an owner host opened for the agent refuses REVIEW_NOT_HUMAN and writes nothing`, async () => {
+  test(`#840 a ${verdict} draft verdict from an owner host opened for the agent attributes agent and exits 2 on retired review`, async () => {
     const root = rigging();
     const url = await openLegacyVerdict(root, verdict === 'approved' ? 'AGENT' : 'agent');
-    const { args } = await post(root, url, verdict);
+    const { rawAct, args } = await post(root, url, verdict);
+    expect(reviewActBy(decodeReviewAct(rawAct)).toLowerCase()).toBe('agent');
     const before = treeDigest(root);
     const refused = await cli(root, args);
-    expect(refused.exit).toBe(1);
-    expect(refused.stderr).toMatch(/\bREVIEW_NOT_HUMAN:/);
+    expect(refused.exit).toBe(2);
+    expect(refused.stderr).toMatch(/\bNUMBERED_WRITER_REMOVED:/);
     expect(treeDigest(root)).toEqual(before);
   }, testTimeoutMs);
 }

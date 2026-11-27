@@ -88,22 +88,18 @@ async function actFor(root: string, context: RecordPlanContext): Promise<JsonObj
     source: retained.source as unknown as JsonObject, value: { stage: 'interview', decision: 'approved', words: 'Approve the synthetic interview.' } };
 }
 function ingest(root: string, act: JsonObject, stage = 'interview'): unknown {
-  return signoffCommand([stage, root, '--from-review', String(act.actId)], TEST_NOW, { fetch: () => ({ bytes: JSON.stringify(act) }) });
+  return signoffCommand([stage, root, '--from-review', String(act.actId)], TEST_NOW);
 }
 
 test('#475 record interview ingest rejects wrong stage stale source and unclean records without writing', async () => {
   const root = cleanInterview();
   const context = publication(root);
   const act = await actFor(root, context);
-  unchanged(root, 'REVIEW_ACT_KIND_MISMATCH', () => ingest(root, act, 'plan-approved'));
-  const original = bytes(root); writeFileSync(join(root, 'project.json'), Buffer.concat([original, Buffer.from(' ')]));
-  unchanged(root, 'REVIEW_ACT_SOURCE_STALE', () => ingest(root, act));
-  writeFileSync(join(root, 'project.json'), original);
-  const project = read(root); project.stage = 'plan-approved'; save(root, project);
-  const wrongStage = await actFor(root, context);
-  unchanged(root, 'REVIEW_ACT_TARGET_MISMATCH', () => ingest(root, wrongStage));
+  unchanged(root, 'SIGNOFF_FROM_REVIEW_REMOVED', () => ingest(root, act, 'plan-approved'));
+  unchanged(root, 'SIGNOFF_FROM_REVIEW_REMOVED', () => ingest(root, act));
+  const project = read(root);
   project.stage = 'interview'; project.versions = [{ n: 1, config_lost: { note: '', source: '' } }]; save(root, project);
-  const unclean = await actFor(root, context);
   expect(interviewCommand(['--check', root], TEST_NOW).exit).toBe(1);
-  unchanged(root, 'INTERVIEW_SIGNOFF_NOT_CLEAN', () => ingest(root, unclean));
+  unchanged(root, 'INTERVIEW_SIGNOFF_NOT_CLEAN', () => assertInterviewRecordSignable(project, checkProject(root, project, { now: TEST_NOW })));
+  unchanged(root, 'SIGNOFF_FROM_REVIEW_REMOVED', () => ingest(root, act));
 });

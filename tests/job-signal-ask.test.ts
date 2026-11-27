@@ -110,7 +110,7 @@ for (const signal of ['SIGTERM', 'SIGINT'] as const) test(`job open CLI forwards
     await Bun.sleep(50);
   }
   expect(await isOriginListening(url.origin)).toBe(false);
-});
+}, 20_000);
 
 test('bound writers print concise asked/already subject lines in text mode and preserve JSON stdout in --json mode', async () => {
   expect(askOutcomeLines([
@@ -121,7 +121,7 @@ test('bound writers print concise asked/already subject lines in text mode and p
     'job: already asked checkpoint assemble',
   ]);
 
-  // --json stdout stays one JSON document; a bound draft-rig carries the page update inside it.
+  // --json stdout stays one JSON document; a bound draft-rig carries its deferred view-only notice inside it.
   const draftRoot = await preparedParts();
   const args = copyDraft(draftRoot, 'chain-2');
   const snapshot = JSON.parse(readFileSync(join(draftRoot, 'evidence/structure-chain.json'), 'utf8')) as JsonObject;
@@ -132,8 +132,8 @@ test('bound writers print concise asked/already subject lines in text mode and p
   const draftedJson = await cli(draftRoot, [...args, '--json']);
   expect({ exit: draftedJson.exit, stderr: draftedJson.stderr }).toEqual({ exit: 0, stderr: '' });
   const printed = JSON.parse(draftedJson.stdout) as JsonObject;
-  expect(printed).toMatchObject({ id: 'chain-2', publication: { status: 'published' } });
-  expect((printed.publication as { lines: string[] }).lines).toContain(`job: updated the open page: publication ${publicationId(draftRoot)}, ask parts-verdict chain-2`);
+  expect(printed).toMatchObject({ id: 'chain-2', publication: { status: 'deferred' } });
+  expect((printed.publication as { lines: string[] }).lines[0]).toContain('no owner ask is ready');
 }, 30_000);
 
 function publicationId(root: string): string {
@@ -178,6 +178,31 @@ async function openPartsWithoutAsk(root: string): Promise<string> {
   }
 }
 
+function seedHistoricalPendingDraftAsk(root: string, publicationId: string, draftId = 'chain'): void {
+  const binding = readWriterBinding(root)!;
+  const db = new Database(join(binding.identity.stateDir, 'jobs.sqlite'));
+  db.exec('PRAGMA busy_timeout = 5000;');
+  try {
+    const row = db.query<{ revision: number; document: string }, [string]>('SELECT revision, document FROM jobs WHERE job_id = ?').get(binding.jobId)!;
+    const doc = JSON.parse(row.document) as {
+      generation: number;
+      publications: Record<string, { retained: { source: unknown; subjects: unknown[] } }>;
+      asks: Record<string, unknown>;
+      events: unknown[];
+    };
+    const subject = { kind: 'parts-verdict', draftId };
+    doc.publications[publicationId]!.retained.subjects = [subject];
+    doc.generation++;
+    const askId = `legacy-ask-${draftId}`;
+    const ask = { askId, publicationId, subject, source: doc.publications[publicationId]!.retained.source, status: 'pending' };
+    doc.asks[askId] = ask;
+    doc.events.push({ type: 'pending', ask, cursor: crypto.randomUUID(), jobId: binding.jobId, generation: doc.generation });
+    db.query('UPDATE jobs SET revision = ?, document = ? WHERE job_id = ?').run(row.revision + 1, JSON.stringify(doc), binding.jobId);
+  } finally {
+    db.close();
+  }
+}
+
 test.each([
   { mode: 'plain', flags: [] },
   { mode: '--json', flags: ['--json'] },
@@ -186,7 +211,8 @@ test.each([
   const args = copyDraft(root, 'chain-2');
   const opening = await open(root);
   const head = publicationId(root);
-  expect(opening.lines).toEqual([`job: draft chain published (publication ${head})`, 'job: asked parts-verdict chain']);
+  expect(opening.lines).toEqual([`job: draft chain published (publication ${head})`]);
+  seedHistoricalPendingDraftAsk(root, head, 'chain');
   const projectFile = join(root, 'project.json');
   const before = readFileSync(projectFile);
   const refused = await cli(root, [...args, ...flags]);
@@ -228,12 +254,14 @@ test('#690 draft-rig --json defers an unready draft with no owner ask and prepar
   cpSync(join(root, 'evidence/diff-components.json'), join(root, 'evidence/parts-chain-2/diff-components.json'));
   expect(await cli(root, ['diff-classes', root, '--diff-report', 'evidence/parts-chain-2/diff-components.json', '--by', 'agent'])).toMatchObject({ exit: 0 });
   const afterNext = await cli(root, ['next', root, '--json']);
-  expect((JSON.parse(afterNext.stdout).moves as { command: string | null }[])
-    .some(move => move.command?.includes('job open') && move.command.includes('--draft chain-2'))).toBe(true);
+  expect((JSON.parse(afterNext.stdout).moves as { awaits: string; act: string }[])
+    .some(move => move.awaits === 'review_acts[kind=parts-verdict,draft_id=chain-2]' && move.act.includes('NUMBERED_ACT_RETIRED'))).toBe(true);
   const shown = await cli(root, ['job', 'open', root, '--draft', 'chain-2', '--reviewer', 'synthetic-owner', '--role', 'owner']);
   expect(shown).toMatchObject({ exit: 0, stderr: '' });
-  expect(shown.stdout).toContain('job: asked parts-verdict chain-2');
-  expect(publicationId(root)).not.toBe(before);
+  const after = publicationId(root);
+  expect(shown.stdout).toContain(`job: draft chain-2 published (publication ${after})`);
+  expect(shown.stdout).not.toContain('asked parts-verdict');
+  expect(after).not.toBe(before);
 }, 30_000);
 
 test('#690 explicit job open --draft replaces a publication with an unanswered earlier-draft ask', async () => {
@@ -244,18 +272,16 @@ test('#690 explicit job open --draft replaces a publication with an unanswered e
   const opening = await open(root, ['--draft', 'chain']);
   const binding = readWriterBinding(root)!;
   const before = publicationId(root);
-  expect(opening.lines).toEqual([`job: draft chain published (publication ${before})`, 'job: asked parts-verdict chain']);
+  expect(opening.lines).toEqual([`job: draft chain published (publication ${before})`]);
+  seedHistoricalPendingDraftAsk(root, before, 'chain');
   const shown = await cli(root, ['job', 'open', root, '--draft', 'chain-2', '--reviewer', 'synthetic-owner', '--role', 'owner']);
   expect(shown).toMatchObject({ exit: 0, stderr: '' });
   const [url, ...lines] = shown.stdout.trim().split('\n');
   expect(url).toBe(opening.url.href);
   const after = publicationId(root);
-  expect(lines).toEqual(expect.arrayContaining([
-    `job: draft chain-2 published (publication ${after})`,
-    'job: asked parts-verdict chain-2',
-  ]));
+  expect(lines).toEqual([`job: draft chain-2 published (publication ${after})`]);
   expect(after).not.toBe(before);
-  expect(readAcknowledgedPublication(root, binding.jobId, after)?.subjects).toEqual([{ kind: 'parts-verdict', draftId: 'chain-2' }]);
+  expect(readAcknowledgedPublication(root, binding.jobId, after)?.subjects).toEqual([]);
   expect(pendingPublications(root)).toEqual([]);
 }, 30_000);
 

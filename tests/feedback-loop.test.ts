@@ -6,7 +6,7 @@ import { jobHash } from '../src/job-outbox.ts';
 import { Refusal } from '../src/refusal.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { EXAMPLE_NOW } from '../scripts/example-time.ts';
-import { advanceCommand, checkProject, directionCommand, inputCommand, reviewCommand, sceneCommand, testClock } from './clock.ts';
+import { advanceCommand, checkProject, directionCommand, inputCommand, sceneCommand, testClock } from './clock.ts';
 import { arr, obj } from './fixtures.ts';
 import { tempDir } from './helpers.ts';
 
@@ -46,14 +46,20 @@ function expectRetiredPostVerdict(report: NextReport) {
   const moves = report.moves.filter(move => move.field === field || move.awaits === awaits || move.review_act?.kind === 'review-verdict');
   expect(moves).toEqual([{
     role: 'human', field, awaits, command: null,
-    act: 'NUMBERED_ACT_RETIRED: Post v3 needs an accepted live direction-review verdict. To continue on the current path, follow the adoption or rebuild instructions in docs/PROJECT.md#adopting-existing-numbered-outputs. To complete the numbered verdict gate, use Create 1.26.0.',
+    act: 'NUMBERED_ACT_RETIRED: Post v3 needs an accepted live direction-review verdict. To continue on the current path, follow the adoption or rebuild instructions in docs/PROJECT.md#adopting-existing-numbered-outputs. To complete the numbered verdict gate, use Create 1.27.0.',
   }]);
   return moves[0]!;
 }
 
 test('#454 direction write -> human bounce -> next -> repeatable answers -> check -> new verdict', () => {
   const { dir, load } = setup();
-  for (let i = 0; i < 2; i++) reviewCommand(['2', dir, '--verdict', 'bounced', '--by', 'user', '--review', 'direction-review', '--verbatim-file', join(dir, 'words.txt'), '--source', 'synthetic review']);
+  const seeded = load();
+  const words = readFileSync(join(dir, 'words.txt'), 'utf8');
+  arr(seeded.versions).map(obj).find(v => v.n === 2)!.verdicts = [
+    { by: 'user', at: testClock.iso(), review: 'direction-review', verdict: 'bounced', verbatim: words, source: 'synthetic review', on_items: [] },
+    { by: 'user', at: testClock.iso(), review: 'direction-review', verdict: 'bounced', verbatim: words, source: 'synthetic review', on_items: [] },
+  ];
+  writeFileSync(join(dir, 'project.json'), `${JSON.stringify(seeded, null, 2)}\n`);
   const before = readFileSync(join(dir, 'project.json'));
   const report = nextProject(dir, testClock.now());
   expect(report.moves[0]).toMatchObject({ role: 'agent', field: 'versions' });

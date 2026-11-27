@@ -14,7 +14,6 @@ import * as diffClasses from '../src/diff-classes.ts';
 import * as direction from '../src/direction.ts';
 import * as directionWriters from '../src/direction-writers.ts';
 import * as drafts from '../src/drafts.ts';
-import * as feedback from '../src/feedback.ts';
 import * as intake from '../src/intake.ts';
 import * as interview from '../src/interview.ts';
 import * as inputs from '../src/inputs.ts';
@@ -56,7 +55,6 @@ export const assertDirectionApproval = (dir: string, project: JsonObject, stage:
   direction.assertDirectionApproval(dir, project, stage, current, n);
 export const assertCorrectionApproval = (dir: string, project: JsonObject, stage: string, signature?: JsonObject): void =>
   correctionWriters.assertCorrectionApproval(dir, project, stage, current, signature);
-export const recordVerdict = (dir: string, input: feedback.ReviewInput): ReturnType<typeof feedback.recordVerdict> => feedback.recordVerdict(dir, input, current);
 export const handoff = (dir: string, rig: number | null): ReturnType<typeof review.handoff> => review.handoff(dir, rig, current);
 export const directionCommand = (args: string[], hooks?: directionWriters.DirectionWriteHooks): ReturnType<typeof directionWriters.directionCommand> =>
   directionWriters.directionCommand(args, current, hooks);
@@ -83,7 +81,6 @@ export const main = at(cli.main);
 export const pauseCommand = at(pauses.pauseCommand);
 export const planCommand = at(plan.planCommand);
 export const resumeCommand = at(pauses.resumeCommand);
-export const reviewCommand = at(feedback.reviewCommand);
 export const rigVersionCommand = at(rigVersion.rigVersionCommand);
 export const signoffCommand = at(signoff.signoffCommand);
 export const stepStatusCommand = at(progress.stepStatusCommand);

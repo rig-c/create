@@ -11,6 +11,7 @@ import { readRecordPublished, type RecordPublicationRequest } from '../src/job-p
 import { jobRuntimeExecArgv } from '../src/job-writer.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { arr, fixture, obj } from './fixtures.ts';
+import { seedStoredSignoffAct } from './historical-review-fixture.ts';
 import { CLI } from './helpers.ts';
 
 const roots: string[] = [];
@@ -298,15 +299,17 @@ test('#677 job withdraw-act withdraws one pending act in place, leaves the job a
     expect(rewithdraw.stderr).toStartWith('REVIEW_ACT_DISCARDED:');
     expect(recordBytes(root)).toEqual(afterFirstBytes);
 
-    // A substantive field edit still makes the signoff stale.
+    // A substantive field edit still makes the signoff stale; the CLI --from-review route is retired.
     const ingest = ['signoff', 'plan-approved', root, '--from-review', String(signoffAct.actId)];
+    const retiredSignoff = await cli(root, ingest);
+    expect(retiredSignoff.exit).toBe(2);
+    expect(retiredSignoff.stderr).toContain('SIGNOFF_FROM_REVIEW_REMOVED:');
     const recordFile = join(root, 'project.json');
     const changed = Buffer.from(afterFirstBytes.toString().replace(/"name": "[^"]*"/, '"name": "Different synthetic project"'));
     expect(changed).not.toEqual(afterFirstBytes);
     writeFileSync(recordFile, changed);
-    const stale = await cli(root, ingest);
-    expect(stale.stderr).toContain('REVIEW_ACT_SOURCE_STALE:');
-    expect(stale.exit).toBe(1);
+    expect(() => seedStoredSignoffAct(root, 'plan-approved', signoffAct, { now: Date.now(), checkProjectHash: true }))
+      .toThrow(expect.objectContaining({ code: 'REVIEW_ACT_SOURCE_STALE' }));
     expect(recordBytes(root)).toEqual(changed);
 
     // Ledger-only control: an agent discard is valid evidence, but is not an owner withdrawal.
@@ -316,15 +319,13 @@ test('#677 job withdraw-act withdraws one pending act in place, leaves the job a
     };
     const ledgerEdit = appendWithdrawalReceipt(afterFirstBytes, agentDiscard);
     writeFileSync(recordFile, ledgerEdit);
-    const staleLedger = await cli(root, ingest);
-    expect(staleLedger.stderr).toContain('REVIEW_ACT_SOURCE_STALE:');
-    expect(staleLedger.exit).toBe(1);
+    expect(() => seedStoredSignoffAct(root, 'plan-approved', signoffAct, { now: Date.now(), checkProjectHash: true }))
+      .toThrow(expect.objectContaining({ code: 'REVIEW_ACT_SOURCE_STALE' }));
     expect(recordBytes(root).toString()).toBe(ledgerEdit);
     writeFileSync(recordFile, afterFirstBytes);
 
     // Ingest from the still-live publication and keep the withdrawal receipt.
-    const ingested = await cli(root, ingest);
-    expect(ingested.exit, ingested.stderr).toBe(0);
+    seedStoredSignoffAct(root, 'plan-approved', signoffAct, { now: Date.now(), checkProjectHash: true });
     const afterIngestBytes = recordBytes(root);
     const recorded = JSON.parse(afterIngestBytes.toString()) as JsonObject;
     expect(arr(recorded.review_acts).map(row => obj(row).actId)).toEqual([reopenAct.actId, signoffAct.actId]);
@@ -343,8 +344,7 @@ test('#677 job withdraw-act withdraws one pending act in place, leaves the job a
 
     // Reset the synthetic record to exercise the reverse operation order too.
     writeFileSync(recordFile, beforeProject);
-    const ingestedFirst = await cli(root, ingest);
-    expect(ingestedFirst.exit, ingestedFirst.stderr).toBe(0);
+    seedStoredSignoffAct(root, 'plan-approved', signoffAct, { now: Date.now(), checkProjectHash: true });
     const withdrewAfterIngest = await cli(root, ['job', 'withdraw-act', String(reopenAct.actId), root, ...relay]);
     expect(withdrewAfterIngest.exit, withdrewAfterIngest.stderr).toBe(0);
     expect(JSON.parse((await cli(root, ['job', 'acts', root, '--json'])).stdout).acts).toEqual([]);

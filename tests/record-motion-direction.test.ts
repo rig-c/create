@@ -7,8 +7,8 @@ import { asArray, checkProject, isObject } from '../src/check.ts';
 import { COMPOSE_CHECK_PATH, COMPOSE_RUN_PATH, CURRENT_DIRECTION_PATH } from '../src/current-direction.ts';
 import { CURRENT_MOTION_FRAMES, CURRENT_RIG_MODEL, currentShapeFindings, outputRoot, outputSetHash, sha256, treeFiles } from '../src/current.ts';
 import { directionCommand } from '../src/direction-writers.ts';
-import { reviewCommand } from '../src/feedback.ts';
 import { LOOP_SEAM_REPORT_SINCE } from '../src/motion-loop-seam.ts';
+import { seedStoredVerdict } from './historical-review-fixture.ts';
 import { nextProject } from '../src/next.ts';
 import { recordCommand } from '../src/record.ts';
 import { CURRENT_SCENE_PATH } from '../src/scene.ts';
@@ -308,8 +308,8 @@ function stagedDirectionAfterBounce() {
   }, 'example-current/project.json', { [legacyPath]: legacyBytes });
   renameSync(join(dir, 'outputs/direction'), join(dir, directionFrom));
   for (const words of ['Keep the whole actor in frame.', 'Keep the background in view.']) {
-    expect(reviewCommand(['2', dir, '--review', 'direction-review', '--verdict', 'bounced',
-      '--by', 'user', '--verbatim', words, '--source', 'synthetic chat'], testClock.now()).exit).toBe(0);
+    seedStoredVerdict(dir, 2, { review: 'direction-review', verdict: 'bounced',
+      by: 'user', at: testClock.now(), verbatim: words, source: 'synthetic chat' });
   }
   expect(recordCommand(['direction', dir, '--adopt'], testClock.now()).exit).toBe(0);
   expect(check(dir).refusals).toEqual([]);

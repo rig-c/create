@@ -4,7 +4,8 @@ import { dirname, join, posix } from 'node:path';
 import { EXAMPLE_ANCHOR } from '../scripts/example-time.ts';
 import { asArray, checkProject, formatReport, isObject, type CheckReport } from '../src/check.ts';
 import { CURRENT_RIG_MODEL, currentFileBinding, currentFindings, currentHash, currentMotionSetBinding, currentRigFileBinding, currentShapeFindings, legacyMotionProvenance, outputSetHash, sha256, treeFiles, verifiedLegacyMotionProvenance, type CurrentKind } from '../src/current.ts';
-import { reviewCommand, type OpenDirectionComment } from '../src/feedback.ts';
+import { type OpenDirectionComment } from '../src/feedback.ts';
+import { seedStoredVerdict } from './historical-review-fixture.ts';
 import { interviewCommand } from '../src/interview.ts';
 import { nextCommand, type NextReport } from '../src/next.ts';
 import { OWNER_CHAT_SOURCE } from '../src/owner-chat.ts';
@@ -576,8 +577,8 @@ test('adopts a bounced post in place and exposes its open comment through the le
   const words = 'The beam still starts too early.\nKeep the last sweep.';
   const wordsFile = join(dir, 'owner-words.txt');
   writeFileSync(wordsFile, words);
-  expect(reviewCommand(['4', dir, '--review', 'direction-review', '--verdict', 'bounced', '--by', 'user',
-    '--verbatim-file', wordsFile, '--source', 'synthetic chat', '--item', 'post_timing:user'], checkNow).exit).toBe(0);
+  seedStoredVerdict(dir, 4, { review: 'direction-review', verdict: 'bounced', by: 'user', at: checkNow,
+    verbatim: words, source: 'synthetic chat', on_items: [{ id: 'post_timing', answer_was: 'user' }] });
   const before = readFileSync(file);
   const composeRun = join(dir, 'outputs/v4/compose/compose-run.json');
   renameSync(composeRun, `${composeRun}.kept`);

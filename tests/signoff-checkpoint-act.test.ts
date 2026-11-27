@@ -4,12 +4,11 @@ import { join } from 'node:path';
 import { JOB_BINDING_FILE, jobHash, writePrivateJson } from '../src/job-outbox.ts';
 import { currentJobIdentity, partsEnumerator, readPublished, readRecordPublished } from '../src/job-publication.ts';
 import { JOB_COMMENTS_ACT_SCHEMA, startJobHost } from '@rig-c/review/job-host';
-import { decodeReviewAct, fetchReviewAct, reviewActFindings, reviewActTransport } from '../src/review-act.ts';
+import { checkpointActSignoff, decodeReviewAct, fetchReviewAct, reviewActFindings, reviewActTransport } from '../src/review-act.ts';
 import { Refusal } from '../src/refusal.ts';
 import { checkpointWorkspace } from './checkpoint-evidence-fixture.ts';
 import { nextCommand } from '../src/next.ts';
 import { signoffCommand as rawSignoff } from '../src/signoff.ts';
-import type { SignoffHooks } from '../src/signoff-checkpoint-act.ts';
 import { stepHash } from '../src/step-hash.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { checkProject, planCommand, stepStatusCommand, testClock } from './clock.ts';
@@ -58,16 +57,35 @@ function checkpointAct(dir: string, at: string, value: Partial<Record<'checkpoin
     value: { checkpointId: 'constraints', planStepId: 'constraints', outcome: 'pass', words: WORDS, ...value } };
 }
 
-function served(act: JsonObject, calls: string[] = []): SignoffHooks {
-  return { fetch: (transport) => {
-    expect(transport).toMatchObject({ jobId: JOB, kind: 'checkpoint', fetchCapability: 'synthetic-read-grant' });
-    calls.push(transport.actId);
-    return { bytes: JSON.stringify(act) };
-  } };
+function seedStoredCheckpointAct(dir: string, act: JsonObject, stage = 'rigging'): JsonObject {
+  const bytes = JSON.stringify(act);
+  const decoded = decodeReviewAct(bytes, 'checkpoint');
+  const p = load(dir);
+  const signoffs = arr(p.signoffs);
+  const signed: JsonObject = {
+    stage,
+    checkpoint: decoded.value.planStepId,
+    ...checkpointActSignoff(decoded),
+  };
+  p.signoffs = [...signoffs, signed];
+  const targetStep = obj(arr(obj(p.plan).steps).find(s => obj(s).id === decoded.value.planStepId));
+  p.review_acts = [...(Array.isArray(p.review_acts) ? p.review_acts : []), {
+    schema: 'rig-create/review-act@1',
+    kind: 'checkpoint',
+    jobId: decoded.jobId,
+    actId: decoded.actId,
+    checkpoint: decoded.value.planStepId,
+    signoff: signoffs.length,
+    bytes,
+    sha256: jobHash(bytes),
+    version_hash: stepHash(targetStep),
+  }];
+  save(dir, p);
+  return signed;
 }
 
-function ingest(dir: string, act: JsonObject, extra: string[] = [], stage = 'rigging', id = 'constraints', calls: string[] = []) {
-  return rawSignoff([stage, dir, '--checkpoint', id, '--from-review', String(act.actId), ...extra], testClock.now(), served(act, calls));
+function ingest(dir: string, act: JsonObject, extra: string[] = [], stage = 'rigging', id = 'constraints') {
+  return rawSignoff([stage, dir, '--checkpoint', id, '--from-review', String(act.actId), ...extra], testClock.now());
 }
 
 /** Every refusal names its code and leaves project.json byte-identical. */
@@ -121,39 +139,28 @@ test('@6 sealed record checkpoint ingests and replays after normal withdrawal', 
     const raw = fetchedAct.bytes;
     expect(fetchedAct.act).toMatchObject({ schema: JOB_COMMENTS_ACT_SCHEMA, actId: act.actId });
     const args = ['parts', dir, '--checkpoint', 'assemble', '--from-review', String(act.actId), '--json'];
-    const hooks: SignoffHooks = { fetch: () => ({ bytes: raw }) };
     const otherStep = arr(obj(obj(publication.source).plan).steps).map(obj).find(step => step.id !== 'assemble')!;
     const contradiction = JSON.stringify({ ...act, value: { ...act.value, comments: [{ text: 'Contradictory pin',
       anchor: { checkpointId: 'assemble', planStepId: otherStep.id } }] } });
-    expect(refused(dir, () => rawSignoff(args, now, { fetch: () => ({ bytes: contradiction }) })).code).toBe('REVIEW_ACT_INVALID');
-    const first = rawSignoff(args, now, hooks);
-    expect(first.exit).toBe(0);
-    expect(JSON.parse(first.stdout).verbatim).toBe('[["checkpoint","assemble"]]\nAccept sealed checkpoint\n\n[general]\nGeneral');
+    expect(() => decodeReviewAct(contradiction, 'checkpoint')).toThrow(expect.objectContaining({ code: 'REVIEW_ACT_INVALID' }));
+    expect(refused(dir, () => rawSignoff(args, now)).code).toBe('SIGNOFF_FROM_REVIEW_REMOVED');
+    const signed = seedStoredCheckpointAct(dir, JSON.parse(raw) as JsonObject, 'parts');
+    expect(signed.verbatim).toBe('[["checkpoint","assemble"]]\nAccept sealed checkpoint\n\n[general]\nGeneral');
     expect(obj(arr(load(dir).review_acts).at(-1)).bytes).toBe(raw);
     const words = join(dir, 'comments-quote.txt'); const reason = join(dir, 'comments-reason.txt');
     writeFileSync(words, 'Accept sealed checkpoint'); writeFileSync(reason, 'Retire the synthetic checkpoint requirement.');
     expect(planCommand(['checkpoint-withdraw', 'assemble', dir, '--by', 'operator', '--reason-file', reason, '--quote-file', words]).exit).toBe(0);
-    const frozen = readFileSync(join(dir, 'project.json'));
-    expect(rawSignoff(args, now, hooks).exit).toBe(0);
-    expect(readFileSync(join(dir, 'project.json'))).toEqual(frozen);
     expect(reviewActFindings(load(dir))).toEqual([]);
-    const changed = JSON.stringify({ ...act, value: { ...act.value, comments: [{ text: 'Changed original words' }] } });
-    expect(refused(dir, () => rawSignoff(args, now, { fetch: () => ({ bytes: changed }) })).code).toBe('REVIEW_ACT_REPLAY_CONFLICT');
-    let fetched = false;
-    expect(refused(dir, () => rawSignoff(['parts', dir, '--checkpoint', 'assemble', '--from-review', 'fresh-comments-checkpoint'], now,
-      { fetch: () => { fetched = true; return { bytes: raw }; } })).code).toBe('SIGNOFF_CHECKPOINT_INVALID');
-    expect(fetched).toBe(false);
   } finally { host.stop(); rmSync(stateDir, { recursive: true, force: true }); }
 });
 
-test('a passed checkpoint act records the checkpoint sign-off and its receipt, checks clean and replays without writing', () => {
+test('stored passed checkpoint act and its receipt check clean, while --from-review refuses exit 2', () => {
   const { dir, at } = bound();
   const act = checkpointAct(dir, at);
-  const result = ingest(dir, act, ['--json']);
-  expect(result.exit).toBe(0);
+  expect(refused(dir, () => ingest(dir, act, ['--json']))).toMatchObject({ code: 'SIGNOFF_FROM_REVIEW_REMOVED', exitCode: 2 });
+  const signed = seedStoredCheckpointAct(dir, act, 'rigging');
   const p = load(dir);
   const index = arr(p.signoffs).length - 1;
-  const signed = obj(arr(p.signoffs)[index]);
   expect(signed).toMatchObject({ stage: 'rigging', checkpoint: 'constraints', by: 'user', at, source: `review act ${JOB}/checkpoint-act-1` });
   expect(Buffer.from(String(signed.verbatim))).toEqual(Buffer.from(WORDS));
   const receipt = obj(arr(p.review_acts).at(-1));
@@ -162,81 +169,27 @@ test('a passed checkpoint act records the checkpoint sign-off and its receipt, c
     signoff: index, bytes, sha256: jobHash(bytes), version_hash: stepHash(obj(arr(obj(p.plan).steps).find((s) => obj(s).id === 'constraints'))) });
   expect(reviewActFindings(p)).toEqual([]);
   expect(checkProject(dir).refusals).toEqual([]);
-  const before = readFileSync(join(dir, 'project.json'));
-  const replay = ingest(dir, act, ['--json']);
-  expect(replay.exit).toBe(0);
-  expect(JSON.parse(replay.stdout)).toEqual(signed);
-  expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
 });
 
-test('a failed checkpoint act refuses by name and writes nothing', () => {
+test('decodeReviewAct rejects malformed checkpoint acts, and signoff --checkpoint --from-review refuses before fetching', () => {
   const { dir, at } = bound();
-  expect(refused(dir, () => ingest(dir, checkpointAct(dir, at, { outcome: 'fail' }))).code).toBe('REVIEW_ACT_CHECKPOINT_FAILED');
-  expect(load(dir).review_acts).toBeUndefined();
-});
-
-test.each([
-  ['checkpointId', { checkpointId: 'displayed-alias' }],
-  ['planStepId', { checkpointId: 'motion', planStepId: 'motion' }],
-])('a mismatched %s refuses by name', (_field, value) => {
-  const { dir, at } = bound();
-  expect(refused(dir, () => ingest(dir, checkpointAct(dir, at, value))).code).toBe('REVIEW_ACT_CHECKPOINT_MISMATCH');
-});
-
-test.each([['rigging', 'bones'], ['rigging', 'camera'], ['plan-approved', 'constraints']])('%s checkpoint %s is not an enabled checkpoint of that stage and refuses before fetching', (stage, id) => {
-  const { dir, at } = bound();
-  const calls: string[] = [];
-  expect(refused(dir, () => ingest(dir, checkpointAct(dir, at, { checkpointId: id, planStepId: id }), [], stage, id, calls)).code).toBe('SIGNOFF_CHECKPOINT_INVALID');
-  expect(calls).toEqual([]);
-});
-
-test('an act of another kind refuses by name', () => {
-  const { dir, at } = bound();
-  const act = { ...checkpointAct(dir, at), kind: 'interview-picks' };
-  expect(refused(dir, () => ingest(dir, act)).code).toBe('REVIEW_ACT_KIND_MISMATCH');
-});
-
-test('a changed displayed plan, a malformed value, a foreign identity or a future date refuses by name', () => {
-  const { dir, at } = bound();
-  const stale = checkpointAct(dir, at);
-  obj(arr(obj(obj(stale.source).plan).steps)[0]).hash = '3'.repeat(64);
-  expect(refused(dir, () => ingest(dir, stale)).code).toBe('REVIEW_ACT_SOURCE_STALE');
-  expect(refused(dir, () => ingest(dir, checkpointAct(dir, at, { outcome: 'pending' }))).code).toBe('REVIEW_ACT_INVALID');
-  expect(refused(dir, () => ingest(dir, checkpointAct(dir, at, { planStepId: 'not-in-plan', checkpointId: 'not-in-plan' }))).code).toBe('REVIEW_ACT_INVALID');
-  expect(refused(dir, () => ingest(dir, { ...checkpointAct(dir, at), jobId: 'other-job' })).code).toBe('REVIEW_ACT_INVALID');
-  expect(refused(dir, () => ingest(dir, checkpointAct(dir, new Date(testClock.now() + 60_000).toISOString()))).code).toBe('REVIEW_ACT_INVALID');
-});
-
-test.each([
-  [['--by', 'user']],
-  [['--verbatim-file', 'words.txt']],
-])('human-value flag %p refuses with --from-review before fetching', (extra) => {
-  const { dir, at } = bound();
-  const calls: string[] = [];
-  const error = refused(dir, () => ingest(dir, checkpointAct(dir, at), extra, 'rigging', 'constraints', calls));
-  expect(error).toMatchObject({ code: 'SIGNOFF_OPTION_INVALID', exitCode: 2 });
-  expect(calls).toEqual([]);
-});
-
-test('--from-review without --checkpoint takes the stage sign-off route, so a checkpoint act there is the wrong kind', () => {
-  const { dir, at } = bound();
-  const kinds: string[] = [];
-  const hooks: SignoffHooks = { fetch: transport => { kinds.push(String(transport.kind)); return { bytes: JSON.stringify(checkpointAct(dir, at)) }; } };
-  expect(refused(dir, () => rawSignoff(['rigging', dir, '--from-review', 'checkpoint-act-1'], testClock.now(), hooks))).toMatchObject({ code: 'REVIEW_ACT_KIND_MISMATCH' });
-  expect(kinds).toEqual(['signoff']);
-});
-
-test('--steps refuses with --from-review on the checkpoint route before fetching', () => {
-  const { dir, at } = bound();
-  const calls: string[] = [];
-  const error = refused(dir, () => ingest(dir, checkpointAct(dir, at), ['--steps', 'constraints'], 'rigging', 'constraints', calls));
-  expect(error).toMatchObject({ code: 'SIGNOFF_OPTION_INVALID', exitCode: 2 });
-  expect(calls).toEqual([]);
+  expect(() => decodeReviewAct(JSON.stringify({ ...checkpointAct(dir, at), kind: 'interview-picks' }), 'checkpoint'))
+    .toThrow(expect.objectContaining({ code: 'REVIEW_ACT_KIND_MISMATCH' }));
+  expect(() => decodeReviewAct(JSON.stringify(checkpointAct(dir, at, { outcome: 'pending' })), 'checkpoint'))
+    .toThrow(expect.objectContaining({ code: 'REVIEW_ACT_INVALID' }));
+  expect(() => decodeReviewAct(JSON.stringify(checkpointAct(dir, at, { planStepId: 'not-in-plan', checkpointId: 'not-in-plan' })), 'checkpoint'))
+    .toThrow(expect.objectContaining({ code: 'REVIEW_ACT_INVALID' }));
+  for (const extra of [[], ['--by', 'user'], ['--verbatim-file', 'words.txt'], ['--steps', 'constraints']]) {
+    const error = refused(dir, () => ingest(dir, checkpointAct(dir, at), extra));
+    expect(error).toMatchObject({ code: 'SIGNOFF_FROM_REVIEW_REMOVED', exitCode: 2 });
+  }
+  expect(refused(dir, () => rawSignoff(['rigging', dir, '--from-review', 'checkpoint-act-1'], testClock.now())))
+    .toMatchObject({ code: 'SIGNOFF_FROM_REVIEW_REMOVED', exitCode: 2 });
 });
 
 test('check refuses a tampered sign-off, a failed act behind a receipt and a second act receipt on the same sign-off', () => {
   const { dir, at } = bound();
-  expect(ingest(dir, checkpointAct(dir, at)).exit).toBe(0);
+  seedStoredCheckpointAct(dir, checkpointAct(dir, at), 'rigging');
   const recorded = load(dir);
   const codes = (p: JsonObject) => reviewActFindings(p).map((f) => f.code);
   const words = structuredClone(recorded);
@@ -256,14 +209,12 @@ test('check refuses a tampered sign-off, a failed act behind a receipt and a sec
   expect(codes(twice)).toEqual(['REVIEW_ACT_LEDGER_INVALID']);
 });
 
-test('the CLI fetches the checkpoint act through the job API binding and records it', async () => {
-  const { dir, at } = bound();
-  const act = checkpointAct(dir, at);
+test('the CLI refuses signoff --checkpoint --from-review with exit 2 without contacting the job server', async () => {
+  const { dir } = bound();
   const requests: JsonObject[] = [];
   const server = Bun.serve({ hostname: '127.0.0.1', port: 0, async fetch(request) {
-    const body = await request.json() as JsonObject;
-    requests.push({ ...body, accept: request.headers.get('accept'), authorization: request.headers.get('authorization') });
-    return Response.json({ schema: 'rig-review/job-api@2', verb: 'fetch-act', ok: true, jobId: JOB, requestId: body.requestId, value: act });
+    requests.push(await request.json() as JsonObject);
+    return Response.json({ ok: true });
   } });
   try {
     const origin = `http://127.0.0.1:${server.port}`;
@@ -272,47 +223,30 @@ test('the CLI fetches the checkpoint act through the job API binding and records
     const p = load(dir);
     p.review_job = { jobId: JOB, origin };
     save(dir, p);
+    const before = readFileSync(join(dir, 'project.json'));
     const child = Bun.spawn([process.execPath, ...clockedCli(), 'signoff', 'rigging', dir, '--checkpoint', 'constraints', '--from-review', 'checkpoint-act-1'],
       { cwd: dir, env: gitEnv(), stdout: 'pipe', stderr: 'pipe' });
-    const [stdout, stderr, exit] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
-    expect({ exit, stderr }).toEqual({ exit: 0, stderr: '' });
-    expect(stdout).toContain('signoff: recorded rigging by user');
-    expect(requests).toHaveLength(1);
-    expect(requests[0]).toMatchObject({ schema: 'rig-review/job-api@2', verb: 'fetch-act', jobId: JOB, actId: 'checkpoint-act-1', accept: 'application/json', authorization: 'Bearer synthetic-read-grant' });
-    expect(obj(arr(load(dir).review_acts).at(-1)).bytes).toBe(JSON.stringify(act));
-    expect(checkProject(dir).refusals).toEqual([]);
+    const [, stderr, exit] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
+    expect(exit).toBe(2);
+    expect(stderr).toContain('SIGNOFF_FROM_REVIEW_REMOVED');
+    expect(requests).toEqual([]);
+    expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
   } finally { server.stop(true); }
 });
 
-
-test('P1 immutable checkpoint act replays after withdrawal with bytes inode and times unchanged', () => {
+test('stored checkpoint act remains valid after withdrawal and next offers no checkpoint review_act', () => {
   testClock.set('2026-11-20T00:00:00Z');
   const { dir, at } = bound(true);
   stepStatusCommand(['constraints', 'in-progress', dir, '--by', 'agent']);
   stepStatusCommand(['constraints', 'at-checkpoint', dir, '--by', 'agent']);
   const act = checkpointAct(dir, at);
   expect(checkProject(dir).refusals).toEqual([]);
-  expect(ingest(dir, act).exit).toBe(0);
+  seedStoredCheckpointAct(dir, act, 'rigging');
   testClock.set(testClock.now() + 1000);
   const quote = join(dir, 'quote.txt'); const reason = join(dir, 'reason.txt');
   writeFileSync(quote, 'Keep this evidence in the later review.'); writeFileSync(reason, 'Retire the synthetic checkpoint.');
   expect(planCommand(['checkpoint-withdraw', 'constraints', dir, '--by', 'operator', '--reason-file', reason, '--quote-file', quote]).exit).toBe(0);
-  const file = join(dir, 'project.json'); const bytes = readFileSync(file); const before = statSync(file, { bigint: true });
-  const receipt = structuredClone(arr(load(dir).review_acts));
-  let replay: ReturnType<typeof ingest> | undefined;
-  let replayError: unknown;
-  try { replay = ingest(dir, act, ['--json']); } catch (error) { replayError = error; }
-  expect(replayError instanceof Refusal ? replayError.code : replayError).toBeUndefined();
-  expect(replay!.exit).toBe(0);
-  const after = statSync(file, { bigint: true });
-  expect(readFileSync(file)).toEqual(bytes);
-  expect([after.ino, after.mtimeNs, after.ctimeNs, after.size]).toEqual([before.ino, before.mtimeNs, before.ctimeNs, before.size]);
-  expect(arr(load(dir).review_acts)).toEqual(receipt);
-  expect(refused(dir, () => ingest(dir, { ...act, value: { ...obj(act.value), words: 'Changed old bytes.' } })).code).toBe('REVIEW_ACT_REPLAY_CONFLICT');
-  const calls: string[] = [];
-  expect(refused(dir, () => ingest(dir, { ...act, actId: 'new-checkpoint-act' }, [], 'rigging', 'constraints', calls)).code).toBe('SIGNOFF_CHECKPOINT_INVALID');
-  expect(calls).toEqual([]);
-  expect(refused(dir, () => ingest(dir, act, [], 'parts')).code).toBe('SIGNOFF_CHECKPOINT_INVALID');
+  expect(reviewActFindings(load(dir))).toEqual([]);
   testClock.set(testClock.now() + 1000);
   plantLegacyReopen(dir, 'rigging', { by: 'user', wordsFile: quote });
   const next = JSON.parse(nextCommand([dir, '--json'], testClock.now()).stdout) as { moves: { review_act?: { kind: string; step_id?: string } }[] };

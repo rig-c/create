@@ -9,7 +9,7 @@ const STAGE_PROGRESS_SINCE = '2026-11-08T00:00:00Z';
 import { tempDir } from './helpers.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { plantLegacyReopen, arr, bindFixtureAnswers, fixture, obj, rehashSignoffs, retimeFixture, step } from './fixtures.ts';
-import { checkProject, advanceCommand, inputCommand, stepStatusCommand, reviewCommand, signoffCommand, testClock } from './clock.ts';
+import { checkProject, advanceCommand, inputCommand, stepStatusCommand, signoffCommand, testClock } from './clock.ts';
 
 const read = (dir: string): JsonObject => JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8'));
 const codes = (dir: string): string[] => checkProject(dir).refusals.map(f => f.code);
@@ -197,13 +197,6 @@ function checkpoint(name: string, handMove = false): string {
 }
 function hand(dir: string, stage: string): void {
   const p = read(dir); p.stage = stage; writeFileSync(join(dir, 'project.json'), JSON.stringify(p));
-}
-function acceptRigReview(dir: string, at: string): void {
-  testClock.set(new Date(at));
-  reviewCommand(['1', dir, '--verdict', 'accepted', '--by', 'user', '--review', 'rig-review',
-    '--verbatim-file', join(dir, 'evidence/approval.txt'), '--source', 'synthetic example']);
-  testClock.set(new Date(Date.parse(at) + 60_000));
-  signoffCommand(['rig-review', dir, '--by', 'user', '--verbatim-file', words(dir), '--version', '1']);
 }
 
 test('review the advance after a pre-contract hand move records it', () => {

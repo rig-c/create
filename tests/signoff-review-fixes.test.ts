@@ -7,7 +7,8 @@ import { checkSignoffTarget } from '../src/signoff-target.ts';
 import type { Finding } from '../src/check.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { arr, fixture, obj } from './fixtures.ts';
-import { signoffCommand, checkProject, testClock } from './clock.ts';
+import { checkProject, testClock } from './clock.ts';
+import { seedStoredVersionSignoff } from './historical-review-fixture.ts';
 
 const load = (dir: string): JsonObject => JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8'));
 const save = (dir: string, p: JsonObject): void => writeFileSync(join(dir, 'project.json'), JSON.stringify(p, null, 2) + '\n');
@@ -20,7 +21,11 @@ function setup(): string {
   return dir;
 }
 function sign(dir: string): JsonObject {
-  return JSON.parse(signoffCommand(['rig-review', dir, '--version', '2', '--by', 'user', '--verbatim-file', join(dir, 'words.txt'), '--json']).stdout);
+  return seedStoredVersionSignoff(dir, 'rig-review', 2, {
+    by: 'user',
+    at: testClock.now(),
+    verbatim: readFileSync(join(dir, 'words.txt'), 'utf8'),
+  });
 }
 
 test('raw legacy signatures remain targetless and report both new refusals', () => {

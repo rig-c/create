@@ -47,15 +47,15 @@ rig-create job open <project> --reviewer <id> --role <owner|delegate> [--draft <
     `stateDir/jobs.sqlite` when that store is still on disk, and leaves
     `project.json` byte-identical unless `--discard-acts` records discarded act
     receipts. It cannot keep the previous Review page or URL alive, cannot
-    collect new owner submissions, and cannot serve `--from-review` ingestion
-    from the stopped job.
+    collect new owner submissions, and cannot serve `comment --from-review`
+    ingestion from the stopped job.
   - **Unfetched finalized owner acts on a stopped older-pin job.**
     - *When `stateDir/jobs.sqlite` is still on disk:* finalized acts committed
       before the host stopped are still on disk in Review's SQLite store.
       `job close` opens that store with fail-closed producer callbacks, reads
       its finalized acts, and refuses `JOB_ACTS_PENDING` if any un-ingested act
       is pending so acts are not silently dropped. Because the stopped older-pin
-      host cannot serve `--from-review`, pass
+      host cannot serve `comment --from-review`, pass
       `job close --discard-acts <reason> --by agent` (or relayed owner-chat
       flags) to record `discarded` receipts in `project.json.review_acts[]` and
       close the job; the historical act rows remain in the closed SQLite store

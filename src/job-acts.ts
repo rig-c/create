@@ -90,7 +90,7 @@ export interface PendingJobAct {
   args: string[] | null;
   command: string | null;
   preconditions?: { command: string | null; act: string }[];
-  unavailable?: { code: 'JOB_ACTS_WRITER_UNAVAILABLE' | 'REOPEN_ACT_RETIRED' | 'NUMBERED_ACT_RETIRED'; message: string };
+  unavailable?: { code: 'JOB_ACTS_WRITER_UNAVAILABLE' | 'REOPEN_ACT_RETIRED' | 'NUMBERED_ACT_RETIRED' | 'SIGNOFF_FROM_REVIEW_REMOVED'; message: string };
   /** A grouped interview page whose other sets have not all submitted: no ingest command yet. */
   waiting?: { received: number; total: number };
 }
@@ -139,7 +139,6 @@ export function pendingJobActs(project: JsonObject, acts: readonly ActV3[], root
   const ingested = new Set(asArray(project.review_acts).filter(isObject).map(row => JSON.stringify([row.jobId, row.actId])));
   const signoffs = asArray(project.signoffs).filter(isObject);
   const seen = new Set<string>();
-  const batches = new Map<string, PendingJobAct[]>();
   const pending = acts.flatMap<PendingJobAct>(act => {
     const key = JSON.stringify([act.jobId, act.actId]);
     if (seen.has(key) || ingested.has(key) || signoffs.some(row => row.source === `review act ${act.jobId}/${act.actId}`)) return [];
@@ -179,7 +178,10 @@ export function pendingJobActs(project: JsonObject, acts: readonly ActV3[], root
       }
       case 'interview-picks':
         subject = `question ${act.value.questionId}`;
-        args = ['interview-answer', act.value.questionId, root];
+        unavailable = {
+          code: 'SIGNOFF_FROM_REVIEW_REMOVED',
+          message: `project.json.interview: interview-answer --from-review was removed for act ${act.actId} (${subject}); use interview-answer ${act.value.questionId} ${shellWord(root)} --set <id> --sha256 <hash> --pick <option> --by <owner> --owner-chat <words file> --said-at <ISO date> --relayed-by <operator>`,
+        };
         break;
       case 'reopen':
         return [{ actId: act.actId, ...(act.publicationId === undefined ? {} : { publicationId: act.publicationId }),
@@ -188,12 +190,20 @@ export function pendingJobActs(project: JsonObject, acts: readonly ActV3[], root
             message: `project.json.review_acts: reopen act ${act.actId} is retired; correct an earlier answer with rig-create interview-options and interview-answer, then re-sign each stale approval. For an artifact change, use rig-create amend. Withdraw this act with rig-create job withdraw-act ${act.actId} and the owner’s relayed words` } }];
       case 'signoff': {
         subject = `stage ${act.value.stage}`;
-        args = ['signoff', act.value.stage, root];
         if (act.value.stage === 'parts-review') {
-          args = null;
           if (act.source.selector?.kind === 'draft') {
             unavailable = numberedActRetirement(act.actId);
+          } else if (act.source.selector?.kind === 'current') {
+            unavailable = {
+              code: 'SIGNOFF_FROM_REVIEW_REMOVED',
+              message: `project.json.signoffs: signoff ${act.value.stage} --from-review was removed for act ${act.actId} (${subject}); use signoff ${act.value.stage} ${shellWord(root)} --by <owner> --owner-chat <words file> --said-at <ISO date> --relayed-by <operator>`,
+            };
           }
+        } else {
+          unavailable = {
+            code: 'SIGNOFF_FROM_REVIEW_REMOVED',
+            message: `project.json.signoffs: signoff ${act.value.stage} --from-review was removed for act ${act.actId} (${subject}); use signoff ${act.value.stage} ${shellWord(root)} --by <owner> --owner-chat <words file> --said-at <ISO date> --relayed-by <operator>`,
+          };
         }
         break;
       }
@@ -203,7 +213,10 @@ export function pendingJobActs(project: JsonObject, acts: readonly ActV3[], root
         if (step && (step.phase === 'rig' || step.phase === 'post')) {
           const stage = stageOfStep(step.phase, String(step.id));
           subject += ` / ${stage}`;
-          args = ['signoff', stage, root, '--checkpoint', act.value.planStepId];
+          unavailable = {
+            code: 'SIGNOFF_FROM_REVIEW_REMOVED',
+            message: `project.json.signoffs: signoff --checkpoint ${act.value.planStepId} --from-review was removed for act ${act.actId} (${subject}); use signoff ${stage} ${shellWord(root)} --checkpoint ${act.value.planStepId} --by <owner> --owner-chat <words file> --said-at <ISO date> --relayed-by <operator>`,
+          };
         }
         break;
       }
@@ -214,33 +227,8 @@ export function pendingJobActs(project: JsonObject, acts: readonly ActV3[], root
       command: args ? ['rig-create', ...args].map(shellWord).join(' ') : null,
       ...(args ? {} : { unavailable: unavailable ?? { code: 'JOB_ACTS_WRITER_UNAVAILABLE' as const,
         message: `project.json: act ${act.actId} (${subject}) has no current writer target; restore its plan step or use a supported Review subject before ingestion` } }) };
-    if (isRecordPicksAct(act) && isMultiOptionSource(act.source)) {
-      const key = JSON.stringify([act.jobId, act.publicationId]);
-      const batch = batches.get(key);
-      if (batch) batch.push(row);
-      else batches.set(key, [row]);
-    }
     return [row];
   });
-  for (const [key, batch] of batches) {
-    // Ingest changes project.json, so the remaining acts of the page would be stale: wait for every set.
-    const covered = new Set<string>();
-    let total = 0;
-    for (const act of acts) {
-      if (!isRecordPicksAct(act) || !isMultiOptionSource(act.source)
-        || JSON.stringify([act.jobId, act.publicationId]) !== key) continue;
-      total = Math.max(total, (act.source as { optionSets: readonly unknown[] }).optionSets.length);
-      covered.add(JSON.stringify([act.value.questionId, act.source.optionSet.id]));
-    }
-    if (covered.size < total) {
-      for (const row of batch) { row.args = null; row.command = null; row.waiting = { received: covered.size, total }; }
-      continue;
-    }
-    if (batch.length < 2) continue;
-    const args = ['interview-answer', '--batch', root, ...batch.flatMap(row => ['--from-review', row.actId])];
-    const command = ['rig-create', ...args].map(shellWord).join(' ');
-    for (const row of batch) { row.args = args; row.command = command; }
-  }
   return pending;
 }
 

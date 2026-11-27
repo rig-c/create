@@ -1,39 +1,13 @@
 import { resignAfterChange } from './fixtures.ts';
 import { describe, expect, test } from 'bun:test';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { type ReviewInput } from '../src/feedback.ts';
-import { Refusal } from '../src/refusal.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { arr, codes, fixture, obj, version, waypoint, withCode } from './fixtures.ts';
 import { cli, gitEnv } from './helpers.ts';
-import { checkProject, recordVerdict } from './clock.ts';
+import { checkProject } from './clock.ts';
 
 const warned = (dir: string, code: string) => checkProject(dir).warnings.filter((w) => w.code === code);
-const read = (dir: string): JsonObject => JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')) as JsonObject;
-
-function refusalOf(f: () => unknown): Refusal {
-  try {
-    f();
-  } catch (e) {
-    if (e instanceof Refusal) return e;
-    throw e;
-  }
-  throw new Error('expected a refusal');
-}
-
-const base = (over: Partial<ReviewInput>): ReviewInput => ({
-  version: 4,
-  verdict: 'bounced',
-  by: 'user',
-  review: 'direction-review',
-  verbatim: 'too fast',
-  source: 'chat',
-  items: [],
-  quotes: {},
-  values: {},
-  ...over,
-});
 
 describe('feedback answered by the next version (interview --check)', () => {
   test('the filled example passes, and each bounce is counted by cause', () => {
@@ -124,157 +98,19 @@ describe('feedback answered by the next version (interview --check)', () => {
   });
 });
 
-// Review input controls start before a review sign-off. A later bounce on a
-// signed acceptance must now refuse the newly invalid sign-off target.
-function reviewFixture(edit?: (project: JsonObject) => void, rigOnly = false): string {
-  return fixture(project => {
-    project.signoffs = [];
-    if (rigOnly) { project.versions = arr(project.versions).filter(v => obj(v).kind === 'rig'); project.stage = 'rig-review'; }
-    edit?.(project);
-  });
-}
-
-describe('rig-create review records a verdict', () => {
-  test('verbatim byte for byte, answer_was derived, a not-asked item lands in the guide, stage unchanged', () => {
-    const words = 'The beam is “too fast” — and the gulls?  None. 灯台は残して.\n';
-    const dir = reviewFixture();
-    const before = read(dir);
-    const r = recordVerdict(
-      dir,
-      base({
-        verbatim: words,
-        items: [{ id: 'post_timing', answerWas: null }, { id: 'post_composition', answerWas: 'not-asked' }],
-        quotes: { post_composition: 'the gulls?' },
-        values: { post_composition: { gulls: true } },
-        at: '2026-11-16T09:00:00Z',
-      }),
-    );
-    expect(r.verdict_path).toBe('versions[v4].verdicts[1]');
-    const after = read(dir);
-    const v = obj(arr(version(after, 4).verdicts)[1]);
-    expect(Buffer.from(v.verbatim as string)).toEqual(Buffer.from(words));
-    expect(v.on_items).toEqual([
-      { id: 'post_timing', answer_was: 'user' },
-      { id: 'post_composition', answer_was: 'not-asked' },
-    ]);
-    const guide = obj(byPost(after, 'post_composition').guide);
-    expect(guide.additions).toEqual([{ by: 'user', at: '2026-11-16T09:00:00Z', verbatim: 'the gulls?', value: { gulls: true }, source: 'polish feedback, v4' }]);
-    expect(guide.verbatim).toBe(obj(byPost(before, 'post_composition').guide).verbatim as string);
-    expect(after.stage).toBe(before.stage);
-    expect(after.signoffs).toEqual(before.signoffs);
-    // The record it leaves: the bounce is open work, the sentence is in place.
-    const check = checkProject(dir);
-    expect(withCode(check, 'FEEDBACK_NOT_ADDED')).toEqual([]);
-    expect(warned(dir, 'FEEDBACK_OPEN').map((w) => w.path)).toEqual(['versions[v4].verdicts[1]']);
-  });
-
-  test('a delegated item derives delegated; naming it a user answer is refused by name and nothing is written', () => {
-    const dir = reviewFixture(undefined, true);
-    const before = readFileSync(join(dir, 'project.json'), 'utf8');
-    const e = refusalOf(() => recordVerdict(dir, base({ version: 2, review: 'rig-review', items: [{ id: 'seethrough', answerWas: 'user' }] })));
-    expect(e.code).toBe('FEEDBACK_ITEM_CONTRADICTS');
-    expect(e.message).toContain('seethrough');
-    expect(readFileSync(join(dir, 'project.json'), 'utf8')).toBe(before);
-    const ok = recordVerdict(dir, base({ version: 2, review: 'rig-review', items: [{ id: 'seethrough', answerWas: null }] }));
-    expect(ok.items[0]?.answer_was).toBe('delegated');
-  });
-
-  test('a user sentence is not a delegation; a sentence that left part open must be named', () => {
-    const dir = reviewFixture((p) => {
-      const guide = obj(waypoint(p, 'bones').guide);
-      guide.verbatim = 'A chain down the scarf, one in each coat tail, one in her hair tail. Place the bones along each named part for its full length.';
-      guide.value = { chains: ['scarf', 'coat_tail_l', 'coat_tail_r', 'hair_tail'], placement: 'along each named part', length: 'full part length' };
-      guide.asks = [{ id: 'chains', state: 'user' }, { id: 'placement', state: 'user' }, { id: 'length', state: 'user' }];
-      delete guide.agent_decision;
-    }, true);
-    expect(refusalOf(() => recordVerdict(dir, base({ version: 2, review: 'rig-review', items: [{ id: 'bones', answerWas: 'delegated' }] }))).code).toBe('FEEDBACK_ITEM_CONTRADICTS');
-    expect(refusalOf(() => recordVerdict(dir, base({ version: 2, review: 'rig-review', items: [{ id: 'assemble', answerWas: null }] }))).code).toBe('FEEDBACK_ITEM_AMBIGUOUS');
-    const ok = recordVerdict(dir, base({ version: 2, review: 'rig-review', items: [{ id: 'assemble', answerWas: 'delegated' }] }));
-    expect(ok.items[0]).toMatchObject({ answer_was: 'delegated', how: 'named' });
-  });
-
-  test('partially delegated bones and meshes accept explicitly named delegated feedback', () => {
-    for (const id of ['bones', 'meshes']) {
-      const result = recordVerdict(reviewFixture(undefined, true), base({ version: 2, review: 'rig-review', items: [{ id, answerWas: 'delegated' }] }));
-      expect(result.items[0]).toMatchObject({ id, answer_was: 'delegated', how: 'named' });
-    }
-  });
-
-  test('unknown items, a review of the wrong kind and a quote not in the words are refused', () => {
-    const dir = reviewFixture();
-    expect(refusalOf(() => recordVerdict(dir, base({ items: [{ id: 'x_gulls', answerWas: 'not-asked' }] }))).code).toBe('FEEDBACK_ITEM_UNKNOWN');
-    expect(refusalOf(() => recordVerdict(dir, base({ review: 'rig-review' }))).code).toBe('REVIEW_WRONG_KIND');
-    expect(refusalOf(() => recordVerdict(dir, base({ version: 9 }))).code).toBe('REVIEW_VERSION_UNKNOWN');
-    expect(
-      refusalOf(() => recordVerdict(dir, base({ items: [{ id: 'post_timing', answerWas: 'not-asked' }], quotes: { post_timing: 'slower' } }))).code,
-    ).toBe('FEEDBACK_QUOTE_NOT_IN_VERBATIM');
-    expect(refusalOf(() => recordVerdict(reviewFixture((p) => (waypoint(p, 'motion').guide = null)), base({ version: 2, review: 'rig-review', items: [{ id: 'motion', answerWas: null }] }))).code).toBe(
-      'FEEDBACK_ITEM_SILENT',
-    );
-  });
-
-  test('the CLI prints what it recorded and exits 0; a contradiction exits 1 with the code', () => {
-    const dir = reviewFixture();
-    const env = gitEnv();
-    const ok = cli(
-      ['review', 'v4', dir, '--verdict', 'provisional', '--by', 'user', '--review', 'direction-review', '--verbatim', 'hold on', '--source', 'chat', '--item', 'post_timing'],
-      dir,
-      env,
-    );
-    expect(ok.code).toBe(0);
-    expect(ok.stdout).toContain('recorded versions[v4].verdicts[1]');
-    expect(ok.stdout).toContain('post_timing: user (from the record)');
-    expect(ok.stdout).toContain('stage unchanged (accepted)');
-    const bad = cli(
-      ['review', '2', dir, '--verdict', 'bounced', '--by', 'user', '--review', 'rig-review', '--verbatim', 'no', '--source', 'chat', '--item', 'seethrough:user'],
-      dir,
-      env,
-    );
-    expect(bad.code).toBe(1);
-    expect(bad.stderr).toContain('FEEDBACK_ITEM_CONTRADICTS');
-    const usage = cli(['review', '2', dir, '--verdict', 'bounced'], dir, env);
-    expect(usage.code).toBe(2);
-    expect(usage.stderr).toContain('REVIEW_OPTION_MISSING');
-  });
-});
-
-function byPost(p: JsonObject, id: string): JsonObject {
-  const found = arr(obj(obj(p.interview).post).items).find((x) => obj(x).id === id);
-  if (found === undefined) throw new Error(`no post item ${id}`);
-  return obj(found);
-}
-
-describe('review record input options', () => {
-  test('file preserves bytes, --at is verbatim, and answering references are recorded', () => {
-    const dir = reviewFixture();
-    const file = join(dir, 'words.txt');
-    const text = '\uFEFF  좋아\r\n\n';
-    writeFileSync(file, text);
-    const r = cli(['review', '4', '--verdict', 'accepted', '--by', 'user', '--review', 'direction-review', '--source', 'note', '--verbatim-file', file,
-      '--at', '2026-11-16T01:02:03+09:00', '--answers-feedback', '2:0'], dir, gitEnv());
-    expect(r.code).toBe(0);
-    const v = version(read(dir), 4);
-    const verdict = obj(arr(v.verdicts).at(-1));
-    expect(Buffer.from(verdict.verbatim as string)).toEqual(readFileSync(file));
-    expect(verdict.at).toBe('2026-11-16T01:02:03+09:00');
-    expect(arr(v.answers_feedback)).toContainEqual({ version: 2, verdict: 0 });
-  });
-
-  test.each(['4:0', '99:0', '1:99', '1:0'])('invalid or already recorded feedback %s writes nothing', (ref) => {
-    const dir = fixture((p) => { version(p, 4).answers_feedback = [{ version: 1, verdict: 0 }]; });
-    const before = readFileSync(join(dir, 'project.json'));
-    const r = cli(['review', '4', '--verdict', 'accepted', '--by', 'user', '--review', 'direction-review', '--source', 'chat', '--verbatim', 'yes', '--answers-feedback', ref], dir, gitEnv());
-    expect(r.code).toBe(1);
-    expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
-  });
-
-  test('duplicates, agent reviewers, invalid time and conflicting input options write nothing', () => {
+describe('rig-create review writer retirement', () => {
+  test('CLI refuses with NUMBERED_WRITER_REMOVED and exit 2 before mutating project.json', () => {
     const dir = fixture();
+    const env = gitEnv();
     const before = readFileSync(join(dir, 'project.json'));
-    const base = ['review', '4', '--verdict', 'accepted', '--review', 'direction-review', '--source', 'chat', '--verbatim', 'yes'];
-    for (const options of [['--by', 'agent'], ['--by', 'user', '--at', 'bad'], ['--by', 'user', '--verbatim-file', 'missing'],
-      ['--by', 'user', '--answers-feedback', '2:0', '--answers-feedback', '2:0']]) {
-      expect(cli([...base, ...options], dir, gitEnv()).code).not.toBe(0);
+    for (const args of [
+      ['review', 'v4', dir, '--verdict', 'provisional', '--by', 'user', '--review', 'direction-review', '--verbatim', 'hold on', '--source', 'chat'],
+      ['review', '2', dir, '--verdict', 'bounced'],
+      ['review', '2', dir, '--from-review', 'act-1'],
+    ]) {
+      const result = cli(args, dir, env);
+      expect(result.code).toBe(2);
+      expect(result.stderr).toContain('NUMBERED_WRITER_REMOVED');
       expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
     }
   });
@@ -330,42 +166,6 @@ describe('delegated feedback names its ask', () => {
     })));
     expect(r.refusals).toEqual([]);
   });
-
-  test('review records --ask, and refuses a contradictory ask before writing', () => {
-    const dir = fixture();
-    const args = ['review', '2', dir, '--verdict', 'provisional', '--by', 'user', '--review', 'rig-review',
-      '--verbatim', 'Change the density.', '--source', 'chat', '--item', 'meshes:delegated', '--ask', 'meshes=density', '--json'];
-    const result = cli(args, dir, gitEnv());
-    expect(result.code).toBe(0);
-    expect(JSON.parse(result.stdout).verdict.on_items).toEqual([{ id: 'meshes', answer_was: 'delegated', ask: 'density' }]);
-    const before = readFileSync(join(dir, 'project.json'), 'utf8');
-    args[args.indexOf('meshes=density')] = 'meshes=bend';
-    const bad = cli(args, dir, gitEnv());
-    expect(bad.code).toBe(1);
-    expect(bad.stderr).toContain('FEEDBACK_ASK_STATE');
-    expect(readFileSync(join(dir, 'project.json'), 'utf8')).toBe(before);
-  });
-});
-
-
-test('review --ask rejects missing items, repeated ids, empty ids and non-delegated causes', () => {
-  const dir = fixture();
-  const args = ['review', '2', dir, '--verdict', 'provisional', '--by', 'user', '--review', 'rig-review',
-    '--verbatim', 'Change the density.', '--source', 'chat', '--json'];
-  const before = readFileSync(join(dir, 'project.json'), 'utf8');
-  for (const extra of [
-    ['--ask', 'meshes=density'],
-    ['--item', 'meshes:delegated', '--ask', 'meshes=density', '--ask', 'meshes=density'],
-    ['--item', 'meshes:delegated', '--ask', 'meshes='],
-  ]) {
-    const result = cli([...args, ...extra], dir, gitEnv());
-    expect(result.code).toBe(2);
-    expect(readFileSync(join(dir, 'project.json'), 'utf8')).toBe(before);
-  }
-  const result = cli([...args, '--item', 'meshes:user', '--ask', 'meshes=bend'], dir, gitEnv());
-  expect(result.code).toBe(1);
-  expect(result.stderr).toContain('FEEDBACK_ASK_STATE');
-  expect(readFileSync(join(dir, 'project.json'), 'utf8')).toBe(before);
 });
 
 describe('#454 historical feedback compatibility', () => {
@@ -387,16 +187,5 @@ describe('#454 historical feedback compatibility', () => {
     const { feedbackReferenceFinding } = await import('../src/feedback.ts');
     const project: JsonObject = { versions: [{ n: 4, verdicts: [{ by: 'user', verdict: 'bounced' }] }] };
     for (const n of [3, 4]) expect(feedbackReferenceFinding(project, n, { version: 4, verdict: 0 }, `versions[v${n}].answers_feedback[0]`)?.code).toBe('FEEDBACK_REF_UNKNOWN');
-  });
-  test('review --answers-feedback still accepts an earlier accepted agent verdict', () => {
-    const dir = reviewFixture(p => {
-      version(p, 4).answers_feedback = [{ version: 3, verdict: 0 }];
-      version(p, 2).verdicts = [{ by: 'agent', at: version(p, 2).at!, review: 'rig-review', verdict: 'accepted', verbatim: 'Synthetic historical agent verdict', source: 'synthetic', on_items: [] }];
-    });
-    const before = version(read(dir), 2);
-    const r = cli(['review', '4', '--verdict', 'provisional', '--by', 'user', '--review', 'direction-review', '--source', 'synthetic', '--verbatim', 'Continue reviewing', '--answers-feedback', '2:0'], dir, gitEnv());
-    expect(r.code).toBe(0);
-    expect(version(read(dir), 4).answers_feedback).toContainEqual({ version: 2, verdict: 0 });
-    expect(version(read(dir), 2)).toEqual(before);
   });
 });

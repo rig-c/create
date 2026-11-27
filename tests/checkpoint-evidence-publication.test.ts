@@ -5,8 +5,9 @@ import { join } from 'node:path';
 import { startJobHost, type JobOwnerHost } from '@rig-c/review/job-host';
 import { JOB_BINDING_FILE, jobHash, writePrivateJson } from '../src/job-outbox.ts';
 import { currentJobIdentity, partsEnumerator, prepareDraftManifest, readPublished, readRecordPublished } from '../src/job-publication.ts';
-import { decodeReviewAct, fetchReviewAct, reviewActFindings, type CheckpointAct } from '../src/review-act.ts';
+import { checkpointActSignoff, decodeReviewAct, fetchReviewAct, reviewActFindings, type CheckpointAct } from '../src/review-act.ts';
 import { signoffCommand } from '../src/signoff.ts';
+import { stepHash } from '../src/step-hash.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { TEST_NOW } from './clock.ts';
 import { checkpointWorkspace } from './checkpoint-evidence-fixture.ts';
@@ -166,32 +167,35 @@ test('#395 sealed checkpoint record and package publications retain every asset 
         expect<unknown>(decoded).toEqual(act);
         acts.push({ act: decoded, bytes: fetched.bytes });
       }
-      for (const { act, bytes } of acts.slice(1)) {
+      for (const { act } of acts) {
         const before = readFileSync(recordFile);
-        expect(() => signoffCommand(['parts', f.root, '--checkpoint', 'assemble', '--from-review', String(act.actId)], now,
-          { fetch: () => ({ bytes }) })).toThrow(expect.objectContaining({ code: 'REVIEW_ACT_CHECKPOINT_FAILED' }));
+        expect(() => signoffCommand(['parts', f.root, '--checkpoint', 'assemble', '--from-review', String(act.actId)], now))
+          .toThrow(expect.objectContaining({ code: 'SIGNOFF_FROM_REVIEW_REMOVED', exitCode: 2 }));
         expect(readFileSync(recordFile)).toEqual(before);
       }
       const { act: accepted, bytes: acceptedBytes } = acts[0]!;
-      const sign = () => signoffCommand(['parts', f.root, '--checkpoint', 'assemble', '--from-review', String(accepted.actId)], now,
-        { fetch: () => ({ bytes: acceptedBytes }) });
-      // A metadata-only edit is a fresh source identity and cannot consume the old approval.
+      // A metadata-only edit is a fresh source identity on republication.
       f.packet.recommendationText = 'Changed recommendation, same raw assets';
       attach();
       const edited = readFileSync(recordFile);
-      expect(sign).toThrow(expect.objectContaining({ code: 'REVIEW_ACT_SOURCE_STALE' }));
-      expect(readFileSync(recordFile)).toEqual(edited);
       const changedPublication = await api('publish', { result, freeze: { kind: 'producer-held', holdId: 'synthetic-new-freeze',
         record: { path: 'project.json', sha256: jobHash(edited) } } });
       expect(obj(changedPublication.source).sourceHash).not.toBe(obj(publication.source).sourceHash);
       expect(changedPublication.instanceKey).not.toBe(publication.instanceKey);
       f.packet.recommendationText = 'HQ recommendation — (i), preserve raw FAIL';
       attach();
-      expect(sign().exit).toBe(0);
-      const signed = readFileSync(recordFile);
-      expect(sign().exit).toBe(0);
-      expect(readFileSync(recordFile)).toEqual(signed);
-      expect(reviewActFindings(JSON.parse(signed.toString()))).toEqual([]);
+      const seededProject = JSON.parse(readFileSync(recordFile, 'utf8')) as JsonObject;
+      const assembleStep = arr(obj(seededProject.plan).steps).map(obj).find(step => step.id === 'assemble')!;
+      const signoffEntry: JsonObject = { stage: 'parts', checkpoint: 'assemble', ...checkpointActSignoff(accepted) };
+      const signoffs = arr(seededProject.signoffs);
+      seededProject.signoffs = [...signoffs, signoffEntry];
+      seededProject.review_acts = [...arr(seededProject.review_acts), {
+        schema: 'rig-create/review-act@1', kind: 'checkpoint', jobId: accepted.jobId, actId: accepted.actId,
+        checkpoint: 'assemble', signoff: signoffs.length, bytes: acceptedBytes, sha256: jobHash(acceptedBytes),
+        version_hash: stepHash(assembleStep),
+      }];
+      writeFileSync(recordFile, JSON.stringify(seededProject, null, 2) + '\n');
+      expect(reviewActFindings(JSON.parse(readFileSync(recordFile, 'utf8')))).toEqual([]);
       // Old pinned delivery survives raw live-file loss and metadata-only changes.
       rmSync(join(f.root, String(obj(f.packet.table).path)));
       for (const tile of arr(f.packet.tiles).map(obj)) rmSync(join(f.root, String(tile.path)));

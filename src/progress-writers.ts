@@ -38,7 +38,7 @@ function options(args: string[], command: string): { positional: string[]; opts:
     const arg = args[i]!;
     if (arg === '--json') json = true;
     else if (command === 'advance' && (arg === '--by' || arg === '--verbatim-file')) {
-      refuse('ADVANCE_WORDS_REMOVED', `advances: advance no longer takes ${arg}; the move records the live stage signoff it rests on, so record the person's approval with signoff (from the review tool: signoff <stage> --from-review <actId>) and advance without words`, USAGE_EXIT);
+      refuse('ADVANCE_WORDS_REMOVED', `advances: advance no longer takes ${arg}; the move records the live stage signoff it rests on, so record the person's approval with signoff --by <owner> --owner-chat <words file> --said-at <ISO date> --relayed-by <operator> and advance without words`, USAGE_EXIT);
     } else if ((command === 'advance' ? ['--source', '--parts-check', '--parts'] : ['--by', '--note-file']).includes(arg)) {
       const value = args[++i];
       if (arg in opts || value === undefined || value.trim() === '') refuse('PROGRESS_OPTION_INVALID', `${command}: ${arg} needs one value; see help`, USAGE_EXIT);

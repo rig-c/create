@@ -15,7 +15,9 @@ import corePackage from '@rig-c/core/package.json';
 import { optionContext } from '../src/choices.ts';
 import { enqueuePublication, failPublication, pendingPublications, jobHash, jobHostStateRoot, jobPrivateRoot, JOB_BINDING_FILE, readWriterBinding, writePrivateJson, type AcknowledgedPublication } from '../src/job-outbox.ts';
 import { jobRuntimeExecArgv } from '../src/job-writer.ts';
+import { assertActSubjectDeclared, decodeReviewAct } from '../src/review-act.ts';
 import { fixture, retainSignoffs, obj, arr } from './fixtures.ts';
+import { seedStoredInterviewPicks } from './historical-review-fixture.ts';
 import { stageIndex } from '../src/stages.ts';
 import type { JsonObject } from '../src/templates.ts';
 const CLI = join(import.meta.dir, '../src/cli.ts');
@@ -488,24 +490,19 @@ test('record question public path, API@2 fetch, retry, stale source and wrong su
   const otherSelections = selections.map((row, index) => index === 0 ? { ...row, optionId: 'other', otherText: otherWords } : row);
   const act = await owner.act('interview-picks', 'interview-picks', { questionId: 'motion', selections: otherSelections, note: WORDS });
   expect(act.schema).toBe(JOB_COMMENTS_ACT_SCHEMA);
-  for (let n = 0; n < 2; n++) {
-    const original = bytes(root);
-    expect(() => interviewAnswerCommand(['motion', root, '--from-review', String(act.actId)], Date.now(), { fetch: () => ({ bytes: JSON.stringify({ ...act, value: {} }) }) })).toThrow(Refusal);
-    try { interviewAnswerCommand(['motion', root, '--from-review', String(act.actId)], Date.now(), { fetch: () => ({ bytes: JSON.stringify({ ...act, value: {} }) }) }); }
-    catch (error) { expect((error as Refusal).code).toBe('REVIEW_ACT_INVALID'); receipt({ control: 'malformed-act', code: (error as Refusal).code, before: jobHash(original), after: jobHash(bytes(root)), adapter: 'writer fetch hook; Review never finalizes malformed acts' }); }
-    expect(bytes(root)).toEqual(original);
-  }
-  // Simulate a receipt that did not declare the returned subject; the CLI must refuse.
+  expect(() => decodeReviewAct(JSON.stringify({ ...act, value: {} }), 'interview-picks'))
+    .toThrow(expect.objectContaining({ code: 'REVIEW_ACT_INVALID' }));
+  // Simulate a receipt that did not declare the returned subject; assertActSubjectDeclared refuses.
   const ackDir = join(jobPrivateRoot(root), 'acknowledged-publications');
   const ackPath = readdirSync(ackDir).map(name => join(ackDir, name)).find(path => JSON.parse(readFileSync(path, 'utf8')).publicationId === act.publicationId)!;
   const ackBytes = readFileSync(ackPath);
   writeFileSync(ackPath, JSON.stringify({ ...JSON.parse(ackBytes.toString()), subjects: [] }), { mode: 0o600 });
-  await unchanged(root, ['interview-answer', 'motion', root, '--from-review', String(act.actId)], 'REVIEW_ACT_SUBJECT_UNDECLARED');
+  expect(() => assertActSubjectDeclared(root, decodeReviewAct(JSON.stringify(act), 'interview-picks'), 'interview.waypoints[motion]'))
+    .toThrow(expect.objectContaining({ code: 'REVIEW_ACT_SUBJECT_UNDECLARED' }));
   writeFileSync(ackPath, ackBytes, { mode: 0o600 });
-  await unchanged(root, ['interview-answer', 'bones', root, '--from-review', String(act.actId)], 'REVIEW_ACT_INVALID');
+  await unchanged(root, ['interview-answer', 'motion', root, '--from-review', String(act.actId)], 'SIGNOFF_FROM_REVIEW_REMOVED');
   // Republish the same question on a noncanonical record while an earlier pick is still pending.
   writeFileSync(join(root, 'project.json'), Buffer.concat([before, Buffer.from(' ')]));
-  await unchanged(root, ['interview-answer', 'motion', root, '--from-review', String(act.actId)], 'REVIEW_ACT_SOURCE_STALE');
   const republished = await open(root, ['--question', 'motion']);
   expect(republished.url.href).toBe(opened.url.href);
   const latest = seedLegacyPicksPage(root);
@@ -519,13 +516,8 @@ test('record question public path, API@2 fetch, retry, stale source and wrong su
   expect(withdrew.exit, withdrew.stderr).toBe(0);
   expect(readWriterBinding(root)).toEqual(binding);
   expect(arr(read(root).review_acts).at(-1)).toMatchObject({ kind: 'discarded', actId: act.actId });
-  const answerArgs = ['interview-answer', 'motion', root, '--from-review', String(kept.actId)];
-  const result = await cli(root, answerArgs);
-  expect(result.exit, result.stderr).toBe(0);
-  const saved = readFileSync(join(root, 'project.json'));
-  const retry = await cli(root, answerArgs);
-  expect(retry.exit, retry.stderr).toBe(0);
-  expect(readFileSync(join(root, 'project.json'))).toEqual(saved);
+  await unchanged(root, ['interview-answer', 'motion', root, '--from-review', String(kept.actId)], 'SIGNOFF_FROM_REVIEW_REMOVED');
+  seedStoredInterviewPicks(root, kept);
   expect(read(root).stage).toBe('rigging-interview');
   const answer = collectItems(read(root), { collection: null }).find(item => item.id === 'motion')!.raw as JsonObject;
   expect((obj(answer.choice).picks as JsonObject[]).map(pick => pick.ask)).toEqual(otherSelections.map(row => row.itemId));
@@ -576,7 +568,7 @@ test('exclusive record selectors and missing pending question refuse before host
 test.each([
   ['rigging-interview', 'publish', [/rig-create interview-options motion .* --file/, /rig-create job open .* --question motion/]],
   ['parts', 'wait', [/rig-create interview --check .* --json/, /complete the current stage/]],
-  ['rig-review', 'chat', [/owner changes-requested/, /exactly one page-level comment/, /rig-create review 2 --from-review .* --item motion:not-asked/, /re-sign rigging-interview/]],
+  ['rig-review', 'chat', [/rig-create interview --check .* --json/]],
   ['post-interview', 'chat', [/rig-create interview --check .* --json/]],
 ] as const)('#974 job open names the remedy at %s', async (stage, route, remedies) => {
   const root = synthetic(stage === 'rig-review' ? 'post-interview' : stage);

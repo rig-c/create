@@ -565,13 +565,6 @@ export function assertRequestedDraft(root: string, requested?: string, now = Dat
     if (change) refuse(change.code, change.message);
     if (eligibleRigDraftModel(draft)) draftPublishedContext(root, project, requested);
   }
-  if (requested !== undefined && stage === 'parts-review') {
-    const { missingStructure } = inspectDraftPublication(root, project, requested, [], stage);
-    if (missingStructure !== undefined) {
-      const command = ['rig-create', 'structure-snapshot', root, '--draft', requested].map(shellWord).join(' ');
-      refuse('JOB_PARTS_VERDICT_UNASKABLE', `drafts[${requested}]: stage parts-review requires a valid structure snapshot at ${missingStructure} before publishing a draft for its parts-verdict; run ${command} and retry job open --draft ${shellWord(requested)}`);
-    }
-  }
   const draftId = requested ?? (DRAFT_OPEN_STAGES.includes(String(stage)) ? ids.at(-1) : undefined);
   return { bytes, ids, stage, ...(draftId === undefined ? {} : { draftId }) };
 }

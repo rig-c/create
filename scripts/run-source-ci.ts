@@ -10,7 +10,7 @@ import {
 } from '../tests/source-only.ts';
 
 interface ChildEntryObservation {
-  readonly kind: 'review-act-fetch' | 'parts-review-cli';
+  readonly kind: 'review-act-fetch' | 'review-cli';
   readonly entry: string;
   readonly argv: readonly string[];
   readonly execArgv: readonly string[];
@@ -131,9 +131,9 @@ writeFileSync(
     '    const entry = realpathSync(rawEntry);',
     '    const fetchEntry = process.env.RIG_CREATE_EXPECTED_FETCH_ENTRY;',
     '    const cliEntry = process.env.RIG_CREATE_EXPECTED_REVIEW_CLI_ENTRY;',
-    "    let kind: 'review-act-fetch' | 'parts-review-cli' | null = null;",
+    "    let kind: 'review-act-fetch' | 'review-cli' | null = null;",
     "    if (fetchEntry && entry === fetchEntry) kind = 'review-act-fetch';",
-    "    else if (cliEntry && entry === cliEntry && process.argv[2] === 'parts') kind = 'parts-review-cli';",
+    "    else if (cliEntry && entry === cliEntry && process.argv[2] === 'feedback') kind = 'review-cli';",
     '    if (kind) {',
     "      const resolvedReviewHost = kind === 'review-act-fetch'",
     "        ? realpathSync(Bun.resolveSync('@rig-c/review/job-host', dirname(entry)))",
@@ -193,13 +193,13 @@ try {
     name => JSON.parse(readFileSync(join(obsRecordsDir, name), 'utf8')) as ChildEntryObservation,
   );
   const fetchObs = observations.filter(obs => obs.kind === 'review-act-fetch' && obs.entry === expectedFetchEntry);
-  const cliObs = observations.filter(obs => obs.kind === 'parts-review-cli' && obs.entry === expectedReviewCliEntry);
+  const cliObs = observations.filter(obs => obs.kind === 'review-cli' && obs.entry === expectedReviewCliEntry);
 
   if (fetchObs.length === 0) {
     throw new Error(`source-linked CI refused: no actual review-act-fetch child process observed for ${expectedFetchEntry}`);
   }
   if (cliObs.length === 0) {
-    throw new Error(`source-linked CI refused: no actual parts-review-cli child process observed for ${expectedReviewCliEntry}`);
+    throw new Error(`source-linked CI refused: no actual review-cli child process observed for ${expectedReviewCliEntry}`);
   }
 
   const classifyPlayTarget = (obs: ChildEntryObservation): 'src' | 'dist' => {
@@ -224,7 +224,7 @@ try {
       resolvedPlay: fetchObs[0]!.resolvedPlay,
       playTarget: classifyPlayTarget(fetchObs[0]!),
     },
-    'parts-review-cli': {
+    'review-cli': {
       observedCount: cliObs.length,
       entry: expectedReviewCliEntry,
       sampleArgv: cliObs[0]!.argv,

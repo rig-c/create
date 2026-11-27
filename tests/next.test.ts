@@ -4,17 +4,17 @@ import { appendFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { dirname, join, relative } from 'node:path';
-import { JOB_COMMENTS_ACT_SCHEMA, type ActV3, type JobOwnerHost } from '@rig-c/review/job-host';
+import { JOB_COMMENTS_ACT_SCHEMA, startJobHost, type ActV3, type JobOwnerHost } from '@rig-c/review/job-host';
 import { main } from '../src/cli.ts';
 import { checkProject, PLAN_STEP_ANSWER_SINCE } from '../src/check.ts';
 import { outputSetHash } from '../src/current.ts';
 import { openCreateJob } from '../src/job-host.ts';
-import { readRecordPublished } from '../src/job-publication.ts';
+import { prepareDraftManifest, readPublished, readRecordPublished } from '../src/job-publication.ts';
 import { stageIndex } from '../src/stages.ts';
-import { jobHostStateRoot } from '../src/job-outbox.ts';
+import { acknowledgePublication, enqueuePublication, jobHash, jobHostStateRoot, readWriterBinding, reconcilePublication } from '../src/job-outbox.ts';
 import { jobRuntimeExecArgv } from '../src/job-writer.ts';
 import { baselineOf, newFindings } from '../src/refusal-baseline.ts';
-import { partsStructureSnapshot, pendingJobActs } from '../src/job-acts.ts';
+import { agentCall, partsStructureSnapshot, pendingJobActs } from '../src/job-acts.ts';
 import { freshProjectRecord } from '../src/init.ts';
 import { renderAgentGuide } from '../src/agent-guide.ts';
 import { optionContext } from '../src/choices.ts';
@@ -23,7 +23,8 @@ import { OWNER_CHAT_SOURCE } from '../src/owner-chat.ts';
 import { LAST_NUMBERED_CREATE_RELEASE } from '../src/numbered-retirement.ts';
 import { Refusal, USAGE_EXIT } from '../src/refusal.ts';
 import { EXAMPLE_NOW } from '../scripts/example-time.ts';
-import { planCommand, stepStatusCommand, amendCommand, reviewCommand, signoffCommand, testClock } from './clock.ts';
+import { planCommand, stepStatusCommand, amendCommand, signoffCommand, testClock } from './clock.ts';
+import { seedStoredPartsVerdictAct, seedStoredVerdict, seedStoredVersionSignoff, selectHistoricalSignoffTarget } from './historical-review-fixture.ts';
 import { plantLegacyReopen, arr, fixture, obj, retimeFixture, retainSignoffs, waypoint } from './fixtures.ts';
 import { ownerChatArgs, tempDir, treeDigest } from './helpers.ts';
 import { recordPartsReceipt } from './parts-receipt-fixture.ts';
@@ -63,7 +64,7 @@ test('#467 next keeps direction signoff pending until a live verdict is recorded
   expect(after.refusals).toEqual([]);
   expect(after.moves.some(move => move.review_act?.kind === 'review-verdict' && move.review_act.stage === 'direction-review')).toBe(false);
   expect(after.moves.some(move => move.command?.includes('--plan'))).toBe(false);
-  expectOwnerChatSignoff(after.moves, 'direction-review', dir, ['--version', '2']);
+  expectRetiredVerdict(after, 'signoffs[stage=direction-review]');
 });
 
 interface CheckpointSpec {
@@ -624,8 +625,14 @@ describe('Frozen Bar 5 — Plants (lapsed approval, changed bound input DRAFT_RI
     const dir = join(realpathSync(tempDir()), 'routed interview comments');
     cpSync(accepted ? CHAIN_DIR : join(CHECKPOINTS_DIR, '3-rig-review'), dir, { recursive: true });
     if (!accepted) {
-      expect(runMainCapture(['review', '1', dir, '--verdict', 'bounced', '--by', 'owner', '--review', 'rig-review',
-        '--verbatim', 'Revise the synthetic rig.', '--source', 'synthetic fixture'], CHAIN_NOW)).toMatchObject({ code: 0, stderr: '' });
+      seedStoredVerdict(dir, 1, {
+        review: 'rig-review',
+        verdict: 'bounced',
+        by: 'owner',
+        at: CHAIN_NOW,
+        verbatim: 'Revise the synthetic rig.',
+        source: 'synthetic fixture',
+      });
     }
     const file = join(dir, 'project.json');
     const original = readFileSync(file, 'utf8');
@@ -828,7 +835,16 @@ describe('Frozen Bar 5 — Plants (lapsed approval, changed bound input DRAFT_RI
       proj.drafts = [];
       writeFileSync(join(apiDir, 'project.json'), `${JSON.stringify(proj, null, 2)}\n`);
 
-      host = await openCreateJob(apiDir, { id: 'synthetic-owner', role: 'owner' }, Date.now());
+      host = await openCreateJob(apiDir, { id: 'synthetic-owner', role: 'owner' }, Date.now(), options => startJobHost({
+        ...options,
+        readPublished: async input => {
+          const context = await readPublished(input);
+          const sel = input.result.selector;
+          return sel?.kind === 'draft' && 'id' in sel
+            ? { ...context, subjects: [{ kind: 'parts-verdict', draftId: sel.id }] }
+            : context;
+        },
+      }));
       const draftChild = Bun.spawn(
         [
           process.execPath,
@@ -858,13 +874,31 @@ describe('Frozen Bar 5 — Plants (lapsed approval, changed bound input DRAFT_RI
         ['structure-snapshot', apiDir, '--draft', 'chain', '--out', 'evidence/structure-chain.json'],
         ['diff-classes', apiDir, '--diff-report', 'evidence/diff-components.json', '--by', 'agent'],
         ['advance', 'parts-review', apiDir, '--parts-check', 'evidence/parts-check.json', '--parts', 'derived/drafts/chain/input'],
-        ['job', 'open', apiDir, '--reviewer', 'synthetic-owner', '--role', 'owner'],
       ]) {
         const child = Bun.spawn([process.execPath, ...jobRuntimeExecArgv(), join(REPO, 'src/cli.ts'), ...args],
           { cwd: apiDir, stdout: 'pipe', stderr: 'pipe' });
         const [stderr, exit] = await Promise.all([new Response(child.stderr).text(), child.exited, new Response(child.stdout).text()]);
         expect({ exit, stderr }).toEqual({ exit: 0, stderr: '' });
       }
+      const apiProj = JSON.parse(readFileSync(join(apiDir, 'project.json'), 'utf8')) as JsonObject;
+      const draftResult = { path: prepareDraftManifest(apiDir, apiProj, 'chain'), selector: { kind: 'draft' as const, id: 'chain' } };
+      const binding = readWriterBinding(apiDir)!;
+      const outboxEntry = enqueuePublication(apiDir, binding, draftResult);
+      const pubReqId = randomUUID();
+      await reconcilePublication(apiDir, outboxEntry, async pending => {
+        const reply = await agentCall(host!, {
+          schema: binding.identity.apiSchema,
+          verb: 'publish',
+          requestId: pubReqId,
+          idempotencyKey: pubReqId,
+          expectedGeneration: host!.session.status().generation,
+          result: draftResult,
+          freeze: { kind: 'producer-held', holdId: pending.id, record: { path: 'project.json', sha256: pending.recordHash } },
+        });
+        expect(reply.ok).toBe(true);
+        const pub = host!.session.status().publication!;
+        acknowledgePublication(pending, pub.publicationId, pub.generation, pubReqId, [{ kind: 'parts-verdict', draftId: 'chain' }]);
+      });
       const publication = host.session.status().publication!;
       const askReq = {
         schema: 'rig-review/job-api@2',
@@ -931,25 +965,11 @@ describe('Frozen Bar 5 — Plants (lapsed approval, changed bound input DRAFT_RI
       expect(committed.ok).toBe(true);
       if (!committed.ok) throw new Error(committed.error.code);
 
-      const prChild = Bun.spawn(
-        [
-          process.execPath,
-          ...jobRuntimeExecArgv(),
-          join(REPO, 'src/cli.ts'),
-          'parts-review',
-          '--from-review',
-          committed.value.actId,
-          '--json',
-        ],
-        { cwd: apiDir, stdout: 'pipe', stderr: 'pipe' },
-      );
-      const [, prStderr, prExit] = await Promise.all([
-        new Response(prChild.stdout).text(),
-        new Response(prChild.stderr).text(),
-        prChild.exited,
-      ]);
-      expect(prStderr).toBe('');
-      expect(prExit).toBe(0);
+      seedStoredPartsVerdictAct(apiDir, committed.value as unknown as JsonObject, {
+        now: Date.now(),
+        checkProjectHash: true,
+        checkArrival: true,
+      });
 
       const apiNow = Date.now();
       const apiReport = nextProject(apiDir, apiNow);
@@ -963,7 +983,7 @@ describe('Frozen Bar 5 — Plants (lapsed approval, changed bound input DRAFT_RI
       rmSync(jobHostStateRoot(apiDir), { recursive: true, force: true });
       rmSync(apiDir, { recursive: true, force: true });
     }
-  });
+  }, 30_000);
 
   test('#674 bounced accepted post routes through amend before the rebuild, and a rig bounce still routes to the agent', () => {
     // rig-review: accepted followed by changes-requested
@@ -972,43 +992,30 @@ describe('Frozen Bar 5 — Plants (lapsed approval, changed bound input DRAFT_RI
     const bounceWords = join(rigDir, 'bounce.txt');
     writeFileSync(bounceWords, 'Please adjust the shoulder pivot.\n');
     testClock.set(new Date(CHAIN_NOW));
-    reviewCommand([
-      '1',
-      rigDir,
-      '--verdict',
-      'accepted',
-      '--by',
-      'user',
-      '--review',
-      'rig-review',
-      '--verbatim-file',
-      join(rigDir, 'evidence/approval.txt'),
-      '--source',
-      'synthetic example',
-    ]);
+    seedStoredVerdict(rigDir, 1, {
+      review: 'rig-review',
+      verdict: 'accepted',
+      by: 'user',
+      at: CHAIN_NOW,
+      verbatim: readFileSync(join(rigDir, 'evidence/approval.txt'), 'utf8'),
+      source: 'synthetic example',
+    });
     // After acceptance alone, review-verdict is no longer awaited.
     const acceptedRig = nextProject(rigDir, CHAIN_NOW);
     expect(acceptedRig.awaits).toEqual(['signoffs[stage=rig-review]']);
-    expectOwnerChatSignoff(acceptedRig.moves, 'rig-review', rigDir, ['--version', '1']);
+    expectRetiredVerdict(acceptedRig, 'signoffs[stage=rig-review]');
 
     // Now a human changes-requested (bounced) verdict withdraws the earlier acceptance.
     testClock.set(new Date(CHAIN_NOW + 1000));
-    reviewCommand([
-      '1',
-      rigDir,
-      '--verdict',
-      'bounced',
-      '--by',
-      'user',
-      '--review',
-      'rig-review',
-      '--verbatim-file',
-      bounceWords,
-      '--source',
-      'synthetic bounce',
-      '--item',
-      'bones:user',
-    ]);
+    seedStoredVerdict(rigDir, 1, {
+      review: 'rig-review',
+      verdict: 'bounced',
+      by: 'user',
+      at: CHAIN_NOW + 1000,
+      verbatim: readFileSync(bounceWords, 'utf8'),
+      source: 'synthetic bounce',
+      on_items: [{ id: 'bones', answer_was: 'user' }],
+    });
     const rigReport = nextProject(rigDir, CHAIN_NOW + 1000);
     expect(rigReport.moves.map(move => move.field)).toEqual(['versions']);
     expect(rigReport.moves[0]).toMatchObject({ role: 'agent', field: 'versions', awaits: 'versions[n=2]' });
@@ -1095,41 +1102,28 @@ describe('Frozen Bar 5 — Plants (lapsed approval, changed bound input DRAFT_RI
     expect(runMainCapture(['direction', 'check', '2', postDir, '--json'], CHAIN_NOW).code).toBe(0);
     expect(runMainCapture(['advance', 'direction-review', postDir], CHAIN_NOW).code).toBe(0);
 
-    reviewCommand([
-      '2',
-      postDir,
-      '--verdict',
-      'accepted',
-      '--by',
-      'user',
-      '--review',
-      'direction-review',
-      '--verbatim-file',
-      join(postDir, 'evidence/approval.txt'),
-      '--source',
-      'synthetic example',
-    ]);
+    seedStoredVerdict(postDir, 2, {
+      review: 'direction-review',
+      verdict: 'accepted',
+      by: 'user',
+      at: CHAIN_NOW,
+      verbatim: readFileSync(join(postDir, 'evidence/approval.txt'), 'utf8'),
+      source: 'synthetic example',
+    });
     expect(nextProject(postDir, CHAIN_NOW).awaits).toEqual(['signoffs[stage=direction-review]']);
 
     const postBounceWords = join(postDir, 'bounce-post.txt');
     writeFileSync(postBounceWords, 'Tighten the final camera hold.\n');
     testClock.set(new Date(CHAIN_NOW + 2000));
-    reviewCommand([
-      '2',
-      postDir,
-      '--verdict',
-      'bounced',
-      '--by',
-      'user',
-      '--review',
-      'direction-review',
-      '--verbatim-file',
-      postBounceWords,
-      '--source',
-      'synthetic direction bounce',
-      '--item',
-      'camera_depth:user',
-    ]);
+    seedStoredVerdict(postDir, 2, {
+      review: 'direction-review',
+      verdict: 'bounced',
+      by: 'user',
+      at: CHAIN_NOW + 2000,
+      verbatim: readFileSync(postBounceWords, 'utf8'),
+      source: 'synthetic direction bounce',
+      on_items: [{ id: 'camera_depth', answer_was: 'user' }],
+    });
 
     // #981: an accepted post does not close authoring; the rebuild answering the bounce is offered with no amendment.
     const beforeRebuildBytes = readFileSync(join(postDir, 'project.json'));
@@ -1375,7 +1369,7 @@ describe('Frozen Bar 5 — Plants (lapsed approval, changed bound input DRAFT_RI
     const afterReport = nextProject(dir, CHAIN_NOW + 1000);
     expect(afterReport.awaits).not.toContain('diff_map');
     expect(afterReport.moves.find(m => m.field === 'diff_map')).toBeUndefined();
-    expect(afterReport.moves.find(move => move.review_act?.kind === 'parts-verdict')).toMatchObject({ role: 'human', command: null });
+    expectRetiredVerdict(afterReport, 'review_acts[kind=parts-verdict,draft_id=chain]');
     expect(afterReport.moves.some(m => m.review_act?.kind === 'signoff')).toBe(false);
   });
 
@@ -1622,7 +1616,7 @@ test('#557 fresh parts prepares check, structure and diff before advance and the
     }
   }
   const ready = nextProject(dir, CHAIN_NOW);
-  expect(ready.moves.find(move => move.review_act?.kind === 'parts-verdict')).toMatchObject({ role: 'human', command: null });
+  expectRetiredVerdict(ready, 'review_acts[kind=parts-verdict,draft_id=chain]');
   expect(ready.moves.some(move => move.review_act?.kind === 'signoff')).toBe(false);
   expect(JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')).stage).toBe('parts-review');
 });
@@ -1646,9 +1640,8 @@ test.each(['generic', 'per-draft'])('#490 legacy approved %s snapshot for anothe
   const row = pendingJobActs(project, [act], dir)[0]!;
   expect(snapshot.command).toContain('--draft chain');
   expect(row).toMatchObject({ actId: 'parts-sign', args: null, command: null, unavailable: { code: 'NUMBERED_ACT_RETIRED' } });
-  const signoffs = next.moves.filter(move => move.awaits === 'signoffs[stage=parts-review]');
-  expect(moveTuples(signoffs)).toEqual([['human', null, 'signoff']]);
-  expect(signoffs[0]!.act).toContain(selected.path);
+  expectRetiredVerdict(next, 'signoffs[stage=parts-review]');
+  expect(snapshot.awaits).toBe(selected.path);
   expect(runMainCapture(printedArgs(snapshot.command!).slice(1), CHAIN_NOW)).toMatchObject({ code: 0, stderr: '' });
   expect(partsStructureSnapshot(dir, project, 'chain')).toEqual({ ...selected, valid: true });
   expect(readFileSync(join(dir, path), 'utf8')).toBe(wrong);
@@ -1925,9 +1918,9 @@ test('owner chat signoff is absent before the direction verdict and present afte
   p.advances=arr(p.advances).filter(a=>obj(a).stage!=='accepted');
   const version=arr(p.versions).map(obj).find(v=>v.kind==='post')!;const verdicts=version.verdicts;
   version.verdicts=[];writeFileSync(file,JSON.stringify(p,null,2)+'\n');
-  expect(nextProject(dir,CHAIN_NOW).moves.some(m=>m.command?.includes('signoff direction-review')&&m.command.includes('--owner-chat'))).toBe(false);
+  expect(nextProject(dir,CHAIN_NOW).moves.some(m=>m.awaits==='signoffs[stage=direction-review]')).toBe(false);
   version.verdicts=verdicts;writeFileSync(file,JSON.stringify(p,null,2)+'\n');
-  expect(nextProject(dir,CHAIN_NOW).moves.some(m=>m.command?.includes('signoff direction-review')&&m.command.includes('--owner-chat'))).toBe(true);
+  expectRetiredVerdict(nextProject(dir,CHAIN_NOW),'signoffs[stage=direction-review]');
 });
 
 function bouncedPartsFixture(): string {
@@ -1951,7 +1944,8 @@ test('#557 bounced parts verdict prints the ordered NEW edited_parts scaffold wi
   expect(next.refusals).toEqual([]);
   expect(next.stage).toBe('parts-review');
   expect(next.effective_stage).toBe('parts-review');
-  expect(next.moves.every(move => move.role !== 'human')).toBe(true);
+  expect(next.moves.slice(0, -1).every(move => move.role !== 'human')).toBe(true);
+  expectRetiredVerdict(next, 'review_acts[kind=parts-verdict,draft_id=chain-retouch-1]');
   expect(next.moves[0]!.act).toContain('assemble.edited_parts');
   expect(next.moves[0]!.act).toContain('only then take edited-part baselines');
   expect(next.moves[0]!.act).toContain('from_sha256');
@@ -1959,14 +1953,12 @@ test('#557 bounced parts verdict prints the ordered NEW edited_parts scaffold wi
   const commands = next.moves.flatMap(move => move.command === null ? [] : [move.command]);
   expect(commands.map(command => printedArgs(command).slice(0, 2).join(' '))).toEqual([
     'rig-parts build', 'rig-create draft-rig', 'rig-parts check-parts', 'rig-create structure-snapshot',
-    'rig-parts diff-components', 'rig-create diff-classes', 'rig-create job',
+    'rig-parts diff-components', 'rig-create diff-classes',
   ]);
   expect(commands[1]).toContain('chain-retouch-1');
   expect(commands[2]).toContain('evidence/parts-chain-retouch-1');
   expect(commands[3]).toContain('--draft chain-retouch-1');
   expect(commands[4]).toContain('evidence/parts-chain-retouch-1/diff-components.json');
-  expect(commands[6]).toContain('--draft chain-retouch-1');
-  expect(next.moves.at(-1)!.act).toContain('only after the new evidence is ready');
   expect(commands.some(command => command.includes('advance ') || command.includes('reopen '))).toBe(false);
   expect(readFileSync(file)).toEqual(before);
   mkdirSync(join(dir, 'derived/drafts/chain-retouch-1'));
@@ -2026,8 +2018,7 @@ test('#557 registered retouch discovers fresh evidence despite old files and rea
   const ready = nextProject(dir, CHAIN_NOW + 1000);
   expect(ready.refusals).toEqual([]);
   expect(ready.stage).toBe('parts-review');
-  expect(ready.moves.filter(move => move.role === 'human')).toMatchObject([{ review_act: { kind: 'parts-verdict', draft_id: id } }]);
-  expect(ready.moves.find(move => move.command?.startsWith('rig-create job open'))!.command).toContain(`--draft ${id}`);
+  expectRetiredVerdict(ready, `review_acts[kind=parts-verdict,draft_id=${id}]`);
   expect(ready.moves.some(move => move.command?.includes('advance ') || move.command?.includes('reopen '))).toBe(false);
   for (const [index, path] of retained.entries()) expect(readFileSync(join(dir, path))).toEqual(bytes[index]);
   expect(JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')).stage).toBe('parts-review');
@@ -2066,7 +2057,7 @@ test('#557 initial parts-review with many historical drafts reuses global eviden
   expect(next.refusals).toEqual([]);
   expect(next.stage).toBe('parts-review');
   expect(next.effective_stage).toBe('parts-review');
-  expect(next.moves.filter(move => move.role === 'human')).toMatchObject([{ review_act: { kind: 'parts-verdict', draft_id: id } }]);
+  expectRetiredVerdict(next, `review_acts[kind=parts-verdict,draft_id=${id}]`);
   expect(next.moves.some(move => move.role === 'producer')).toBe(false);
   expect(next.moves.some(move => move.command?.startsWith('rig-create structure-snapshot') || move.command?.startsWith('rig-create diff-classes'))).toBe(false);
   expect(next.awaits.some(path => path.includes(`evidence/parts-${id}`))).toBe(false);
@@ -2101,7 +2092,7 @@ test('#557 prepared unregistered retouch resumes the same target before and afte
   const editedNext = nextProject(dir, CHAIN_NOW);
   expect(editedNext.moves.find(move => move.command?.startsWith('rig-create draft-rig'))!.command).toBe(registration);
   expect(readFileSync(join(root, 'config.json'), 'utf8')).toBe(edited);
-  expect(editedNext.moves.every(move => move.role !== 'human')).toBe(true);
+  expect(editedNext.moves.slice(0, -1).every(move => move.role !== 'human')).toBe(true);
   // Existence is not proof of a valid build: leave it to the existing registration validator.
   mkdirSync(join(root, 'build'));
   const sentinel = Buffer.from('preserve unrelated or incomplete output\n');
@@ -2795,22 +2786,17 @@ test('#579 after a rig-review reopen, next omits history rig versions and lapsed
   expectRetiredVerdict(unreopened, 'versions[n=1].verdicts[review=rig-review]');
 
   // Step 1: Rig v1 is accepted and rig-review is signed on it.
+  const approvalWords = readFileSync(join(dir, 'evidence/approval.txt'), 'utf8');
   testClock.set(new Date(CHAIN_NOW));
-  reviewCommand([
-    '1',
-    dir,
-    '--verdict',
-    'accepted',
-    '--by',
-    'user',
-    '--review',
-    'rig-review',
-    '--verbatim-file',
-    join(dir, 'evidence/approval.txt'),
-    '--source',
-    'synthetic example',
-  ]);
-  signoffCommand(['rig-review', dir, '--by', 'user', '--verbatim-file', join(dir, 'evidence/approval.txt')]);
+  seedStoredVerdict(dir, 1, {
+    review: 'rig-review',
+    verdict: 'accepted',
+    by: 'user',
+    at: CHAIN_NOW,
+    verbatim: approvalWords,
+    source: 'synthetic example',
+  });
+  seedStoredVersionSignoff(dir, 'rig-review', 1, { by: 'user', at: CHAIN_NOW, verbatim: approvalWords });
 
   // Prepare the synthetic registration source cohort for v2 (pre-reopen) and v3 (post-reopen).
   cpSync(join(REPO, 'tests/fixtures/rig-registration'), join(dir, 'rebuild-source'), { recursive: true });
@@ -2890,14 +2876,17 @@ test('#579 after a rig-review reopen, next omits history rig versions and lapsed
   testClock.set(new Date(reopenAt));
   plantLegacyReopen(dir, 'rig-review', { by: 'owner', wordsFile: reopenWords });
 
-  // Attempting to sign rig-review on the history acceptance refuses with RIG_VERSION_UNACCEPTED and leaves project.json byte-identical.
+  // Attempting to sign rig-review on the history acceptance refuses: the CLI writer is retired (exit 2)
+  // and target selection refuses with RIG_VERSION_UNACCEPTED, leaving project.json byte-identical.
   const beforeRefusedSign = readFileSync(file);
   const refusedSign = runMainCapture(
     ['signoff', 'rig-review', dir, '--by', 'user', '--verbatim-file', join(dir, 'evidence/approval.txt')],
     reopenAt,
   );
-  expect(refusedSign.code).toBe(1);
-  expect(refusedSign.stderr).toContain('RIG_VERSION_UNACCEPTED');
+  expect(refusedSign.code).toBe(USAGE_EXIT);
+  expect(refusedSign.stderr).toContain('NUMBERED_WRITER_REMOVED');
+  expect(() => selectHistoricalSignoffTarget(dir, JSON.parse(readFileSync(file, 'utf8')) as JsonObject, 'rig-review', undefined, reopenAt))
+    .toThrow(expect.objectContaining({ code: 'RIG_VERSION_UNACCEPTED' }));
   expect(readFileSync(file)).toEqual(beforeRefusedSign);
 
   const staleProject = JSON.parse(readFileSync(file, 'utf8')) as JsonObject;
@@ -2965,21 +2954,15 @@ test('#579 after a rig-review reopen, next omits history rig versions and lapsed
 
   const acceptAt = v3At + 1000;
   testClock.set(new Date(acceptAt));
-  reviewCommand([
-    '3',
-    dir,
-    '--verdict',
-    'accepted',
-    '--by',
-    'user',
-    '--review',
-    'rig-review',
-    '--verbatim-file',
-    join(dir, 'evidence/approval.txt'),
-    '--source',
-    'synthetic example',
-  ]);
-  signoffCommand(['rig-review', dir, '--by', 'user', '--verbatim-file', join(dir, 'evidence/approval.txt')]);
+  seedStoredVerdict(dir, 3, {
+    review: 'rig-review',
+    verdict: 'accepted',
+    by: 'user',
+    at: acceptAt,
+    verbatim: approvalWords,
+    source: 'synthetic example',
+  });
+  seedStoredVersionSignoff(dir, 'rig-review', 3, { by: 'user', at: acceptAt, verbatim: approvalWords });
   expect(runMainCapture(['advance', 'post-interview', dir], acceptAt + 1000)).toMatchObject({ code: 0, stderr: '' });
   for (const q of ['camera_depth', 'post_timing', 'post_composition']) {
     const optProject = JSON.parse(readFileSync(file, 'utf8')) as JsonObject;
@@ -3058,21 +3041,15 @@ test('#579 after a rig-review reopen, next omits history rig versions and lapsed
   // Consumer-clone shape: post v4 is reviewed and signed at direction-review, then rig-review is reopened,
   // a new rig v5 is registered, accepted and signed, and a new unreviewed post v6 reaches direction-review.
   testClock.set(new Date(acceptAt + 5500));
-  reviewCommand([
-    '4',
-    dir,
-    '--verdict',
-    'accepted',
-    '--by',
-    'user',
-    '--review',
-    'direction-review',
-    '--verbatim-file',
-    join(dir, 'evidence/approval.txt'),
-    '--source',
-    'synthetic example',
-  ]);
-  signoffCommand(['direction-review', dir, '--by', 'user', '--verbatim-file', join(dir, 'evidence/approval.txt')]);
+  seedStoredVerdict(dir, 4, {
+    review: 'direction-review',
+    verdict: 'accepted',
+    by: 'user',
+    at: acceptAt + 5500,
+    verbatim: approvalWords,
+    source: 'synthetic example',
+  });
+  seedStoredVersionSignoff(dir, 'direction-review', 4, { by: 'user', at: acceptAt + 5500, verbatim: approvalWords });
 
   const reopen2At = acceptAt + 6000;
   testClock.set(new Date(reopen2At));
@@ -3089,21 +3066,15 @@ test('#579 after a rig-review reopen, next omits history rig versions and lapsed
 
   const acceptV5At = v5At + 1000;
   testClock.set(new Date(acceptV5At));
-  reviewCommand([
-    '5',
-    dir,
-    '--verdict',
-    'accepted',
-    '--by',
-    'user',
-    '--review',
-    'rig-review',
-    '--verbatim-file',
-    join(dir, 'evidence/approval.txt'),
-    '--source',
-    'synthetic example',
-  ]);
-  signoffCommand(['rig-review', dir, '--by', 'user', '--verbatim-file', join(dir, 'evidence/approval.txt')]);
+  seedStoredVerdict(dir, 5, {
+    review: 'rig-review',
+    verdict: 'accepted',
+    by: 'user',
+    at: acceptV5At,
+    verbatim: approvalWords,
+    source: 'synthetic example',
+  });
+  seedStoredVersionSignoff(dir, 'rig-review', 5, { by: 'user', at: acceptV5At, verbatim: approvalWords });
   expect(runMainCapture(['advance', 'post-interview', dir], acceptV5At + 1000)).toMatchObject({ code: 0, stderr: '' });
   testClock.set(new Date(acceptV5At + 2000));
   signoffCommand(['post-interview', dir, '--by', 'user', '--verbatim-file', join(dir, 'evidence/approval.txt')]);
@@ -3153,22 +3124,17 @@ test('#587 after a parts-review reopen and a new prepared draft, next awaits the
   writeFileSync(words, 'Synthetic owner words.\n');
 
   // Record accepted rig v1, register rig v2, and bounce rig v2 so both REOPEN_VERDICT_LAPSED and FEEDBACK_OPEN are live warnings after reopen.
+  const ownerWords = readFileSync(words, 'utf8');
   testClock.set(new Date(CHAIN_NOW));
-  reviewCommand([
-    '1',
-    dir,
-    '--verdict',
-    'accepted',
-    '--by',
-    'user',
-    '--review',
-    'rig-review',
-    '--verbatim-file',
-    words,
-    '--source',
-    'synthetic example',
-  ]);
-  signoffCommand(['rig-review', dir, '--by', 'user', '--verbatim-file', words]);
+  seedStoredVerdict(dir, 1, {
+    review: 'rig-review',
+    verdict: 'accepted',
+    by: 'user',
+    at: CHAIN_NOW,
+    verbatim: ownerWords,
+    source: 'synthetic example',
+  });
+  seedStoredVersionSignoff(dir, 'rig-review', 1, { by: 'user', at: CHAIN_NOW, verbatim: ownerWords });
 
   cpSync(join(REPO, 'tests/fixtures/rig-registration'), join(dir, 'rebuild-source'), { recursive: true });
   const putSource = (path: string, value: unknown): void =>
@@ -3239,22 +3205,15 @@ test('#587 after a parts-review reopen and a new prepared draft, next awaits the
   ).toMatchObject({ code: 0, stderr: '' });
 
   testClock.set(new Date(CHAIN_NOW + 2000));
-  reviewCommand([
-    '2',
-    dir,
-    '--verdict',
-    'bounced',
-    '--by',
-    'user',
-    '--review',
-    'rig-review',
-    '--item',
-    'rig_type:user',
-    '--verbatim-file',
-    words,
-    '--source',
-    'synthetic bounce',
-  ]);
+  seedStoredVerdict(dir, 2, {
+    review: 'rig-review',
+    verdict: 'bounced',
+    by: 'user',
+    at: CHAIN_NOW + 2000,
+    verbatim: ownerWords,
+    source: 'synthetic bounce',
+    on_items: [{ id: 'rig_type', answer_was: 'user' }],
+  });
 
   // Reopen parts-review, then draft-rig <id>, structure-snapshot --draft <id>, and diff-classes with a triage file.
   const reopenAt = CHAIN_NOW + 3000;
@@ -3328,23 +3287,8 @@ test('#587 after a parts-review reopen and a new prepared draft, next awaits the
     expect(report.refusals).toEqual([]);
     expect(report.awaits).toEqual([`review_acts[kind=parts-verdict,draft_id=${draftId}]`]);
     expect(report.moves.some(m => m.command?.includes('rig-version'))).toBe(false);
-    expect(report.moves.map(m => m.command)).toEqual([
-      `rig-create job open ${dir} --draft ${draftId} --reviewer '<reviewer>' --role owner`,
-      null,
-      `rig-create job acts ${dir} --json --wait`,
-      `rig-create parts-review ${dir} --from-review '<actId>'`,
-    ]);
-    expect(report.moves[1]).toMatchObject({
-      role: 'human',
-      field: 'review_acts',
-      awaits: `review_acts[kind=parts-verdict,draft_id=${draftId}]`,
-      command: null,
-      review_act: {
-        kind: 'parts-verdict',
-        stage: 'parts-review',
-        draft_id: draftId,
-      },
-    });
+    expect(report.moves).toHaveLength(1);
+    expectRetiredVerdict(report, `review_acts[kind=parts-verdict,draft_id=${draftId}]`);
   }
 });
 
@@ -3401,10 +3345,17 @@ test.each([
 test('#773 a reopened rigging with an unreviewed compiled draft names both the draft review and the plain registration', () => {
   const dir = join(tempDir(), 'reopen-draft');
   cpSync(join(CHECKPOINTS_DIR, '3-rig-review'), dir, { recursive: true });
+  const approvalWords = readFileSync(join(dir, 'evidence/approval.txt'), 'utf8');
   testClock.set(new Date(CHAIN_NOW));
-  reviewCommand(['1', dir, '--verdict', 'accepted', '--by', 'user', '--review', 'rig-review',
-    '--verbatim-file', join(dir, 'evidence/approval.txt'), '--source', 'synthetic example']);
-  signoffCommand(['rig-review', dir, '--by', 'user', '--verbatim-file', join(dir, 'evidence/approval.txt')]);
+  seedStoredVerdict(dir, 1, {
+    review: 'rig-review',
+    verdict: 'accepted',
+    by: 'user',
+    at: CHAIN_NOW,
+    verbatim: approvalWords,
+    source: 'synthetic example',
+  });
+  seedStoredVersionSignoff(dir, 'rig-review', 1, { by: 'user', at: CHAIN_NOW, verbatim: approvalWords });
   const reopenAt = CHAIN_NOW + 2000;
   const reopenWords = join(dir, 'reopen-words.txt');
   writeFileSync(reopenWords, 'Reopen rigging to rebuild the synthetic rig.\n');

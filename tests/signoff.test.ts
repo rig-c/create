@@ -2,12 +2,14 @@ import { afterEach, describe, expect, test } from 'bun:test';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { stepHash } from '../src/step-hash.ts';
+import { Refusal, USAGE_EXIT } from '../src/refusal.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { arr, fixture, obj, step, withdrawSignature } from './fixtures.ts';
 import { EXAMPLE_DIFF_REPORT } from './diff-fixture.ts';
 import { EXAMPLE_VERDICT } from './parts-package.ts';
 import { cli, clockedCli, gitEnv } from './helpers.ts';
 import { checkProject, signoffCommand, testClock } from './clock.ts';
+import { seedStoredPartsSignoff } from './historical-review-fixture.ts';
 
 const read = (dir: string): JsonObject => JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')) as JsonObject;
 const words = '  좋아\r\n초안대로\n\n';
@@ -118,9 +120,17 @@ describe('parts-review evidence and execution checkpoints', () => {
   test('records the approved verdict hash and clears the check without hand edits', () => {
     const dir = fixture(() => {}, 'example-numbered/example-project.json');
     testClock.set(new Date(withdrawSignature(dir, 'parts-review')));
+    const before = readFileSync(join(dir, 'project.json'));
     const result = cli(['signoff', 'parts-review', '--by', 'user', '--draft', 'example', '--structure-file', 'evidence/structure-example.json', '--verbatim-file', input(dir)], dir, gitEnv());
-    expect(result).toMatchObject({ code: 0, stderr: '' });
-    const signed = obj(arr(read(dir).signoffs).at(-1));
+    expect(result.code).toBe(2);
+    expect(result.stderr).toContain('NUMBERED_WRITER_REMOVED');
+    expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
+    const signed = seedStoredPartsSignoff(dir, 'example', {
+      by: 'user',
+      at: testClock.now(),
+      verbatim: words,
+      structureFile: 'evidence/structure-example.json',
+    });
     expect(signed.evidence).toEqual({ ...obj(obj(arr(read(dir).review_acts)[0]).evidence), spec: 'rig-create/parts-verdict-cli@1' });
     testClock.reset();
     expect(cli(['interview', '--check', '--json'], dir, gitEnv()).code).toBe(0);
@@ -146,7 +156,12 @@ describe('parts-review evidence and execution checkpoints', () => {
   test('evidence is required only at parts-review', () => {
     const dir = fixture();
     const before = readFileSync(join(dir, 'project.json'));
-    expect(cli(['signoff', 'parts-review', '--by', 'user'], dir, gitEnv()).stderr).toContain('PARTS_VERDICT_RECEIPT_REQUIRED');
+    const retired = cli(['signoff', 'parts-review', '--by', 'user'], dir, gitEnv());
+    expect(retired.code).toBe(2);
+    expect(retired.stderr).toContain('NUMBERED_WRITER_REMOVED');
+    const withoutReceipt = fixture(p => { p.review_acts = []; });
+    expect(() => seedStoredPartsSignoff(withoutReceipt, 'receipt-fixture', { by: 'user', at: testClock.now(), verbatim: words }))
+      .toThrow(expect.objectContaining({ code: 'PARTS_VERDICT_RECEIPT_REQUIRED' }));
     expect(cli(['signoff', 'rig-review', '--by', 'user', '--evidence', EXAMPLE_VERDICT], dir, gitEnv()).code).toBe(2);
     expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
   });
@@ -174,6 +189,26 @@ describe('parts-review evidence and execution checkpoints', () => {
     const dir = fixture();
     const before = readFileSync(join(dir, 'project.json'));
     expect(cli(['signoff', 'rigging', '--checkpoint', 'constraints', '--steps', 'constraints', '--by', 'user'], dir, gitEnv()).code).toBe(2);
+    expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
+  });
+
+  test.each([
+    { label: '--checkpoint=', stage: 'post-interview', flags: ['--checkpoint='] },
+    { label: '--checkpoint=x --checkpoint=y', stage: 'rigging', flags: ['--checkpoint=constraints', '--checkpoint=assemble'] },
+    { label: '--checkpoint=x --checkpoint y', stage: 'rigging', flags: ['--checkpoint=constraints', '--checkpoint', 'assemble'] },
+    { label: '--checkpoint x --checkpoint=y', stage: 'rigging', flags: ['--checkpoint', 'constraints', '--checkpoint=assemble'] },
+  ])('refuses malformed or repeated $label with SIGNOFF_OPTION_INVALID before writing', ({ stage, flags }) => {
+    const dir = fixture((p) => { p.signoffs = arr(p.signoffs).filter((s) => obj(s).checkpoint !== 'constraints'); });
+    const before = readFileSync(join(dir, 'project.json'));
+    let thrown: unknown;
+    try {
+      signoffCommand([stage, dir, ...flags, '--by', 'user', '--verbatim-file', input(dir)]);
+    } catch (error) {
+      thrown = error;
+    }
+    expect(thrown).toBeInstanceOf(Refusal);
+    expect((thrown as Refusal).code).toBe('SIGNOFF_OPTION_INVALID');
+    expect((thrown as Refusal).exitCode).toBe(USAGE_EXIT);
     expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
   });
 });

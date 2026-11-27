@@ -78,8 +78,13 @@ async function actFor(root: string, bypass?: RecordPlanContext): Promise<JsonObj
     at: new Date(now).toISOString(), authority: { actor: 'human', channel: 'review-ui', reviewer: { id: 'synthetic-owner', role: 'owner' } },
     source: retained.source as unknown as JsonObject, value: { stage: 'rigging-interview', decision: 'approved', words: 'Approve the synthetic plan.' } };
 }
-function ingest(root: string, act: JsonObject): { stdout: string; exit: number } {
-  return signoffCommand(['rigging-interview', root, '--from-review', String(act.actId)], now, { fetch: () => ({ bytes: JSON.stringify(act) }) });
+function relaySignoff(root: string): { stdout: string; exit: number } {
+  const words = join(root, 'owner-approval.txt');
+  writeFileSync(words, 'Approve the synthetic plan.\n');
+  return signoffCommand([
+    'rigging-interview', root, '--by', 'user', '--owner-chat', words,
+    '--said-at', new Date(now - 1000).toISOString(), '--relayed-by', 'operator',
+  ], now);
 }
 afterEach(() => {
   for (const root of roots.splice(0)) {
@@ -120,7 +125,7 @@ test('#562 old depth answers retain HEAD_TURN_SINCE WARN and may publish', () =>
   expect(publication(root).subjects).toEqual([]);
 });
 
-test('#562 reordered depth plan publishes and fully ingests while retaining array-bound identities', async () => {
+test('#562 reordered depth plan publishes and relays signoff while retaining array-bound identities', async () => {
   const root = setup();
   expect(planCommand(['revise', 'turn', root, '--order', '2.5', '--by', 'drafter'], now - 1000).exit).toBe(0);
   const before = bytes(root);
@@ -130,16 +135,17 @@ test('#562 reordered depth plan publishes and fully ingests while retaining arra
   expect(context.plan.steps.map(step => step.id)).toEqual(arr(obj(project.plan).steps).map(step => String(obj(step).id)));
   expect(context.plan.steps.map(step => step.id)).toEqual(['seethrough', 'assemble', 'turn', 'bones', 'meshes', 'constraints', 'motion']);
   const act = await actFor(root);
-  expect(ingest(root, act).exit).toBe(0);
-  expect(arr(read(root).signoffs).map(obj).at(-1)).toMatchObject({ stage: 'rigging-interview', by: 'user' });
+  refusesUnchanged(root, 'SIGNOFF_FROM_REVIEW_REMOVED', () => signoffCommand(['rigging-interview', root, '--from-review', String(act.actId)], now));
+  expect(relaySignoff(root).exit).toBe(0);
+  expect(arr(read(root).signoffs).map(obj).at(-1)).toMatchObject({ stage: 'rigging-interview', by: 'user', source: 'owner chat, relayed' });
   expect(checkProject(root, undefined, { now }).refusals.map(finding => finding.code)).toEqual([]);
 });
 
-test('#562 ingest refuses a carried depth finding even when publication was bypassed', async () => {
+test('#562 relayed signoff refuses a carried depth finding even when publication was bypassed', async () => {
   const root = setup(2.5);
   const context = publication(root);
   const project = read(root); arr(obj(project.plan).steps).map(obj).find(step => step.id === 'turn')!.order = 7; save(root, project);
-  const act = await actFor(root, context);
-  refusesUnchanged(root, 'RIG_DEPTH_PLAN_MISSING', () => ingest(root, act));
+  await actFor(root, context);
+  refusesUnchanged(root, 'RIG_DEPTH_PLAN_MISSING', () => relaySignoff(root));
 });
 

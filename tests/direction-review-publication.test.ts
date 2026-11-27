@@ -13,6 +13,7 @@ import type { JsonObject } from '../src/templates.ts';
 import { advanceCommand, directionCommand, inputCommand, sceneCommand, testClock } from './clock.ts';
 import { obj } from './fixtures.ts';
 import { tempDir } from './helpers.ts';
+import { seedStoredReviewVerdictAct } from './historical-review-fixture.ts';
 import { isSourceLinkedRun } from './source-only.ts';
 
 afterEach(() => testClock.reset());
@@ -122,11 +123,7 @@ test('#955 a direction post projects an ingested same-job bounce only when Revie
     if (!submitted.ok) throw Error(submitted.error.code);
     const { actId, at } = submitted.value;
     const now = Math.max(testClock.now(), Date.parse(at));
-    await runDirectionWriter(`
-      import { recordReviewAct } from '../src/feedback.ts';
-      const [root, actId, now] = process.argv.slice(-3);
-      recordReviewAct(root, 2, actId, Number(now));
-    `, root, actId, now);
+    seedStoredReviewVerdictAct(root, 2, host.session.readActExport(actId, false).toString('utf8'), { now });
     await runDirectionWriter(`
       import { directionCommand } from '../src/direction-writers.ts';
       const [root, , now] = process.argv.slice(-3);

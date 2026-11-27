@@ -4,10 +4,13 @@ import { join } from 'node:path';
 import { PLAN_STEP_ANSWER_SINCE } from '../src/check.ts';
 import { currentJobIdentity } from '../src/job-publication.ts';
 import { JOB_BINDING_FILE, jobHash, writePrivateJson } from '../src/job-outbox.ts';
-import { decodeReviewAct } from '../src/review-act.ts';
+import { decodeReviewAct, reviewActSignoff, signoffActIdentity } from '../src/review-act.ts';
 import { Refusal } from '../src/refusal.ts';
+import { selectAnswerHashes } from '../src/signoff-answers.ts';
+import { selectSignoffTarget } from '../src/signoff-target.ts';
 import { signoffCommand as rawSignoff } from '../src/signoff.ts';
 import { signoffIdentity } from '../src/stage-progress.ts';
+import { stepCoveredByApproval } from '../src/stages.ts';
 import { stepHash } from '../src/step-hash.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { advanceCommand, checkProject, diffClassesCommand, signoffCommand, testClock, TEST_NOW } from './clock.ts';
@@ -42,11 +45,44 @@ function signoffAct(dir: string, stage: string, actId: string, edit?: (act: Json
   edit?.(act);
   return act;
 }
+function seedStoredSignoffAct(dir: string, act: JsonObject, extraFields: JsonObject = {}): JsonObject {
+  const bytes = JSON.stringify(act);
+  const decoded = decodeReviewAct(bytes, 'signoff');
+  const p = read(dir);
+  const stage = decoded.value.stage;
+  const coveredStage = ['plan-approved', 'rigging-interview', 'post-interview'].includes(stage);
+  const steps = coveredStage ? arr(obj(p.plan).steps).map(obj).filter(s => stepCoveredByApproval(p, s, stage)) : [];
+  const hashes: JsonObject = {};
+  for (const step of steps) {
+    if (step.checkpoint === null || step.checkpoint === undefined) {
+      step.checkpoint = { delegated: false, by: 'user', at: decoded.at, verbatim: words, value: step.checkpoint_proposed };
+    }
+    hashes[String(step.id)] = stepHash(step);
+  }
+  const signed: JsonObject = {
+    ...reviewActSignoff(decoded),
+    ...(coveredStage ? { steps: steps.map(s => s.id!), step_hashes: hashes } : {}),
+    ...extraFields,
+  };
+  const answerHashes = selectAnswerHashes(dir, p, signed);
+  if (answerHashes !== undefined) signed.answer_hashes = answerHashes;
+  p.signoffs = [...arr(p.signoffs), signed];
+  p.review_acts = [...(Array.isArray(p.review_acts) ? p.review_acts : []), {
+    schema: 'rig-create/review-act@1',
+    kind: 'signoff',
+    jobId: decoded.jobId,
+    actId: decoded.actId,
+    stage,
+    bytes,
+    sha256: jobHash(bytes),
+    version_hash: jobHash(JSON.stringify(signoffActIdentity(decoded))),
+  }];
+  save(dir, p);
+  return signed;
+}
+
 function fromReview(dir: string, stage: string, act: JsonObject, extra: string[] = []): ReturnType<typeof rawSignoff> {
-  return rawSignoff([stage, realpathSync(dir), '--from-review', String(act.actId), ...extra], testClock.now(), { fetch: transport => {
-    expect(transport.kind).toBe('signoff'); expect(transport.jobId).toBe(jobId); expect(transport.actId).toBe(String(act.actId));
-    return { bytes: JSON.stringify(act) };
-  } });
+  return rawSignoff([stage, realpathSync(dir), '--from-review', String(act.actId), ...extra], testClock.now());
 }
 function refused(dir: string, code: string, action: () => unknown): void {
   const before = readFileSync(join(dir, 'project.json'));
@@ -56,12 +92,27 @@ function refused(dir: string, code: string, action: () => unknown): void {
   expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
 }
 
-test('a non-plan stage sign-off ingests the act and equals the flag route except for its named source', () => {
+test('signoff --from-review refuses with SIGNOFF_FROM_REVIEW_REMOVED and exit 2 across stages and flag combinations', () => {
+  const dir = fixture(); bindReview(dir);
+  for (const [stage, extra] of [
+    ['interview', []],
+    ['plan-approved', []],
+    ['rig-review', []],
+    ['parts-review', ['--draft', 'receipt-fixture']],
+    ['interview', ['--by', 'user']],
+    ['interview', ['--verbatim-file', 'words.txt']],
+    ['interview', ['--steps', 'bones']],
+  ] as [string, string[]][]) {
+    refused(dir, 'SIGNOFF_FROM_REVIEW_REMOVED', () => fromReview(dir, stage, signoffAct(dir, stage, 'sign-retired'), extra));
+  }
+});
+
+test('a stored non-plan stage sign-off act equals the flag route except for its named source', () => {
   const flags = fixture(); const act = fixture(); bindReview(act); bindReview(flags);
   writeFileSync(join(flags, 'words.txt'), words);
   signoffCommand(['interview', flags, '--by', 'user', '--verbatim-file', join(flags, 'words.txt')]);
   const recorded = signoffAct(act, 'interview', 'sign-interview');
-  expect(fromReview(act, 'interview', recorded).exit).toBe(0);
+  seedStoredSignoffAct(act, recorded);
   const fromFlags = obj(arr(read(flags).signoffs).at(-1)); const fromAct = obj(arr(read(act).signoffs).at(-1));
   expect(fromAct.source).toBe(`review act ${jobId}/sign-interview`);
   expect({ ...fromAct, source: undefined }).toEqual({ ...fromFlags, source: undefined });
@@ -70,75 +121,50 @@ test('a non-plan stage sign-off ingests the act and equals the flag route except
   expect(codes(act)).toEqual(codes(flags));
 });
 
-test('a plan-bound sign-off ingests with the displayed plan and refuses a stale one by name', () => {
-  testClock.set(new Date('2026-11-20T00:00:00Z'));
-  const dir = fixture(); bindReview(dir);
-  const stale = signoffAct(dir, 'plan-approved', 'sign-stale', act => {
-    obj(arr(obj(obj(act.source).plan).steps)[0]).hash = 'f'.repeat(64);
-  });
-  refused(dir, 'REVIEW_ACT_SOURCE_STALE', () => fromReview(dir, 'plan-approved', stale));
-  const reordered = signoffAct(dir, 'plan-approved', 'sign-reordered', act => { arr(obj(obj(act.source).plan).steps).reverse(); });
-  refused(dir, 'REVIEW_ACT_SOURCE_STALE', () => fromReview(dir, 'plan-approved', reordered));
-  const missing = signoffAct(dir, 'plan-approved', 'sign-missing', act => { obj(act.source).plan = null; });
-  refused(dir, 'REVIEW_ACT_INVALID', () => fromReview(dir, 'plan-approved', missing));
-  const act = signoffAct(dir, 'plan-approved', 'sign-plan');
-  expect(fromReview(dir, 'plan-approved', act).exit).toBe(0);
-  const signed = obj(arr(read(dir).signoffs).at(-1));
-  expect(signed).toMatchObject({ stage: 'plan-approved', checkpoint: null, by: 'user', at: '2026-11-20T00:00:00.000Z', verbatim: words, source: `review act ${jobId}/sign-plan` });
-  for (const raw of arr(obj(read(dir).plan).steps).map(obj).filter(step => step.phase === 'rig')) expect(obj(signed.step_hashes)[String(raw.id)]).toBe(stepHash(raw));
-  expect(codes(dir)).toEqual([]);
-  // A replay returns the recorded signoff; changed act bytes are a conflict.
-  refused(dir, 'NO_REFUSAL', () => fromReview(dir, 'plan-approved', act));
-  refused(dir, 'REVIEW_ACT_REPLAY_CONFLICT', () => fromReview(dir, 'plan-approved', { ...act, at: '2026-11-19T00:00:00.000Z' }));
-});
-
-test('#561 from-review cannot use its candidate approval to settle an unsigned stale step', () => {
+test('#561 owner-chat signoff cannot use its candidate approval to settle an unsigned stale step', () => {
   const dir = fixture(() => {}, 'example-numbered/example-project.json');
   const stage = 'post-interview';
   testClock.set(TEST_NOW);
   plantLegacyReopen(dir, stage);
-  bindReview(dir);
   const project = read(dir);
   const camera = step(project, 'camera');
   const originalDate = camera.drafted_at!;
-  const act = signoffAct(dir, stage, 'sign-camera');
   camera.drafted_at = PLAN_STEP_ANSWER_SINCE;
   save(dir, project);
-  expect(obj(obj(act.source).plan)).toEqual(displayedPlan(dir));
   expect(checkProject(dir).refusals).toContainEqual(expect.objectContaining({
     code: 'PLAN_STEP_PREDATES_ANSWER', path: 'plan.steps[camera]',
   }));
   testClock.set(testClock.now() + 1_000);
-  act.at = testClock.iso();
-  refused(dir, 'PLAN_STEP_PREDATES_ANSWER', () => fromReview(dir, stage, act));
+  const wordsPath = join(dir, 'owner.txt');
+  writeFileSync(wordsPath, words);
+  refused(dir, 'PLAN_STEP_PREDATES_ANSWER', () => signoffCommand([stage, dir, '--by', 'user', '--verbatim-file', wordsPath]));
 
   camera.drafted_at = originalDate;
   save(dir, project);
-  expect(fromReview(dir, stage, act).exit).toBe(0);
+  expect(signoffCommand([stage, dir, '--by', 'user', '--verbatim-file', wordsPath]).exit).toBe(0);
 });
 
-test('the wrong act kind or stage refuses', () => {
+test('decodeReviewAct rejects the wrong act kind or malformed decision/actor', () => {
   const dir = fixture(); bindReview(dir);
-  refused(dir, 'REVIEW_ACT_KIND_MISMATCH', () => fromReview(dir, 'interview', signoffAct(dir, 'interview', 'sign-kind', act => { act.kind = 'checkpoint'; })));
-  refused(dir, 'REVIEW_ACT_KIND_MISMATCH', () => fromReview(dir, 'interview', signoffAct(dir, 'rig-review', 'sign-stage')));
-  refused(dir, 'REVIEW_ACT_INVALID', () => fromReview(dir, 'interview', signoffAct(dir, 'interview', 'sign-decision', act => { obj(act.value).decision = 'changes-requested'; })));
-  refused(dir, 'REVIEW_ACT_INVALID', () => fromReview(dir, 'interview', signoffAct(dir, 'interview', 'sign-agent', act => { obj(act.authority).actor = 'agent'; })));
+  expect(() => decodeReviewAct(JSON.stringify(signoffAct(dir, 'interview', 'sign-kind', act => { act.kind = 'checkpoint'; })), 'signoff'))
+    .toThrow(expect.objectContaining({ code: 'REVIEW_ACT_KIND_MISMATCH' }));
+  expect(() => decodeReviewAct(JSON.stringify(signoffAct(dir, 'interview', 'sign-decision', act => { obj(act.value).decision = 'changes-requested'; })), 'signoff'))
+    .toThrow(expect.objectContaining({ code: 'REVIEW_ACT_INVALID' }));
+  expect(() => decodeReviewAct(JSON.stringify(signoffAct(dir, 'interview', 'sign-agent', act => { obj(act.authority).actor = 'agent'; })), 'signoff'))
+    .toThrow(expect.objectContaining({ code: 'REVIEW_ACT_INVALID' }));
+  expect(() => decodeReviewAct(JSON.stringify(signoffAct(dir, 'plan-approved', 'sign-missing', act => { obj(act.source).plan = null; })), 'signoff'))
+    .toThrow(expect.objectContaining({ code: 'REVIEW_ACT_INVALID' }));
   expect(() => decodeReviewAct(JSON.stringify(signoffAct(dir, 'interview', 'sign-decode')), 'review-verdict')).toThrow(Refusal);
-});
-
-test.each(['--by', '--verbatim-file', '--steps'])('mixed human flag %s refuses', flag => {
-  const dir = fixture(); bindReview(dir);
-  refused(dir, 'SIGNOFF_OPTION_INVALID', () => fromReview(dir, 'interview', signoffAct(dir, 'interview', 'sign-mixed'), [flag, 'bones']));
 });
 
 test('check refuses a recorded signoff that differs from its retained act', () => {
   const dir = fixture(); bindReview(dir);
-  fromReview(dir, 'interview', signoffAct(dir, 'interview', 'sign-ledger'));
+  seedStoredSignoffAct(dir, signoffAct(dir, 'interview', 'sign-ledger'));
   const p = read(dir); obj(arr(p.signoffs).at(-1)).verbatim = 'other words'; save(dir, p);
   expect(codes(dir)).toContain('REVIEW_ACT_LEDGER_INVALID');
 });
 
-test('advance after a review sign-off records the signoff it rests on and no words', () => {
+test('advance after a stored review sign-off records the signoff it rests on and no words', () => {
   testClock.reset();
   const dir = fixture(p => {
     p.stage = 'plan-approved'; p.versions = []; p.signoffs = arr(p.signoffs).slice(0, 1);
@@ -146,7 +172,7 @@ test('advance after a review sign-off records the signoff it rests on and no wor
     retimeFixture(p, testClock.now());
   });
   bindReview(dir);
-  fromReview(dir, 'plan-approved', signoffAct(dir, 'plan-approved', 'sign-move'));
+  seedStoredSignoffAct(dir, signoffAct(dir, 'plan-approved', 'sign-move'));
   expect(codes(dir)).toEqual([]);
   advanceCommand(['parts', dir]);
   const p = read(dir); const entry = obj(arr(p.advances).at(-1));
@@ -165,87 +191,21 @@ function rigReview(): string {
 }
 const rigAct = (dir: string, actId: string, selector: JsonObject | null): JsonObject => signoffAct(dir, 'rig-review', actId, act => { obj(act.source).selector = selector; });
 
-test('a rig-review act signs the version Review displayed, and --version may only repeat it', () => {
-  const dir = rigReview();
-  refused(dir, 'REVIEW_ACT_TARGET_MISMATCH', () => fromReview(dir, 'rig-review', rigAct(dir, 'sign-other', { kind: 'rig', version: 2 }), ['--version', '1']));
-  // Two accepted candidates: the flag route needs --version, the act names its own.
-  const p = read(dir); const first = obj(arr(p.versions)[0]);
-  first.verdicts = [...arr(first.verdicts), { review: 'rig-review', verdict: 'accepted', by: 'user', at: testClock.iso(), verbatim: 'Accept' }]; save(dir, p);
-  writeFileSync(join(dir, 'words.txt'), words);
-  refused(dir, 'SIGNOFF_TARGET_STALE', () => signoffCommand(['rig-review', dir, '--by', 'user', '--verbatim-file', join(dir, 'words.txt')]));
-  expect(fromReview(dir, 'rig-review', rigAct(dir, 'sign-shown', { kind: 'rig', version: 2 })).exit).toBe(0);
-  expect(obj(obj(arr(read(dir).signoffs).at(-1)).target).version).toBe(2);
-});
-
-test('a rig-review act with --version equal to its displayed version records that target', () => {
-  const dir = rigReview();
-  expect(fromReview(dir, 'rig-review', rigAct(dir, 'sign-same', { kind: 'rig', version: 2 }), ['--version', '2']).exit).toBe(0);
-  expect(obj(obj(arr(read(dir).signoffs).at(-1)).target).version).toBe(2);
-});
-
-test.each([['null', null], ['post', { kind: 'post', version: 2, rigVersion: 1 }], ['draft', { kind: 'draft', id: 'example' }]] as [string, JsonObject | null][])('a rig-review act with a %s selector refuses', (_name, selector) => {
-  const dir = rigReview();
-  refused(dir, 'REVIEW_ACT_TARGET_MISMATCH', () => fromReview(dir, 'rig-review', rigAct(dir, 'sign-unbound', selector)));
-});
-
 test('check refuses a review signature whose recorded target version differs from its act', () => {
   const dir = rigReview();
-  fromReview(dir, 'rig-review', rigAct(dir, 'sign-tamper', { kind: 'rig', version: 2 }));
+  const target = selectSignoffTarget(dir, read(dir), 'rig-review', '2')!;
+  seedStoredSignoffAct(dir, rigAct(dir, 'sign-tamper', { kind: 'rig', version: 2 }), { target });
   expect(codes(dir)).not.toContain('REVIEW_ACT_LEDGER_INVALID');
   const p = read(dir); obj(obj(arr(p.signoffs).at(-1)).target).version = 1; save(dir, p);
   expect(codes(dir)).toContain('REVIEW_ACT_LEDGER_INVALID');
 });
 
 const partsDiffFlags = ['--diff-report', EXAMPLE_DIFF_REPORT, '--component', 'p10-n3=in-painting:synthetic painting', '--component', 'p1000-n3=in-painting:synthetic painting'];
-function partsReview(): string {
+test('signoff parts-review rejects removed diff flags and numbered --draft / --from-review', () => {
   const dir = fixture();
   preparePartsApproval(dir, testClock.now());
   testClock.set(new Date('2026-11-20T00:00:00Z'));
   testClock.set(new Date(withdrawSignature(dir, 'parts-review')));
-  diffClassesCommand([dir, ...partsDiffFlags, '--by', 'agent']);
-  bindReview(dir);
-  return dir;
-}
-const partsAct = (dir: string, actId: string, selector: JsonObject | null): JsonObject => signoffAct(dir, 'parts-review', actId, act => { obj(act.source).selector = selector; });
-
-test('a parts-review act takes draft_id from its draft selector when --draft is absent and records draft_id on a legacy-order project', () => {
-  const dir = partsReview();
-  expect(fromReview(dir, 'parts-review', partsAct(dir, 'sign-parts-shown', { kind: 'draft', id: 'receipt-fixture' })).exit).toBe(0);
-  const signed = obj(arr(read(dir).signoffs).at(-1));
-  expect(signed.draft_id).toBe('receipt-fixture');
-  expect(signed.structure).toBeUndefined();
-  expect(codes(dir)).toEqual([]);
-});
-
-test('a parts-review act with --draft equal to its draft selector records draft_id, and a disagreeing --draft or non-draft selector refuses', () => {
-  const dir = partsReview();
-  refused(dir, 'REVIEW_ACT_DRAFT_MISMATCH', () => fromReview(dir, 'parts-review', partsAct(dir, 'sign-parts-mismatch', { kind: 'draft', id: 'receipt-fixture' }), ['--draft', 'other-draft']));
-  refused(dir, 'REVIEW_ACT_DRAFT_MISMATCH', () => fromReview(dir, 'parts-review', partsAct(dir, 'sign-parts-rig', { kind: 'rig', version: 2 })));
-  refused(dir, 'REVIEW_ACT_DRAFT_MISMATCH', () => fromReview(dir, 'parts-review', partsAct(dir, 'sign-parts-post', { kind: 'post', version: 2, rigVersion: 1 })));
-  expect(fromReview(dir, 'parts-review', partsAct(dir, 'sign-parts-same', { kind: 'draft', id: 'receipt-fixture' }), ['--draft', 'receipt-fixture']).exit).toBe(0);
-  expect(obj(arr(read(dir).signoffs).at(-1)).draft_id).toBe('receipt-fixture');
-  expect(codes(dir)).toEqual([]);
-});
-
-test('control-flow interference plant: parts-review --from-review infers draft_id from selector, enforces the agent diff_map gate, and records draft_id on a legacy-order project', () => {
-  const dir = partsReview();
-  const withoutMap = read(dir);
-  delete withoutMap.diff_map;
-  save(dir, withoutMap);
-  bindReview(dir);
-  // Without project.diff_map, --from-review still infers draft_id from the selector and refuses at the agent diff_map gate.
-  refused(dir, 'DIFF_MAP_MISSING', () => fromReview(dir, 'parts-review', partsAct(dir, 'sign-parts-no-map', { kind: 'draft', id: 'receipt-fixture' })));
-  // Passing removed diff flags on signoff refuses before writing.
-  refused(dir, 'SIGNOFF_DIFF_MAP_REMOVED', () => fromReview(dir, 'parts-review', partsAct(dir, 'sign-parts-old-flags', { kind: 'draft', id: 'receipt-fixture' }), partsDiffFlags));
-  // Recording agent classification via diff-classes unlocks --from-review sign-off with selector-inferred draft_id on the legacy-order record.
-  diffClassesCommand([dir, ...partsDiffFlags, '--by', 'agent']);
-  bindReview(dir);
-  expect(fromReview(dir, 'parts-review', partsAct(dir, 'sign-parts-gated', { kind: 'draft', id: 'receipt-fixture' })).exit).toBe(0);
-  const project = read(dir);
-  expect(obj(project.diff_map).by).toBe('agent');
-  const signed = obj(arr(project.signoffs).at(-1));
-  expect(signed.draft_id).toBe('receipt-fixture');
-  expect(signed.structure).toBeUndefined();
-  expect(signed.diff_map).toBeUndefined();
-  expect(codes(dir)).toEqual([]);
+  refused(dir, 'SIGNOFF_DIFF_MAP_REMOVED', () => rawSignoff(['parts-review', realpathSync(dir), ...partsDiffFlags], testClock.now()));
+  refused(dir, 'SIGNOFF_FROM_REVIEW_REMOVED', () => fromReview(dir, 'parts-review', signoffAct(dir, 'parts-review', 'sign-parts')));
 });

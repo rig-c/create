@@ -1,4 +1,4 @@
-import { reviewStdout, syntheticReviewRunner } from './review-read-fixture.ts';
+import { syntheticReviewRunner } from './review-read-fixture.ts';
 import { afterEach, expect, test } from 'bun:test';
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
@@ -6,7 +6,8 @@ import { join, posix } from 'node:path';
 import { tmpdir } from 'node:os';
 import { CorrectionError, checkUnrecordedPartRepaints, correctionApprovalFindings, correctionHash, validateCorrectionPatch } from '../src/corrections.ts';
 import { plantLegacyReopen, fixture as projectFixture } from './fixtures.ts';
-import { recordPartsReceipt } from './parts-receipt-fixture.ts';
+import { recordPartsReceipt, seedPartsCliReceipt } from './parts-receipt-fixture.ts';
+import { seedStoredPartsSignoff } from './historical-review-fixture.ts';
 import { withPartsCheck } from './parts-check-fixture.ts';
 import { Refusal } from '../src/refusal.ts';
 import { selectAnswerHashes } from '../src/signoff-answers.ts';
@@ -18,7 +19,6 @@ import { correctionFixture, correctionCommentsFixture, commentsReviewRunner, COM
 import { advanceCommand, checkCorrections, checkProject, assertCorrectionApproval, correctionCommand, derivedCommand, diffClassesCommand, draftRigCommand, signoffCommand, testClock } from './clock.ts';
 import { clockedCli } from './helpers.ts';
 import { nextProject } from '../src/next.ts';
-import { partsReviewCommand } from '../src/parts-review.ts';
 
 const requireCore = createRequire(import.meta.url);
 const { encodePng } = requireCore('@rig-c/core/plate') as { encodePng: (width: number, height: number, data: Uint8Array) => Buffer };
@@ -357,11 +357,11 @@ test('a post-checkpoint part edit stays uncovered until a later verdict binds th
     const draft = (load(dir).drafts as JsonObject[]).find(d => d.id === id)!;
     const parts = draft.parts as JsonObject;
     const files = (parts.files as JsonObject[]).map(file => ({ ...file, path: posix.relative('evidence', String(file.path)) }));
-    const response = { schema: 'rig-review-parts-verdict/4', mode: 'parts', updatedAt, status,
+    const response: JsonObject = { schema: 'rig-review-parts-verdict/4', mode: 'parts', updatedAt, status,
       tool: { name: '@rig-c/review', version: '0.0.0-synthetic' }, source: { sha256: 'a'.repeat(64), files },
       issues: status === 'approved' ? [] : [{ id: 'edge', summary: 'Review the edge.', parts: [{ name: 'torso', imageHash: correctionHash(pngs.before) }] }] };
-    return partsReviewCommand([dir, '--draft', id, '--by', 'user', '--from-review-cli', '--json', '--', String(parts.path), '--verdict', 'evidence/review.json'],
-      testClock.now(), { runCli: reviewStdout(JSON.stringify(response)) });
+    const receipt = seedPartsCliReceipt(dir, id, testClock.now(), response, [String(parts.path), '--verdict', 'evidence/review.json']);
+    return { exit: 0, stdout: JSON.stringify(receipt) };
   };
   testClock.set('2026-11-06T02:15:00Z');
   expect(recordVerdict('parent', testClock.iso(), 'changes-requested').exit).toBe(0);
@@ -681,18 +681,23 @@ test('legacy-order project with a resolved part-image correction on a model-less
   testClock.set(new Date('2026-11-06T03:30:00Z'));
   diffClassesCommand([dir, '--diff-report', 'evidence/diff-components.json', '--by', 'agent']);
   // Plant: signing the unfixed parent draft without --structure-file refuses CORRECTION_OUTCOME and preserves project.json.
-  rejected(dir, 'CORRECTION_OUTCOME', () => signoffCommand([
+  rejected(dir, 'NUMBERED_WRITER_REMOVED', () => signoffCommand([
     'parts-review', dir, '--by', 'user', '--draft', 'parent',
     '--verbatim-file', join(dir, 'words.txt'),
   ]));
-  // Signing the resolving draft with --draft alone (no --structure-file) records draft_id and passes check.
-  const signed = cli(dir, [
-    'signoff', 'parts-review', dir, '--by', 'user', '--draft', 'repainted',
-    '--verbatim-file', join(dir, 'words.txt'), '--json',
-  ]);
-  expect(signed.stderr).toBe('');
-  expect(signed.exit).toBe(0);
-  const record = JSON.parse(signed.stdout) as JsonObject;
+  rejected(dir, 'CORRECTION_OUTCOME', () => seedStoredPartsSignoff(dir, 'parent', {
+    by: 'user',
+    at: testClock.now(),
+    verbatim: readFileSync(join(dir, 'words.txt'), 'utf8'),
+    explicitStructure: true,
+  }));
+  // Signing the resolving draft without --structure-file records draft_id and passes check.
+  const record = seedStoredPartsSignoff(dir, 'repainted', {
+    by: 'user',
+    at: testClock.now(),
+    verbatim: readFileSync(join(dir, 'words.txt'), 'utf8'),
+    explicitStructure: true,
+  });
   expect(record.draft_id).toBe('repainted');
   expect(record.structure).toBeUndefined();
   expect(checkProject(dir).refusals).toEqual([]);

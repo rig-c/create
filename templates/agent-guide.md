@@ -4,7 +4,7 @@ One painting; one rig and its takes.
 
 ## Start here
 
-1. Read `project.json`. Verdicts go through Review; relay interview picks/signoffs with owner words via `--owner-chat --said-at --relayed-by`. Never invent human words.
+1. Read `project.json`. Comments go through Review; relay interview picks/signoffs with owner words via `--owner-chat --said-at --relayed-by`. Never invent human words.
 2. Run `rig-create next` for next moves and owners.
 3. Resume: {{RESUME_LINK}}.
 
@@ -33,17 +33,10 @@ one input, survives restart and checks sibling artwork; optional on older record
 
 Per step, `plan propose` a page of plain sentences in `owner.language`: summary; what and why by area; left out; 2–3 direction questions. `plan feedback` logs replies; no gate.
 
-1. **Parts and meshes**. Review a labelled draft's parts and mesh/chest structure. `parts-review` records its Review API response.
-   The latest receipt must approve the draft for `structure-snapshot --draft <id>`
-   and `signoff parts-review --draft <id> --structure-file <f>`; record component triage with `diff-classes --diff-report <p> --by agent` ({{DRAFTS_LINK}}).
+1. **Parts and meshes**. Assemble and check parts, record `record parts --from <dir> --config <c>`, run `structure-snapshot`, and relay any owner `signoff parts-review` via `--owner-chat`; record component triage with `diff-classes --diff-report <p> --by agent` ({{DRAFTS_LINK}}).
 2. **Rigging interview**. Plan bones, deformation, physics, motion on approved parts/structure.
-3. **Rig and animation**. Ingest feedback: `review <version> --from-review <actId>`; then `record rig`.
-4. **Direction**. Copy owner `value.compose` into Parts' scene; compose to green.
-   Record `direction@3`: `direction write <N> --file <json> --rig <R> --compose-out <dir>`
-   (optional `--compose-scene <file>`). This route has no `scene write`.
-   `job open --rig <post>` asks the verdict only.
-   Ingest `review <post> --from-review <actId>`, then `job open --plan` for
-   record-page sign-off (source-linked Review).
+3. **Rig and animation**. Build, check and record `record rig --from <dir> --config <c>`; relay any owner `signoff rig-review` via `--owner-chat`.
+4. **Direction**. Copy owner `value.compose` into Parts' scene; render motion (`record motion --from <dir>`), write `scene write --compose-scene <file>` and `direction write --file <json>`, compose to green, and record `record direction --from <dir> --direction specs/direction/direction.json`. Relay `signoff direction-review` via `--owner-chat`, then `advance accepted`.
 
 Use `advance <stage>`, `step-status <id>`.
 `advance parts-review` needs `--parts-check <report> --parts <assembled dir>`,
@@ -59,11 +52,11 @@ Preserve history/dates; adopt choices explicitly.
 Start `job open <dir> --reviewer <id> --role owner` in the background; add a selector when ready.
 Share the URL once. Publish via bound writers or reuse `--draft|--rig|--question|--plan`.
 Reused opens exit. The page updates in place.
-After asking, run `job acts --wait` in the background, ingest its command, advance, republish.
-`job acts [--json]` lists each pending act's verdict, comments and `words`, even when ingest is refused.
+After publishing, run `job acts --wait` in the background to collect comments, relay picks/signoffs via `--owner-chat`, advance, republish.
+`job acts [--json]` lists each pending act's comments and `words`, even when ingest is unavailable.
 Comment acts (`act@10`, no verdict): `comment --from-review <actId>` records `comments[i]`, bound by content hash.
 Plan-picture pin `["rig-review-comment/1", mode, "reference", referenceId, referenceHash, x, y, w, h]` (integer pixels, Y down, `w=h=0` for a point): match `referenceHash` to `referenceId`'s `sha256` in publication `files`, crop `x,y,w,h`.
-With all picks ingested, complete the plan, follow `next` for `signoff <stage> --from-picks`; keep the plan page for other answers.
+With all picks recorded, complete the plan, follow `next` for `signoff <stage> --from-picks` or `--owner-chat`.
 Keep the job host up across bound writes; if it stopped, run `job open` again with the same reviewer/role and URL, then `job reconcile`.
 Legacy package-only host: ingest pending acts, `job close` once, then ask a question/plan.
 

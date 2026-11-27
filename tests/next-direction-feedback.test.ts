@@ -78,9 +78,20 @@ test('#1106 next routes a live numbered direction bounce through current outputs
     expect(checked.warnings).toContainEqual(expect.objectContaining({ code: 'FEEDBACK_OPEN', path: feedbackPath }));
 
     const numbered = readNext();
-    expect(numbered).toMatchObject({ accepted: false, refusals: [], awaits: ['versions'] });
-    expect(numbered.moves).toEqual([expect.objectContaining({ role: 'agent', field: 'versions', command: null,
-      act: expect.stringContaining('Numbered scenes and posts are read-only.') })]);
+    expect(numbered).toMatchObject({ accepted: false, refusals: [], awaits: ['signoffs[stage=direction-review]', 'versions'] });
+    expect(numbered.moves).toEqual([
+      expect.objectContaining({
+        role: 'human', field: 'amendments[0]', awaits: 'signoffs[stage=direction-review]', command: null,
+        lapse: expect.objectContaining({
+          code: 'AMENDED_STEP', amendment_id: 'camera', source_field: 'amendments[0]', target_field: 'signoffs[7]',
+        }),
+        review_act: { kind: 'signoff', stage: 'direction-review' },
+      }),
+      expect.objectContaining({
+        role: 'agent', field: 'versions', awaits: 'versions', command: null,
+        act: expect.stringContaining('NUMBERED_ACT_RETIRED: Numbered scenes and posts are read-only.'),
+      }),
+    ]);
 
     // The chain binds a rig model, but never registered adoptable parts, motion, or compose output trees.
     // Adopting the rig alone switches next away from numbered verdict moves.

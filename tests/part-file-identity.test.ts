@@ -5,6 +5,7 @@ import { afterEach, expect, test } from 'bun:test';
 import { createHash } from 'node:crypto';
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+import { assertRequestedRig } from '../src/job-host.ts';
 import { Refusal } from '../src/refusal.ts';
 import { checkReviewPackages } from '../src/review-package.ts';
 import { seedRetainedReviewPackage } from './numbered-seed.ts';
@@ -184,7 +185,7 @@ for (const at of ['pending', '', null, 123, undefined, '2026-02-31', '2026-02-31
   put(dir, 'derived/review/v1/out/parts/torso.png', 'distinct reader-date drift\n');
   const before = readFileSync(join(dir, 'project.json'));
   expect(checkProject(dir).refusals.map(f => f.code)).toContain('RIG_VERSION_AT_INVALID');
-  for (const action of [() => packageRig(dir), () => selectSignoffTarget(dir, load(dir), 'rig-review', '1'), () => { handoffCommand([dir, '--json']); }]) {
+  for (const action of [() => assertRequestedRig(dir, '1'), () => selectSignoffTarget(dir, load(dir), 'rig-review', '1'), () => { handoffCommand([dir, '--json']); }]) {
     const error = refusal(action);
     expect(error.code).toBe('RIG_VERSION_AT_INVALID');
     expect(error.message).toContain('versions[v1].at');

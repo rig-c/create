@@ -41,10 +41,11 @@ import { Refusal } from '../src/refusal.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { run, treeDigest } from './helpers.ts';
 import { sourceOnlyTest } from './source-only.ts';
+import { EXAMPLE_NOW } from '../scripts/example-time.ts';
 
 const CLI = join(import.meta.dir, '../src/cli.ts');
 const EXAMPLE_CURRENT = join(import.meta.dir, '../templates/example-current');
-const NOW = Date.parse('2026-11-26T00:05:00.000Z');
+const NOW = EXAMPLE_NOW;
 
 const roots: string[] = [];
 const opened: { proc: Bun.Subprocess; root: string }[] = [];

@@ -136,7 +136,7 @@ test.each([
   const written = prepareCurrentManifest(f.dir, project, 'direction', sha256(readFileSync(join(f.dir, 'project.json'))));
   expect(written.closurePaths).toContain(bindings.report.path);
   const manifestBytes = readFileSync(join(f.dir, written.path));
-  expect(manifestBytes).toEqual(publication.manifestBytes);
+  expect(manifestBytes.equals(publication.manifestBytes)).toBe(true);
   const manifest = JSON.parse(manifestBytes.toString()) as JsonObject;
   expect(manifest.model).toBe(bindings.model.path);
   expect(manifest.sceneReport).toEqual({

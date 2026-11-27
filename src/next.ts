@@ -97,6 +97,7 @@ import { latestPartsApproval, partsApprovalIdentity } from './structure.ts';
 import { resolveAgentCitationSpec } from './scene-authority.ts';
 import { DIRECTION_COMPOSE_SPEC } from './direction-compose.ts';
 import { DirectionError, directionJson, missingDirectionStepApprovals } from './direction.ts';
+import { type NextComment, withCurrentComments } from './comment-closures.ts';
 import { currentOutputMove, withStaleOutputs } from './next-stale.ts';
 
 export const NEXT_SCHEMA = 'rig-create/next@1';
@@ -180,6 +181,8 @@ export interface NextReport {
   bust_landmark_commands?: string[];
   /** A view of existing answers, never a new project record. */
   answers?: { question_id: string; field: string; by: Json; at: Json; picks: { ask: Json; option_id: Json; label: Json }[]; command?: string }[];
+  /** Current-output comments with live `current` / `earlier` status and closure state (#1064). */
+  comments?: NextComment[];
   awaits: string[];
   moves: NextMove[];
 }
@@ -1772,10 +1775,12 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
       act: 'Replace <file> with your explanation. Add --resolved-by-answer <question> if a later completed answer or guide resolves the comment.',
     }];
   });
-  if (revisionMoves.length === 0 && commentMoves.length === 0) return next;
-  return { ...next,
+  const combined = revisionMoves.length === 0 && commentMoves.length === 0 ? next : {
+    ...next,
     awaits: [...revisionMoves.map(move => move.awaits), ...next.awaits, ...commentMoves.map(move => move.awaits)],
-    moves: [...revisionMoves, ...next.moves, ...commentMoves] };
+    moves: [...revisionMoves, ...next.moves, ...commentMoves],
+  };
+  return withCurrentComments(dir, project, combined, shellWord, now, currentPath || isCurrentProject(project));
 }
 
 function deriveNextProject(dir: string, project: JsonObject, report: CheckReport, now: number,
@@ -3047,6 +3052,9 @@ export function formatNext(report: NextReport | NextCollectionReport): string {
     }`,
   );
   for (const w of report.warnings ?? []) lines.push(`  WARN [${w.code}]: ${w.message}`);
+  for (const c of report.comments ?? []) {
+    lines.push(`  comment comments[${c.comment}] [${c.status}${c.closed ? ', closed' : ''}]: ${c.comments.length} comment(s)`);
+  }
   for (const command of report.bust_landmark_commands ?? []) lines.push(command);
   if (report.refusals.length > 0) {
     lines.push(`refusals (${report.refusals.length}):`);
@@ -3070,8 +3078,8 @@ export function formatNext(report: NextReport | NextCollectionReport): string {
   for (const move of report.moves) {
     const label = move.command ?? move.act;
     lines.push(`  [${move.role}] (${move.field} -> ${move.awaits}) ${label}`);
-    if (move.command !== null && (ROUTED_ANSWER_COMMENT_PATH.test(move.field) || move.field.startsWith('current.')
-      || move.field === CURRENT_SCENE_PATH || move.field === CURRENT_DIRECTION_PATH
+    if (move.command !== null && (ROUTED_ANSWER_COMMENT_PATH.test(move.field) || move.field.startsWith('comments[')
+      || move.field.startsWith('current.') || move.field === CURRENT_SCENE_PATH || move.field === CURRENT_DIRECTION_PATH
       || move.act.startsWith(OPTIONAL_SIGNOFF_PREFIX))) {
       lines.push(`    ${move.act}`);
     }

@@ -5,9 +5,9 @@ import { generateCurrentDirectionCorrectionFixture } from '../scripts/generate-c
 import type { Finding } from '../src/check.ts';
 import { correctionApprovalFindings, currentDirectionIdentity } from '../src/corrections.ts';
 import { COMPOSE_CHECK_PATH, COMPOSE_RUN_PATH, CURRENT_DIRECTION_PATH } from '../src/current-direction.ts';
-import { sha256, treeFiles } from '../src/current.ts';
+import { outputSetHash, sha256, treeFiles } from '../src/current.ts';
 import { DIRECTION_CORRECTION_SPEC, directionPostIdentity } from '../src/direction.ts';
-import { inspectCurrentPublication } from '../src/job-publication.ts';
+import { inspectCurrentPublication, prepareCurrentManifest } from '../src/job-publication.ts';
 import { recordCommand } from '../src/record.ts';
 import { sceneCommand } from '../src/scene-writers.ts';
 import type { JsonObject } from '../src/templates.ts';
@@ -87,10 +87,7 @@ function restageAndRecordDirection(dir: string, intentFile: string, revision: nu
   expect(recordCommand(['direction', dir, '--from', directionFrom, '--direction', CURRENT_DIRECTION_PATH], Date.parse(recordAt)).exit).toBe(0);
 }
 
-test.each([
-  { binding: 'matching', modelMatches: true },
-  { binding: 'mismatched', modelMatches: false },
-])('current direction records and publishes a camera report with a $binding model hash', ({ modelMatches }) => {
+function stageCameraReport({ modelMatches = true, track = 'idle', duration = 4, loop = true } = {}) {
   const f = cloneFixture();
   const sourcePath = 'specs/direction/compose-camera.json';
   const from = 'outputs/direction.next';
@@ -103,7 +100,8 @@ test.each([
   };
   const backdrop = 'backdrop';
   const source = read('specs/direction/compose-scene.json');
-  source.camera = { backdrop, tracks: { idle: [{ t: 0, pan: [0, 0], zoom: 1 }, { t: 4, pan: [0, 0], zoom: 1 }] } };
+  const keys = [{ t: 0, pan: [0, 0], zoom: 1 }, { t: 4, pan: [0, 0], zoom: 1 }];
+  source.camera = { backdrop, tracks: { [track]: keys } };
   const sourceSha = put(sourcePath, source);
   expect(sceneCommand(['write', f.dir, '--compose-scene', sourcePath], Date.parse('2026-11-26T09:11:00Z')).exit).toBe(0);
   expect(directionCommand(['write', f.dir, '--file', 'evidence/intent-revised.json']).exit).toBe(0);
@@ -111,8 +109,20 @@ test.each([
   const modelSha = sha256(readFileSync(join(f.dir, from, modelPath)));
   put(`${from}/${COMPOSE_RUN_PATH}`, { ...read(`${from}/${COMPOSE_RUN_PATH}`), scene: { path: sourcePath, sha256: sourceSha } });
   const reportSha = put(`${from}/scene.json`, { ...read(`${from}/scene.json`), spec: 'spine-parts-scene-report/2', scene: sourcePath,
-    camera: { backdrop, model_sha256: modelMatches ? modelSha : '0'.repeat(64) } });
+    camera: { backdrop, model_sha256: modelMatches ? modelSha : '0'.repeat(64),
+      tracks: { [track]: { duration, compiled_duration: 4, loop, keys } } } });
   const record = () => recordCommand(['direction', f.dir, '--from', from, '--direction', CURRENT_DIRECTION_PATH], Date.parse('2026-11-26T09:12:00Z'));
+  return { f, record, bindings: {
+    report: { path: 'outputs/direction/scene.json', sha256: reportSha },
+    model: { path: `outputs/direction/${modelPath}`, sha256: modelSha },
+  } };
+}
+
+test.each([
+  { binding: 'matching', modelMatches: true },
+  { binding: 'mismatched', modelMatches: false },
+])('current direction records and publishes a camera report with a $binding model hash', ({ modelMatches }) => {
+  const { f, record, bindings } = stageCameraReport({ modelMatches });
   if (!modelMatches) {
     refusesByteIdentical(f.dir, 'DIRECTION_COMPOSE_CAMERA_MODEL', 1, record);
     return;
@@ -120,10 +130,67 @@ test.each([
 
   expect(record().exit).toBe(0);
   const project = f.load();
-  const bindings = [{ path: 'outputs/direction/scene.json', sha256: reportSha }, { path: `outputs/direction/${modelPath}`, sha256: modelSha }];
-  expect(((project.current as JsonObject).direction as JsonObject).files).toEqual(expect.arrayContaining(bindings.map(binding => expect.objectContaining(binding))));
+  expect(((project.current as JsonObject).direction as JsonObject).files).toEqual(expect.arrayContaining(Object.values(bindings).map(binding => expect.objectContaining(binding))));
   const publication = inspectCurrentPublication(f.dir, project, 'direction', sha256(readFileSync(join(f.dir, 'project.json'))));
-  expect(publication.closureFiles).toEqual(expect.arrayContaining(bindings));
+  expect(publication.closureFiles).toEqual(expect.arrayContaining(Object.values(bindings)));
+  const written = prepareCurrentManifest(f.dir, project, 'direction', sha256(readFileSync(join(f.dir, 'project.json'))));
+  expect(written.closurePaths).toContain(bindings.report.path);
+  const manifestBytes = readFileSync(join(f.dir, written.path));
+  expect(manifestBytes.equals(publication.manifestBytes)).toBe(true);
+  const manifest = JSON.parse(manifestBytes.toString()) as JsonObject;
+  expect(manifest.model).toBe(bindings.model.path);
+  expect(manifest.sceneReport).toEqual({
+    path: bindings.report.path, sha256: sha256(readFileSync(join(f.dir, bindings.report.path))),
+  });
+  const fields = Object.keys(manifest);
+  expect(fields[fields.indexOf('model') + 1]).toBe('sceneReport');
+});
+
+test.each([
+  { variant: '/1', baseline: '4fba40fd473369917436bebc605c250524e709811ad6724bc32912eccf242b4b' },
+  { variant: '/2 without an idle track', baseline: 'c6ff475c57f6d6b64a19776628f657b8a37bc989a8a76603873d3c3fe537814c' },
+])('current direction manifest keeps its existing bytes for $variant', ({ variant, baseline }) => {
+  const f = (() => {
+    if (variant === '/1') return cloneFixture();
+    const camera = stageCameraReport({ track: 'alternate' });
+    expect(camera.record().exit).toBe(0);
+    return camera.f;
+  })();
+  const publication = inspectCurrentPublication(f.dir, f.load(), 'direction', sha256(readFileSync(join(f.dir, 'project.json'))));
+  expect(JSON.parse(publication.manifestBytes.toString())).not.toHaveProperty('sceneReport');
+  expect(sha256(publication.manifestBytes)).toBe(baseline);
+});
+
+test.each([
+  { field: 'duration', duration: 3.999999, loop: true },
+  { field: 'loop', duration: 4, loop: false },
+])('current direction publication refuses an idle camera track with mismatched authored $field', ({ field, duration, loop }) => {
+  const { f, record } = stageCameraReport({ duration, loop });
+  expect(record().exit).toBe(0);
+  refusesByteIdentical(f.dir, 'DIRECTION_TAKE_MISMATCH', 1, () =>
+    prepareCurrentManifest(f.dir, f.load(), 'direction', sha256(readFileSync(join(f.dir, 'project.json')))));
+  expect(() => inspectCurrentPublication(f.dir, f.load(), 'direction', sha256(readFileSync(join(f.dir, 'project.json')))))
+    .toThrow(expect.objectContaining({ message: expect.stringContaining(`camera.tracks.idle.${field}`) }));
+});
+
+test('current direction publication refuses a changed scene report seal and a sealed report for a different model', () => {
+  const { f, record, bindings } = stageCameraReport();
+  expect(record().exit).toBe(0);
+  const path = join(f.dir, bindings.report.path);
+  const report = readFileSync(path, 'utf8');
+  const publish = () => prepareCurrentManifest(f.dir, f.load(), 'direction', sha256(readFileSync(join(f.dir, 'project.json'))));
+  writeFileSync(path, report.slice(0, -1) + ' ');
+  refusesByteIdentical(f.dir, 'JOB_PUBLICATION_INVALID', 1, publish);
+
+  // Seal the new bytes to isolate the report-to-model binding from the report's file seal.
+  writeFileSync(path, report.replace(bindings.model.sha256, '0'.repeat(64)));
+  const project = f.load();
+  const direction = (project.current as JsonObject).direction as JsonObject;
+  const files = treeFiles(f.dir, 'outputs/direction');
+  direction.files = files;
+  direction.files_sha256 = outputSetHash(files);
+  f.save(project);
+  refusesByteIdentical(f.dir, 'DIRECTION_COMPOSE_CAMERA_MODEL', 1, publish);
 });
 
 test('current-direction correction fixture reproduces byte-for-byte through writers and passes check', () => {

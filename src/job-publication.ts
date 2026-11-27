@@ -9,8 +9,8 @@ import partsPackage from '@rig-c/parts/package.json';
 import * as reviewJobHost from '@rig-c/review/job-host';
 import { JOB_ACT_SCHEMA, JOB_API_SCHEMA, type JobPublicationReader, type JobPublishedContext, type JobSelector, type PublishResultV3, type RecordPicksSubject, type RecordPlanSubject } from '@rig-c/review/job-host';
 import { stepHash } from './step-hash.ts';
-import { DIRECTION_COMPOSE_SPEC, composeInventory } from './direction-compose.ts';
-import { readDirection } from './direction.ts';
+import { COMPOSE_CAMERA_REPORT_SPEC, DIRECTION_COMPOSE_SPEC, composeInventory, validateComposeCameraModel } from './direction-compose.ts';
+import { DirectionError, readDirection } from './direction.ts';
 import { checkpointEvidenceContext, type CheckpointEvidence } from './checkpoint-evidence.ts';
 import { locateParts, PARTS_PACKAGE } from './parts-sections.ts';
 import { asArray, checkProject, collectItems, isObject, loadCollection, type Finding, type Item } from './check.ts';
@@ -49,6 +49,7 @@ export const JOB_ENUMERATOR_ID = 'rig-create/parts-file-references/1';
 export const partsEnumerator = { version: partsPackage.version, enumerate: partsFileReferences };
 export const CURRENT_LIVE_MANIFEST = 'review-live.json';
 
+const CURRENT_DIRECTION_SCENE_REPORT = 'outputs/direction/scene.json';
 const DRAFT_PACKAGE_ID_PREFIX = 'create-draft-';
 const RIGGING_DRAFT_PACKAGE_ID_PREFIX = 'create-rigging-draft-';
 
@@ -836,6 +837,35 @@ export interface CurrentPublicationInspection {
   readonly closureFiles: { path: string; sha256: string }[];
 }
 
+function currentDirectionSceneReport(recorded: FileSeal & { bytes: Buffer }, modelSha256: string, take: JsonObject): FileSeal | undefined {
+  const { path, sha256, bytes } = recorded;
+  const label = `project.json.current.direction.files (${path})`;
+  const invalid = (): never => refuse('JOB_PUBLICATION_INVALID',
+    `${label}: expected a Parts scene report with a supported spec and valid camera track metadata; restore the recorded report or compose and record direction again`);
+  let report: Json;
+  try { report = JSON.parse(bytes.toString('utf8')) as Json; }
+  catch { return invalid(); }
+  if (!isObject(report)) return invalid();
+  if (report.spec === 'spine-parts-scene-report/1') return undefined;
+  if (report.spec !== COMPOSE_CAMERA_REPORT_SPEC) return invalid();
+
+  try { validateComposeCameraModel(report, modelSha256, path); }
+  catch (error) {
+    if (error instanceof DirectionError) refuse(error.code, `${label}: ${error.message}`);
+    throw error;
+  }
+  const tracks = isObject(report.camera) ? report.camera.tracks : undefined;
+  if (!isObject(tracks)) return invalid();
+  if (!Object.hasOwn(tracks, 'idle')) return undefined;
+  const idle = tracks.idle;
+  if (!isObject(idle) || typeof idle.duration !== 'number' || !Number.isFinite(idle.duration) || typeof idle.loop !== 'boolean') return invalid();
+
+  const field = take.duration !== idle.duration ? 'duration' : take.loop !== idle.loop ? 'loop' : undefined;
+  if (field) refuse('DIRECTION_TAKE_MISMATCH',
+    `project.json.current.direction: ${CURRENT_DIRECTION_PATH} take.${field} (${String(take[field])}) differs from ${path} camera.tracks.idle.${field} (${String(idle[field])}); compose again using the cited take, then run rig-create record direction`);
+  return { path, sha256 };
+}
+
 export function inspectCurrentPublication(
   root: string,
   project: JsonObject,
@@ -853,7 +883,7 @@ export function inspectCurrentPublication(
   if (shape) refuse(shape.code, shape.message);
 
   const seals = new Map<string, string>();
-  const addSeal = (path: string, sha256: string, expectedBytes?: number): void => {
+  const addSeal = (path: string, sha256: string, expectedBytes?: number): Buffer => {
     const bytes = publicationFile(root, path);
     if (jobHash(bytes) !== sha256 || (expectedBytes !== undefined && bytes.length !== expectedBytes)) {
       refuse('JOB_PUBLICATION_INVALID', `project.json.${label}: ${path} differs from its recorded hash; restore the recorded output or rerun rig-create record ${output}`);
@@ -863,10 +893,15 @@ export function inspectCurrentPublication(
       refuse('JOB_PUBLICATION_INVALID', `project.json.${label}: ${path} has conflicting publication hashes; restore a single immutable identity`);
     }
     seals.set(path, sha256);
+    return bytes;
   };
 
+  let recordedSceneReport: (FileSeal & { bytes: Buffer }) | undefined;
   for (const raw of asArray(node.files).filter(isObject)) {
-    addSeal(String(raw.path), String(raw.sha256), typeof raw.bytes === 'number' ? raw.bytes : undefined);
+    const path = String(raw.path);
+    const sha256 = String(raw.sha256);
+    const bytes = addSeal(path, sha256, typeof raw.bytes === 'number' ? raw.bytes : undefined);
+    if (output === 'direction' && path === CURRENT_DIRECTION_SCENE_REPORT) recordedSceneReport = { path, sha256, bytes };
   }
 
   const revision = recordHash.slice(0, 12);
@@ -944,13 +979,13 @@ export function inspectCurrentPublication(
   }
   const modelPath = models[0]!;
   let directionField: { direction?: string } = {};
+  let sceneReport: FileSeal | undefined;
   if (output === 'direction') {
     const builtFrom = asArray(node.built_from).filter(isObject).find(entry => entry.path === CURRENT_DIRECTION_PATH);
     if (!builtFrom || typeof builtFrom.sha256 !== 'string') {
       refuse('JOB_PUBLICATION_INVALID', `project.json.${label}: ${CURRENT_DIRECTION_PATH} binding is missing from ${label}.built_from; rerun rig-create record direction`);
     }
-    addSeal(CURRENT_DIRECTION_PATH, builtFrom.sha256);
-    const directionBuf = publicationFile(root, CURRENT_DIRECTION_PATH);
+    const directionBuf = addSeal(CURRENT_DIRECTION_PATH, builtFrom.sha256);
     if (directionBuf.length > 256 * 1024) {
       refuse('JOB_PUBLICATION_INVALID', `project.json.${label}: ${CURRENT_DIRECTION_PATH} exceeds the 256 KiB publication limit; rerun rig-create direction write and record direction`);
     }
@@ -967,6 +1002,7 @@ export function inspectCurrentPublication(
       || typeof take.loop !== 'boolean') {
       refuse('JOB_PUBLICATION_INVALID', `project.json.${label}: ${CURRENT_DIRECTION_PATH} must be a ${CURRENT_DIRECTION_SPEC} spec with take.duration > 0 and boolean take.loop; rerun rig-create direction write and record direction`);
     }
+    if (recordedSceneReport) sceneReport = currentDirectionSceneReport(recordedSceneReport, seals.get(modelPath)!, take);
     directionField = { direction: CURRENT_DIRECTION_PATH };
   }
   const manifest = {
@@ -975,6 +1011,7 @@ export function inspectCurrentPublication(
     revision,
     title: `current ${output}`,
     model: modelPath,
+    ...(sceneReport ? { sceneReport } : {}),
     ...directionField,
     references: painting ? [painting.reference] : [],
     animations: [],

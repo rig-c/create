@@ -74,6 +74,21 @@ A bound current `rig-review` or `direction-review` advance also refuses with
 `JOB_PUBLICATION_INVALID` if its recorded output is missing, stale or differs
 from the output tree. Rebuild and record the current output before advancing.
 
+### Current direction scene report
+
+The current direction manifest includes `sceneReport` beside `model` when the
+sealed Parts `spine-parts-scene-report/2` has an authored `idle` camera track.
+The pointer holds the report path and SHA-256 of its raw bytes. Scenes with a
+`/1` report or without an authored `idle` track keep their existing manifest
+bytes. The take comes from the cited owner choice.
+
+| Code | When it fires and how to recover |
+| --- | --- |
+| `JOB_PUBLICATION_INVALID` | The scene report's bytes differ from the seal in `current.direction.files`, its spec is unsupported, or the camera track metadata cannot supply the authored take. Restore the recorded report or compose and record direction again. |
+| `DIRECTION_TAKE_MISMATCH` | The current direction's cited take duration or loop differs from the sealed report's `camera.tracks.idle.duration` or `loop`. Compose again using the cited authored duration and loop, then run `rig-create record direction` before publishing. |
+
+The report-to-model digest check uses `DIRECTION_COMPOSE_CAMERA_MODEL`.
+
 
 ## Finalized Review acts
 

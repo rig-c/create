@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from 'bun:test';
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { type Finding } from '../src/check.ts';
@@ -9,16 +9,16 @@ import { currentScene, sceneReference } from '../src/scene.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { sceneFixture } from './scene-fixture.ts';
 import { checkDirections, directionCommand, sceneCommand, testClock } from './clock.ts';
-import { openCreateJob } from '../src/job-host.ts';
-import { jobHash, jobHostStateRoot, jobPrivateRoot } from '../src/job-outbox.ts';
+import { openCreateJob, openDraftPublication } from '../src/job-host.ts';
+import { jobHash, jobHostStateRoot, jobPrivateRoot, pendingPublications } from '../src/job-outbox.ts';
 import { clockedCli } from './helpers.ts';
 import { readPublished } from '../src/job-publication.ts';
 
 afterEach(() => testClock.reset());
 
-test('direction CLI publishes a committed example-chain post through its bound writer', async () => {
+test('direction CLI commits the example-chain post before explicit view publication', async () => {
   const shipped = join(import.meta.dir, '../templates/example-chain');
-  const dir = mkdtempSync(join(tmpdir(), 'create-direction-job-'));
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), 'create-direction-job-')));
   cpSync(join(shipped, 'checkpoints/4-direction-post'), dir, { recursive: true });
   const chain = JSON.parse(readFileSync(join(shipped, 'chain.json'), 'utf8')) as {
     steps: { kind: string; command: string[]; outputs?: Record<string, string> }[];
@@ -45,15 +45,40 @@ test('direction CLI publishes a committed example-chain post through its bound w
     const child = Bun.spawn([process.execPath, ...clockedCli(), ...chain.steps[declaration.chain_step + 5]!.command.slice(1)], {
       cwd: dir, stdout: 'pipe', stderr: 'pipe',
     });
-    const [exit, stderr] = await Promise.all([child.exited, new Response(child.stderr).text()]);
-    if (exit !== 0) await readPublished({ root: dir, record: { path: 'project.json', sha256: jobHash(readFileSync(join(dir, 'project.json'))) }, result: { path: 'review-live-v2.json', selector: { kind: 'post', version: 2, rigVersion: 1 } } });
-    expect(stderr).toBe('');
-    expect(exit).toBe(0);
-    const publication = host.session.status().publication!;
-    expect(publication.source.projectHash).toBe(jobHash(readFileSync(join(dir, 'project.json'))));
-    expect(publication.source.selector).toEqual({ kind: 'post', version: 2, rigVersion: 1 });
+    const [exit, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
+    expect({ exit, stderr }).toEqual({ exit: 0, stderr: '' });
+    expect(stdout).toContain('direction: v2 committed without publishing');
+    const recordPath = join(dir, 'project.json');
+    const committed = readFileSync(recordPath);
+    const project = JSON.parse(committed.toString('utf8')) as JsonObject;
+    expect(objects(project.versions).at(-1)).toMatchObject({ n: 2, kind: 'post', rig_version: 1 });
+    expect(host.session.status()).toMatchObject({ generation: 0, publication: null, pending: [] });
+    expect(pendingPublications(dir)).toEqual([]);
+    expect(existsSync(join(dir, 'review-live-v2.json'))).toBe(false);
+
+    const lines = await openDraftPublication(dir, host, testClock.now(), undefined, '2');
+    const status = host.session.status();
+    expect(status).toMatchObject({ generation: 1, pending: [] });
+    expect(status.publication).not.toBeNull();
+    const publication = status.publication!;
+    expect(lines).toEqual([`job: post v2 published (publication ${publication.publicationId})`]);
+    const sha256 = jobHash(committed);
+    const selector = { kind: 'post', version: 2, rigVersion: 1 } as const;
+    expect(publication.source.projectHash).toBe(sha256);
+    expect(publication.source.selector).toEqual(selector);
     expect(publication.label).toBe('post v2 (rig v1)');
     expect(publication.source.direction?.sha256).toBe(jobHash(readFileSync(join(dir, 'evidence/direction/v2.json'))));
+    const context = await readPublished({ root: dir, record: { path: 'project.json', sha256 },
+      result: { path: 'review-live-v2.json', selector } });
+    const { path: scenePath, sha256: sceneHash } = sceneReference(currentScene(project)!);
+    if (typeof scenePath !== 'string') throw Error('Committed post fixture has no scene path');
+    const scene = JSON.parse(readFileSync(join(dir, scenePath), 'utf8')) as JsonObject;
+    expect(context.files).toEqual(expect.arrayContaining([
+      { path: scenePath, sha256: sceneHash },
+      ...objects(scene.plates).map(({ path, sha256 }) => ({ path, sha256 })),
+    ]));
+    expect(readFileSync(recordPath)).toEqual(committed);
+    expect(pendingPublications(dir)).toEqual([]);
   } finally {
     host?.stop();
     rmSync(jobPrivateRoot(dir), { recursive: true, force: true });

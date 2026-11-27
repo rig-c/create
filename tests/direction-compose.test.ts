@@ -204,8 +204,8 @@ test('JOB_PUBLICATION_INVALID refuses a declared build file whose name contains 
 
 test('direction@3 publishes through the pinned Review inspection and live job host', async () => {
   const { loadReview } = await import('../node_modules/@rig-c/review/src/manifest.ts');
-  const { openCreateJob } = await import('../src/job-host.ts');
-  const { jobHash, jobHostStateRoot, jobPrivateRoot } = await import('../src/job-outbox.ts');
+  const { openCreateJob, openDraftPublication } = await import('../src/job-host.ts');
+  const { jobHash, jobHostStateRoot, jobPrivateRoot, pendingPublications } = await import('../src/job-outbox.ts');
   const { clockedCli } = await import('./helpers.ts');
   const f = fixture();
   f.put('compose-out/check/extremes/a:idle/extremes.json', { extremes: [] });
@@ -216,20 +216,37 @@ test('direction@3 publishes through the pinned Review inspection and live job ho
     const child = Bun.spawn([process.execPath, ...clockedCli(), 'direction', 'write', '2', f.dir, '--file', 'evidence/compose-direction.json', '--rig', '1', '--compose-out', 'compose-out', '--compose-scene', 'compose.scene.json'], {
       cwd: f.dir, stdout: 'pipe', stderr: 'pipe',
     });
-    const [exit, stderr] = await Promise.all([child.exited, new Response(child.stderr).text()]);
-    expect(stderr).toBe(''); expect(exit).toBe(0);
-    const pkg = await loadReview(join(f.dir, 'review-live-v2.json'));
+    const [exit, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
+    expect({ exit, stderr }).toEqual({ exit: 0, stderr: '' });
+    expect(stdout).toContain('direction: v2 committed without publishing');
+    const recordPath = join(f.dir, 'project.json');
+    const committed = readFileSync(recordPath);
+    expect(objects(f.load().versions).at(-1)).toMatchObject({ n: 2, kind: 'post', rig_version: 1 });
+    expect(host.session.status()).toMatchObject({ generation: 0, publication: null, pending: [] });
+    expect(pendingPublications(f.dir)).toEqual([]);
+    const manifest = join(f.dir, 'review-live-v2.json');
+    expect(existsSync(manifest)).toBe(false);
+
+    const lines = await openDraftPublication(f.dir, host, testClock.now(), undefined, '2');
+    const status = host.session.status();
+    expect(status).toMatchObject({ generation: 1, pending: [] });
+    expect(status.publication).not.toBeNull();
+    const publication = status.publication!;
+    expect(lines).toEqual([`job: post v2 published (publication ${publication.publicationId})`]);
+    const pkg = await loadReview(manifest);
     expect(pkg.scene).toBeUndefined();
     expect(pkg.direction).toEqual({
       file: { path: 'evidence/direction/v2.json', sha256: jobHash(readFileSync(join(f.dir, 'evidence/direction/v2.json'))) },
       model: { path: 'outputs/v2/compose/check/build/skeleton.model.json', sha256: jobHash(readFileSync(join(f.dir, 'outputs/v2/compose/check/build/skeleton.model.json'))) },
       rigVersion: 1, composed: true, camera: { space: 'rig-world-y-up', keys: [] }, take: { duration: 4, loop: true }, timing: [],
     });
-    const publication = host.session.status().publication!;
+    expect(publication.source.projectHash).toBe(jobHash(committed));
     expect(publication.source.selector).toEqual({ kind: 'post', version: 2, rigVersion: 1 });
     expect(publication.source.model).toEqual(pkg.direction?.model);
     expect(publication.source.direction).toEqual(pkg.direction?.file);
     expect(publication.visual).toEqual({ status: 'available' });
+    expect(readFileSync(recordPath)).toEqual(committed);
+    expect(pendingPublications(f.dir)).toEqual([]);
   } finally {
     host?.stop();
     rmSync(jobPrivateRoot(f.dir), { recursive: true, force: true });

@@ -2,7 +2,7 @@ import { expect, test } from 'bun:test';
 import { cpSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { JobOwnerHost } from '@rig-c/review/job-host';
-import { readHostActsAndAsks } from '../src/job-acts.ts';
+import { agentCall, readHostActsAndAsks } from '../src/job-acts.ts';
 import { openCreateJob, openDraftPublication } from '../src/job-host.ts';
 import { jobHash, pendingPublications, readWriterBinding } from '../src/job-outbox.ts';
 import { jobRuntimeExecArgv } from '../src/job-writer.ts';
@@ -88,6 +88,17 @@ async function routeReviewComment() {
   let verdictSource: string;
   try {
     await openDraftPublication(root, host, now, undefined, '1');
+    // Recreate a historical verdict ask on the numbered view through Review's manual API.
+    const { publication, generation } = host.session.status();
+    const reply = await agentCall(host, {
+      schema: 'rig-review/job-api@2',
+      verb: 'ask',
+      publicationId: publication!.publicationId,
+      expectedGeneration: generation,
+      idempotencyKey: crypto.randomUUID(),
+      subject: { kind: 'review-verdict', stage: 'rig-review' },
+    });
+    expect(reply.ok, JSON.stringify(reply.error)).toBe(true);
     const act = await commitOwnerAct(host, 'review-verdict', {
       stage: 'rig-review', verdict: 'changes-requested', words: '', general: [comment],
     }, readFileSync(join(root, 'evidence/setup.png')));

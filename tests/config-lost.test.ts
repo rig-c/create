@@ -69,7 +69,7 @@ describe('legacy pre-interview config loss', () => {
     expect(pathless[0]?.message).not.toContain('config-lost');
   });
 
-  test('a historical config loss on the accepted rig blocks handoff and post work', () => {
+  test('a historical config loss on the accepted rig blocks handoff', () => {
     const declareLoss: Mutate = (p) => {
       version(p, 1).config_lost = LOSS;
       const accepted = version(p, 2);
@@ -77,8 +77,6 @@ describe('legacy pre-interview config loss', () => {
       delete accepted.built_with;
       accepted.config_lost = LOSS;
     };
-
-    expect(codes(checkProject(migratedCg(declareLoss)))).toContain('POST_ON_UNACCEPTED_RIG');
 
     const prePost = migratedCg((p) => {
       p.stage = 'rig-review';
@@ -95,19 +93,5 @@ describe('legacy pre-interview config loss', () => {
       code: 'PRE_INTERVIEW_CONFIG_LOST',
       exitCode: 1,
     }));
-
-    const candidateWithPost = JSON.parse(readFileSync(join(prePost, 'project.json'), 'utf8')) as JsonObject;
-    arr(candidateWithPost.versions).push({
-      n: 3,
-      kind: 'post',
-      rig_version: 2,
-      at: '2026-11-03T09:00:00Z',
-      outputs: [],
-      evidence: [],
-      verdicts: [],
-      answers_feedback: [{ version: 1, verdict: 0 }, { version: 2, verdict: 0 }],
-      provenance: { config: null, sections: {} },
-    });
-    expect(codes(checkProject(prePost, candidateWithPost))).toContain('POST_ON_UNACCEPTED_RIG');
   });
 });

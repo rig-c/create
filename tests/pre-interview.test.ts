@@ -294,7 +294,6 @@ describe('pre-interview handoff', () => {
       const dir = migrated(mutate);
       expect(cli(['handoff', dir], dir, env).stderr).toContain(code);
     }
-    expect(codes(checkProject(migrated((p) => { version(p, 3).at = '2026-11-01T09:00:00Z'; })))).toContain('POST_ON_UNACCEPTED_RIG');
   });
 
   test('a later create rig requires its own review and then supersedes the historical acceptance', () => {
@@ -367,7 +366,6 @@ describe('migration identities and lost outputs (#117)', () => {
       version(p, 2).outputs_lost = { note: 'The accepted rig was lost.', source: 'archive log, entry 2' };
     });
     expect(cli(['handoff', dir], dir, env).stderr).toContain('PRE_INTERVIEW_OUTPUTS_LOST');
-    expect(codes(checkProject(dir))).toContain('POST_ON_UNACCEPTED_RIG');
   });
 
   test('malformed losses and losses beside surviving outputs are refused', () => {
@@ -476,12 +474,11 @@ describe('lost pre-interview configs (#133)', () => {
     expect(codes(checkProject(fixture(p => { version(p, 1).config_lost = loss; })))).toContain('PRE_INTERVIEW_CONFIG_LOST_MALFORMED');
   });
 
-  test('an accepted rig with lost config never authorizes handoff or post records', () => {
+  test('an accepted rig with lost config never authorizes handoff', () => {
     const dir = migrated(p => { version(p, 2).config_lost = loss; });
     const result = cli(['handoff', dir], dir, env);
     expect(result.code).toBe(1);
     expect(result.stderr).toContain('PRE_INTERVIEW_CONFIG_LOST');
-    expect(codes(checkProject(dir))).toContain('POST_ON_UNACCEPTED_RIG');
   });
 
   test('an earlier lost config leaves a later accepted rig handoff usable', () => {

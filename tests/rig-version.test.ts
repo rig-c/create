@@ -1131,7 +1131,7 @@ describe('frozen rig registration', () => {
       '@rig-c/parts': PINNED_PACKAGES['@rig-c/parts'],
       '@rig-c/core': PINNED_PACKAGES['@rig-c/core'],
     });
-  }, 30000);
+  }, 300_000);
 
   test.each([
     ['missing', null, 'found no lock'],

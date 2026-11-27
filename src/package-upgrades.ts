@@ -62,6 +62,8 @@ export function packageUpgradeWarnings(project: JsonObject): Finding[] {
   const out: Finding[] = [];
   for (const [index, row] of history.entries()) {
     if (!isObject(row) || row.rehearsal !== true) continue;
+    // A later published upgrade is the remedy; the rehearsal row then stays as history only.
+    if (history.slice(index + 1).some(later => isObject(later) && later.rehearsal !== true)) continue;
     const path = `package_upgrades[${index}]`;
     out.push({
       code: 'PACKAGE_UPGRADE_REHEARSAL',

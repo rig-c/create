@@ -326,6 +326,17 @@ test('packages upgrade --rehearsal stages an absolute file:.tgz tarball, records
   expect(rehearsalWarn!.message).toContain('rerun rig-create packages upgrade against the published release');
 }, 30000);
 
+test('a later published upgrade clears PACKAGE_UPGRADE_REHEARSAL on the earlier rehearsal row', () => {
+  const lock = 'a'.repeat(64);
+  const pins = ['@rig-c/core', '@rig-c/parts', '@rig-c/review'].map(name => ({ name, from: '1.0.0', to: '1.0.1' }));
+  const rehearsal = { by: 'agent', at: '2026-01-02T00:00:00.000Z', packages: pins, lock_sha256: lock, rehearsal: true, local_dependencies: [{ name: '@rig-c/create', sha256: 'b'.repeat(64) }] };
+  const published = { by: 'agent', at: '2026-01-03T00:00:00.000Z', packages: pins, lock_sha256: lock };
+  expect(packageUpgradeWarnings({ package_upgrades: [rehearsal] }).map(f => f.path)).toEqual(['package_upgrades[0]']);
+  expect(packageUpgradeWarnings({ package_upgrades: [rehearsal, published] })).toEqual([]);
+  expect(packageUpgradeWarnings({ package_upgrades: [published, rehearsal] }).map(f => f.path)).toEqual(['package_upgrades[1]']);
+  expect(packageUpgradeFindings({ package_upgrades: [rehearsal, published] })).toEqual([]);
+});
+
 test('local dependencies without --rehearsal, and non-absolute-tarball local specs with --rehearsal, refuse with PACKAGE_UPGRADE_INPUT and leave bytes untouched', () => {
   const { pkgDir, tgz } = packTinyPackage();
   const withoutFlag = fixture({ ...pins, 'tiny-rehearsal-pkg': `file:${tgz}` });

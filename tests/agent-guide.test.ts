@@ -22,7 +22,7 @@ import {
 } from '../src/agent-guide.ts';
 import { renderCollectionGuide } from '../src/collection.ts';
 import { PINNED_PACKAGES } from '../src/pins.ts';
-import { cli, gitEnv, run, tempDir } from './helpers.ts';
+import { cli, gitEnv, run, skipInitInstall, tempDir } from './helpers.ts';
 
 const REPO = join(import.meta.dir, '..');
 const reference = readFileSync(join(REPO, 'docs', AGENT_REFERENCE), 'utf8');
@@ -261,7 +261,7 @@ describe.each(['docs/SOURCE.md', 'docs/LESSONS.md', 'docs/CRAFT.md'])('links in 
 const MIN_COPIED_LINE = 40;
 
 // Needs the network for the install, so it runs on request (same mechanism as init.test.ts).
-test.skipIf(process.env.RIG_CREATE_NETWORK !== '1')(
+test.skipIf(skipInitInstall())(
   'every node_modules link in AGENTS.md resolves after init with install, and none of its lines is copied from them',
   () => {
     const root = tempDir();

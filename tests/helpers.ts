@@ -4,6 +4,7 @@ import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, w
 import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 import { jobHostStateRoot, jobPrivateRoot } from '../src/job-outbox.ts';
+import { runningCreateVersion } from '../src/pins.ts';
 import { testClock } from './clock.ts';
 
 export const CLI = join(import.meta.dir, '..', 'src', 'cli.ts');
@@ -161,4 +162,23 @@ export function run(cmd: string[], cwd: string, env: Record<string, string>): Ru
 
 export function cli(args: string[], cwd: string, env: Record<string, string>): Run {
   return run([process.execPath, ...clockedCli(), ...args], cwd, env);
+}
+
+/**
+ * Whether a test that runs `init` with its install should skip. `init` pins
+ * `@rig-c/create` at the running version (#1078), so before that version is
+ * published (a release candidate) the install cannot resolve it. Those tests
+ * need the network (RIG_CREATE_NETWORK=1) and a published running version;
+ * the release's registry smoke covers the unpublished case after publishing.
+ */
+let initInstallSkip: boolean | undefined;
+export function skipInitInstall(): boolean {
+  if (process.env.RIG_CREATE_NETWORK !== '1') return true;
+  if (initInstallSkip !== undefined) return initInstallSkip;
+  const version = runningCreateVersion();
+  const view = Bun.spawnSync(['npm', 'view', `@rig-c/create@${version}`, 'version'], { stdout: 'pipe', stderr: 'pipe' });
+  const published = view.exitCode === 0 && view.stdout.toString().trim() === version;
+  if (!published) console.warn(`skipping init-with-install tests: @rig-c/create@${version} is not published yet`);
+  initInstallSkip = !published;
+  return initInstallSkip;
 }

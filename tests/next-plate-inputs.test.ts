@@ -95,7 +95,7 @@ test.each([false, true])('#504 names each existing unregistered plate before its
     const command = nextProject(f.dir, EXAMPLE_NOW).moves.find(move => move.command?.startsWith('rig-create scene write '))!.command!;
     const args = printedArgs(command).slice(1).map(arg => arg === '<background.png>' ? f.background
       : arg === '<foreground.png>' ? f.foreground : arg === '<scene-citations.json>' ? 'evidence/plate-citations.json' : arg);
-    expect(seedRetainedScene(args.slice(1), EXAMPLE_NOW).exit).toBe(0);
+    expect(seedRetainedScene(args, EXAMPLE_NOW).exit).toBe(0);
   }
 });
 

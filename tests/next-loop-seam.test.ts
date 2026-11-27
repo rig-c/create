@@ -89,9 +89,10 @@ test('#1073 next preserves a staged render until it can be recorded against the 
 test('#1073 next passes the declared seam budget to current compose and preserves incomplete output', () => {
   const dir = postFixture('direction', true);
   const compose = outputMove(dir, 'direction').command;
+  if (compose === null) throw new Error('next did not offer a compose command');
   expect(compose).toContain('rig-parts compose --scene specs/direction/compose-scene.json --out outputs/direction.next');
   expect(compose).not.toContain('--loop-seam');
-  const judgedCompose = compose?.replace(/\)$/, ' --loop-seam-bar 8,0 --loop-seam-cap 12)');
+  const judgedCompose = compose.replace(/\)$/, ' --loop-seam-bar 8,0 --loop-seam-cap 12)');
   put(dir, `${directionFrom}/scene.json`, { partial: true });
   expect(outputMove(dir, 'direction').command).toBe(compose);
   put(dir, budgetPath, { channel_delta: 8, pixels_above: 0, warmup_cap: 12 });

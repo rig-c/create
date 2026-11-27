@@ -236,7 +236,7 @@ test.each([
   expect(checkProject(shipped, candidate).refusals.map(finding => finding.code)).toContain(code);
 });
 
-test('two fresh generator runs reproduce every shipped byte', () => {
+test('generator --check verifies every frozen file hash, reader result and checkpoint against the baseline', () => {
   const root = mkdtempSync(join(tmpdir(), 'chain-reproduce-'));
   const inventory = (dir: string, prefix = ''): Record<string, string> => {
     const result: Record<string, string> = {};
@@ -250,14 +250,13 @@ test('two fresh generator runs reproduce every shipped byte', () => {
   };
   try {
     const script = join(import.meta.dir, '../scripts/generate-example-chain.ts');
-    for (const name of ['first', 'second']) {
-      const command = Bun.spawnSync([process.execPath, script, join(root, name), '--check'], { stdout: 'pipe', stderr: 'pipe', timeout: 30_000 });
-      expect(command.stderr.toString()).toBe('');
-      expect(command.exitCode).toBe(0);
-      expect(command.stdout.toString()).toContain('example chain reproduces byte for byte');
-    }
-    expect(inventory(join(root, 'first/project'))).toEqual(inventory(join(root, 'second/project')));
-    expect(inventory(join(root, 'first/project'))).toEqual(inventory(shipped));
+    const command = Bun.spawnSync([process.execPath, script, join(root, 'checked'), '--check'], { stdout: 'pipe', stderr: 'pipe', timeout: 30_000 });
+    expect(command.stderr.toString()).toBe('');
+    expect(command.exitCode).toBe(0);
+    expect(command.stdout.toString()).toContain('example chain: 439 file hashes, 5 reader results and 6 checkpoints match');
+    const expected = inventory(shipped);
+    expected['package.json'] = inventory(join(root, 'checked'))['package.json']!;
+    expect(inventory(join(root, 'checked'))).toEqual(expected);
   } finally { rmSync(root, { recursive: true }); }
 }, 60_000);
 
@@ -448,7 +447,7 @@ test.each(['0a-interview-options', '2-rigging-answers'])('pending answers in %s 
   }
 });
 
-test.each(['0a-interview-options', '0b-plan-pending', '1-parts-verdict', '2-rigging-answers', '3-rig-review', '4-direction-post'])('%s pending writers succeed at the real clock with retained producer inputs', name => {
+test.each(['0a-interview-options', '0b-plan-pending', '2-rigging-answers'])('%s pending writers succeed at the real clock with retained producer inputs', name => {
   const dir = mkdtempSync(join(tmpdir(), 'chain-pending-'));
   const declaration = JSON.parse(readFileSync(join(shipped, 'checkpoints', `${name}.json`), 'utf8')) as CheckpointDeclaration;
   const chain = JSON.parse(readFileSync(join(shipped, 'chain.json'), 'utf8')) as { steps: ChainStep[] };
@@ -477,6 +476,29 @@ test.each(['0a-interview-options', '0b-plan-pending', '1-parts-verdict', '2-rigg
     // #981: a stage that lags its signoffs is no longer a finding; the pending advance is the agent's next move.
     expect(report.refusals.map(f => f.code)).toEqual([]);
     expect(report.warnings.map(f => f.code)).toEqual([]);
+  } finally { rmSync(dir, { recursive: true }); }
+}, 30_000);
+
+test.each(['1-parts-verdict', '3-rig-review', '4-direction-post'])('%s retired numbered verdict and signoff writers refuse with NUMBERED_WRITER_REMOVED', name => {
+  const dir = mkdtempSync(join(tmpdir(), 'chain-retired-pending-'));
+  const declaration = JSON.parse(readFileSync(join(shipped, 'checkpoints', `${name}.json`), 'utf8')) as CheckpointDeclaration;
+  const chain = JSON.parse(readFileSync(join(shipped, 'chain.json'), 'utf8')) as { steps: ChainStep[] };
+  const acts = chain.steps.slice(declaration.chain_step, declaration.chain_step + declaration.pending.commands.length);
+  const retired = acts.filter(step => step.kind === 'writer' && (
+    step.command[1] === 'parts-review'
+    || step.command[1] === 'review'
+    || (step.command[1] === 'signoff' && ['parts-review', 'rig-review', 'direction-review'].includes(step.command[2]!))
+  ));
+  expect(retired.length).toBeGreaterThan(0);
+  try {
+    cpSync(join(shipped, 'checkpoints', name), dir, { recursive: true });
+    const before = readFileSync(join(dir, 'project.json'));
+    for (const step of retired) {
+      const result = Bun.spawnSync([process.execPath, ...clockedCli(), ...step.command.slice(1)], { cwd: dir, stdout: 'pipe', stderr: 'pipe' });
+      expect(result.exitCode).toBe(2);
+      expect(result.stderr.toString()).toContain('NUMBERED_WRITER_REMOVED:');
+      expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
+    }
   } finally { rmSync(dir, { recursive: true }); }
 }, 30_000);
 

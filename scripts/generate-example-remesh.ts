@@ -1,19 +1,16 @@
-import { TURN_OPTIONS, TURN_QUESTION } from '../src/waypoints.ts';
-/** A five-version synthetic lifecycle with a producer-made torso mesh and a parts-review amendment. */
-import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
-import { main } from '../src/cli.ts';
-import { asArray, checkProject, collectItems, isObject } from '../src/check.ts';
-import { applicableAsks, optionContext, OPTIONS_SPEC, sha256 } from '../src/choices.ts';
-import { DIRECTION_SCENE_SPEC } from '../src/direction.ts';
-import { currentScene, sceneReference } from '../src/scene.ts';
-import { interviewStageOfGuide } from '../src/stages.ts';
-import type { Json, JsonObject } from '../src/templates.ts';
-import { partsPackage } from '../tests/parts-package.ts';
-import { EXAMPLE_ANCHOR } from './example-time.ts';
+/** Frozen five-version amended example checker. */
+import { deepStrictEqual } from 'node:assert';
+import { cpSync, existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
+import { asArray, isObject } from '../src/check.ts';
+import type { JsonObject } from '../src/templates.ts';
+import { fileHashes, observe, readerResults, repinNumberedCopy } from './check-example-numbered.ts';
+import { EXAMPLE_BREATH_AMP } from './generate-example-draft.ts';
 import { generatorArgs } from './generator-args.ts';
-import { EXAMPLE_BREATH_AMP, generateExampleMeshDraft } from './generate-example-draft.ts';
-import { checkExampleParts, EXAMPLE_SEETHROUGH, generateExampleParts } from './generate-example-parts.ts';
+
+const fixture = join(import.meta.dir, '../templates/example-remesh');
+const baseline = join(import.meta.dir, 'example-remesh-baseline.json');
 
 export function remeshFiles(dir: string, prefix = ''): Record<string, Buffer> {
   const files: Record<string, Buffer> = {};
@@ -27,7 +24,7 @@ export function remeshFiles(dir: string, prefix = ''): Record<string, Buffer> {
 }
 
 /**
- * Distinct breath amplitudes for rig versions v1–v3, derived from EXAMPLE_BREATH_AMP (0.9) across the
+ * Distinct breath amplitudes for rig versions v1-v3, derived from EXAMPLE_BREATH_AMP (0.9) across the
  * passing range of scripts/generate-example-draft.ts's BREATH_VISIBLE curve (0.8 -> torso_heat_mean 3.948,
  * 0.9 -> 4.259, 1.0 -> 4.912 vs torso_floor 3.809) so review's Stage 3 correction gate
  * (EDIT_SUBMIT_UNCHECKED / CORRECTION_CHECK_FAILED) passes on every version.
@@ -38,447 +35,48 @@ export const REMESH_RIG_BREATH_AMPS: readonly [number, number, number] = [
   Math.round((EXAMPLE_BREATH_AMP + 0.1) * 10) / 10,
 ];
 
-/** Producer folders for rig-version: input/ (assembled parts), out/ (rig), build/ (compiled), idle/ (render). */
-function buildMeshRigCandidate(
-  dir: string,
-  parts: Record<string, Uint8Array>,
-  painting: Buffer,
-  checkRequirements: Buffer,
-  amp: number,
-  epochSeconds: string,
-): void {
-  mkdirSync(dir, { recursive: true });
-  for (const [path, bytes] of Object.entries(parts)) {
-    const file = join(dir, 'input', path);
-    mkdirSync(dirname(file), { recursive: true });
-    writeFileSync(file, bytes);
+function preAmendmentReaders(amendedCopy: string) {
+  const scratch = mkdtempSync(join(tmpdir(), 'create-remesh-pre-amend-'));
+  const copy = join(scratch, 'project');
+  try {
+    cpSync(amendedCopy, copy, { recursive: true });
+    const projectPath = join(copy, 'project.json');
+    const project = JSON.parse(readFileSync(projectPath, 'utf8')) as JsonObject;
+    delete project.amendments;
+    for (const step of asArray((project.plan as JsonObject).steps).filter(isObject)) {
+      const last = asArray(step.status_history).filter(isObject).at(-1);
+      if (last?.status !== undefined) step.status = last.status;
+    }
+    writeFileSync(projectPath, `${JSON.stringify(project, null, 2)}\n`);
+    return [observe(copy, ['interview', '--check'], true), observe(copy, ['next'], true)];
+  } finally {
+    rmSync(scratch, { recursive: true, force: true });
   }
-  const manifest = JSON.parse(Buffer.from(parts['parts.json']!).toString('utf8')) as {
-    parts: { name: string; from: string }[];
-  };
-  const config = {
-    key: 'synthetic',
-    seethrough: EXAMPLE_SEETHROUGH,
-    requirements: 'interview-requirements.json',
-    assemble: {
-      rig_scale: 1,
-      plan: manifest.parts.map(part => [
-        part.name,
-        part.from.slice(0, part.from.indexOf(':')),
-        part.from.slice(part.from.indexOf(':') + 1),
-      ]),
-    },
-    bones: [{ name: 'body', parent: 'root', at: [64, 64] }],
-    meshes: { torso: { grid: 16, r: 16, segments: [['body', [64, 8], [64, 72]]] } },
-    regions: Object.fromEntries(manifest.parts.filter(part => part.name !== 'torso').map(part => [part.name, 'body'])),
-    motion: { duration: 4, tracks: [{ bone: 'body', prop: 'translatey', amp, period: 4, phase: 0, base: 0 }] },
-  };
-  writeFileSync(join(dir, 'config.json'), `${JSON.stringify(config, null, 2)}\n`);
-  writeFileSync(
-    join(dir, 'interview-requirements.json'),
-    `${JSON.stringify({ spec: 'spine-parts-requirements/1', fps: 12, requirements: [], setup_painting: { required: true } }, null, 2)}\n`,
-  );
-  writeFileSync(join(dir, 'rig-check-requirements.json'), checkRequirements);
-  writeFileSync(join(dir, 'painting.png'), painting);
-  const env = { ...process.env, SOURCE_DATE_EPOCH: epochSeconds };
-  const bin = join(import.meta.dir, '../node_modules/.bin');
-  const partsCli = join(import.meta.dir, '../node_modules/@rig-c/parts/bin/rig-parts.cjs');
-  const rigResult = Bun.spawnSync(
-    [process.execPath, partsCli, 'rig', '--config', 'config.json', '--parts', 'input', '--out', 'out'],
-    { cwd: dir, env, stdout: 'pipe', stderr: 'pipe', timeout: 600_000 },
-  );
-  if (rigResult.exitCode !== 0) throw new Error(`rig exit ${rigResult.exitCode}\n${rigResult.stdout}\n${rigResult.stderr}`);
-  const rigc = (args: string[]): void => {
-    const result = Bun.spawnSync([process.execPath, join(import.meta.dir, '../node_modules/@rig-c/core/bin/rigc.cjs'), ...args],
-      { cwd: dir, env, stdout: 'pipe', stderr: 'pipe', timeout: 600_000 });
-    if (result.exitCode !== 0) throw new Error(`rigc ${args[0]} exit ${result.exitCode}\n${result.stdout}\n${result.stderr}`);
-  };
-  // Match the build's relative texture paths in the Parts check's build/ subdirectory.
-  mkdirSync(join(dir, 'check'));
-  cpSync(join(dir, 'out'), join(dir, 'check/out'), { recursive: true });
-  const checkResult = Bun.spawnSync(
-    [process.execPath, partsCli, 'check', '--rig', 'check/out', '--parts', 'input', '--source', 'painting.png',
-      '--requirements', 'rig-check-requirements.json', '--out', 'check', '--page-edges', 'free', '--pack-shape', 'polygon', '--no-extremes'],
-    { cwd: dir, env: { ...env, PATH: `${bin}:${process.env.PATH ?? ''}` }, stdout: 'pipe', stderr: 'pipe', timeout: 600_000 },
-  );
-  if (checkResult.exitCode !== 0) throw new Error(`check exit ${checkResult.exitCode}\n${checkResult.stdout}\n${checkResult.stderr}`);
-  rigc(['build', '--rig', 'out/rig.json', '--motion', 'out/motion.json', '--out', 'build',
-    '--profile', 'rig-play', '--pack', '--page-edges', 'free', '--pack-shape', 'polygon', '--report', 'build-report.json']);
-  if (!readFileSync(join(dir, 'build/skeleton.model.json')).equals(
-    readFileSync(join(dir, 'check/build/skeleton.model.json')),
-  )) throw new Error('compile receipt build differs from the Parts-checked model');
-  rigc(['render', '--candidate', 'build', '--out', 'idle', '--animation', 'idle', '--fps', '1', '--max', '32', '--poser', 'core']);
 }
 
-export function generateExampleRemesh(destination: string): Record<string, Buffer> {
-  const scratch = resolve(destination);
-  if (existsSync(scratch)) throw new Error('remesh generation needs a fresh directory');
-  mkdirSync(scratch, { recursive: true });
-  const dir = join(scratch, 'project');
-  const originalCwd = process.cwd();
-  let clock = EXAMPLE_ANCHOR;
-  let now = clock;
-  const tick = (): void => { now = clock; clock += 1000; };
-  const load = (): JsonObject => JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')) as JsonObject;
-  const write = (path: string, bytes: string | Uint8Array): void => {
-    mkdirSync(dirname(join(dir, path)), { recursive: true });
-    writeFileSync(join(dir, path), bytes);
-  };
-  const json = (path: string, value: unknown): void => write(path, `${JSON.stringify(value, null, 2)}\n`);
-  const binding = (path: string): JsonObject => ({ path, sha256: sha256(readFileSync(join(dir, path))) });
-  const writer = (args: string[], outputPath?: string): void => {
-    tick();
-    const stdout = process.stdout.write;
-    const stderr = process.stderr.write;
-    let output = '';
-    const capture = ((chunk: string | Uint8Array): boolean => { output += Buffer.from(chunk).toString(); return true; }) as typeof stdout;
-    process.stdout.write = capture;
-    process.stderr.write = capture;
-    let exit: number;
-    try { exit = main(args, now); } finally { process.stdout.write = stdout; process.stderr.write = stderr; }
-    if (exit !== 0) throw new Error(`${args.join(' ')}: exit ${exit}\n${output}`);
-    if (outputPath) write(outputPath, output);
-  };
-  const advance = (value: string, flags: string[] = []): void =>
-    writer(['advance', value, ...flags]);
-  const sign = (name: string, flags: string[] = []): void =>
-    writer(['signoff', name, '--by', 'user', '--verbatim-file', 'evidence/approval.txt', ...flags]);
-  const addPlanStep = (id: string, phase: 'rig' | 'post', order: number, restsOn: string, checkpointProposed: boolean): void => {
-    writer([
-      'plan',
-      'add',
-      id,
-      '--by',
-      'agent',
-      '--phase',
-      phase,
-      '--order',
-      String(order),
-      '--does',
-      `Execute synthetic ${id}`,
-      '--produces',
-      `Synthetic ${id} output`,
-      '--rests-on',
-      restsOn,
-      '--bar',
-      'The synthetic output matches its declared input.',
-      '--checkpoint-proposed',
-      String(checkpointProposed),
-    ]);
-  };
-  const runSteps = (ids: string[], checkpointStage?: { stage: string; step: string }): void => {
-    for (const id of ids) {
-      writer(['step-status', id, 'in-progress', '--by', 'agent']);
-      writer(['step-status', id, 'at-checkpoint', '--by', 'agent']);
-      if (checkpointStage && checkpointStage.step === id) {
-        sign(checkpointStage.stage, ['--checkpoint', id]);
-      }
-      writer(['step-status', id, 'done', '--by', 'agent']);
+export function measureRemeshExample(destination: string, expectedFiles?: Record<string, string>) {
+  if (existsSync(destination)) throw new Error('remesh example needs a fresh directory');
+  const files = fileHashes(fixture);
+  if (expectedFiles) {
+    for (const [path, sha256] of Object.entries(expectedFiles)) {
+      if (files[path] !== sha256) throw new Error(`${path}: frozen fixture file is missing or its SHA-256 differs`);
     }
-  };
-  const choices = (phase: string): void => {
-    const items = collectItems(load(), { collection: null }).filter(
-      item => interviewStageOfGuide(item.id, item.kind === 'post', true) === phase,
-    );
-    for (const item of items) {
-      tick();
-      const project = load();
-      const asks = applicableAsks(project, item, { asks: [] });
-      const values: Record<string, Json> = {
-        rig_type: 'character.idle',
-        reference: 'none',
-        camera_depth: { camera: 'push_in', depth: false },
-        post_timing: { duration: 4, loop: false },
-        post_composition: { framing: 'whole synthetic plate' },
-      };
-      const value = item.id === 'post_composition' ? { ...values.post_composition as JsonObject, scene: { background: { path: 'inputs/background.png', rect: (JSON.parse(readFileSync(join(dir, `derived/review/v${String(optionContext(project, phase, now).rig_version)}/out/check/build/skeleton.model.json`), 'utf8')) as JsonObject).stage! } } } : values[item.id] ?? {};
-      const set: JsonObject = {
-        schema: OPTIONS_SPEC,
-        id: `remesh-${item.id}`,
-        question: item.id,
-        stage: phase,
-        drafted_by: 'agent',
-        drafted_at: new Date(now).toISOString(),
-        context: optionContext(project, phase, now),
-        assembly: { rule: item.kind === 'waypoint' ? 'merge' : 'single' },
-        asks: asks.map((ask): JsonObject => ({
-          id: ask,
-          prompt: `Choose ${ask} for the synthetic plate.`,
-          options: [
-            {
-              id: 'keep',
-              kind: 'value',
-              label: `Use the synthetic ${ask}`,
-              effect: 'Keep the declared geometric example.',
-              fragment: item.kind !== 'waypoint'
-                ? value
-                : ask === 'projection'
-                  ? { project: 'core' }
-                  : ask === 'ground'
-                    ? { ground: 'plain' }
-                    : { [ask]: `synthetic ${ask}` },
-              recommended: true,
-              reason: 'Matches the synthetic geometric inputs.',
-            },
-            {
-              id: 'alternative',
-              kind: 'value',
-              label: `Change ${ask}`,
-              effect: 'Use the alternate synthetic choice.',
-              fragment: item.kind === 'waypoint' ? { [ask]: `alternate ${ask}` } : value,
-              recommended: false,
-            },
-            { id: 'other', kind: 'other', label: 'Other', effect: 'Supply different words.', recommended: false },
-            { id: 'auto', kind: 'auto', label: 'Delegate', effect: 'Ask the agent to decide.', recommended: false },
-          ],
-        })),
-      };
-      if (item.id === 'turn') set.asks = [{ id: 'view', prompt: TURN_QUESTION, options: TURN_OPTIONS.map(option => ({ ...structuredClone(option), recommended: option.id === 'fixed', ...(option.id === 'fixed' ? { reason: 'This synthetic project keeps its approved painted view.' } : {}) })) as Json }];
-      const path = `evidence/interview/${item.id}.json`;
-      json(path, set);
-      writer(['interview-options', item.id, '--file', path]);
-      writer([
-        'interview-answer',
-        item.id,
-        '--set',
-        path,
-        '--sha256',
-        String(binding(path).sha256),
-        '--by',
-        'user',
-        ...asks.flatMap(ask => ['--pick', `${ask}=${item.id === 'turn' ? 'fixed' : 'keep'}`]),
-      ]);
+    for (const path of Object.keys(files)) {
+      if (!Object.hasOwn(expectedFiles, path)) throw new Error(`${path}: unexpected frozen fixture file`);
     }
-  };
-  try {
-    tick();
-    process.chdir(scratch);
-    writer(['init', 'project', '--no-install', '--owner-language', 'en']);
-    process.chdir(dir);
-    write('evidence/approval.txt', 'Approve this synthetic geometric example.\n');
-    const input = generateExampleParts(join(scratch, 'parts-producer'));
-    const painting = readFileSync(join(scratch, 'parts-producer/painting.png'));
-    write('inputs/painting.png', painting);
-    write('evidence/split-config.json', readFileSync(join(scratch, 'parts-producer/config.json')));
-    writer(['input', 'add', 'inputs/painting.png', '--painting', '--origin', 'synthetic, generated by generateExampleParts']);
-    const manifest = JSON.parse(input['parts.json']!.toString()) as { parts: { name: string }[] };
-    // Declared seed, as in example-chain: split.parts has no writer here (docs/PROJECT.md:399,756).
-    {
-      const project = load();
-      (project.split as JsonObject).parts = manifest.parts.map(part => ({
-        name: part.name,
-        label: 'rigid',
-        note: 'Synthetic geometric block.',
-      }));
-      json('project.json', project);
-    }
-    choices('interview');
-    addPlanStep('seethrough', 'rig', 1, 'seethrough', false);
-    addPlanStep('assemble', 'rig', 2, 'assemble', true);
-    sign('interview');
-    advance('plan-approved');
-    sign('plan-approved');
-    advance('parts');
-    runSteps(['seethrough', 'assemble'], { stage: 'parts', step: 'assemble' });
-
-    const draft = generateExampleMeshDraft(join(scratch, 'draft-producer'), input);
-    const draftRoot = 'derived/drafts/remesh';
-    for (const [path, bytes] of Object.entries(input)) write(`${draftRoot}/input/${path}`, bytes);
-    for (const [path, bytes] of Object.entries(draft)) write(`${draftRoot}/${path}`, bytes);
-    write(`${draftRoot}/input/recomposite_rig.png`, readFileSync(join(scratch, 'parts-producer/assembled/render/recomposite_rig.png')));
-    writer(['draft-rig', 'remesh', '--config', `${draftRoot}/config.json`, '--from', `${draftRoot}/out`, '--parts', `${draftRoot}/input`]);
-
-    const partsDir = `${draftRoot}/input`;
-    const partsCheck = checkExampleParts(join(dir, partsDir), join(scratch, 'parts-check-producer'));
-    write('evidence/parts-check.json', partsCheck);
-    const verdict = partsPackage({
-      input,
-      partsDir,
-      verdict: 'evidence/parts-review.json',
-      edit: v => { v.updatedAt = new Date(now).toISOString(); },
-    });
-    write('evidence/parts-review.json', verdict.files['evidence/parts-review.json']!);
-    writer(['parts-review', '--draft', 'remesh', '--from-review-cli', '--by', 'user', '--', partsDir, '--verdict', 'evidence/parts-review.json']);
-    writer(['structure-snapshot', '--draft', 'remesh']);
-    const diff = Bun.spawnSync(
-      [process.execPath, join(import.meta.dir, '../node_modules/@rig-c/parts/bin/rig-parts.cjs'),
-        'diff-components', '--stack', 'assembled/render/recomposite_rig.png', '--painting', 'painting.png', '--parts', 'assembled/rig/parts.json',
-        '--floor', '2', '--threshold', '40', '--out', 'diff-components.json'],
-      { cwd: join(scratch, 'parts-producer'), env: { ...process.env, SOURCE_DATE_EPOCH: String(Math.trunc(now / 1000)) }, stdout: 'pipe', stderr: 'pipe', timeout: 600_000 },
-    );
-    if (diff.exitCode !== 0) throw new Error(`diff-components exit ${diff.exitCode}: ${diff.stderr}`);
-    const reportBytes = readFileSync(join(scratch, 'parts-producer/diff-components.json'));
-    write('evidence/diff-components.json', reportBytes);
-    const diffReport = JSON.parse(reportBytes.toString()) as { components: { id: string }[] };
-    advance('parts-review', ['--parts-check', 'evidence/parts-check.json', '--parts', partsDir]);
-    writer([
-      'diff-classes',
-      '--diff-report',
-      'evidence/diff-components.json',
-      '--by',
-      'agent',
-      ...diffReport.components.flatMap(c => ['--component', `${c.id}=in-painting:the generated synthetic painting contains this component`]),
-    ]);
-    sign('parts-review', [
-      '--draft',
-      'remesh',
-      '--structure-file',
-      'evidence/structure-remesh.json',
-    ]);
-
-    advance('rigging-interview');
-    choices('rigging-interview');
-    for (const [index, id] of ['bones', 'meshes', 'constraints', 'motion'].entries()) {
-      addPlanStep(id, 'rig', index + 3, id, false);
-    }
-    sign('rigging-interview');
-    advance('rigging');
-    runSteps(['bones', 'meshes', 'constraints', 'motion']);
-    writer(['interview', '--check', '--json']);
-
-    write('evidence/setup.png', readFileSync(join(scratch, 'parts-producer/assembled/render/recomposite_rig.png')));
-    const sections: JsonObject = {};
-    for (const name of ['seethrough', 'assemble', 'bones', 'meshes', 'regions', 'motion']) {
-      const guide = name === 'regions' ? 'meshes' : name;
-      const item = collectItems(load(), { collection: null }).find(i => i.id === guide)!;
-      const answer = item.raw as JsonObject;
-      sections[name] = [{ entry: name, guide, quote: answer.verbatim as string, asks: asArray(answer.asks).filter(isObject).map(ask => ask.id) }];
-    }
-    // The toolchain the producers ran with, declared as an npm v3 lock for rig-version.
-    const lock = { lockfileVersion: 3, packages: Object.fromEntries(['@rig-c/parts', '@rig-c/core'].map(name => [
-      `node_modules/${name}`,
-      { version: JSON.parse(readFileSync(join(import.meta.dir, '../node_modules', name, 'package.json'), 'utf8')).version as string },
-    ])) };
-
-    // Author the check limits separately so the historical rig input and its review package keep their bytes.
-    const requirementsPath = 'evidence/rig-check-requirements.json';
-    json(requirementsPath, {
-      spec: 'spine-parts-requirements/1',
-      fps: 12,
-      requirements: [],
-      setup_painting: {
-        required: true,
-        rgb_tolerance: 40,
-        regions: [{ name: 'whole-painting', box: [0, 0, 128, 128], max_pixels: 0 }],
-      },
-    });
-    const checkRequirements = readFileSync(join(dir, requirementsPath));
-    for (const [index, amp] of REMESH_RIG_BREATH_AMPS.entries()) {
-      const n = index + 1;
-      tick();
-      const buildEpoch = String(Math.trunc(now / 1000));
-      const producer = join(scratch, `rig-producer-v${n}`);
-      buildMeshRigCandidate(producer, input, painting, checkRequirements, amp, buildEpoch);
-      writeFileSync(join(producer, 'path-adapter.json'), '[]\n');
-      writeFileSync(join(producer, 'package-lock.json'), `${JSON.stringify(lock, null, 2)}\n`);
-      writeFileSync(join(producer, 'citations.json'), `${JSON.stringify(sections, null, 2)}\n`);
-      const runRecord = join(producer, 'build/run.json');
-      writer(['rig-version', String(n), '--parts', join(producer, 'input'), '--rig', join(producer, 'out'), '--build', join(producer, 'build'),
-        '--idle', join(producer, 'idle'), '--config', join(producer, 'config.json'), '--path-adapter', join(producer, 'path-adapter.json'),
-        '--compile-report', join(producer, 'build-report.json'), '--toolchain-lock', join(producer, 'package-lock.json'),
-        '--check-report', join(producer, 'check/check.json'), '--run-record', runRecord, '--at-source', runRecord, '--at-pointer', '/finished_at',
-        '--citations', join(producer, 'citations.json'), '--by', 'agent']);
-    }
-    // Declared seed: retain a historical setup still to exercise its readers.
-    {
-      const project = load();
-      const v3 = asArray(project.versions).filter(isObject).find(version => version.n === 3)!;
-      v3.evidence = [{ kind: 'still', ...binding('evidence/setup.png'), camera: 'fixed', frame: 'setup' }];
-      json('project.json', project);
-    }
-
-    advance('rig-review');
-    writer(['review', '3', '--verdict', 'accepted', '--by', 'user', '--review', 'rig-review', '--verbatim-file', 'evidence/approval.txt', '--source', 'synthetic example']);
-    sign('rig-review', ['--version', '3']);
-
-    advance('post-interview');
-    choices('post-interview');
-    addPlanStep('camera', 'post', 7, 'camera_depth', false);
-    addPlanStep('timing', 'post', 8, 'post_timing', false);
-    addPlanStep('composition', 'post', 9, 'post_composition', false);
-    sign('post-interview');
-    advance('post');
-    runSteps(['camera', 'timing', 'composition']);
-    writer(['direction', '--adopt']);
-
-    const cite = (id: string): JsonObject => {
-      const answer = collectItems(load(), { collection: null }).find(i => i.id === id)!.raw as JsonObject;
-      return { guide: id, asks: [id], quote: answer.verbatim as string };
-    };
-    write('inputs/background.png', input['parts/background.png']!);
-    writer(['input', 'add', 'inputs/background.png', '--origin', 'synthetic background plate, generated by generateExampleParts']);
-    json('evidence/scene-citations.json', { background: cite('post_composition') });
-    writer(['scene', 'write', '--rig', '3', '--background', 'inputs/background.png', '--citations-file', 'evidence/scene-citations.json']);
-
-    for (const [n, endInset] of [[4, 2], [5, 4]] as const) {
-      const directionPath = `evidence/direction-input-v${n}.json`;
-      const width = 128 - endInset * 2;
-      json(directionPath, {
-        schema: DIRECTION_SCENE_SPEC,
-        scene: sceneReference(currentScene(load())!),
-        rig: { version: 3, model: binding('derived/review/v3/out/check/build/skeleton.model.json') },
-        take: { duration: 4, loop: false },
-        camera: {
-          space: 'rig-world-y-up',
-          keys: [
-            { time: 0, box: { x: -64, y: 0, width: 128, height: 128 }, easing: 'linear' },
-            { time: 4, box: { x: -64 + endInset, y: endInset, width, height: width }, easing: 'hold' },
-          ],
-        },
-        timing: { keys: [{ time: 0, source_time: 0, easing: 'linear' }, { time: 4, source_time: 4, easing: 'hold' }] },
-        citations: { camera: cite('camera_depth'), timing: cite('post_timing') },
-      });
-      writer(['direction', 'write', String(n), '--file', directionPath, '--rig', '3']);
-      writer(['direction', 'check', String(n), '--json']);
-    }
-
-    advance('direction-review');
-    writer(['review', '5', '--verdict', 'accepted', '--by', 'user', '--review', 'direction-review', '--verbatim-file', 'evidence/approval.txt', '--source', 'synthetic example']);
-    sign('direction-review', ['--version', '5']);
-    advance('accepted');
-    writer(['interview', '--check', '--json']);
-    writer(['split-captions', '--config', 'evidence/split-config.json'], 'evidence/captions.json');
-
-    const assertClean = (when: string): void => {
-      const { refusals, warnings } = checkProject(dir, undefined, { now });
-      if (refusals.length || warnings.length) {
-        throw new Error(`expected 0 refusals and 0 warnings ${when}: ${JSON.stringify({ refusals, warnings })}`);
-      }
-    };
-    assertClean('before the amendment');
-
-    write('evidence/amend.txt', 'Remesh the synthetic torso at a finer grid.\n');
-    json('evidence/remesh-grid.json', { meshes: { torso: { grid: 12 } } });
-    writer([
-      'amend', 'parts-review', '--kind', 'config-field', '--target', '/meshes/torso/grid',
-      '--change', 'evidence/remesh-grid.json', '--by', 'user', '--verbatim-file', 'evidence/amend.txt',
-    ]);
-    assertClean('after the amendment');
-    return remeshFiles(dir);
-  } finally {
-    process.chdir(originalCwd);
   }
+  cpSync(fixture, destination, { recursive: true, force: false, errorOnExist: true });
+  repinNumberedCopy(destination);
+  return { files, preAmendment: preAmendmentReaders(destination), readers: readerResults(destination) };
 }
 
 if (import.meta.main) {
-  const { destination, check } = generatorArgs(import.meta.file, 'usage: generate-example-remesh.ts <fresh dir> [--check]');
-  const files = generateExampleRemesh(destination);
-  const root = join(import.meta.dir, '../templates/example-remesh');
-  if (check) {
-    const committed = remeshFiles(root);
-    if (JSON.stringify(Object.keys(committed)) !== JSON.stringify(Object.keys(files))) {
-      throw new Error('remesh file inventory differs');
-    }
-    for (const [path, bytes] of Object.entries(files)) {
-      if (!committed[path]!.equals(bytes)) throw new Error(`${path}: remesh differs`);
-    }
-    console.log('example remesh reproduces byte for byte through writers and producers');
-  } else {
-    rmSync(root, { recursive: true, force: true });
-    for (const [path, bytes] of Object.entries(files)) {
-      mkdirSync(dirname(join(root, path)), { recursive: true });
-      writeFileSync(join(root, path), bytes);
-    }
-    console.log('example remesh generated');
-  }
+  const usage = 'usage: bun scripts/generate-example-remesh.ts <fresh dir> --check';
+  const { destination, check } = generatorArgs(import.meta.file, usage);
+  if (!check) throw new Error(usage);
+  const expected = JSON.parse(readFileSync(baseline, 'utf8')) as ReturnType<typeof measureRemeshExample>;
+  const measured = measureRemeshExample(resolve(destination), expected.files);
+  deepStrictEqual(measured.preAmendment, expected.preAmendment, 'frozen remesh pre-amendment reader results differ');
+  deepStrictEqual(measured.readers, expected.readers, 'frozen remesh reader results differ');
+  console.log(`example remesh: ${Object.keys(measured.files).length} file hashes, ${measured.preAmendment.length} pre-amendment checks and ${measured.readers.length} reader results match`);
 }

@@ -1,10 +1,8 @@
 import { describe, expect, test } from 'bun:test';
-import { consumerOnlyTest } from './consumer-only.ts';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { generateExampleRemesh, remeshFiles } from '../scripts/generate-example-remesh.ts';
 import { EXAMPLE_NOW } from '../scripts/example-time.ts';
 import { asArray, checkProject, isObject } from '../src/check.ts';
 import type { JsonObject } from '../src/templates.ts';
@@ -112,24 +110,17 @@ describe('five-version amended example with a producer mesh', () => {
     ]);
   });
 
-  // The two sequential Nova runs measured 130 s and 142 s.
-  consumerOnlyTest('tests/example-remesh.test.ts', 'two fresh generator runs match each other and templates/example-remesh byte for byte', () => {
-    const dirA = mkdtempSync(join(tmpdir(), 'rig-create-remesh-a-'));
-    const dirB = mkdtempSync(join(tmpdir(), 'rig-create-remesh-b-'));
+  test('generator --check verifies every frozen file hash and reader result against the baseline', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'rig-create-remesh-check-'));
     try {
-      const runA = generateExampleRemesh(join(dirA, 'run'));
-      const runB = generateExampleRemesh(join(dirB, 'run'));
-      const committed = remeshFiles(templateRoot);
-
-      expect(Object.keys(runA)).toEqual(Object.keys(committed));
-      expect(Object.keys(runB)).toEqual(Object.keys(committed));
-      for (const [path, bytes] of Object.entries(committed)) {
-        expect(runA[path]!.equals(bytes)).toBe(true);
-        expect(runB[path]!.equals(bytes)).toBe(true);
-      }
+      const result = Bun.spawnSync([process.execPath, join(import.meta.dir, '../scripts/generate-example-remesh.ts'), join(dir, 'run'), '--check'], {
+        stdout: 'pipe', stderr: 'pipe',
+      });
+      expect(result.stderr.toString()).toBe('');
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout.toString()).toContain('example remesh: 264 file hashes, 2 pre-amendment checks and 8 reader results match');
     } finally {
-      rmSync(dirA, { recursive: true, force: true });
-      rmSync(dirB, { recursive: true, force: true });
+      rmSync(dir, { recursive: true, force: true });
     }
-  }, 360_000);
+  });
 });

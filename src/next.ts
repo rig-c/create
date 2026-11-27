@@ -1700,6 +1700,31 @@ export function nextCollection(collectionDirArg: string): NextCollectionReport {
   };
 }
 
+function moveNeedsJobHost(move: NextMove, hasJobBinding: boolean): boolean {
+  const cmd = move.command;
+  if (!cmd) return false;
+  if (cmd.startsWith('rig-create job ') || cmd.includes(' --from-review')) return true;
+  if (!hasJobBinding) return false;
+  return /^rig-create (?:draft-rig|rig-version (?!adapter\b)|direction write [0-9]|advance (?:rig-review|direction-review)\b)/.test(cmd);
+}
+
+function ownerLanguageMove(dir: string, report: CheckReport): NextMove | undefined {
+  const finding = report.warnings.find(
+    warning => warning.code === 'OWNER_LANGUAGE_MISSING' || warning.code === 'OWNER_LANGUAGE_INVALID',
+  );
+  if (!finding) return undefined;
+  const status = finding.code === 'OWNER_LANGUAGE_INVALID'
+    ? 'owner.language is invalid'
+    : 'owner.language is undeclared';
+  return {
+    role: 'agent',
+    field: 'owner.language',
+    awaits: 'owner.language',
+    command: `rig-create owner-language set '<tag>' ${shellWord(dir)}`,
+    act: `${status} (${finding.code}): ask the owner through the relayed chat for their language tag (such as ko or en-US), then declare it with owner-language set before opening Review`,
+  };
+}
+
 export function nextProject(projectDirArg: string, now: number = Date.now()): NextReport {
   const dir = resolve(projectDirArg);
   const report: CheckReport = checkProject(dir, undefined, { now, readOnly: true, includeRoutedAnswerWarnings: true });
@@ -1741,6 +1766,23 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
       }));
       next = withStaleOutputs(dir, current, report.warnings, derived, shellWord, missing);
     }
+  }
+  const languageMove = next.stage !== PAUSED_STAGE && !next.accepted
+    && (!blocksOutputMoves || next.moves.length > 0 || staleSteps.length > 0)
+    ? ownerLanguageMove(dir, report)
+    : undefined;
+  if (languageMove) {
+    const hasJobBinding = readWriterBinding(dir) !== null;
+    const jobIndex = next.moves.findIndex(move => moveNeedsJobHost(move, hasJobBinding));
+    const moves = jobIndex >= 0
+      ? [...next.moves.slice(0, jobIndex), languageMove, ...next.moves.slice(jobIndex)]
+      : [...next.moves, languageMove];
+    const awaits = next.awaits.includes(languageMove.awaits)
+      ? next.awaits
+      : jobIndex >= 0
+        ? [languageMove.awaits, ...next.awaits]
+        : [...next.awaits, languageMove.awaits];
+    next = { ...next, awaits, moves };
   }
   // Every stage shows the repairs. Approval gating uses only the steps that approval covers.
   const revisionMoves = staleSteps.map(({ finding, step }): NextMove => {

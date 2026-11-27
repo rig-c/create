@@ -21,6 +21,7 @@ import { basename, extname, join, relative, resolve } from 'node:path';
 
 import { classify, collectSignoffs, COLLECTION_SCHEMA, readJsonObject, type Finding } from './check.ts';
 import { COLLECTION_STAGES, COLLECTION_STAGE_VALUES } from './collection.ts';
+import { isCurrentProject } from './current.ts';
 import type { CommandResult } from './interview.ts';
 import { refuse, USAGE_EXIT } from './refusal.ts';
 import { collectionAnswerCommand } from './collection-answer.ts';
@@ -218,6 +219,14 @@ export function buildPins(dir: string, collection: JsonObject, selectors: string
   for (const m of members) {
     if (m.project === null) {
       refusals.push({ code: 'MEMBER_PROJECT_MISSING', path: m.path, message: `${m.path}: ${m.why}` });
+      continue;
+    }
+    if (isCurrentProject(m.project)) {
+      refusals.push({
+        code: 'PIN_MEMBER_CURRENT',
+        path: m.path,
+        message: `${m.path}: records current outputs (project.json current), which collection pin cannot pin by version number; keep existing explicit pins until hash-and-commit member pinning lands (rig-c/create#990), then pin the collection`,
+      });
       continue;
     }
     const wanted = selected.get(m.name);

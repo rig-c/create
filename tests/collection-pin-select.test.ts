@@ -99,3 +99,34 @@ test('explicit source drift refuses before appending; default still emits no sel
   expect(pinCode(dir, [])).toBe('NO_REFUSAL');
   expect(arr(obj(arr(read(dir).versions)[1]).pins).map(p => obj(p).selection ?? null)).toEqual([null, null]);
 });
+
+test('#1075 collection pin refuses PIN_MEMBER_CURRENT on current-output members while collection --check keeps explicit pins', () => {
+  const dir = fixture();
+  const collection = read(dir);
+  for (const pin of arr(obj(arr(collection.versions)[0]).pins).map(obj)) pin.selection = 'explicit';
+  save(dir, collection);
+
+  const member = read(dir, 'members/first/project.json');
+  const v1 = obj(arr(member.versions)[0]);
+  v1.pre_interview = true;
+  v1.original_n = 1;
+  v1.original_verdicts = [];
+  v1.verdicts = [];
+  member.versions = [v1];
+  member.current = { rig: { at: '2026-11-27T00:00:00.000Z', built_by: 'agent', built_with: { '@rig-c/parts': '2.60.0' } } };
+  save(dir, member, 'members/first/project.json');
+
+  const check = checkCollection(dir);
+  expect(check.ok).toBe(true);
+  expect(check.refusals).toEqual([]);
+
+  const before = readFileSync(join(dir, 'collection.json'));
+  for (const flags of [[], ['--member', 'first=1']]) {
+    const result = collectionCommand(['pin', dir, ...flags]);
+    expect(result.exit).toBe(1);
+    expect(pinCode(dir, flags)).toBe('PIN_MEMBER_CURRENT');
+    expect(result.stdout).toContain('members[first]');
+    expect(result.stdout).toContain('#990');
+    expect(readFileSync(join(dir, 'collection.json'))).toEqual(before);
+  }
+});

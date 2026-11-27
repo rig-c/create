@@ -16,6 +16,8 @@ import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
 import type { CheckReport } from '../src/check.ts';
+import { isLiveMemberRoot } from '../src/collection-binding-reader.ts';
+import { writePackageJson } from '../src/init.ts';
 import { stepHash } from '../src/step-hash.ts';
 import { readTemplate, type Json, type JsonObject } from '../src/templates.ts';
 import { tempDir, type TempDirScope } from './helpers.ts';
@@ -106,6 +108,9 @@ export function materializeFixture(dir: string, mutate: Mutate = () => {}, templ
   if (template === 'legacy-example-project.json' && !rawLegacy) alignLegacyBuilds(project, files);
   if (template === 'legacy-example-project.json' && !rawLegacy) bindFixtureSignoffs(project);
   writeFileSync(join(dir, 'project.json'), `${JSON.stringify(project, null, 2)}\n`);
+  if (!(template === 'legacy-example-project.json' && rawLegacy) && !isLiveMemberRoot(dir) && files['package.json'] === undefined) {
+    writePackageJson(dir, typeof project.name === 'string' && project.name ? project.name : 'example');
+  }
   for (const [path, content] of Object.entries(files)) {
     mkdirSync(dirname(join(dir, path)), { recursive: true });
     writeFileSync(join(dir, path), content);

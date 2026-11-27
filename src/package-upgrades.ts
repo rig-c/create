@@ -1,7 +1,8 @@
 /** Optional package migration history: old records need no adoption date. */
 import { join } from 'node:path';
-import { existsSync } from './check-reads.ts';
+import { lstatSync } from './check-reads.ts';
 import { isObject, readJsonObject, type Finding } from './check.ts';
+import { COLLECTION_SCHEMA } from './collection-binding-reader.ts';
 import { CREATE_PACKAGE, runningCreateVersion } from './pins.ts';
 import type { JsonObject } from './templates.ts';
 
@@ -9,9 +10,20 @@ export const LEGACY_PACKAGE_NAMES = ['@rig-c/core', '@rig-c/parts', '@rig-c/revi
 export const PACKAGE_NAMES = ['@rig-c/core', CREATE_PACKAGE, '@rig-c/parts', '@rig-c/review'] as const;
 export const exactVersion = (value: unknown): value is string => typeof value === 'string' && /^\d+\.\d+\.\d+$/.test(value);
 
-export function createPinWarning(dir: string, running = runningCreateVersion()): Finding | undefined {
+export function createPinWarning(
+  dir: string,
+  collection: JsonObject | null = null,
+  running = runningCreateVersion(),
+): Finding | undefined {
   const file = join(dir, 'package.json');
-  if (!existsSync(file)) return undefined;
+  if (lstatSync(file, { throwIfNoEntry: false }) === undefined) {
+    if (collection !== null && collection.schema === COLLECTION_SCHEMA) return undefined;
+    return {
+      code: 'CREATE_PIN_MISSING',
+      path: 'package.json',
+      message: `package.json: manifest is missing (running ${CREATE_PACKAGE} ${running}); restore package.json (as written by rig-create init) and run rig-create packages upgrade --by <operator> to pin ${CREATE_PACKAGE}`,
+    };
+  }
   const read = readJsonObject(file);
   if (!read.ok) {
     return {

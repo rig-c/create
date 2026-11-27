@@ -18,6 +18,7 @@ import { sha256, CHOICE_ORDER_SPEC } from '../src/choices.ts';
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { checkProject } from '../src/check.ts';
+import { writePackageJson } from '../src/init.ts';
 import { planCommand } from '../src/plan-writers.ts';
 import { diffClassesCommand } from '../src/diff-classes.ts';
 import { draftRigCommand } from '../src/drafts.ts';
@@ -39,6 +40,7 @@ const arr = (v: Json | undefined): Json[] => v as Json[];
 export function generateExampleOrder(dir: string): { project: JsonObject; files: Record<string, string | Uint8Array> } {
   if (existsSync(dir)) throw new Error('example order needs a fresh scratch directory');
   mkdirSync(dir, { recursive: true });
+  writePackageJson(dir, 'example');
   const original = retimeExample(readTemplate('legacy-example-project.json'));
   for (const signoff of arr(original.signoffs).map(obj)) {
     if (!signoff.step_hashes) continue;

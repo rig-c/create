@@ -946,12 +946,12 @@ function checkProjectOnce(projectDirArg: string, candidate: JsonObject | undefin
 
   refusals.push(...packageUpgradeFindings(project));
   warnings.push(...packageUpgradeWarnings(project));
-  if (!options.recordPublication) {
-    const createPin = createPinWarning(dir);
-    if (createPin) warnings.push(createPin);
-  }
   checkCollectionBinding(dir, project, refusals);
   const collection = loadCollection(dir, project);
+  if (!options.recordPublication) {
+    const createPin = createPinWarning(dir, collection);
+    if (createPin) warnings.push(createPin);
+  }
   const reopens = collectReopens(project, refusals, warnings);
   const historySignoffs = collectSignoffs(project, refusals).filter(s => {
     if (STAGE_VALUES.includes(s.stage)) return true;

@@ -1,6 +1,6 @@
 import { afterEach, expect, test } from 'bun:test';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { packagesCommand } from '../src/packages-upgrade.ts';
 import { packageUpgradeFindings, packageUpgradeWarnings } from '../src/package-upgrades.ts';
@@ -446,4 +446,50 @@ test('check warns by name when @rig-c/create is undeclared or differs from the r
   const alignedCodes = checkProject(aligned.dir, undefined, { now: EXAMPLE_NOW, readOnly: true }).warnings.map(f => f.code);
   expect(alignedCodes).not.toContain('CREATE_PIN_MISSING');
   expect(alignedCodes).not.toContain('CREATE_PIN_MISMATCH');
+});
+
+test('a standalone project without package.json (or with a dangling symlink) warns CREATE_PIN_MISSING, while a collection member without its own manifest does not', async () => {
+  const { initCollection, initMember } = await import('../src/collection.ts');
+  const { freshProjectRecord } = await import('../src/init.ts');
+
+  const standalone = tempDir();
+  roots.push(standalone);
+  const record = { ...freshProjectRecord('synthetic-standalone', EXAMPLE_NOW), owner: { language: 'en' } };
+  writeFileSync(join(standalone, 'project.json'), `${JSON.stringify(record, null, 2)}\n`);
+  expect(existsSync(join(standalone, 'package.json'))).toBe(false);
+  const absentReport = checkProject(standalone, undefined, { now: EXAMPLE_NOW, readOnly: true });
+  expect(absentReport.warnings).toContainEqual({
+    code: 'CREATE_PIN_MISSING',
+    path: 'package.json',
+    message: expect.stringContaining('rig-create packages upgrade --by <operator>'),
+  });
+
+  symlinkSync(join(standalone, 'missing-manifest-target.json'), join(standalone, 'package.json'));
+  const danglingReport = checkProject(standalone, undefined, { now: EXAMPLE_NOW, readOnly: true });
+  expect(danglingReport.warnings).toContainEqual(expect.objectContaining({
+    code: 'CREATE_PIN_MISSING',
+    path: 'package.json',
+    message: expect.stringContaining('rig-create packages upgrade --by <operator>'),
+  }));
+
+  // A folder named members/<name> with no parent collection.json is still standalone, not a member.
+  const orphanContainer = tempDir();
+  roots.push(orphanContainer);
+  const orphanDir = join(orphanContainer, 'members', 'orphan');
+  mkdirSync(orphanDir, { recursive: true });
+  writeFileSync(join(orphanDir, 'project.json'), `${JSON.stringify(record, null, 2)}\n`);
+  expect(checkProject(orphanDir, undefined, { now: EXAMPLE_NOW, readOnly: true }).warnings).toContainEqual(expect.objectContaining({
+    code: 'CREATE_PIN_MISSING',
+    path: 'package.json',
+  }));
+
+  // A real collection member legitimately shares its parent collection's manifest and has no package.json of its own.
+  const colParent = tempDir();
+  roots.push(colParent);
+  const colDir = join(colParent, 'harbour');
+  initCollection(colDir, { install: false });
+  const member = initMember(colDir, 'keeper', new Date(EXAMPLE_NOW), 'en');
+  expect(existsSync(join(member.dir, 'package.json'))).toBe(false);
+  const memberReport = checkProject(member.dir, undefined, { now: EXAMPLE_NOW, readOnly: true });
+  expect(memberReport.warnings).toEqual([]);
 });

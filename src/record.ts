@@ -481,6 +481,8 @@ function adoptedFileSize(dir: string, file: FileHash & { bytes?: number }, versi
   return bytes.length;
 }
 
+const ADOPT_DIRECTION_BOUNCED = 'RECORD_ADOPT_DIRECTION_BOUNCED';
+
 function recordAdoption(dir: string, file: string, original: Buffer, project: JsonObject, kind: RecordableKind, now: number, json: boolean): CommandResult {
   const source = resolveAdoptSource(project, kind);
   if (!source.ok) {
@@ -510,7 +512,7 @@ function recordAdoption(dir: string, file: string, original: Buffer, project: Js
   }
   writeRecord(file, original, candidate, `record-${kind}-adopt`, 'RECORD_SOURCE_CHANGED');
   const stderr = source.bouncedDirectionVerdict === undefined ? undefined
-    : `WARN [RECORD_ADOPT_DIRECTION_BOUNCED]: current.direction adopted bounced v${source.version} in place (versions[v${source.version}].verdicts[${source.bouncedDirectionVerdict}]); run rig-create next to read the open direction feedback before rebuilding`;
+    : `WARN [${ADOPT_DIRECTION_BOUNCED}]: current.direction adopted bounced v${source.version} in place (versions[v${source.version}].verdicts[${source.bouncedDirectionVerdict}]); run rig-create next to read the open direction feedback before rebuilding`;
   return { stdout: json ? JSON.stringify(node, null, 2) : `record ${kind}: adopted v${source.version} in place (${files.length} files)`, exit: 0, ...(stderr ? { stderr } : {}) };
 }
 

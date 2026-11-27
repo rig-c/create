@@ -17,9 +17,8 @@ import { alignLegacyBuilds, reviewExampleFiles } from './review-fixture.ts';
 import type { JsonObject } from '../src/templates.ts';
 
 /**
- * Where the filled example keeps its assembled parts (derived/, not in git) and
- * their verdict (written with `--verdict` to a tracked path, so the sign-off's
- * evidence survives a clone) — templates/example-project.json.
+ * Project-relative paths of the assembled parts and verdict retained under
+ * templates/example-numbered/.
  */
 export const EXAMPLE_PARTS_DIR = 'derived/parts/rig';
 export const EXAMPLE_VERDICT = 'evidence/parts-review.json';
@@ -112,7 +111,7 @@ export function writeReviewedInput(dir: string, root: string, verdict = EXAMPLE_
 }
 
 export interface MeshVerdictOptions {
-  /** The parts-only verdict whose files this one starts from (default: the filled example's). */
+  /** The parts-only verdict whose files this one starts from (default: EXAMPLE_VERDICT). */
   readonly from?: string;
   /** The verdict to write, project-relative. */
   readonly verdict: string;
@@ -177,7 +176,7 @@ export function writeMeshVerdict(dir: string, options: MeshVerdictOptions): stri
   return listed;
 }
 
-/** Writes a package's files under a project folder (default: the filled example's approved package). */
+/** Writes a package's files under a project folder (default: the legacy fixture's synthetic package). */
 export function writePartsPackage(dir: string, pkg: PartsPackage = partsPackage({ verdict: EXAMPLE_VERDICT })): void {
   const files = { ...preparedExampleFiles(), ...reviewExampleFiles(), ...pkg.files };
   if (existsSync(join(dir, 'project.json'))) {

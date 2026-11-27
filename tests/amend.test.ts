@@ -44,7 +44,7 @@ describe('forward human amendments', () => {
 
   test('writer-built synthetic example names every lapsed approval and the live upstream list', () => {
     // The retained example and its assets are generated through the public writers.
-    const dir = fixture(() => {}, 'example-project.json');
+    const dir = fixture(() => {}, 'example-numbered/example-project.json');
     expect(checkProject(dir).refusals).toEqual([]);
     expect(checkProject(dir).warnings).toEqual([]);
     const before = read(dir);
@@ -79,7 +79,7 @@ describe('forward human amendments', () => {
     refusal(() => handoff(dir, null), 'RIG_VERSION_UNACCEPTED');
   });
 
-  test.each(STAGES.filter(s => s.id !== 'accepted').flatMap(s => ['legacy-example-project.json', 'example-project.json'].map(template => [s.id, template] as const))
+  test.each(STAGES.filter(s => s.id !== 'accepted').flatMap(s => ['legacy-example-project.json', 'example-numbered/example-project.json'].map(template => [s.id, template] as const))
     .filter(([stage, template]) => stage !== 'rigging-interview' || template !== 'legacy-example-project.json'))('amend %s and reopen have equal liveness in %s', (stage, template) => {
     const amendmentDir = fixture(() => {}, template);
     const reopenDir = fixture(() => {}, template);
@@ -131,7 +131,7 @@ describe('forward human amendments', () => {
     ['direction-review', 'motion'],
     ['direction-review', 'timing'],
   ] as const).flatMap(([stage, upstream]) => [false, true].map(resign => [stage, upstream, resign] as const)))('upstream unfinished bars do not lower amend %s with %s unfinished and re-sign %s', (stage, upstream, resign) => {
-    const dir = fixture(p => { step(p, upstream).status = 'in-progress'; }, 'example-project.json');
+    const dir = fixture(p => { step(p, upstream).status = 'in-progress'; }, 'example-numbered/example-project.json');
     const before = read(dir);
     const control = checkProject(dir);
     expect(control.refusals).toEqual([]);
@@ -217,7 +217,7 @@ describe('forward human amendments', () => {
   });
 
   test('the retained stage permits a new pending correction while its approval is lapsed', () => {
-    const dir = fixture(() => {}, 'example-project.json');
+    const dir = fixture(() => {}, 'example-numbered/example-project.json');
     amend(dir, 'rig-review');
     testClock.set(EXAMPLE_NOW + 86_400_000);
     correctionCommand(['--adopt', dir]);
@@ -291,7 +291,7 @@ describe('forward human amendments', () => {
     const stepAwaits = (dir: string, now: number): string[] => nextProject(dir, now).awaits.filter(target => target.startsWith('plan.steps['));
 
     test.each(['bones', 'interview.waypoints[bones].guide'])('target %s: only bones and constraints reset; every other step keeps its record and next names exactly the two', target => {
-      const dir = fixture(() => {}, 'example-project.json');
+      const dir = fixture(() => {}, 'example-numbered/example-project.json');
       const before = read(dir);
       amendAnswer(dir, target);
       const after = read(dir);
@@ -312,7 +312,7 @@ describe('forward human amendments', () => {
     });
 
     test('after the re-signed rigging-interview, next names the two reset steps and the cycle reaches rig-review', () => {
-      const dir = fixture(() => {}, 'example-project.json');
+      const dir = fixture(() => {}, 'example-numbered/example-project.json');
       amendAnswer(dir, 'bones');
       testClock.set(EXAMPLE_NOW + 86_400_000);
       signoffCommand(['rigging-interview', dir, '--by', 'owner', '--verbatim-file', words(dir)]);
@@ -333,7 +333,7 @@ describe('forward human amendments', () => {
     });
 
     test('keep-by-binding keeps the checkpoint of a step that does not rest on the changed answer', () => {
-      const dir = fixture(() => {}, 'example-project.json');
+      const dir = fixture(() => {}, 'example-numbered/example-project.json');
       amendAnswer(dir, 'bones');
       const p = read(dir);
       const target = obj(arr(p.amendments)[0]).target as JsonObject;
@@ -346,7 +346,7 @@ describe('forward human amendments', () => {
     });
 
     test('a record from the earlier writer, which reset every later step, still checks without a new refusal', () => {
-      const dir = fixture(() => {}, 'example-project.json');
+      const dir = fixture(() => {}, 'example-numbered/example-project.json');
       amendAnswer(dir, 'bones');
       const p = read(dir);
       for (const raw of arr(obj(p.plan).steps)) if (['meshes', 'motion', 'camera', 'timing', 'composition'].includes(String(obj(raw).id))) obj(raw).status = 'pending';
@@ -355,7 +355,7 @@ describe('forward human amendments', () => {
     });
 
     test('an interview-answer target that names no question refuses before writing', () => {
-      const dir = fixture(() => {}, 'example-project.json');
+      const dir = fixture(() => {}, 'example-numbered/example-project.json');
       const before = readFileSync(join(dir, 'project.json'));
       writeFileSync(join(dir, 'direction.txt'), 'Synthetic new direction.\n');
       refusal(() => amendCommand(['rigging-interview', dir, '--kind', 'interview-answer', '--target', 'interview.waypoints[bones]', '--change', 'direction.txt', '--by', 'owner', '--verbatim-file', words(dir)]), 'AMENDMENT_TARGET_INVALID');

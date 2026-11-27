@@ -151,7 +151,7 @@ test('job open --question publishes after upgrading an actual older synthetic in
     project.advances = arr(project.advances).filter(value => stageIndex(String(obj(value).stage)) <= stageIndex('rigging-interview'));
     for (const item of arr(obj(obj(project.interview).post).items).map(obj)) item.guide = null;
     for (const step of arr(obj(project.plan).steps).map(obj)) if (!['seethrough', 'assemble'].includes(String(step.id))) step.status = 'pending';
-  }, 'example-project.json'));
+  }, 'example-numbered/example-project.json'));
   roots.push(dir);
   let opening: Bun.Subprocess | undefined;
   try {

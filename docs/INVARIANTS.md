@@ -102,10 +102,10 @@ null; retaining their picks is not retaining their normalized contributions.
 Once no Other is pending, their aggregate value supplies the reading. Source retention
 is lossless; semantic understanding and agreement are explicitly unproven.
 
-## Current worked example and gaps
+## Worked translation and gaps
 
 [`templates/example-invariants/invariants.json`](../templates/example-invariants/invariants.json)
-is generated from the **current** `templates/example-project.json`:
+is generated from the [frozen numbered narrative](../templates/example-numbered/example-project.json):
 
 ```sh
 bun scripts/generate-invariants-example.ts <fresh-directory>
@@ -116,8 +116,8 @@ The script refuses an existing directory. `--check` regenerates into fresh
 scratch, compares byte for byte and never rewrites the committed artifact.
 All artifact bytes come from this script.
 
-The current example adopted choices and replaced its detailed rigging prose
-with synthetic answers. The retention census in the test enumerates its current normalized leaves and
+The numbered example adopted choices and replaced its detailed rigging prose
+with synthetic answers. The retention census in the test enumerates its normalized leaves and
 checks whole sentences for the listed substrings. It does not prove a separate
 semantic mapping for each named concept:
 

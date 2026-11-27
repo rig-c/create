@@ -45,7 +45,7 @@ function pending(stage = 'interview') {
     for (const item of arr(obj(project.interview).waypoints).map(obj)) {
       if (['bones', 'meshes', 'constraints', 'turn', 'motion'].includes(String(item.id))) item.guide = null;
     }
-  }, 'example-project.json'));
+  }, 'example-numbered/example-project.json'));
   const project = JSON.parse(readFileSync(join(root, 'project.json'), 'utf8')) as JsonObject;
   const item = collectItems(project, { collection: null }).find(item => item.id === 'reference')!;
   const binding = obj(obj(item.raw).choice).set as JsonObject;
@@ -321,7 +321,7 @@ function approvalFixture(stage: string, prepare?: (project: JsonObject) => void)
       if (stage === 'post-interview' ? step.phase === 'post' : !['seethrough', 'assemble'].includes(String(step.id))) step.status = 'pending';
     }
     prepare?.(project);
-  }, 'example-project.json'));
+  }, 'example-numbered/example-project.json'));
 }
 
 test.each(['rigging-interview', 'post-interview'])('%s plan seals the current writer evidence', stage => {
@@ -346,7 +346,7 @@ test.each(['plan-approved', 'rigging-interview', 'post-interview', 'direction-re
         project.stage = stage;
         retainSignoffs(project, signature => obj(signature).stage !== stage);
         project.advances = arr(project.advances).filter(value => obj(value).stage !== 'accepted');
-      }, 'example-project.json')) : approvalFixture(stage);
+      }, 'example-numbered/example-project.json')) : approvalFixture(stage);
     const input = { ...request(root), result: { kind: 'plan' as const } };
     const before = snapshot(root);
     const first = readRecordPublished(input, TEST_NOW);

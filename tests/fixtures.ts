@@ -12,14 +12,14 @@ import { OWNER_CHAT_SOURCE } from '../src/owner-chat.ts';
  * template) written to a fresh folder under the OS temp dir, mutated in place
  * first. Nothing is copied into the repository.
  */
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
 import type { CheckReport } from '../src/check.ts';
 import { isLiveMemberRoot } from '../src/collection-binding-reader.ts';
 import { writePackageJson } from '../src/init.ts';
 import { stepHash } from '../src/step-hash.ts';
-import { readTemplate, type Json, type JsonObject } from '../src/templates.ts';
+import { readTemplate, TEMPLATES_DIR, type Json, type JsonObject } from '../src/templates.ts';
 import { tempDir, type TempDirScope } from './helpers.ts';
 import { EXAMPLE_VERDICT, partsPackage } from './parts-package.ts';
 import { EXAMPLE_PARTS_CHECK, newOrderExampleFiles } from './draft-fixture.ts';
@@ -59,37 +59,46 @@ export const PARTS_REVIEW_LAPSES: string[][] = [
 ];
 
 /**
- * A project folder holding `template` (default: the filled example) after
- * `mutate`; `files` are written under it (path → content). The filled example
- * also gets the assembled parts and the approved verdict its parts-review
- * sign-off rests on (tests/parts-package.ts), unless `files` replaces them.
+ * A project folder holding `template` (default: the legacy example) after
+ * `mutate`; `files` are written under it (path → content). The legacy example
+ * gets its synthetic assembled parts and approved verdict unless `files` replaces them.
  */
 export function fixture(mutate: Mutate = () => {}, template = 'legacy-example-project.json', files: Record<string, string | Uint8Array> = {}, rawLegacy = false, options?: { scope?: TempDirScope }): string {
   return materializeFixture(join(tempDir('rig-create-test-', options), 'project'), mutate, template, files, rawLegacy);
 }
 
-/** Open either example record with the same retained asset bytes. */
-export function materializeFixture(dir: string, mutate: Mutate = () => {}, template = 'example-project.json', files: Record<string, string | Uint8Array> = {}, rawLegacy = false, bindAnswers = true): string {
+/** Materialize the full current example by default, or a specific retained fixture. */
+export function materializeFixture(dir: string, mutate: Mutate = () => {}, template = 'example-current/project.json', files: Record<string, string | Uint8Array> = {}, rawLegacy = false, bindAnswers = true): string {
+  const numbered = template === 'example-numbered/example-project.json';
+  const current = template === 'example-current/project.json';
+  const liveMember = isLiveMemberRoot(dir);
   const suppliedFiles = files;
   const legacyFiles = template === 'legacy-example-project.json'
     ? { ...preparedExampleFiles(), ...reviewExampleFiles(), ...partsPackage({ verdict: EXAMPLE_VERDICT }).files, [EXAMPLE_PARTS_CHECK]: partsCheckBytes() } : null;
   if (legacyFiles) files = { ...legacyFiles, ...suppliedFiles };
-  if (template === 'example-project.json') files = { ...preparedExampleFiles(), ...newOrderExampleFiles(), ...files };
+  if (numbered) files = { ...newOrderExampleFiles(), ...files };
   mkdirSync(dir);
+  if (current) {
+    const source = dirname(join(TEMPLATES_DIR, template));
+    for (const name of readdirSync(source)) {
+      if (name === 'project.json' || (liveMember && name === 'package.json')) continue;
+      cpSync(join(source, name), join(dir, name), { recursive: true });
+    }
+  }
   const project = readTemplate(template);
-  if (!rawLegacy && template !== 'example-project.json' && project.owner === undefined) {
+  if (!rawLegacy && !numbered && !current && project.owner === undefined) {
     project.owner = { language: 'en' };
   }
   // Keep the synthetic legacy cohort before scene adoption. Preserve the sealed raw template.
   if (template === 'legacy-example-project.json' && !rawLegacy) retimeFixture(project, Date.parse(DIRECTION_SCENE_SINCE), false);
-  if (['legacy-example-project.json', 'example-project.json'].includes(template) && !rawLegacy && bindAnswers) bindFixtureAnswers(project, dir);
+  if ((legacyFiles || numbered) && !rawLegacy && bindAnswers) bindFixtureAnswers(project, dir);
   if (legacyFiles && !rawLegacy && bindAnswers) {
     materializeLegacyPartPackages(dir, project, legacyFiles);
     files = { ...legacyFiles, ...suppliedFiles };
   }
   if (template === 'legacy-example-project.json' && !rawLegacy && !buildingLegacyAdvances) project.advances = structuredClone(legacySetupAdvances());
   mutate(project);
-  if (!rawLegacy) {
+  if (!rawLegacy && !current) {
     retainSignoffs(project, () => true);
     trimStatusHistory(project);
     if (template === 'legacy-example-project.json' && Array.isArray(project.advances)) {
@@ -108,7 +117,7 @@ export function materializeFixture(dir: string, mutate: Mutate = () => {}, templ
   if (template === 'legacy-example-project.json' && !rawLegacy) alignLegacyBuilds(project, files);
   if (template === 'legacy-example-project.json' && !rawLegacy) bindFixtureSignoffs(project);
   writeFileSync(join(dir, 'project.json'), `${JSON.stringify(project, null, 2)}\n`);
-  if (!(template === 'legacy-example-project.json' && rawLegacy) && !isLiveMemberRoot(dir) && files['package.json'] === undefined) {
+  if (!current && !(legacyFiles && rawLegacy) && !liveMember && files['package.json'] === undefined) {
     writePackageJson(dir, typeof project.name === 'string' && project.name ? project.name : 'example');
   }
   for (const [path, content] of Object.entries(files)) {

@@ -26,10 +26,10 @@ const addedEvents = [
 const events = [...new Set([...legacyEvents, ...addedEvents].map(value => Date.parse(value)))].sort((a, b) => a - b);
 if (events.length > 121) throw new Error('example events exceed the two-minute timeline');
 
-export function exampleTime(value: string): string {
+export function exampleTime(value: string, anchor = EXAMPLE_ANCHOR): string {
   const index = events.indexOf(Date.parse(value));
   if (index < 0) throw new Error(`undeclared example event ${value}`);
-  return new Date(EXAMPLE_ANCHOR + index * 1000).toISOString();
+  return new Date(anchor + index * 1000).toISOString();
 }
 
 /** Only fixture event strings enter this function, before their writers bind any hashes. */

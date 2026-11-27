@@ -1,0 +1,190 @@
+{
+  "schema": "rig-create/interview-options@1",
+  "id": "example-bones",
+  "question": "bones",
+  "stage": "rigging-interview",
+  "drafted_by": "agent",
+  "drafted_at": "2026-11-27T00:00:39.000Z",
+  "context": {
+    "kind": "parts",
+    "accepted_parts": {
+      "signoff_at": "2026-11-27T00:00:37.000Z",
+      "evidence": {
+        "kind": "parts-verdict",
+        "path": "evidence/review-reads/51f0792d87cb087c95073e4cd1ef9fb44d2e2f45a26e0cbeb6f502e76949f689.json",
+        "sha256": "51f0792d87cb087c95073e4cd1ef9fb44d2e2f45a26e0cbeb6f502e76949f689",
+        "spec": "rig-create/parts-verdict-cli@1"
+      }
+    },
+    "structure": {
+      "path": "evidence/structure-example.json",
+      "sha256": "a561a54753e0f33d63da412f0652f18c2a85255a33f59a00703a4d24e89856a9"
+    },
+    "draft_id": "example",
+    "parts": {
+      "path": "derived/drafts/example/input",
+      "files": [
+        {
+          "path": "derived/drafts/example/input/painting_in_rig.png",
+          "sha256": "02e6ea41dfec89a7eced0f66b98e0fea048846c6f4174fa1cc7631fe360e614f"
+        },
+        {
+          "path": "derived/drafts/example/input/parts/background.png",
+          "sha256": "c180182b6666fb4d90d4f91e210bda103a4081f1ad7c45006db392fa6c4eaf36"
+        },
+        {
+          "path": "derived/drafts/example/input/parts/eye_l.png",
+          "sha256": "c080dceac3b4d8fbc824ebb0ebffe61047f10af4e2cdd8d51b32bf779691617e"
+        },
+        {
+          "path": "derived/drafts/example/input/parts/eye_r.png",
+          "sha256": "c080dceac3b4d8fbc824ebb0ebffe61047f10af4e2cdd8d51b32bf779691617e"
+        },
+        {
+          "path": "derived/drafts/example/input/parts/face.png",
+          "sha256": "9626a5008eb90b22ab7623cb79048ed521c6aa651254287bbc9df8606b9f0bf7"
+        },
+        {
+          "path": "derived/drafts/example/input/parts/lantern.png",
+          "sha256": "79ff42136a509e98032352ef9f8c0857a5d7f16667eb629bc048b9b8ef24d96a"
+        },
+        {
+          "path": "derived/drafts/example/input/parts/torso.png",
+          "sha256": "adf6cd5d92568c5f51028df2874b69f4df5ff1d0e3a94484784c867e543cd912"
+        },
+        {
+          "path": "derived/drafts/example/input/parts.json",
+          "sha256": "d93e07d90bb34132c296265585160cb37009cfac3c4eda0c19114636ddb41dca"
+        }
+      ]
+    }
+  },
+  "asks": [
+    {
+      "id": "chains",
+      "prompt": "Choose chains for the synthetic parts.",
+      "options": [
+        {
+          "id": "keep",
+          "kind": "value",
+          "label": "Synthetic bones answer after viewing the approved parts and structure.",
+          "effect": "As answered on 2026-11-27T00:00:38.000Z in interview, chat",
+          "fragment": {
+            "chains": "synthetic chains on the approved parts"
+          },
+          "recommended": true,
+          "reason": "Preserves the stated synthetic direction and the accepted structure."
+        },
+        {
+          "id": "alternative",
+          "kind": "value",
+          "label": "Alternative chains",
+          "effect": "Choose a different chains.",
+          "fragment": {
+            "chains": "alternative chains"
+          },
+          "recommended": false
+        },
+        {
+          "id": "other",
+          "kind": "other",
+          "label": "Other",
+          "effect": "Describe this decision.",
+          "recommended": false
+        },
+        {
+          "id": "auto",
+          "kind": "auto",
+          "label": "Let the agent decide",
+          "effect": "The agent must record this decision before approval.",
+          "recommended": false
+        }
+      ]
+    },
+    {
+      "id": "placement",
+      "prompt": "Choose placement for the synthetic parts.",
+      "options": [
+        {
+          "id": "keep",
+          "kind": "value",
+          "label": "Keep the proposed placement",
+          "effect": "Use the proposed placement on the named synthetic parts.",
+          "fragment": {
+            "placement": "synthetic placement on the approved parts"
+          },
+          "recommended": true,
+          "reason": "Preserves the stated synthetic direction and the accepted structure."
+        },
+        {
+          "id": "alternative",
+          "kind": "value",
+          "label": "Alternative placement",
+          "effect": "Choose a different placement.",
+          "fragment": {
+            "placement": "alternative placement"
+          },
+          "recommended": false
+        },
+        {
+          "id": "other",
+          "kind": "other",
+          "label": "Other",
+          "effect": "Describe this decision.",
+          "recommended": false
+        },
+        {
+          "id": "auto",
+          "kind": "auto",
+          "label": "Let the agent decide",
+          "effect": "The agent must record this decision before approval.",
+          "recommended": false
+        }
+      ]
+    },
+    {
+      "id": "length",
+      "prompt": "Choose length for the synthetic parts.",
+      "options": [
+        {
+          "id": "keep",
+          "kind": "value",
+          "label": "Keep the proposed length",
+          "effect": "Use the proposed length on the named synthetic parts.",
+          "fragment": {
+            "length": "synthetic length on the approved parts"
+          },
+          "recommended": true,
+          "reason": "Preserves the stated synthetic direction and the accepted structure."
+        },
+        {
+          "id": "alternative",
+          "kind": "value",
+          "label": "Alternative length",
+          "effect": "Choose a different length.",
+          "fragment": {
+            "length": "alternative length"
+          },
+          "recommended": false
+        },
+        {
+          "id": "other",
+          "kind": "other",
+          "label": "Other",
+          "effect": "Describe this decision.",
+          "recommended": false
+        },
+        {
+          "id": "auto",
+          "kind": "auto",
+          "label": "Let the agent decide",
+          "effect": "The agent must record this decision before approval.",
+          "recommended": false
+        }
+      ]
+    }
+  ],
+  "assembly": {
+    "rule": "merge"
+  }
+}

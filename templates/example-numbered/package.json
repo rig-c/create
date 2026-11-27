@@ -1,0 +1,10 @@
+{
+  "name": "lantern-keeper",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@rig-c/core": "3.11.0",
+    "@rig-c/create": "1.26.0",
+    "@rig-c/parts": "2.62.0"
+  }
+}

@@ -27,7 +27,7 @@ function transition(value: string) {
       delegated: false, by: 'user', at: new Date(draftAt - 1_000).toISOString(),
       verbatim: 'Use the recorded rig type.', value,
     };
-  }, 'example-project.json');
+  }, 'example-numbered/example-project.json');
   const file = join(dir, 'project.json');
   const set = JSON.parse(readFileSync(join(dir, setPath), 'utf8')) as JsonObject;
   set.id = 'transition-rig-type';

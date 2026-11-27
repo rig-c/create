@@ -147,7 +147,7 @@ test.each(['unbound', 'changed'] as const)('the %s optional predecessor stack wa
 test('a hash-bound diff_map fallback is specific to the path named by its producer', () => {
   const { root, project, previous, previousSeal, put } = setup();
   unbind(previous, priorPath);
-  const report = JSON.parse(readFileSync(join(import.meta.dir, '../templates/example-diff/diff-components.json'), 'utf8')) as JsonObject;
+  const report = JSON.parse(readFileSync(join(import.meta.dir, '../templates/example-numbered/example-diff/diff-components.json'), 'utf8')) as JsonObject;
   const file = 'evidence/previous-diff.json';
   report.stack = { path: currentPath, sha256: previousSeal.sha256 };
   project.diff_map = { report: put(file, JSON.stringify(report)) };

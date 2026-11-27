@@ -9,9 +9,9 @@ import { Refusal } from '../src/refusal.ts';
 import type { Json, JsonObject } from '../src/templates.ts';
 import { cli } from './helpers.ts';
 
-const templates = join(import.meta.dir, '..', 'templates');
-const example = join(templates, 'example-project.json');
-const configPath = join(templates, 'example-split', 'config.json');
+const numbered = join(import.meta.dir, '../templates/example-numbered');
+const example = join(numbered, 'example-project.json');
+const configPath = join(numbered, 'example-split', 'config.json');
 const dirs: string[] = [];
 
 afterEach(() => {
@@ -45,9 +45,9 @@ function refused(file: string, config: string, code: string): void {
   }
 }
 
-test('the shipped list is generated from the filled example and synthetic config', () => {
+test('the shipped list is generated from the frozen numbered example and synthetic config', () => {
   const generated = splitCaptions(example, configPath);
-  expect(`${JSON.stringify(generated, null, 2)}\n`).toBe(readFileSync(join(templates, 'example-split', 'captions.json'), 'utf8'));
+  expect(`${JSON.stringify(generated, null, 2)}\n`).toBe(readFileSync(join(numbered, 'example-split', 'captions.json'), 'utf8'));
   expect(generated.parts).toHaveLength(19);
   expect(generated.inputs.project.sha256).toBe(createHash('sha256').update(readFileSync(example)).digest('hex'));
   expect(generated.inputs.config.sha256).toBe(createHash('sha256').update(readFileSync(configPath)).digest('hex'));

@@ -115,7 +115,7 @@ for (const [name, code, mutate] of [
   ['duplicate feedback id', 'APPLIED_REVIEW_RESULT', (f: JsonObject) => { (f.feedback as JsonObject[]).push((f.feedback as JsonObject[])[0]!); }],
 ] as const) {
   test(`refuses changed ${name} even with an updated file hash`, async () => {
-    const { dir, project } = await chain(name === 'omitted handoff input' ? 'example-project.json' : undefined);
+    const { dir, project } = await chain(name === 'omitted handoff input' ? 'example-numbered/example-project.json' : undefined);
     const record = obj(version(project, 2).review_origin);
     const file = join(dir, obj(record.feedback).path as string);
     const feedback = JSON.parse(readFileSync(file, 'utf8')) as JsonObject;
@@ -133,7 +133,7 @@ for (const [name, code, mutate] of [
 
 
 test('installed review hashes every named input for the current signed example', async () => {
-  const { dir, project } = await chain('example-project.json');
+  const { dir, project } = await chain('example-numbered/example-project.json');
   expect(checked(dir, project)).toMatchObject({ refusals: [], warnings: [] });
   writeFileSync(join(dir, 'project.json'), JSON.stringify(project));
   const report = checkProject(dir);

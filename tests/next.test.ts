@@ -346,7 +346,7 @@ describe('Frozen Bar 2 — No suggested agent move refuses on a scratch copy', (
         .map(name => ({ name: `checkpoint:${name}`, dir: join(CHECKPOINTS_DIR, name), now: CHAIN_NOW })),
       { name: 'example-chain', dir: CHAIN_DIR, now: CHAIN_NOW },
       { name: 'example-remesh', dir: REMESH_DIR, now: CHAIN_NOW },
-      { name: 'example-project', dir: fixture(() => {}, 'example-project.json'), now: CHAIN_NOW },
+      { name: 'example-numbered', dir: fixture(() => {}, 'example-numbered/example-project.json'), now: CHAIN_NOW },
     ];
 
     // Also include an open-step project in `parts` where `step-status` is an agent move.
@@ -412,7 +412,7 @@ describe('Frozen Bar 3 — Agent commands never invent human acts', () => {
         .map(name => join(CHECKPOINTS_DIR, name)),
       CHAIN_DIR,
       REMESH_DIR,
-      fixture(() => {}, 'example-project.json'),
+      fixture(() => {}, 'example-numbered/example-project.json'),
     ];
 
     for (const dir of dirs) {
@@ -446,7 +446,7 @@ describe('Frozen Bar 4 — Read-only and deterministic across every example', ()
         .map(name => join(CHECKPOINTS_DIR, name)),
       CHAIN_DIR,
       REMESH_DIR,
-      fixture(() => {}, 'example-project.json'),
+      fixture(() => {}, 'example-numbered/example-project.json'),
     ];
 
     for (const dir of dirs) {
@@ -616,7 +616,7 @@ describe('Frozen Bar 5 — Plants (lapsed approval, changed bound input DRAFT_RI
   });
 
   test('plant 3: an accepted numbered project retains acceptance without offering migration', () => {
-    for (const dir of [CHAIN_DIR, fixture(() => {}, 'example-project.json')]) {
+    for (const dir of [CHAIN_DIR, fixture(() => {}, 'example-numbered/example-project.json')]) {
       const jsonRes = nextCommand([dir, '--json'], CHAIN_NOW);
       expect(jsonRes.exit).toBe(0);
       const report = JSON.parse(jsonRes.stdout) as NextReport;
@@ -1456,7 +1456,7 @@ test('#478 answered rigging guides request plan steps before the publishable sig
     project.advances = arr(project.advances).filter(value => stageIndex(String(obj(value).stage)) <= stageIndex('rigging-interview'));
     for (const item of arr(obj(obj(project.interview).post).items).map(obj)) item.guide = null;
     obj(project.plan).steps = arr(obj(project.plan).steps).filter(value => ['seethrough', 'assemble'].includes(String(obj(value).id)));
-  }, 'example-project.json'));
+  }, 'example-numbered/example-project.json'));
   const beforeBytes = readFileSync(join(dir, 'project.json'));
   const before = nextProject(dir, CHAIN_NOW);
   expect(before.refusals).toEqual([]);
@@ -1813,7 +1813,7 @@ test('#561 tower shows stale bones repair and missing answered meshes before rig
       step.status = 'pending'; delete step.status_history;
       if (step.id === 'bones') step.drafted_at = PLAN_STEP_ANSWER_SINCE;
     }
-  }, 'example-project.json'));
+  }, 'example-numbered/example-project.json'));
   const before = readFileSync(join(dir, 'project.json'));
   const report = nextProject(dir, CHAIN_NOW);
   expect(report.effective_stage).toBe('rigging-interview');
@@ -1910,7 +1910,7 @@ test.each([
     for (const step of arr(obj(project.plan).steps).map(obj).filter(step => !['seethrough', 'assemble'].includes(String(step.id)))) {
       step.status = 'pending'; delete step.status_history;
     }
-  }, 'example-project.json'));
+  }, 'example-numbered/example-project.json'));
   const before = readFileSync(join(dir, 'project.json'));
   const report = nextProject(dir, CHAIN_NOW);
   expect(report.refusals).toEqual([]);
@@ -2279,7 +2279,7 @@ test('#596 post stage with in-progress step offers direction --adopt then direct
       step.status = step.id === 'camera' ? 'in-progress' : 'pending';
       delete step.status_history;
     }
-  }, 'example-project.json'));
+  }, 'example-numbered/example-project.json'));
 
   const unAdoptedWrite = runMainCapture(['direction', 'write', '1', dir, '--file', 'evidence/direction/v4.json', '--rig', '2'], CHAIN_NOW);
   expect(unAdoptedWrite.code).toBe(1);
@@ -2404,7 +2404,7 @@ function adoptionFixture({ current = false, config }: { current?: boolean; confi
         verdicts: [{ review: 'rig-review', verdict: 'accepted', by: 'user', at, verbatim: 'Accept the synthetic rig.', on_items: [] }] },
       { ...build, n: 3, kind: 'post', rig_version: 2, outputs: bindings(post) },
     ];
-  }, 'example-project.json', { [older]: '{}', [latest]: '{}', [parts]: '{}', [frames]: '{}', [post]: '{}',
+  }, 'example-numbered/example-project.json', { [older]: '{}', [latest]: '{}', [parts]: '{}', [frames]: '{}', [post]: '{}',
     ...(config ? { [config]: '{}' } : {}) }));
   const file = join(dir, 'project.json');
   return { dir, file, latest, frames, post };

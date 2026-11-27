@@ -156,7 +156,7 @@ test('review a fresh project remains green at the initial stage', () => {
 
 test('review latest reopen is green, and a different hand-set stage is no stage-order refusal (#981)', () => {
   testClock.set(EXAMPLE_NOW);
-  const dir = fixture(() => {}, 'example-project.json');
+  const dir = fixture(() => {}, 'example-numbered/example-project.json');
   plantLegacyReopen(dir, 'post-interview', { by: 'owner', wordsFile: words(dir) });
   expect(codes(dir)).toEqual([]);
   const p = read(dir); p.stage = 'rig-review';
@@ -166,7 +166,7 @@ test('review latest reopen is green, and a different hand-set stage is no stage-
 
 test('review advance snapshots require phases', () => {
   testClock.set(new Date('2026-11-20T00:00:00Z'));
-  const dir = fixture(() => {}, 'example-project.json');
+  const dir = fixture(() => {}, 'example-numbered/example-project.json');
   const original = read(dir);
   const index = arr(original.advances).findIndex(raw => obj(raw).from_stage === 'parts');
   for (const mutation of ['missing-phase', 'invalid-phase']) {

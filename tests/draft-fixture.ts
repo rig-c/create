@@ -35,18 +35,21 @@ export function exampleDraftFiles(input?: Record<string, Uint8Array>, output?: R
 }
 
 
+/** Numbered project assets as materialized, with the existing draft/PNG byte and text types. */
 export function newOrderExampleFiles(): Record<string, string | Uint8Array> {
-  const files: Record<string, string | Uint8Array> = {...exampleDraftFiles()};
-  const collect = (root: string, prefix: string): void => {
-    for (const entry of readdirSync(root,{withFileTypes:true})) {
-      const path = join(root,entry.name); const dest = `${prefix}/${entry.name}`;
-      if (entry.isDirectory()) collect(path,dest); else files[dest] = entry.name.endsWith('.png') ? readFileSync(path) : readFileSync(path,'utf8');
+  const root = join(import.meta.dir, '../templates/example-numbered');
+  const files: Record<string, string | Uint8Array> = {};
+  const collect = (prefix: string): void => {
+    for (const entry of readdirSync(join(root, prefix), { withFileTypes: true })) {
+      const child = `${prefix}/${entry.name}`;
+      if (entry.isDirectory()) collect(child);
+      else {
+        const path = join(root, child);
+        files[child] = child.startsWith(`${EXAMPLE_DRAFT}/`) || entry.name.endsWith('.png')
+          ? readFileSync(path) : readFileSync(path, 'utf8');
+      }
     }
   };
-  collect(join(import.meta.dir,'../templates/example-draft/inputs'),'inputs');
-  collect(join(import.meta.dir,'../templates/example-draft/evidence'),'evidence');
-  collect(join(import.meta.dir,'../templates/example-draft/derived'),'derived');
-  collect(join(import.meta.dir,'../templates/example-draft/outputs'),'outputs');
-  collect(join(import.meta.dir,'../templates/example-interview-options'),'evidence/interview');
+  for (const prefix of ['inputs', 'evidence', 'derived', 'outputs']) collect(prefix);
   return files;
 }

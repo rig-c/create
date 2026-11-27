@@ -4,7 +4,7 @@ import { createRequire } from 'node:module';
 import { join } from 'node:path';
 
 export const EXAMPLE_DIFF_REPORT = 'evidence/diff-components.json';
-const shipped = join(import.meta.dir, '../templates/example-diff');
+const shipped = join(import.meta.dir, '../templates/example-numbered/example-diff');
 
 export function exampleDiffFiles(partsDir = 'derived/parts/rig'): Record<string, string | Uint8Array> {
   return {

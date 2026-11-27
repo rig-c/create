@@ -8,11 +8,12 @@ are untouched output of installed `@rig-c/core` 3.11.0 `rigc build`, using the
 same packed compiler step as `rig-parts check`. The single motion track is a minimal
 synthetic declaration. An empty track set fails rigc's duration check.
 
-Regenerate with `bun scripts/generate-example-order.ts <fresh-directory>`.
 `scripts/generate-example-draft.ts` builds the config and draft outputs and
 also accepts `<fresh-directory> --check` to reproduce their exact bytes.
-Regenerate the dependent choices, split captions and invariants afterward.
+The signed numbered project and its retained bytes are under
+`templates/example-numbered/`. Verify them with
+`bun scripts/check-example-numbered.ts <fresh-directory> --check`.
 
-The fixture events are ordered one second apart from the latest exported
-`*_SINCE` contract date in `src/`, with simultaneous events kept together.
-`scripts/example-time.ts` fixes this timeline without reading the clock.
+The frozen fixture's events were generated one second apart from the latest
+exported `*_SINCE` contract date at the time, with simultaneous events kept
+together. `scripts/example-time.ts` defined that timeline without reading the clock.

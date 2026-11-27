@@ -15,7 +15,7 @@ function member(edit: (a: JsonObject) => void = () => {}, parentEdit: (c: JsonOb
     const a = obj(framing(p, 'reference').answer);
     a.basis = 'overridden'; a.overrides = { collection: 'synthetic', question: 'reference', collection_answer_at: source.at! }; a.why_verbatim = 'This member uses its own reference.';
     edit(a);
-  }, 'example-project.json');
+  }, 'example-numbered/example-project.json');
   renameSync(original, dir);
   const parent: JsonObject = { schema: 'rig-create/collection@0', name: 'synthetic', interview: { framing: [{ id: 'reference', answer: source, history: [] }] } };
   parentEdit(parent); writeFileSync(join(root, 'collection.json'), JSON.stringify(parent)); return dir;
@@ -49,7 +49,7 @@ test('silent questions, invalid timestamp and absent collection are refused by t
   const dir = member(() => {}, c => { (obj(c.interview).framing as JsonObject[])[0]!.answer = null; });
   expect(checkProject(dir).refusals.map(f => f.code)).toContain('OVERRIDE_QUESTION_INVALID');
   expect(checkProject(member(a => { obj(a.overrides).collection_answer_at = null; })).refusals.map(f => f.code)).toContain('OVERRIDE_ANSWER_STALE');
-  const lone = fixture(p => { const a = obj(framing(p, 'reference').answer); a.basis = 'overridden'; a.overrides = {collection:'synthetic'}; a.why_verbatim = 'Separate reference.'; }, 'example-project.json');
+  const lone = fixture(p => { const a = obj(framing(p, 'reference').answer); a.basis = 'overridden'; a.overrides = {collection:'synthetic'}; a.why_verbatim = 'Separate reference.'; }, 'example-numbered/example-project.json');
   expect(checkProject(lone).refusals.map(f => f.code)).toContain('OVERRIDE_COLLECTION_INVALID');
 });
 test('historical overrides are checked with their own dates and record paths', () => {

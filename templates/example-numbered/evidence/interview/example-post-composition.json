@@ -1,0 +1,110 @@
+{
+  "schema": "rig-create/interview-options@1",
+  "id": "example-post-composition",
+  "question": "post_composition",
+  "stage": "post-interview",
+  "drafted_by": "agent",
+  "drafted_at": "2026-11-27T00:00:52.000Z",
+  "context": {
+    "kind": "rig",
+    "rig_version": 2,
+    "signoff_at": "2026-11-27T00:00:51.000Z",
+    "config": {
+      "path": "evidence/v2/interview-config.json",
+      "sha256": "3e8fb71028acdc1203d25d477da653283181c61dc86c180a5c8a9c60785bbd56"
+    },
+    "parts": {
+      "path": "derived/drafts/example/input",
+      "files": [
+        {
+          "path": "derived/drafts/example/input/painting_in_rig.png",
+          "sha256": "02e6ea41dfec89a7eced0f66b98e0fea048846c6f4174fa1cc7631fe360e614f"
+        },
+        {
+          "path": "derived/drafts/example/input/parts/background.png",
+          "sha256": "c180182b6666fb4d90d4f91e210bda103a4081f1ad7c45006db392fa6c4eaf36"
+        },
+        {
+          "path": "derived/drafts/example/input/parts/eye_l.png",
+          "sha256": "c080dceac3b4d8fbc824ebb0ebffe61047f10af4e2cdd8d51b32bf779691617e"
+        },
+        {
+          "path": "derived/drafts/example/input/parts/eye_r.png",
+          "sha256": "c080dceac3b4d8fbc824ebb0ebffe61047f10af4e2cdd8d51b32bf779691617e"
+        },
+        {
+          "path": "derived/drafts/example/input/parts/face.png",
+          "sha256": "9626a5008eb90b22ab7623cb79048ed521c6aa651254287bbc9df8606b9f0bf7"
+        },
+        {
+          "path": "derived/drafts/example/input/parts/lantern.png",
+          "sha256": "79ff42136a509e98032352ef9f8c0857a5d7f16667eb629bc048b9b8ef24d96a"
+        },
+        {
+          "path": "derived/drafts/example/input/parts/torso.png",
+          "sha256": "adf6cd5d92568c5f51028df2874b69f4df5ff1d0e3a94484784c867e543cd912"
+        },
+        {
+          "path": "derived/drafts/example/input/parts.json",
+          "sha256": "d93e07d90bb34132c296265585160cb37009cfac3c4eda0c19114636ddb41dca"
+        }
+      ]
+    }
+  },
+  "asks": [
+    {
+      "id": "post_composition",
+      "prompt": "What is around the figure: background, framing, other figures, light?",
+      "options": [
+        {
+          "id": "keep",
+          "kind": "value",
+          "label": "Keep the whole lighthouse in frame. It's night; don't brighten it.",
+          "effect": "As answered on 2026-11-27T00:00:56.000Z in post-interview, chat",
+          "fragment": {
+            "framing": "lighthouse fully in frame",
+            "light": "as painted",
+            "scene": {
+              "background": {
+                "path": "evidence/scene-background.png",
+                "rect": {
+                  "x": -64,
+                  "y": 0,
+                  "width": 128,
+                  "height": 128
+                }
+              }
+            }
+          },
+          "recommended": true,
+          "reason": "Preserves the stated synthetic direction and the accepted structure."
+        },
+        {
+          "id": "alternative",
+          "kind": "value",
+          "label": "Alternative post_composition",
+          "effect": "Choose a different post_composition.",
+          "fragment": "none",
+          "recommended": false
+        },
+        {
+          "id": "other",
+          "kind": "other",
+          "label": "Other",
+          "effect": "Describe this decision.",
+          "recommended": false
+        },
+        {
+          "id": "auto",
+          "kind": "auto",
+          "label": "Let the agent decide",
+          "effect": "The agent must record this decision before approval.",
+          "recommended": false
+        }
+      ]
+    }
+  ],
+  "assembly": {
+    "rule": "single"
+  }
+}

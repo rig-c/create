@@ -28,7 +28,7 @@ describe('redoing the steps an amendment reset', () => {
   beforeEach(() => testClock.set(EXAMPLE_NOW));
   afterEach(() => testClock.reset());
 
-  test.each(['example-project.json', 'legacy-example-project.json'])('%s: amend post, redo the reset steps, sign again, check exits 0', template => {
+  test.each(['example-numbered/example-project.json', 'legacy-example-project.json'])('%s: amend post, redo the reset steps, sign again, check exits 0', template => {
     const dir = fixture(() => {}, template);
     expect(checkProject(dir).refusals).toEqual([]);
     amend(dir, 'post');
@@ -49,7 +49,7 @@ describe('redoing the steps an amendment reset', () => {
   });
 
   test('the resumed stage completes after its approval is signed again', () => {
-    const dir = fixture(() => {}, 'example-project.json');
+    const dir = fixture(() => {}, 'example-numbered/example-project.json');
     amend(dir, 'post-interview');
     expect(checkProject(dir).effective_stage).toBe('post-interview');
     testClock.set(EXAMPLE_NOW + 86_400_000);
@@ -63,7 +63,7 @@ describe('redoing the steps an amendment reset', () => {
   });
 
   test('a reset checkpointed step is done again and a new live checkpoint signature records', () => {
-    const dir = fixture(() => {}, 'example-project.json');
+    const dir = fixture(() => {}, 'example-numbered/example-project.json');
     amend(dir, 'rigging');
     testClock.set(EXAMPLE_NOW + 86_400_000);
     const rig = arr(obj(read(dir).plan).steps).map(obj).filter(s => s.phase === 'rig' && s.status === 'pending').map(s => String(s.id));

@@ -37,7 +37,7 @@ function redReport(dir: string, outcomes: JsonObject): void {
 }
 
 function project(): string {
-  const dir = fixture(() => {}, 'example-project.json');
+  const dir = fixture(() => {}, 'example-numbered/example-project.json');
   write(dir, CONFIG, readFileSync(join(PRODUCER, 'config.json')));
   producerOut(dir);
   return dir;

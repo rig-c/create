@@ -255,7 +255,7 @@ test('check refuses tampered on or outcome hashes and schema downgrades on curre
 
 test('adopted current.direction binds its legacy direction document on record and resolves against canonical current.direction; --version keeps working', () => {
   const dir = join(tempDir(), 'adopted');
-  cpSync(join(import.meta.dir, '../templates/example-direction'), dir, { recursive: true });
+  cpSync(join(import.meta.dir, '../templates/example-numbered/example-direction'), dir, { recursive: true });
   // Keep --version working unchanged on numbered posts.
   testClock.set(new Date('2026-11-06T10:00:00Z'));
   const numbered = correctionCommand([

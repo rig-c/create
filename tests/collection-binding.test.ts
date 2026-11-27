@@ -83,7 +83,7 @@ function memberFixture(stage: 'interview' | 'plan-approved' = 'interview'): Memb
       for (const item of arr(obj(project.interview).waypoints).map(obj)) {
         if (['bones', 'meshes', 'constraints', 'turn', 'motion'].includes(String(item.id))) item.guide = null;
       }
-    }, 'example-project.json'),
+    }, 'example-numbered/example-project.json'),
   );
 
   const container = realpathSync(tempDir('rig-create-col-bind-'));
@@ -608,7 +608,7 @@ test('bound member supports reopen -> review-tool answer override -> check -> in
 
   // Draft and register a pending option set for the inherited 'seethrough' waypoint question
   const afterReopen = JSON.parse(readFileSync(join(memberRoot, 'project.json'), 'utf8')) as JsonObject;
-  const templateProject = readTemplate('example-project.json');
+  const templateProject = readTemplate('example-numbered/example-project.json');
   const templateSeethrough = arr(obj(templateProject.interview).waypoints)
     .map(obj)
     .find((q) => q.id === 'seethrough')!;

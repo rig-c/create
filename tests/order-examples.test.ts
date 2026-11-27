@@ -1,39 +1,77 @@
 import { expect, test } from 'bun:test';
 import { createHash } from 'node:crypto';
-import { readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { validateCorrectionIdentity } from '../src/corrections.ts';
 import { readTemplate, type JsonObject } from '../src/templates.ts';
-import { fixture, plantLegacyReopen } from './fixtures.ts';
+import { fixture, materializeFixture, obj, plantLegacyReopen } from './fixtures.ts';
 import { checkProject } from './clock.ts';
+import { run, tempDir } from './helpers.ts';
 
-test('all generated example events satisfy every source contract date within two minutes', () => {
+const templates = join(import.meta.dir, '../templates');
+
+function exampleDates(path: string): number[] {
+  if (statSync(path).isDirectory()) {
+    return readdirSync(path).flatMap(name => exampleDates(join(path, name)));
+  }
+  if (!path.endsWith('.json')) return [];
+  return [...readFileSync(path, 'utf8').matchAll(/\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?Z/g)].map(match => Date.parse(match[0]));
+}
+
+function expectTwoMinuteWindow(dates: number[], anchor: number): void {
+  expect(dates.length).toBeGreaterThan(0);
+  expect(Math.min(...dates)).toBe(anchor);
+  expect(Math.max(...dates) - anchor).toBeLessThanOrEqual(120_000);
+  expect(dates.every(date => date % 1000 === 0)).toBe(true);
+}
+
+test('the current example and shared producer stamps follow the latest source contract date', () => {
   const src = join(import.meta.dir, '../src');
   const boundaries = readdirSync(src).filter(name => name.endsWith('.ts')).flatMap(name =>
     [...readFileSync(join(src, name), 'utf8').matchAll(/export const \w+_SINCE = '([^']+)'/g)].map(match => Date.parse(match[1]!)));
   expect(boundaries.length).toBeGreaterThan(0);
-  const dates: number[] = [];
-  const collect = (path: string): void => {
-    for (const entry of readdirSync(path, { withFileTypes: true })) {
-      const child = join(path, entry.name);
-      if (entry.isDirectory()) collect(child);
-      else if (entry.name.endsWith('.json')) dates.push(...[...readFileSync(child, 'utf8').matchAll(/\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?Z/g)].map(match => Date.parse(match[0])));
-    }
-  };
-  const templates = join(import.meta.dir, '../templates');
-  for (const name of ['example-draft', 'example-interview-options', 'example-invariants']) collect(join(templates, name));
-  for (const name of ['example-project.json', 'example-interview-choice.json']) {
-    dates.push(...[...readFileSync(join(templates, name), 'utf8').matchAll(/\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?Z/g)].map(match => Date.parse(match[0])));
+  for (const name of ['example-current', 'example-draft']) {
+    expectTwoMinuteWindow(exampleDates(join(templates, name)), Math.max(...boundaries));
   }
-  expect(dates.length).toBeGreaterThan(0);
-  for (const boundary of boundaries) expect(Math.min(...dates)).toBeGreaterThanOrEqual(boundary);
-  expect(Math.min(...dates)).toBe(Math.max(...boundaries));
-  expect(Math.max(...dates) - Math.min(...dates)).toBeLessThanOrEqual(120_000);
-  expect(dates.every(date => date % 1000 === 0)).toBe(true);
+});
+
+test('numbered events and their dependent examples retain the frozen two-minute window', () => {
+  const numbered = join(templates, 'example-numbered');
+  const dates = ['example-project.json', 'derived', 'evidence', 'inputs', 'outputs']
+    .flatMap(name => exampleDates(join(numbered, name)));
+  const anchor = Date.parse('2026-11-27T00:00:00Z');
+  expectTwoMinuteWindow(dates, anchor);
+  for (const name of ['example-interview-options', 'example-interview-choice.json', 'example-invariants']) {
+    const dependentDates = exampleDates(join(templates, name));
+    expect(dependentDates.length).toBeGreaterThan(0);
+    dates.push(...dependentDates);
+  }
+  expectTwoMinuteWindow(dates, anchor);
+});
+
+test('the numbered fixture CLI verifies the file hash and reader baselines', () => {
+  const root = tempDir();
+  const result = run([process.execPath, join(import.meta.dir, '../scripts/check-example-numbered.ts'),
+    join(root, 'numbered'), '--check'], root, process.env as Record<string, string>);
+  expect(result.stderr).toBe('');
+  expect(result.code).toBe(0);
+  expect(result.stdout.trim().split('\n')).toHaveLength(8);
+  expect(result.stdout).toContain('numbered example: 216 file hashes and 7 reader results match');
+}, 30_000);
+
+test('the default materialized example has current outputs and passes at zero refusals and warnings', () => {
+  const dir = materializeFixture(join(tempDir(), 'current'));
+  const project = JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')) as JsonObject;
+  expect(project.stage).toBe('accepted');
+  expect(project.versions).toEqual([]);
+  expect(Object.keys(obj(project.current)).sort()).toEqual(['direction', 'motion', 'parts', 'rig']);
+  const report = checkProject(dir);
+  expect(report.refusals).toEqual([]);
+  expect(report.warnings).toEqual([]);
 });
 
 test('the signed example still checks with a historical reopen and its retained approvals', () => {
-  const dir = fixture(() => {}, 'example-project.json');
+  const dir = fixture(() => {}, 'example-numbered/example-project.json');
   const before = JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')) as JsonObject;
   writeFileSync(join(dir, 'words.txt'), 'Reopen the synthetic parts for correction.');
   plantLegacyReopen(dir, 'parts-review', { by: 'reviewer', wordsFile: join(dir, 'words.txt') });
@@ -44,8 +82,8 @@ test('the signed example still checks with a historical reopen and its retained 
 });
 
 test('the signed example draft resolves as a parts-review correction identity', () => {
-  const dir = fixture(() => {}, 'example-project.json');
-  const project = readTemplate('example-project.json');
+  const dir = fixture(() => {}, 'example-numbered/example-project.json');
+  const project = readTemplate('example-numbered/example-project.json');
   const draft = (project.drafts as JsonObject[])[0]!;
   const parts = draft.parts as JsonObject;
   const files = [...parts.files as JsonObject[]].sort((a, b) => String(a.path) < String(b.path) ? -1 : 1);
@@ -59,13 +97,13 @@ test('the signed example draft resolves as a parts-review correction identity', 
 });
 
 test('the shipped new-order example passes at zero refusals and warnings', () => {
-  const report = checkProject(fixture(() => {}, 'example-project.json'));
+  const report = checkProject(fixture(() => {}, 'example-numbered/example-project.json'));
   expect(report.refusals).toEqual([]);
   expect(report.warnings).toEqual([]);
 });
 
 test('a clean older record with no declaration still passes the check', () => {
-  const dir = fixture(project => { delete project.owner; }, 'example-project.json');
+  const dir = fixture(project => { delete project.owner; }, 'example-numbered/example-project.json');
   const report = checkProject(dir);
   expect(report.ok).toBe(true);
   expect(report.refusals).toEqual([]);
@@ -83,7 +121,7 @@ test('frozen pre-split example is refused by build-identity and missing review t
 
 
 test('a cloned new-order example keeps its retained structure while ignored artifacts warn', () => {
-  const dir = fixture(() => {}, 'example-project.json');
+  const dir = fixture(() => {}, 'example-numbered/example-project.json');
   rmSync(join(dir, 'derived'), { recursive: true });
   const report = checkProject(dir);
   expect(report.refusals.map(f => f.code)).toEqual(['SCENE_MODEL_MISMATCH', 'SCENE_MODEL_MISMATCH']);

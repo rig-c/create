@@ -10,7 +10,7 @@ import { checkProject, correctionCommand, checkCorrections, directionCommand, te
 afterEach(() => testClock.reset());
 function setup(at = '2026-11-06T10:00:00Z') {
   const dir = tempDir();
-  cpSync(join(import.meta.dir, '../templates/example-direction'), dir, { recursive: true });
+  cpSync(join(import.meta.dir, '../templates/example-numbered/example-direction'), dir, { recursive: true });
   testClock.set(new Date(at));
   const load = (): JsonObject => JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8'));
   return { dir, load };

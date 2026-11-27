@@ -98,7 +98,7 @@ function producerOut(dir: string, at = NEXT): void {
 }
 
 function project({ withLedger = true } = {}): string {
-  const dir = fixture(() => {}, 'example-project.json');
+  const dir = fixture(() => {}, 'example-numbered/example-project.json');
   if (!withLedger) {
     const reasonFile = join(tempDir(), 'retire-t1.txt');
     writeFileSync(reasonFile, 'This fixture exercises recording after the fix has been retired.\n');
@@ -159,7 +159,7 @@ test('record parts writes current.parts with the §1.3 shape and renames the pro
 test('the signed example with live row T1 refuses a missing ledger report without changing either parts tree or the record', () => {
   const dir = project();
   const file = join(dir, 'project.json');
-  cpSync(join(TEMPLATES_DIR, 'example-project.json'), file);
+  cpSync(join(TEMPLATES_DIR, 'example-numbered/example-project.json'), file);
   producerOut(dir, 'outputs/parts');
   write(dir, 'outputs/parts/previous.txt', 'previous output');
   const original = readFileSync(file);

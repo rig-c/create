@@ -517,7 +517,7 @@ test('direction@3 retains a bounced post citation when the owner re-answers comp
   const { checkProject, signoffCommand, inputCommand, advanceCommand, planCommand, interviewAnswerCommand,
     interviewCommand, interviewOptionsCommand, assertDirectionApproval, stepStatusCommand } = await import('./clock.ts');
   const f = fixture();
-  const dir = filled(() => {}, 'example-project.json'); roots.push(dir);
+  const dir = filled(() => {}, 'example-numbered/example-project.json'); roots.push(dir);
   testClock.set(EXAMPLE_NOW);
   writeFileSync(join(dir, 'words.txt'), 'Revise the synthetic composed take.');
   plantLegacyReopen(dir, 'post-interview', { by: 'user', wordsFile: join(dir, 'words.txt') });

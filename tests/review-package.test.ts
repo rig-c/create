@@ -10,7 +10,6 @@ import { checkReviewPackages, reviewPackageCommand, reviewConfigInputs, reviewHa
 import { plateReceiptSpec } from '../src/config-inputs.ts';
 import { PINNED_PACKAGES } from '../src/pins.ts';
 import { readTemplate, type JsonObject } from '../src/templates.ts';
-import { generateExampleReview } from '../scripts/generate-example-review.ts';
 import { fixture as exampleFixture, obj, version } from './fixtures.ts';
 import { reviewExampleFiles } from './review-fixture.ts';
 import { clockedCli, run } from './helpers.ts';
@@ -51,7 +50,7 @@ function checked(dir: string) {
 
 describe('frozen review package', () => {
   test('#981 a selected package is checked without reading the Parts approval', () => {
-    const dir = exampleFixture(() => {}, 'example-project.json');
+    const dir = exampleFixture(() => {}, 'example-numbered/example-project.json');
     roots.push(dirname(dir));
     const project = JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')) as JsonObject;
     const history = version(project, 1);
@@ -137,7 +136,7 @@ describe('frozen review package', () => {
   });
   for (const [field, code] of [['config', 'REVIEW_PACKAGE_CONFIG_MISMATCH']] as const) {
     test(`names a planted ${field} build mismatch in an otherwise passing signed example`, () => {
-      const dir = exampleFixture(() => {}, 'example-project.json');
+      const dir = exampleFixture(() => {}, 'example-numbered/example-project.json');
       roots.push(dirname(dir));
       expect(checkProject(dir).refusals).toEqual([]);
       const project = JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')) as JsonObject;
@@ -151,7 +150,7 @@ describe('frozen review package', () => {
     });
   }
   test('file drift does not conceal disagreement between recorded config identities', () => {
-    const dir = exampleFixture(() => {}, 'example-project.json');
+    const dir = exampleFixture(() => {}, 'example-numbered/example-project.json');
     roots.push(dirname(dir));
     const project = JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')) as JsonObject;
     const config = obj(obj(version(project, 1).provenance).config);
@@ -173,7 +172,7 @@ describe('frozen review package', () => {
     expect(result.warnings.map(f => f.code)).toEqual(['REVIEW_PACKAGE_CONFIG_MISMATCH', 'REVIEW_PACKAGE_CONFIG_MISMATCH']);
   });
   test('the public package writer refuses a different config before publishing or recording', () => {
-    const dir = exampleFixture(() => {}, 'example-project.json');
+    const dir = exampleFixture(() => {}, 'example-numbered/example-project.json');
     roots.push(dirname(dir));
     put(dir, 'evidence/another-config.json', '{}');
     const before = readFileSync(join(dir, 'project.json'));
@@ -193,17 +192,32 @@ describe('frozen review package', () => {
     expect((record.files as JsonObject[]).find(f => f.path === 'interview-requirements.json')?.sha256).toBe(sha('{"requirements":[]}\n'));
     expect(checked(dir).refusals).toEqual([]);
   });
-  test('the shipped example regenerates identical records and package bytes in two fresh projects', () => {
+  test('the package writer reproduces the raw legacy records and bytes in two fresh projects', () => {
     const root = mkdtempSync(join(tmpdir(), 'example-review-'));
     roots.push(root);
     const first = join(root, 'first');
     const second = join(root, 'second');
-    const records = generateExampleReview(first);
-    expect(generateExampleReview(second)).toEqual(records);
+    const files = reviewExampleFiles();
     const example = readTemplate('legacy-example-project.json');
-    for (const n of [1, 2]) expect(records[n - 1]).toEqual(obj(version(example, n).review_package));
+    for (const dir of [first, second]) {
+      const project = structuredClone(example);
+      project.signoffs = [];
+      for (const [path, bytes] of Object.entries(files)) {
+        if (!path.startsWith('derived/review/')) put(dir, path, bytes);
+      }
+      for (const n of [1, 2]) {
+        const config = `evidence/v${n}/review-config.json`;
+        obj(version(project, n).provenance).config = { path: config, sha256: sha(files[config]!) };
+      }
+      put(dir, 'project.json', `${JSON.stringify(project, null, 2)}\n`);
+      for (const n of [1, 2]) {
+        const written = reviewPackageCommand([String(n), dir, '--config', `evidence/v${n}/review-config.json`, '--from', `outputs/v${n}/out`, '--json']);
+        expect(written.exit).toBe(0);
+        expect(JSON.parse(written.stdout)).toEqual(obj(version(example, n).review_package));
+      }
+    }
     expect(readFileSync(join(first, 'project.json'), 'utf8')).toBe(readFileSync(join(second, 'project.json'), 'utf8'));
-    for (const [path, bytes] of Object.entries(reviewExampleFiles())) {
+    for (const [path, bytes] of Object.entries(files)) {
       expect(readFileSync(join(first, path), 'utf8')).toBe(bytes);
       expect(readFileSync(join(second, path), 'utf8')).toBe(bytes);
     }

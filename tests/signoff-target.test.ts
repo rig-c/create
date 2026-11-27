@@ -268,7 +268,7 @@ test('candidate refusal names every version without a recency preference', () =>
 });
 
 test.each(['parts-review','rig-review','direction-review'])('owner chat signs only after the current accepted live verdict: %s', stage => {
-  const dir=stage==='parts-review'?fixture(p=>{p.drafts=arr(p.drafts).filter(d=>obj(d).id==='example');},'example-project.json'):setup(stage);
+  const dir=stage==='parts-review'?fixture(p=>{p.drafts=arr(p.drafts).filter(d=>obj(d).id==='example');},'example-numbered/example-project.json'):setup(stage);
   if(stage==='parts-review'){writeFileSync(join(dir,'words.txt'),'Approve this reviewed version.\n');testClock.set(new Date(withdrawSignature(dir,stage)));}
   const p=load(dir);const draft='example';
   if(stage==='direction-review'){

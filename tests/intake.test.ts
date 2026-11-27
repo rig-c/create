@@ -18,7 +18,7 @@ afterEach(()=>testClock.reset());
 function outcome(action:()=>unknown):string { try {action();return 'OK';}catch(e){if(e instanceof Refusal)return e.code;throw e;} }
 function setup(hit=true) {
   testClock.set(TEST_NOW);
-  const dir=fixture(p=>{p.stage='parts';},'example-project.json');
+  const dir=fixture(p=>{p.stage='parts';},'example-numbered/example-project.json');
   const report=JSON.parse(raw.toString()) as JsonObject;
   if(!hit)obj(obj(arr(report.layers)[0]).sides).left_px=0;
   const bytes=hit?raw:Buffer.from(JSON.stringify(report)+'\n');

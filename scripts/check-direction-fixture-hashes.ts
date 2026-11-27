@@ -54,4 +54,4 @@ export function checkDirectionFixtureHashes(root: string): number {
   if (!count) throw Error('no recorded hashes');
   return count;
 }
-if (import.meta.main) console.log(`${checkDirectionFixtureHashes(resolve(process.argv[2] ?? join(import.meta.dir, '../templates/example-direction')))} recorded hashes match`);
+if (import.meta.main) console.log(`${checkDirectionFixtureHashes(resolve(process.argv[2] ?? join(import.meta.dir, '../templates/example-numbered/example-direction')))} recorded hashes match`);

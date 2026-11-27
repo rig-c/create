@@ -33,7 +33,7 @@ function expected(item: Item, stage: string): string {
 
 test.each(['interview', 'plan-approved', 'rigging-interview', 'post-interview'])('%s writer binds independently computed answer envelopes', stage => {
   testClock.set(EXAMPLE_NOW);
-  const dir = fixture(() => {}, 'example-project.json');
+  const dir = fixture(() => {}, 'example-numbered/example-project.json');
   const before = load(dir);
   signoffCommand([stage, dir, '--by', 'user', '--verbatim-file', words(dir)]);
   const p = load(dir), signed = obj(arr(p.signoffs).at(-1));
@@ -48,7 +48,7 @@ test.each(['interview', 'plan-approved', 'rigging-interview', 'post-interview'])
 });
 
 test('writer refuses unanswered basis by code and leaves project bytes identical', () => {
-  const dir = fixture(() => {}, 'example-project.json'), p = load(dir);
+  const dir = fixture(() => {}, 'example-numbered/example-project.json'), p = load(dir);
   waypoint(p, 'assemble').guide = null; save(dir, p);
   const before = readFileSync(join(dir, 'project.json'));
   let failure: unknown;
@@ -60,7 +60,7 @@ test('writer refuses unanswered basis by code and leaves project bytes identical
 });
 
 test.each(['answer', 'removed', 'incomplete'])('reader refuses %s with distinct plants', plant => {
-  const dir = fixture(() => {}, 'example-project.json'), p = load(dir);
+  const dir = fixture(() => {}, 'example-numbered/example-project.json'), p = load(dir);
   const signed = arr(p.signoffs).map(obj).find(s => s.stage === 'plan-approved')!;
   const before = stepHash(step(p, 'assemble'));
   if (plant === 'answer') obj(waypoint(p, 'assemble').guide).verbatim = 'DISTINCT changed assembly answer';
@@ -73,7 +73,7 @@ test.each(['answer', 'removed', 'incomplete'])('reader refuses %s with distinct 
 });
 
 test.each([['2026-11-05T23:59:59.999Z', true], [SIGNOFF_ANSWERS_SINCE, false]] as const)('missing map exact boundary %s', (at, legacy) => {
-  const dir = fixture(() => {}, 'example-project.json'), p = load(dir);
+  const dir = fixture(() => {}, 'example-numbered/example-project.json'), p = load(dir);
   p.signoffs = [{ stage: 'interview', by: 'user', at, verbatim: 'Synthetic approval.' }];
   const r = checkProject(dir, p);
   expect((legacy ? r.warnings : r.refusals).filter(f => f.code.startsWith('SIGNOFF_ANSWERS_')).map(f => f.code)).toEqual([legacy ? 'SIGNOFF_ANSWERS_MISSING_LEGACY' : 'SIGNOFF_ANSWERS_MISSING']);
@@ -81,7 +81,7 @@ test.each([['2026-11-05T23:59:59.999Z', true], [SIGNOFF_ANSWERS_SINCE, false]] a
 });
 
 test('question metadata, history and excluded answer fields do not stale approvals', () => {
-  const dir = fixture(() => {}, 'example-project.json'), p = load(dir), item = waypoint(p, 'assemble');
+  const dir = fixture(() => {}, 'example-numbered/example-project.json'), p = load(dir), item = waypoint(p, 'assemble');
   for (const key of ['history', 'prompts', 'text', 'config', 'source', 'required_for']) {
     item[key] = ['DISTINCT question metadata']; obj(item.guide)[key] = ['DISTINCT answer metadata'];
   }
@@ -89,7 +89,7 @@ test('question metadata, history and excluded answer fields do not stale approva
 });
 
 test('later first answers are not missing from the earlier interview', () => {
-  const dir = fixture(() => {}, 'example-project.json');
+  const dir = fixture(() => {}, 'example-numbered/example-project.json');
   expect(findings(dir)).toEqual([]);
   const p = load(dir);
   obj(p.interview).framing = [...arr(obj(p.interview).framing), { id: 'later', answer: { delegated: false, value: 'later', verbatim: 'Later answer.', at: '2026-11-20T00:00:00Z' } }];
@@ -97,7 +97,7 @@ test('later first answers are not missing from the earlier interview', () => {
 });
 
 test('lapsed approvals never report changed answer bindings', () => {
-  const dir = fixture(() => {}, 'example-project.json');
+  const dir = fixture(() => {}, 'example-numbered/example-project.json');
   testClock.set(EXAMPLE_NOW);
   plantLegacyReopen(dir, 'interview', { by: 'user', wordsFile: words(dir) });
   const p = load(dir); obj(waypoint(p, 'assemble').guide).verbatim = 'DISTINCT lapsed answer';
@@ -110,7 +110,7 @@ test('inheritance binds both resolved content and reference identity', () => {
   const dir = materializeFixture(join(root, 'members', 'member'), p => {
     answer = structuredClone(waypoint(p, 'bones').guide as Json);
     waypoint(p, 'bones').guide = { basis: 'inherited', from: { collection: 'group', question: 'bones' }, by: 'user', at: '2026-11-01T00:00:00Z' };
-  }, 'example-project.json');
+  }, 'example-numbered/example-project.json');
   const collection: JsonObject = { name: 'group', interview: { waypoints: [{ id: 'bones', guide: answer }] } };
   writeFileSync(join(root, 'collection.json'), JSON.stringify(collection));
   resignAfterChange(dir, new Date(TEST_NOW).toISOString());
@@ -133,7 +133,7 @@ test('inheritance binds both resolved content and reference identity', () => {
 });
 
 test('interview excludes later decisions while plan bindings include their full revision', () => {
-  const dir = fixture(() => {}, 'example-project.json'), p = load(dir);
+  const dir = fixture(() => {}, 'example-numbered/example-project.json'), p = load(dir);
   const item = collectItems(p, { collection: null }).find(i => i.id === 'bones')!;
   item.record.guide = { delegated: true, by: 'user', at: SIGNOFF_ANSWERS_SINCE, verbatim: 'Agent chooses later.' };
   const before = collectItems(p, { collection: null }).find(i => i.id === 'bones')!;
@@ -159,7 +159,7 @@ test('empty imported interview has an honestly complete empty binding', () => {
 
 
 test('amendment liveness suppresses stale downstream bindings and keeps no approvals by binding', () => {
-  const dir = fixture(() => {}, 'example-project.json');
+  const dir = fixture(() => {}, 'example-numbered/example-project.json');
   testClock.set(EXAMPLE_NOW);
   writeFileSync(join(dir, 'replacement.json'), '{"synthetic":"DISTINCT amendment"}');
   amendCommand(['rigging-interview', dir, '--kind', 'interview-answer', '--target', 'bones', '--change', 'replacement.json', '--by', 'user', '--verbatim-file', words(dir)]);
@@ -170,7 +170,7 @@ test('amendment liveness suppresses stale downstream bindings and keeps no appro
 });
 
 test('recorded decision drift stales plan approval but leaves interview approval valid', () => {
-  const dir = fixture(() => {}, 'example-project.json'), p = load(dir);
+  const dir = fixture(() => {}, 'example-numbered/example-project.json'), p = load(dir);
   obj(obj(waypoint(p, 'seethrough').guide).agent_decision).reasoning = 'DISTINCT revised decision reasoning';
   const fs = findings(dir, p);
   expect(fs.map(f => f.code)).toEqual(['SIGNOFF_ANSWERS_STALE']);

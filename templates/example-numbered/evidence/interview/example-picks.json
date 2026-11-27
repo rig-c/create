@@ -1,0 +1,15 @@
+{
+  "schema": "rig-review/interview-picks@1",
+  "set": {
+    "path": "evidence/interview/example-reference.json",
+    "sha256": "600ab30b9b25fbaea7a01dafdfaecae7e4c3c5f3668d09960eeaaa90e37bdca5"
+  },
+  "picks": [
+    {
+      "ask": "reference",
+      "option_id": "keep"
+    }
+  ],
+  "by": "user",
+  "at": "2026-11-27T00:00:04.000Z"
+}

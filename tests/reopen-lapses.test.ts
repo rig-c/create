@@ -37,11 +37,11 @@ test('a writer-built project reopened to parts past rig-review and post-intervie
 });
 
 test('an unreopened project lists no lapsed approvals', () => {
-  for (const dir of [fixture(() => {}, 'example-project.json'), fixture()]) expect(lapses(dir)).toEqual([]);
+  for (const dir of [fixture(() => {}, 'example-numbered/example-project.json'), fixture()]) expect(lapses(dir)).toEqual([]);
 });
 
 test('a re-signed approval leaves the list; the rest stay until restored', () => {
-  const dir = fixture(() => {}, 'example-project.json');
+  const dir = fixture(() => {}, 'example-numbered/example-project.json');
   testClock.set(TEST_NOW);
   reopen(dir, 'post-interview');
   expect(lapses(dir)).toEqual([

@@ -259,5 +259,10 @@
     "file": "tests/motion-seam-source.test.ts",
     "name": "#1073 records real Core loop seam evidence and refuses wrong endpoint identities and hashes",
     "reason": "Requires the sibling Core render loop seam bar and cap flags."
+  },
+  {
+    "file": "tests/job-open-current.test.ts",
+    "name": "#1089 job open --current direction publishes example-current direction@4 without scene, Review accepts it, and act@10 comments bind commit",
+    "reason": "Exercises live Review current direction@4 publication (review#1280) and act@10 comment ingestion against the pinned Review source"
   }
 ]

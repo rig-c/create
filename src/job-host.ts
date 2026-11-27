@@ -6,7 +6,7 @@ import { asArray, checkProject, collectItems, loadCollection, isObject, type Fin
 import { baselineOf, newFindings } from './refusal-baseline.ts';
 import { assembleOnlyDraftTarget, assembleOnlyVersionFinding, assertDraftHasRig, readAssembleOnlyDraftTarget } from './draft-layout.ts';
 import { Refusal, refuse, USAGE_EXIT } from './refusal.ts';
-import { assertSupportedCurrentPublicationOutput, CURRENT_LIVE_MANIFEST, liveManifestPath, livePublicationSubjects, draftPackageIdentity, draftPublishedContext, eligibleRigDraftModel, inspectCurrentPublication, inspectDraftPublication, currentJobIdentity, optionPublicationRemedy, optionPublicationStage, partsEnumerator, prepareCurrentManifest, prepareDraftManifest, prepareLiveManifest, publicationFile, publicationSelector, publishedDraft, publishedSourcePainting, readPublished, readRecordPublished, recordOptionSets, riggingDraftPartsChange, type RecordPublicationResult } from './job-publication.ts';
+import { CURRENT_LIVE_MANIFEST, liveManifestPath, livePublicationSubjects, draftPackageIdentity, draftPublishedContext, eligibleRigDraftModel, inspectCurrentPublication, inspectDraftPublication, currentJobIdentity, optionPublicationRemedy, optionPublicationStage, partsEnumerator, prepareCurrentManifest, prepareDraftManifest, prepareLiveManifest, publicationFile, publicationSelector, publishedDraft, publishedSourcePainting, readPublished, readRecordPublished, recordOptionSets, riggingDraftPartsChange, type RecordPublicationResult } from './job-publication.ts';
 import { acknowledgePublication, acquireJobLock, assertJobIdentity, CURRENT_PUBLICATION_OUTPUTS, enqueuePublication, ensureJobPrivateIgnores, failPublication, JOB_BINDING_FILE, jobHash, jobHostStateRoot, pendingPublications, privateDirectory, publicationVersionHash, readAcknowledgedPublication, readWriterBinding, reconcilePublication, refuseJobIdentityMismatch, writePrivateJson, isRecordResult, type CreateJobSelector, type CurrentPublicationOutput, type CurrentPublicationSelector, type NumberedPublicationSelector, type PublicationResult, type JobIdentity, type PendingPublication, type WriterBinding, type PublicationSubject } from './job-outbox.ts';
 import { commitCurrentPublication } from './project-step-commit.ts';
 import { draftPublicationResult } from './job-writer.ts';
@@ -651,7 +651,6 @@ export function assertRequestedCurrent(
     refuse('JOB_BINDING_INVALID', 'project.json: job open --current expects parts, rig or direction', USAGE_EXIT);
   }
   const output = requested as CurrentPublicationOutput;
-  assertSupportedCurrentPublicationOutput(output);
   root = realpathSync(root);
   const bytes = readFileSync(join(root, 'project.json'));
   const project = JSON.parse(bytes.toString('utf8')) as JsonObject;
@@ -893,7 +892,6 @@ export async function openCurrentPublication(
   now: number,
 ): Promise<string[]> {
   root = realpathSync(root);
-  assertSupportedCurrentPublicationOutput(output);
   const release = acquireJobLock(root)!;
   let outcomes: AskOutcome[] = [];
   let publicationId: string;

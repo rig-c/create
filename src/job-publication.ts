@@ -35,7 +35,7 @@ import { isAssembleOnlyDraft } from './draft-layout.ts';
 import { hasCurrentParts, latestPartsApproval, previousPartsApproval, retainedJson } from './structure.ts';
 import { partsStructureSnapshot, shellWord } from './job-acts.ts';
 import { jobHash, pendingPublications, isRecordResult, type CurrentPublicationOutput, type CurrentPublicationSelector, type JobIdentity, type NumberedPublicationSelector, type PackagePublicationResult, type PendingPublication } from './job-outbox.ts';
-import { CURRENT_DIRECTION_PATH } from './current-direction.ts';
+import { CURRENT_DIRECTION_PATH, CURRENT_DIRECTION_SPEC } from './current-direction.ts';
 import { CURRENT_RIG_MODEL, currentShapeFindings, isCurrentProject } from './current.ts';
 import { resolvePublishedRecordCommit } from './project-step-commit.ts';
 import { decodeReviewAct, PLAN_BOUND_SIGNOFF_STAGES, retainedActBy, reviewActVerdict } from './review-act.ts';
@@ -48,16 +48,6 @@ export const JOB_BINDING_ID = 'rig-create/writer-binding/1';
 export const JOB_ENUMERATOR_ID = 'rig-create/parts-file-references/1';
 export const partsEnumerator = { version: partsPackage.version, enumerate: partsFileReferences };
 export const CURRENT_LIVE_MANIFEST = 'review-live.json';
-export const SUPPORTED_CURRENT_PUBLICATION_OUTPUTS: ReadonlySet<CurrentPublicationOutput> = new Set(['parts', 'rig']);
-
-export function assertSupportedCurrentPublicationOutput(output: CurrentPublicationOutput): void {
-  if (!SUPPORTED_CURRENT_PUBLICATION_OUTPUTS.has(output)) {
-    refuse(
-      'JOB_CURRENT_OUTPUT_UNSUPPORTED',
-      `project.json.current.${output}: Review does not yet inspect rig-create/direction@4 (rig-c/review#1280); publish --current parts or --current rig until Review supports current ${output} specs`,
-    );
-  }
-}
 
 const DRAFT_PACKAGE_ID_PREFIX = 'create-draft-';
 const RIGGING_DRAFT_PACKAGE_ID_PREFIX = 'create-rigging-draft-';
@@ -846,7 +836,6 @@ export function inspectCurrentPublication(
   recordHash: string,
   warnings: Finding[] = [],
 ): CurrentPublicationInspection {
-  assertSupportedCurrentPublicationOutput(output);
   root = realpathSync(root);
   const label = `current.${output}`;
   const node = isObject(project.current) ? project.current[output] : undefined;
@@ -954,6 +943,23 @@ export function inspectCurrentPublication(
       refuse('JOB_PUBLICATION_INVALID', `project.json.${label}: ${CURRENT_DIRECTION_PATH} binding is missing from ${label}.built_from; rerun rig-create record direction`);
     }
     addSeal(CURRENT_DIRECTION_PATH, builtFrom.sha256);
+    const directionBuf = publicationFile(root, CURRENT_DIRECTION_PATH);
+    if (directionBuf.length > 256 * 1024) {
+      refuse('JOB_PUBLICATION_INVALID', `project.json.${label}: ${CURRENT_DIRECTION_PATH} exceeds the 256 KiB publication limit; rerun rig-create direction write and record direction`);
+    }
+    let directionDoc: unknown;
+    try { directionDoc = JSON.parse(directionBuf.toString('utf8')); }
+    catch { directionDoc = undefined; }
+    const take = isObject(directionDoc as Json) ? (directionDoc as JsonObject).take : undefined;
+    if (!isObject(directionDoc as Json)
+      || (directionDoc as JsonObject).schema !== CURRENT_DIRECTION_SPEC
+      || !isObject(take)
+      || typeof take.duration !== 'number'
+      || !Number.isFinite(take.duration)
+      || take.duration <= 0
+      || typeof take.loop !== 'boolean') {
+      refuse('JOB_PUBLICATION_INVALID', `project.json.${label}: ${CURRENT_DIRECTION_PATH} must be a ${CURRENT_DIRECTION_SPEC} spec with take.duration > 0 and boolean take.loop; rerun rig-create direction write and record direction`);
+    }
     directionField = { direction: CURRENT_DIRECTION_PATH };
   }
   const manifest = {

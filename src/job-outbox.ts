@@ -277,9 +277,20 @@ export function publicationVersionHash(bytes: Buffer, result: PublicationResult)
   const selector = result.selector;
   if (!selector) refuse('JOB_PUBLICATION_INVALID', 'project.json: publication requires a result selector; restore the writer result');
   if (selector.kind === 'current') {
-    const project = JSON.parse(bytes.toString('utf8')) as { current?: Record<string, { files?: unknown }> };
+    const project = JSON.parse(bytes.toString('utf8')) as {
+      current?: Record<string, { files?: unknown; built_from?: unknown }>;
+    };
     const node = project.current?.[selector.output];
     if (!node || typeof node !== 'object' || !Array.isArray(node.files) || node.files.length === 0) return null;
+    if (selector.output === 'direction') {
+      const directionSpec = Array.isArray(node.built_from)
+        ? node.built_from.find(
+            (entry): entry is { path: string; sha256?: unknown } =>
+              entry !== null && typeof entry === 'object' && (entry as { path?: unknown }).path === 'specs/direction/direction.json',
+          )
+        : undefined;
+      return jobHash(JSON.stringify([selector.output, node.files, directionSpec ?? null]));
+    }
     return jobHash(JSON.stringify([selector.output, node.files]));
   }
   if (selector.kind === 'draft') {

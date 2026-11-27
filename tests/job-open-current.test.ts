@@ -32,6 +32,7 @@ import {
   CURRENT_LIVE_MANIFEST,
   currentJobIdentity,
   prepareCurrentManifest,
+  prepareLiveManifest,
   readPublished,
 } from '../src/job-publication.ts';
 import { jobRuntimeExecArgv } from '../src/job-writer.ts';
@@ -40,7 +41,6 @@ import { commitCurrentPublication } from '../src/project-step-commit.ts';
 import { Refusal } from '../src/refusal.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { run, treeDigest } from './helpers.ts';
-import { sourceOnlyTest } from './source-only.ts';
 import { EXAMPLE_NOW } from '../scripts/example-time.ts';
 
 const CLI = join(import.meta.dir, '../src/cli.ts');
@@ -232,7 +232,7 @@ async function openOwnerPage(root: string, url: URL) {
   };
 }
 
-test('CLI validates --current options and refuses --current direction with JOB_CURRENT_OUTPUT_UNSUPPORTED before writes or host startup', async () => {
+test('CLI validates --current options before writes or host startup', () => {
   const root = cloneExampleCurrent();
   const before = treeDigest(root);
 
@@ -240,15 +240,6 @@ test('CLI validates --current options and refuses --current direction with JOB_C
   expect(main(['job', 'open', root, '--reviewer', 'owner', '--role', 'owner', '--current', 'rig', '--rig', '1'], NOW)).toBe(2);
   expect(main(['job', 'open', root, '--reviewer', 'owner', '--role', 'owner', '--current', 'rig', '--plan'], NOW)).toBe(2);
   expect(main(['job', 'open', root, '--reviewer', 'owner', '--role', 'owner', '--current', 'motion'], NOW)).toBe(2);
-  expect(treeDigest(root)).toEqual(before);
-
-  const unsupported = await runCli(root, [
-    'job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner', '--current', 'direction',
-  ]);
-  expect(unsupported.exit).toBe(1);
-  expect(unsupported.stdout).toBe('');
-  expect(unsupported.stderr).toStartWith('JOB_CURRENT_OUTPUT_UNSUPPORTED: ');
-  expect(unsupported.stderr).toContain('rig-c/review#1280');
   expect(treeDigest(root)).toEqual(before);
   expect(existsSync(join(root, CURRENT_LIVE_MANIFEST))).toBe(false);
   expect(readWriterBinding(root)).toBeNull();
@@ -295,6 +286,27 @@ test('job open --current refuses missing, malformed, or drifted current outputs 
   expect(malformedResult.stderr).toStartWith('CURRENT_MALFORMED: current.rig.files_sha256:');
   expect(treeDigest(malformedRoot)).toEqual(beforeMalformed);
   expect(existsSync(jobHostStateRoot(malformedRoot))).toBe(false);
+
+  const badDirectionRoot = cloneExampleCurrent();
+  const badDirectionBytes = Buffer.from(`${JSON.stringify({ schema: 'rig-create/direction@3', take: { duration: 4, loop: true } }, null, 2)}\n`);
+  writeFileSync(join(badDirectionRoot, 'specs/direction/direction.json'), badDirectionBytes);
+  const badDirectionProject = JSON.parse(readFileSync(join(badDirectionRoot, 'project.json'), 'utf8')) as JsonObject;
+  const badDirNode = (badDirectionProject.current as JsonObject).direction as JsonObject;
+  badDirNode.built_from = asArray(badDirNode.built_from).filter(isObject).map(entry =>
+    entry.path === 'specs/direction/direction.json'
+      ? { path: 'specs/direction/direction.json', sha256: jobHash(badDirectionBytes) }
+      : entry,
+  );
+  writeFileSync(join(badDirectionRoot, 'project.json'), `${JSON.stringify(badDirectionProject, null, 2)}\n`);
+  const beforeBadDirection = treeDigest(badDirectionRoot);
+
+  const badDirectionResult = await runCli(badDirectionRoot, [
+    'job', 'open', badDirectionRoot, '--reviewer', 'synthetic-owner', '--role', 'owner', '--current', 'direction',
+  ]);
+  expect(badDirectionResult.exit).toBe(1);
+  expect(badDirectionResult.stderr).toStartWith('JOB_PUBLICATION_INVALID: project.json.current.direction:');
+  expect(treeDigest(badDirectionRoot)).toEqual(beforeBadDirection);
+  expect(existsSync(jobHostStateRoot(badDirectionRoot))).toBe(false);
 });
 
 test('prepareCurrentManifest, readPublished, commitCurrentPublication, and publicationVersionHash obey the current contract', async () => {
@@ -386,6 +398,58 @@ test('prepareCurrentManifest, readPublished, commitCurrentPublication, and publi
   const editedProject = { ...project, title: 'Edited title without touching rig files' };
   const editedBytes = Buffer.from(`${JSON.stringify(editedProject, null, 2)}\n`);
   expect(publicationVersionHash(editedBytes, { path: CURRENT_LIVE_MANIFEST, selector: rigSelector })).toBe(beforeVersionHash);
+
+  // 2b. Direction manifest + context + no scene + versionHash tracks specs/direction/direction.json.
+  const directionPrepared = prepareCurrentManifest(gitRoot, project, 'direction', recordHash);
+  expect(directionPrepared.closurePaths).toContain('specs/direction/direction.json');
+  const directionCommit = commitCurrentPublication(gitRoot, 'direction', recordHash, directionPrepared.closurePaths);
+  expect(directionCommit.warning).toBeUndefined();
+  expect(directionCommit.commit).toMatch(/^[a-f0-9]{40}$/);
+
+  const directionManifest = JSON.parse(readFileSync(join(gitRoot, CURRENT_LIVE_MANIFEST), 'utf8')) as JsonObject;
+  expect(directionManifest).toMatchObject({
+    schema: 'rig-review/1',
+    id: 'create',
+    revision: recordHash.slice(0, 12),
+    title: 'current direction',
+    model: 'outputs/direction/check/build/skeleton.model.json',
+    direction: 'specs/direction/direction.json',
+    animations: [],
+    checkpoints: [],
+    authoring: [],
+  });
+  expect(Object.hasOwn(directionManifest, 'scene')).toBe(false);
+
+  const directionSelector = { kind: 'current' as const, output: 'direction' as const, record: recordHash };
+  const directionContext = await readPublished({
+    root: gitRoot,
+    record: { path: 'project.json', sha256: recordHash },
+    result: { path: CURRENT_LIVE_MANIFEST, selector: directionSelector as never },
+  });
+  expect(directionContext).toMatchObject({
+    selector: directionSelector,
+    plan: null,
+    parts: null,
+    subjects: [],
+    partIds: [],
+    commit: directionCommit.commit,
+  });
+  expect(directionContext.files).toContainEqual({
+    path: 'specs/direction/direction.json',
+    sha256: jobHash(readFileSync(join(gitRoot, 'specs/direction/direction.json'))),
+  });
+  for (const forbidden of ['previousDraft', 'previousBuild', 'answeredDirectionFeedback', 'chestLandmarks', 'checkpointEvidence']) {
+    expect(Object.hasOwn(directionContext, forbidden)).toBe(false);
+  }
+  const beforeDirectionVersionHash = publicationVersionHash(recordBytes, { path: CURRENT_LIVE_MANIFEST, selector: directionSelector });
+  expect(publicationVersionHash(editedBytes, { path: CURRENT_LIVE_MANIFEST, selector: directionSelector })).toBe(beforeDirectionVersionHash);
+  const specEditedProject = structuredClone(project);
+  const specDirNode = (specEditedProject.current as JsonObject).direction as JsonObject;
+  specDirNode.built_from = asArray(specDirNode.built_from).filter(isObject).map(entry =>
+    entry.path === 'specs/direction/direction.json' ? { path: 'specs/direction/direction.json', sha256: 'f'.repeat(64) } : entry,
+  );
+  const specEditedBytes = Buffer.from(`${JSON.stringify(specEditedProject, null, 2)}\n`);
+  expect(publicationVersionHash(specEditedBytes, { path: CURRENT_LIVE_MANIFEST, selector: directionSelector })).not.toBe(beforeDirectionVersionHash);
 
   // 3. Non-git directory warns PROJECT_NOT_IN_GIT and omits commit without blocking readPublished.
   const noGitRoot = cloneExampleCurrent({ git: false });
@@ -487,7 +551,7 @@ test('readPublished omits commit when a matching pending current entry has no co
   }
 });
 
-test('next offers optional job open --current moves beside advance after record parts and record rig only, and leaves numbered projects unchanged', () => {
+test('next offers optional job open --current moves beside advance after record parts, record rig and record direction, and leaves numbered projects unchanged', () => {
   const root = cloneExampleCurrent();
   const recordPath = join(root, 'project.json');
   const full = JSON.parse(readFileSync(recordPath, 'utf8')) as JsonObject;
@@ -550,7 +614,7 @@ test('next offers optional job open --current moves beside advance after record 
     act: expect.stringMatching(/^optional: publish the recorded rig output to Review to look together and comment;/),
   });
 
-  // 3. At `post` after `record direction`: `--current direction` is NOT offered while Review #1280 is pending.
+  // 3. At `post` after `record direction`: advance comes first, optional `--current direction` sits beside it, and `awaits` stays `['project.stage']`.
   const atPost = structuredClone(full);
   atPost.stage = 'post';
   atPost.signoffs = asArray(atPost.signoffs).slice(0, 6);
@@ -559,8 +623,20 @@ test('next offers optional job open --current moves beside advance after record 
 
   const postReport = nextProject(root, NOW);
   expect(postReport.refusals).toEqual([]);
-  expect(postReport.moves.some(move => move.command?.includes('--current'))).toBe(false);
-  expect(postReport.moves[0]?.command).toBe(`rig-create advance direction-review ${root}`);
+  expect(postReport.awaits).toEqual(['project.stage']);
+  expect(postReport.moves).toHaveLength(2);
+  expect(postReport.moves[0]).toMatchObject({
+    role: 'agent',
+    field: 'stage',
+    command: `rig-create advance direction-review ${root}`,
+  });
+  expect(postReport.moves[1]).toEqual({
+    role: 'agent',
+    field: 'current.direction',
+    awaits: 'current.direction',
+    command: `rig-create job open ${root} --current direction --reviewer '<reviewer>' --role owner`,
+    act: expect.stringMatching(/^optional: publish the recorded direction output to Review to look together and comment;/),
+  });
 
   // 4. Numbered project offers zero `--current` moves.
   const numberedContainer = realpathSync(mkdtempSync(join(tmpdir(), 'create-job-open-current-numbered-')));
@@ -571,7 +647,58 @@ test('next offers optional job open --current moves beside advance after record 
   expect(numberedReport.moves.some(move => move.command?.includes('--current'))).toBe(false);
 });
 
-sourceOnlyTest(
+test('numbered direction publication stays byte-unchanged', async () => {
+  const container = realpathSync(mkdtempSync(join(tmpdir(), 'create-numbered-post-invariance-')));
+  roots.push(container);
+  const numberedRoot = join(container, 'post-project');
+  cpSync(join(import.meta.dir, '../templates/example-remesh'), numberedRoot, { recursive: true });
+
+  const recordBytes = readFileSync(join(numberedRoot, 'project.json'));
+  const recordHash = jobHash(recordBytes);
+  const project = JSON.parse(recordBytes.toString('utf8')) as JsonObject;
+  const postEntry = asArray(project.versions).filter(isObject).find(v => v.kind === 'post' && v.n === 5)!;
+  const rigN = Number(postEntry.rig_version);
+
+  const manifestRel = prepareLiveManifest(numberedRoot, project, 5);
+  expect(manifestRel).toBe('review-live-v5.json');
+  const manifestBytes = readFileSync(join(numberedRoot, manifestRel));
+
+  const painting = asArray(project.inputs).filter(isObject)[0]!;
+  const scene = asArray(project.scenes).filter(isObject)[0]!;
+  const expectedManifest = `${JSON.stringify({
+    schema: 'rig-review/1',
+    id: 'create-v5',
+    revision: 'v5',
+    title: `post v5 (rig v${rigN})`,
+    model: `derived/review/v${rigN}/out/check/build/skeleton.model.json`,
+    direction: 'evidence/direction/v5.json',
+    references: [
+      {
+        id: 'original-painting',
+        label: 'Original painting',
+        type: 'image',
+        path: String(painting.path),
+        width: 128,
+        height: 128,
+      },
+    ],
+    animations: [],
+    checkpoints: [],
+    authoring: [],
+    scene: String(scene.path),
+  }, null, 2)}\n`;
+  expect(manifestBytes.toString('utf8')).toBe(expectedManifest);
+
+  const postContext = await readPublished({
+    root: numberedRoot,
+    record: { path: 'project.json', sha256: recordHash },
+    result: { path: manifestRel, selector: { kind: 'post', version: 5, rigVersion: rigN } },
+  });
+  expect(postContext.selector).toEqual({ kind: 'post', version: 5, rigVersion: rigN });
+  expect(postContext.plan).not.toBeNull();
+});
+
+test(
   '#1065 job open --current parts and --current rig publish review-live.json, bind git commits, and ingest act@10 comments with commit verified',
   async () => {
     const root = cloneExampleCurrent({ git: true });
@@ -644,7 +771,7 @@ sourceOnlyTest(
   25_000,
 );
 
-sourceOnlyTest(
+test(
   'Bar (#1065 §5a): agent writes to project.json do not republish an open current output, while output file changes do republish',
   async () => {
     const root = cloneExampleCurrent({ git: true });
@@ -731,6 +858,61 @@ sourceOnlyTest(
     // And the stale page from the earlier publication now refuses with JOB_GENERATION_STALE or JOB_ACT_SOURCE_STALE.
     const staleAttempt = await page.submitComment('Comment from superseded page.');
     expect(staleAttempt.ok).toBe(false);
+  },
+  25_000,
+);
+
+test(
+  '#1089 job open --current direction publishes example-current direction@4 without scene, Review accepts it, and act@10 comments bind commit',
+  async () => {
+    const root = cloneExampleCurrent({ git: true });
+    const directionSpecPath = 'specs/direction/direction.json';
+    const expectedDirectionSha = jobHash(readFileSync(join(root, directionSpecPath)));
+    const expectedModelPath = 'outputs/direction/check/build/skeleton.model.json';
+    const expectedModelSha = jobHash(readFileSync(join(root, expectedModelPath)));
+
+    const openedDirection = await openBackground(root, ['--current', 'direction']);
+    const receipt = latestReceipt(root);
+    expect(openedDirection.lines).toEqual([`job: current direction published (publication ${receipt.publicationId})`]);
+
+    const manifest = JSON.parse(readFileSync(join(root, CURRENT_LIVE_MANIFEST), 'utf8')) as JsonObject;
+    expect(manifest.model).toBe(expectedModelPath);
+    expect(manifest.direction).toBe(directionSpecPath);
+    expect(Object.hasOwn(manifest, 'scene')).toBe(false);
+
+    const headCommit = run(['git', 'rev-parse', 'HEAD'], root, isolatedGitEnv()).stdout.trim();
+    const page = await openOwnerPage(root, openedDirection.url);
+    expect(page.asks).toEqual([]);
+    expect((page.head.source as JsonObject).selector).toMatchObject({ kind: 'current', output: 'direction' });
+    expect((page.head.source as JsonObject).model).toEqual({ path: expectedModelPath, sha256: expectedModelSha });
+    expect((page.head.source as JsonObject).direction).toEqual({ path: directionSpecPath, sha256: expectedDirectionSha });
+    expect((page.head.source as JsonObject).commit).toBe(headCommit);
+
+    const commentReply = await page.submitComment('Composed direction@4 loop plays cleanly.');
+    expect(commentReply).toMatchObject({ ok: true, value: { schema: 'rig-review/act@10', kind: 'comments' } });
+    const actValue = commentReply.value as JsonObject;
+    const actId = String(actValue.actId);
+    expect((actValue.source as JsonObject).direction).toEqual({ path: directionSpecPath, sha256: expectedDirectionSha });
+    expect((actValue.source as JsonObject).model).toEqual({ path: expectedModelPath, sha256: expectedModelSha });
+
+    const ingested = await runCli(root, ['comment', root, '--from-review', actId, '--json']);
+    expect({ exit: ingested.exit, stderr: ingested.stderr }).toEqual({ exit: 0, stderr: '' });
+    const ingestedJson = JSON.parse(ingested.stdout) as JsonObject;
+    expect(ingestedJson.warnings).toBeUndefined();
+    expect((ingestedJson.entry as JsonObject).record).toEqual({
+      sha256: String((page.head.source as JsonObject).projectHash),
+      commit: headCommit,
+    });
+
+    console.log(
+      `current-direction-receipt: ${JSON.stringify({
+        publicationId: receipt.publicationId,
+        direction: { path: directionSpecPath, sha256: expectedDirectionSha },
+        model: { path: expectedModelPath, sha256: expectedModelSha },
+        reviewAccepted: true,
+        commentActSchema: actValue.schema,
+      })}`,
+    );
   },
   25_000,
 );

@@ -12,7 +12,7 @@ const SPEC_PATHS = { scene: CURRENT_SCENE_PATH, direction: CURRENT_DIRECTION_PAT
 const RECORD_PATHS = ['project.json', ...CURRENT_KINDS.map(kind => `outputs/${kind}`)];
 const quote = (arg: string): string => "'" + arg.replaceAll("'", "'\\''") + "'";
 
-type Entry = { sha: string; short_sha: string; at: string; subject: string; back: string };
+type Entry = { sha: string; short_sha: string; at: string; subject: string; back: string | null };
 
 function git(dir: string, ...args: string[]) {
   return spawnSync('git', ['--literal-pathspecs', ...args], {
@@ -89,7 +89,11 @@ function readHistory(dir: string, repo: string, head: string): Entry[] {
     if (!changed.length || !changed.every(path => path.startsWith(prefix) && paths.has(path.slice(prefix.length)))) continue;
     const at = new Date(time).toISOString().replace('.000Z', 'Z');
     const subject = message.split('\n', 1)[0]!;
-    const back = `git -C ${quote(dir)} checkout ${short_sha} -- specs outputs/parts && rig-create next ${quote(dir)}`;
+    const present = new Set(gitOutput(git(dir, 'ls-tree', '-z', '--name-only', sha, '--', 'specs', 'outputs/parts'), dir)
+      .split('\0').filter(Boolean));
+    const back = present.has('specs') && present.has('outputs/parts')
+      ? `git -C ${quote(dir)} checkout ${short_sha} -- specs outputs/parts && rig-create next ${quote(dir)}`
+      : null;
     entries.push({ sha, short_sha, at, subject, back });
   }
   return entries.sort((a, b) => b.at.localeCompare(a.at));
@@ -120,7 +124,8 @@ export function historyCommand(args: string[]): CommandResult {
   if (entries.length === 0) return empty('no Create step-data commits at HEAD');
   return {
     stdout: args.includes('--json') ? JSON.stringify(entries, null, 2)
-      : entries.map(({ short_sha, at, subject, back }) => `${short_sha}  ${at}  ${subject}\n  back: ${back}`).join('\n'),
+      : entries.map(({ short_sha, at, subject, back }) =>
+        back ? `${short_sha}  ${at}  ${subject}\n  back: ${back}` : `${short_sha}  ${at}  ${subject}`).join('\n'),
     exit: 0,
   };
 }

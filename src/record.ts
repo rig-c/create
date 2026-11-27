@@ -586,6 +586,12 @@ export function recordCommand(args: string[], now: number): CommandResult {
     const ledgerReport = options['--ledger-report'];
     const verifyLedger = kind === 'parts' ? recordCurrentPartsLedger(dir, project, node, ledgerReport, now) : undefined;
     const current = isObject(project.current) ? project.current : {};
+    const priorNode = isObject(current[kind]) ? current[kind] : undefined;
+    const previousBuiltFrom = priorNode && Array.isArray(priorNode.built_from)
+      ? (priorNode.built_from as JsonObject[])
+        .filter((entry): entry is FileHash => isObject(entry) && typeof entry.path === 'string' && typeof entry.sha256 === 'string')
+        .map(({ path, sha256 }) => ({ path, sha256 }))
+      : undefined;
     const candidate: JsonObject = { ...project, current: { ...current, [kind]: node } };
     const shape = currentShapeFindings(kind, node, candidate)[0];
     if (shape) refuse(shape.code, shape.message);
@@ -662,6 +668,10 @@ export function recordCommand(args: string[], now: number): CommandResult {
     const commitWarning = !migration.changed && migration.failed ? undefined : commitProjectStep(dir, kind, writer, 'project.json', root, stale, {
       migratedGitignore: migration.changed,
       ...(kind === 'parts' ? { partsFiles: files.map(f => f.path) } : {}),
+      filesSha256: String(node.files_sha256),
+      builtFrom: node.built_from as FileHash[],
+      ...(previousBuiltFrom ? { previousBuiltFrom } : {}),
+      inPlace: from === root,
     });
     // Keep machine-readable stdout a single JSON value.
     const notice = migration.changed ? GITIGNORE_MIGRATION_LINE : undefined;

@@ -1,7 +1,7 @@
 import { EXAMPLE_NOW } from '../scripts/example-time.ts';
 import { plantLegacyReopen } from './fixtures.ts';
 import { afterEach, expect, test } from 'bun:test';
-import { existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { directionHash, directionPostIdentity, objects, readDirection, validateDirectionShape } from '../src/direction.ts';
 import { composeInventory, composeRunMatchesAcceptedRig, readComposeRun } from '../src/direction-compose.ts';
@@ -33,6 +33,43 @@ test('direction@3 freezes a two-plate idle, fills the rig seal and checks withou
   const ctx = { dir: f.dir, project: p, refusals: [], warnings: [] }; checkDirections(ctx);
   expect(ctx.refusals).toEqual([]); expect(ctx.warnings).toEqual([]);
   expect(readFileSync(join(f.dir, 'outputs/v2/compose/check/build/skeleton.atlas'), 'utf8')).toBe('synthetic atlas');
+});
+
+test.each([
+  { binding: 'matching', modelMatches: true },
+  { binding: 'mismatched', modelMatches: false },
+])('direction@3 validates and publishes a camera report with a $binding model hash', async ({ modelMatches }) => {
+  const f = fixture();
+  const backdrop = f.value.plates[0]!.name;
+  f.scene.camera = { backdrop, tracks: { idle: [{ t: 0, pan: [0, 0], zoom: 1 }, { t: 4, pan: [0, 0], zoom: 1 }] } };
+  f.put('compose.scene.json', f.scene);
+  f.put('compose-out/compose-run.json', composeRunFixture(f.dir, f.load(), 1, f.scene));
+  const modelSha = directionHash(readFileSync(join(f.dir, 'compose-out/check/build/skeleton.model.json')));
+  const report = f.put('compose-out/scene.json', { ...f.report, spec: 'spine-parts-scene-report/2',
+    camera: { backdrop, model_sha256: modelMatches ? modelSha : '0'.repeat(64) } });
+  if (!modelMatches) {
+    rejected(f, 'DIRECTION_COMPOSE_CAMERA_MODEL');
+    return;
+  }
+
+  expect(f.publish().exit).toBe(0);
+  const project = f.load();
+  const doc = readDirection(f.dir, project, 2);
+  const reportBinding = { path: 'outputs/v2/compose/scene.json', sha256: report.sha256 };
+  const modelBinding = { path: 'outputs/v2/compose/check/build/skeleton.model.json', sha256: modelSha };
+  expect(composeInventory(project, doc)).toEqual(expect.arrayContaining([reportBinding, modelBinding]));
+  const path = prepareLiveManifest(f.dir, project, 2);
+  const pub = await readPublished({ root: f.dir,
+    record: { path: 'project.json', sha256: directionHash(readFileSync(join(f.dir, 'project.json'))) },
+    result: { path, selector: { kind: 'post', version: 2, rigVersion: 1 } },
+  });
+  const direction = pub.files.find(file => file.path === 'evidence/direction/v2.json')!;
+  const directionBytes = readFileSync(join(f.dir, direction.path));
+  expect(direction.sha256).toBe(directionHash(directionBytes));
+  expect(JSON.parse(directionBytes.toString())).toMatchObject({ compose: { report: reportBinding }, model: modelBinding });
+  expect(pub.files).toContainEqual(modelBinding);
+  appendFileSync(join(f.dir, reportBinding.path), '\n');
+  expect(() => prepareLiveManifest(f.dir, project, 2)).toThrow(expect.objectContaining({ code: 'DIRECTION_COMPOSE_HASH' }));
 });
 
 test('direction@3 publishes the compose model, atlas and pages without the character package', async () => {

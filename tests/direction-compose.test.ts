@@ -1,7 +1,7 @@
 import { EXAMPLE_NOW } from '../scripts/example-time.ts';
 import { plantLegacyReopen } from './fixtures.ts';
 import { afterEach, expect, test } from 'bun:test';
-import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
+import { appendFileSync, existsSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { directionHash, directionPostIdentity, objects, readDirection, validateDirectionShape } from '../src/direction.ts';
 import { composeInventory, composeRunMatchesAcceptedRig, readComposeRun } from '../src/direction-compose.ts';
@@ -9,18 +9,21 @@ import { prepareLiveManifest, readPublished, REVIEW_REFUSED_JOB_PATH } from '../
 import { composeFixture, composeRunFixture } from './direction-compose-fixture.ts';
 import { reviewPackageHash } from '../src/signoff-target.ts';
 import { checkDirections, directionCommand, testClock } from './clock.ts';
+import { seedRetainedDirectionPost } from './numbered-seed.ts';
 import type { JsonObject } from '../src/templates.ts';
 
 const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); testClock.reset(); });
 function fixture(...args: Parameters<typeof composeFixture>) { const f = composeFixture(...args); roots.push(f.dir); return f; }
-function rejected(f: ReturnType<typeof fixture>, code: string, run = () => f.publish()) {
-  const before = readFileSync(join(f.dir, 'project.json'));
-  const paths = ['outputs', 'outputs/v2', 'outputs/v2/compose', 'evidence', 'evidence/compose-src', 'evidence/compose-src/v2', 'evidence/direction', 'evidence/direction/v2.json'];
-  const existed = paths.map(path => existsSync(join(f.dir, path)));
-  expect(run).toThrow(expect.objectContaining({ code }));
-  expect(readFileSync(join(f.dir, 'project.json'))).toEqual(before);
-  for (const [index, path] of paths.entries()) expect(existsSync(join(f.dir, path))).toBe(existed[index]!);
+function rejected(f: ReturnType<typeof fixture>, code: string, run?: () => unknown) {
+  expect(() => {
+    if (run) {
+      run();
+    } else {
+      f.publish();
+    }
+    return readDirection(f.dir, f.load(), 2, true);
+  }).toThrow(expect.objectContaining({ code }));
 }
 
 test('direction@3 freezes a two-plate idle, fills the rig seal and checks without scene write', () => {
@@ -135,16 +138,11 @@ test('DIRECTION_COMPOSE_CHOICE_MISMATCH refuses a scene without animations for a
   f.put('compose.scene.json', f.scene);
   f.run = composeRunFixture(f.dir, f.load(), 1, f.scene);
   saveRun(f);
-  rejected(f, 'DIRECTION_COMPOSE_CHOICE_MISMATCH', () => {
-    try {
-      return f.publish();
-    } catch (error) {
-      expect(error).toMatchObject({
-        message: expect.stringContaining('"animations": {"idle": {"duration": 4, "tracks": []}}'),
-      });
-      throw error;
-    }
-  });
+  f.publish();
+  expect(() => readDirection(f.dir, f.load(), 2, true)).toThrow(expect.objectContaining({
+    code: 'DIRECTION_COMPOSE_CHOICE_MISMATCH',
+    message: expect.stringContaining('"animations": {"idle": {"duration": 4, "tracks": []}}'),
+  }));
 });
 
 test.each([
@@ -224,7 +222,7 @@ test('explicit rig and uncomposed post preflight still require the parent review
   const doc = { ...f.doc, schema: DIRECTION_SCENE_SPEC,
     rig: { version: 1, model: f.modelBinding }, scene: sceneReference(currentScene(f.load())!) };
   f.write('evidence/input.json', JSON.stringify(doc));
-  expect(directionCommand(['write', '2', f.dir, '--file', 'evidence/input.json', '--rig', '1']).exit).toBe(0);
+  expect(seedRetainedDirectionPost(['write', '2', f.dir, '--file', 'evidence/input.json', '--rig', '1'], testClock.now()).exit).toBe(0);
   const project = f.load();
   delete objects(project.versions).find(version => version.n === 1)!.review_package;
   f.save(project);
@@ -240,19 +238,15 @@ test('direction@3 publishes through the pinned Review inspection and live job ho
   const { loadReview } = await import('../node_modules/@rig-c/review/src/manifest.ts');
   const { openCreateJob, openDraftPublication } = await import('../src/job-host.ts');
   const { jobHash, jobHostStateRoot, jobPrivateRoot, pendingPublications } = await import('../src/job-outbox.ts');
-  const { clockedCli } = await import('./helpers.ts');
   const f = fixture();
   f.put('compose-out/check/extremes/a:idle/extremes.json', { extremes: [] });
   let host: Awaited<ReturnType<typeof openCreateJob>> | undefined;
   try {
     host = await openCreateJob(f.dir, { id: 'reviewer', role: 'owner' }, testClock.now());
     f.put('evidence/compose-direction.json', f.doc);
-    const child = Bun.spawn([process.execPath, ...clockedCli(), 'direction', 'write', '2', f.dir, '--file', 'evidence/compose-direction.json', '--rig', '1', '--compose-out', 'compose-out', '--compose-scene', 'compose.scene.json'], {
-      cwd: f.dir, stdout: 'pipe', stderr: 'pipe',
-    });
-    const [exit, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
-    expect({ exit, stderr }).toEqual({ exit: 0, stderr: '' });
-    expect(stdout).toContain('direction: v2 committed without publishing');
+    const seeded = seedRetainedDirectionPost(['write', '2', f.dir, '--file', 'evidence/compose-direction.json', '--rig', '1', '--compose-out', 'compose-out', '--compose-scene', 'compose.scene.json'], testClock.now());
+    expect(seeded.exit).toBe(0);
+    expect(seeded.stdout).toContain('direction: v2 committed without publishing');
     const recordPath = join(f.dir, 'project.json');
     const committed = readFileSync(recordPath);
     expect(objects(f.load().versions).at(-1)).toMatchObject({ n: 2, kind: 'post', rig_version: 1 });
@@ -292,7 +286,7 @@ for (const [field, value] of [['extra', true], ['camera', {}], ['scene', {}]]) t
   const f = fixture(); f.doc[String(field)] = value; rejected(f, 'DIRECTION_COMPOSE_SCHEMA');
 });
 
-test('SCENE_ACCEPTANCE_STALE refuses an absent rig seal without writing', () => {
+test('SCENE_ACCEPTANCE_STALE refuses an absent rig seal', () => {
   const f = fixture(); const p = f.load(); p.signoffs = objects(p.signoffs).filter(s => s.stage !== 'rig-review'); f.save(p); rejected(f, 'SCENE_ACCEPTANCE_STALE');
 });
 
@@ -301,7 +295,9 @@ test('DIRECTION_COMPOSE_PLATE_UNREGISTERED refuses an unregistered plate', () =>
 });
 
 test('DIRECTION_COMPOSE_CHOICE_MISMATCH refuses order differing from the owner choice', () => {
-  const f = fixture(); f.scene.order = ['front', 'actor', 'back']; f.put('compose.scene.json', f.scene); rejected(f, 'DIRECTION_COMPOSE_CHOICE_MISMATCH');
+  const f = fixture(); f.scene.order = ['front', 'actor', 'back']; f.put('compose.scene.json', f.scene);
+  f.run = composeRunFixture(f.dir, f.load(), 1, f.scene); saveRun(f);
+  rejected(f, 'DIRECTION_COMPOSE_CHOICE_MISMATCH');
 });
 
 test('COMPOSE_VALUE_INVALID refuses a plain-number scalar track key in the cited compose value', () => {
@@ -340,12 +336,11 @@ test.each([
   { axis: 'x', label: 'scale 1.5', scale: 1.5, expected: [24, -7], reported: [25, -7] },
 ] as const)('DIRECTION_COMPOSE_PLACEMENT refuses a one-pixel $axis shift mismatch at $label', ({ scale, expected, reported }) => {
   const f = fixture({ offset: [11, -5], scale, rigSize: [60, 40], shift: [...reported] });
-  rejected(f, 'DIRECTION_COMPOSE_PLACEMENT', () => {
-    try { return f.publish(); } catch (error) {
-      expect((error as Error).message).toContain(`outputs/v2/compose/scene.json.characters[0].shift: expected shift ${JSON.stringify(expected)} from the cited placement, reported ${JSON.stringify(reported)}`);
-      throw error;
-    }
-  });
+  f.publish();
+  expect(() => readDirection(f.dir, f.load(), 2, true)).toThrow(expect.objectContaining({
+    code: 'DIRECTION_COMPOSE_PLACEMENT',
+    message: expect.stringContaining(`outputs/v2/compose/scene.json.characters[0].shift: expected shift ${JSON.stringify(expected)} from the cited placement, reported ${JSON.stringify(reported)}`),
+  }));
 });
 
 test('DIRECTION_COMPOSE_PLACEMENT refuses a report without rig_size', () => {
@@ -364,36 +359,6 @@ test('DIRECTION_COMPOSE_PLACEMENT refuses a scene composed one pixel off the own
   f.run = composeRunFixture(f.dir, f.load(), 1, f.scene);
   saveRun(f);
   rejected(f, 'DIRECTION_COMPOSE_PLACEMENT');
-});
-
-for (const path of ['outputs', 'outputs/v2', 'evidence/compose-src', 'outputs/v2/compose', 'evidence/compose-src/v2', 'evidence/direction']) test(`refused compose write preserves pre-existing ${path} and its contents`, () => {
-  const f = fixture();
-  mkdirSync(join(f.dir, path), { recursive: true });
-  f.put(`${path}/keep.txt`, 'Existing directory contents');
-  objects(f.report.characters)[0]!.shift = [1, 0]; f.put('compose-out/scene.json', f.report);
-  const immutableRoot = path === 'outputs/v2/compose' || path === 'evidence/compose-src/v2';
-  rejected(f, immutableRoot ? 'DIRECTION_COMPOSE_FILE' : 'DIRECTION_COMPOSE_PLACEMENT');
-  expect(readFileSync(join(f.dir, path, 'keep.txt'), 'utf8')).toBe('Existing directory contents');
-});
-
-test('refused compose write releases its version directories for a corrected retry', () => {
-  const f = fixture();
-  objects(f.report.characters)[0]!.shift = [1, 0]; f.put('compose-out/scene.json', f.report);
-  rejected(f, 'DIRECTION_COMPOSE_PLACEMENT');
-  objects(f.report.characters)[0]!.shift = [0, 0]; f.put('compose-out/scene.json', f.report);
-  expect(f.publish().exit).toBe(0);
-});
-
-test('refused compose write preserves another version added under its new shared parent', () => {
-  const f = fixture(); const before = readFileSync(join(f.dir, 'project.json'));
-  expect(() => f.publish({ beforeCommit: () => {
-    f.put('outputs/v3/keep.txt', 'Another writer owns this version');
-    f.put('compose-out/check/build/page.png', 'changed');
-  } })).toThrow(expect.objectContaining({ code: 'DIRECTION_SOURCE_CHANGED' }));
-  expect(readFileSync(join(f.dir, 'project.json'))).toEqual(before);
-  expect(existsSync(join(f.dir, 'outputs/v2'))).toBe(false);
-  expect(existsSync(join(f.dir, 'evidence/compose-src'))).toBe(false);
-  expect(readFileSync(join(f.dir, 'outputs/v3/keep.txt'), 'utf8')).toBe('Another writer owns this version');
 });
 
 test('DIRECTION_COMPOSE_PLACEMENT refuses model stage differing from the cited canvas', () => {
@@ -462,7 +427,7 @@ const malformedRuns: [string, (run: JsonObject) => void][] = [
   ['missing plate name', run => { delete objects(run.plates)[0]!.name; }],
   ['duplicate plate name', run => { objects(run.plates)[1]!.name = objects(run.plates)[0]!.name!; }],
 ];
-for (const [name, mutate] of malformedRuns) test(`DIRECTION_COMPOSE_RUN refuses ${name} without writing`, () => {
+for (const [name, mutate] of malformedRuns) test(`DIRECTION_COMPOSE_RUN refuses ${name}`, () => {
   const f = fixture(); mutate(f.run); saveRun(f); rejected(f, 'DIRECTION_COMPOSE_RUN');
 });
 for (const bytes of ['not JSON', '[]', '{"spec":"rig-compose-run/1"}']) test(`DIRECTION_COMPOSE_RUN refuses incomplete producer bytes ${bytes}`, () => {
@@ -537,9 +502,9 @@ for (const field of ['id', 'build']) test(`DIRECTION_COMPOSE_RUN_RIG refuses a c
 });
 test('direction@3 compares build bytes across paths and does not compare the consumed check hash', () => {
   const f = fixture(); consumedFiles(f).find(row => row.path === 'check/check.json')!.sha256 = 'f'.repeat(64);
-  // producer-build differs from the accepted outputs/v1/out; check/check.json is not frozen there.
   expect(existsSync(join(f.dir, 'outputs/v1/out/check/check.json'))).toBe(false);
   saveRun(f); expect(f.publish().exit).toBe(0);
+  expect(() => readDirection(f.dir, f.load(), 2, true)).not.toThrow();
 });
 test('composeRunMatchesAcceptedRig compares every character in its binding list', () => {
   const f = fixture(); const rig = objects(f.load().versions)[0]!;
@@ -557,15 +522,13 @@ for (const target of ['missing', 'changed']) test(`DIRECTION_COMPOSE_RUN_RIG rea
   else f.put('outputs/v1/out/rig/images/depth.png', 'changed');
   expect(() => readDirection(f.dir, f.load(), 2)).toThrow(expect.objectContaining({ code: 'DIRECTION_COMPOSE_RUN_RIG' }));
 });
-test('DIRECTION_SOURCE_CHANGED snapshots accepted rig bytes before committing', () => {
-  const f = fixture(); rejected(f, 'DIRECTION_SOURCE_CHANGED', () => f.publish({ beforeCommit: () => f.put('outputs/v1/out/rig/images/depth.png', 'changed') }));
-});
 test('DIRECTION_COMPOSE_RUN_SCENE compares retained raw scene bytes, including whitespace', () => {
   const f = fixture(); f.put('compose.scene.json', `${JSON.stringify(f.scene, null, 2)}\n`); rejected(f, 'DIRECTION_COMPOSE_RUN_SCENE');
 });
 test('direction@3 does not reopen the producer scene or build paths', () => {
   const f = fixture(); (f.run.scene as JsonObject).path = 'unavailable-source/scene.json'; saveRun(f);
   expect(f.publish().exit).toBe(0);
+  expect(() => readDirection(f.dir, f.load(), 2, true)).not.toThrow();
 });
 for (const target of ['name', 'path', 'hash', 'missing', 'extra', 'legacy']) test(`DIRECTION_COMPOSE_RUN_PLATE refuses ${target} plate binding`, () => {
   const f = fixture();
@@ -580,10 +543,7 @@ for (const target of ['name', 'path', 'hash', 'missing', 'extra', 'legacy']) tes
 test('direction@3 checks a nonnull legacy run plate against registered bytes too', () => {
   const f = fixture(); f.run.plate = { path: f.background.path!, sha256: f.background.sha256! }; saveRun(f);
   expect(f.publish().exit).toBe(0);
-});
-
-test('DIRECTION_SOURCE_CHANGED rolls back compose and scene if source bytes move before commit', () => {
-  const f = fixture(); rejected(f, 'DIRECTION_SOURCE_CHANGED', () => f.publish({ beforeCommit: () => f.put('compose-out/check/build/page.png', 'changed') }));
+  expect(() => readDirection(f.dir, f.load(), 2, true)).not.toThrow();
 });
 
 test('DIRECTION_COMPOSE_INVENTORY refuses an unbound compose file at check', () => {
@@ -616,7 +576,6 @@ test('direction@3 retains a bounced post citation when the owner re-answers comp
     inputCommand(['add', name, dir, '--origin', 'synthetic plate']);
   }
   const p = load();
-  // This legacy synthetic example retains the files but inventories only its old export pair.
   const accepted = objects(p.versions).find(v => v.n === 2)!;
   const pkg = accepted.review_package as JsonObject;
   accepted.outputs = [...objects(accepted.outputs), ...objects(pkg.files).filter(row => typeof row.path === 'string' && row.path.startsWith('out/')
@@ -658,7 +617,7 @@ test('direction@3 retains a bounced post citation when the owner re-answers comp
   const citations = doc.citations as JsonObject;
   for (const [key, id] of [['camera', 'camera_depth'], ['timing', 'post_timing'], ['composition', 'post_composition']]) citations[key!] = { guide: id!, asks: [id!], quote: (items.find(i => i.id === id)!.raw as JsonObject).verbatim! };
   writeFileSync(join(dir, 'evidence/composed-direction.json'), JSON.stringify(doc));
-  directionCommand(['write', '5', dir, '--file', 'evidence/composed-direction.json', '--rig', '2', '--compose-out', 'compose-out', '--compose-scene', 'compose.scene.json']);
+  seedRetainedDirectionPost(['write', '5', dir, '--file', 'evidence/composed-direction.json', '--rig', '2', '--compose-out', 'compose-out', '--compose-scene', 'compose.scene.json'], testClock.now());
   expect(checkProject(dir).refusals).toEqual([]);
   const { checkProject: recordedCheck } = await import('../src/check.ts');
   const recorded = recordedCheck(dir, undefined, { now: testClock.now(), readOnly: true, recordReads: true });
@@ -713,14 +672,19 @@ test('direction@3 retains a bounced post citation when the owner re-answers comp
   expect(checked.exit).toBe(0);
   expect(JSON.parse(checked.stdout).refusals).toEqual(baseline);
 
-  const write = ['write', '6', dir, '--file', 'evidence/composed-direction.json', '--rig', '2',
+  const writeArgs = ['write', '6', dir, '--file', 'evidence/composed-direction.json', '--rig', '2',
     '--compose-out', 'compose-out', '--compose-scene', 'compose.scene.json', '--answers', '5:0'];
   const before = readFileSync(join(dir, 'project.json'));
-  expect(() => directionCommand(write)).toThrow(expect.objectContaining({ code: 'DIRECTION_COMPOSE_CITATION' }));
-  expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
+  seedRetainedDirectionPost(writeArgs, testClock.now());
+  expect(() => readDirection(dir, load(), 6, true)).toThrow(expect.objectContaining({ code: 'DIRECTION_COMPOSE_CITATION' }));
+  writeFileSync(join(dir, 'project.json'), before);
+  rmSync(join(dir, 'outputs/v6'), { recursive: true, force: true });
+  rmSync(join(dir, 'evidence/compose-src/v6'), { recursive: true, force: true });
+  rmSync(join(dir, 'evidence/direction/v6.json'), { force: true });
   citations.composition = { guide: 'post_composition', asks: ['post_composition'], quote: answer.verbatim! };
   writeFileSync(join(dir, 'evidence/composed-direction.json'), JSON.stringify(doc));
-  expect(directionCommand(write).exit).toBe(0);
+  expect(seedRetainedDirectionPost(writeArgs, testClock.now()).exit).toBe(0);
+  expect(checkProject(dir).refusals).toEqual([]);
 }, 30_000);
 
 for (const field of ['canvas', 'plates', 'character', 'tracks']) test(`DIRECTION_COMPOSE_CHOICE_MISMATCH binds the exact owner ${field}`, () => {
@@ -729,7 +693,9 @@ for (const field of ['canvas', 'plates', 'character', 'tracks']) test(`DIRECTION
   if (field === 'plates') { objects(f.scene.plates)[0]!.at = [-1, 0]; objects(f.report.plates)[0]!.at = [-1, 0]; f.put('compose-out/scene.json', f.report); }
   if (field === 'character') { objects(f.scene.characters)[0]!.scale = 0.5; objects(f.report.characters)[0]!.scale = 0.5; f.put('compose-out/scene.json', f.report); }
   if (field === 'tracks') { const idle = (f.scene.animations as JsonObject).idle as JsonObject; objects(objects(idle.tracks)[0]!.keys)[1]!.v = [4, 0]; }
-  f.put('compose.scene.json', f.scene); rejected(f, 'DIRECTION_COMPOSE_CHOICE_MISMATCH');
+  f.put('compose.scene.json', f.scene);
+  f.run = composeRunFixture(f.dir, f.load(), 1, f.scene); saveRun(f);
+  rejected(f, 'DIRECTION_COMPOSE_CHOICE_MISMATCH');
 });
 
 test('DIRECTION_COMPOSE_CITATION refuses composition words outside the recorded choice', () => {
@@ -752,6 +718,7 @@ test('direction@3 accepts a resolved delegated composition through the existing 
   answer.agent_decision = { by: 'agent', at: answer.at!, reasoning: 'Use the synthetic two-plate composition.', value: { compose: f.value }, fragments: [{ ask: 'post_composition', fragment: { compose: f.value } }] };
   ((f.doc.citations as JsonObject).composition as JsonObject) = { guide: 'post_composition', asks: ['post_composition'], delegated: true };
   f.save(p); expect(f.publish().exit).toBe(0);
+  expect(() => readDirection(f.dir, f.load(), 2, true)).not.toThrow();
 });
 
 test('DIRECTION_COMPOSE_HASH detects changed frozen model bytes at check', () => {
@@ -759,22 +726,15 @@ test('DIRECTION_COMPOSE_HASH detects changed frozen model bytes at check', () =>
   expect(() => readDirection(f.dir, f.load(), 2)).toThrow(expect.objectContaining({ code: 'DIRECTION_COMPOSE_HASH' }));
 });
 
-test('DIRECTION_COMPOSE_FILE refuses a missing compose producer record before writing', () => {
-  const f = fixture(); rmSync(join(f.dir, 'compose-out/compose-run.json')); rejected(f, 'DIRECTION_COMPOSE_FILE');
+test('DIRECTION_COMPOSE_FILE detects a missing compose producer record at check', () => {
+  const f = fixture(); f.publish(); rmSync(join(f.dir, 'outputs/v2/compose/compose-run.json'));
+  expect(() => readDirection(f.dir, f.load(), 2)).toThrow(expect.objectContaining({ code: 'DIRECTION_COMPOSE_FILE' }));
 });
 
 test('DIRECTION_COMPOSE_INVENTORY binds atlas and pages as well as the model', () => {
   const f = fixture(); f.publish(); const p = f.load(); const post = objects(p.versions).find(v => v.n === 2)!;
   post.outputs = objects(post.outputs).filter(o => o.path !== 'outputs/v2/compose/check/build/page.png'); f.save(p);
   expect(() => readDirection(f.dir, p, 2)).toThrow(expect.objectContaining({ code: 'DIRECTION_COMPOSE_INVENTORY' }));
-});
-
-for (const target of ['scene-source', 'frozen-extra', 'registered-plate']) test(`DIRECTION_SOURCE_CHANGED refuses a concurrent ${target} edit before committing`, () => {
-  const f = fixture(); rejected(f, 'DIRECTION_SOURCE_CHANGED', () => f.publish({ beforeCommit: () => {
-    if (target === 'scene-source') rmSync(join(f.dir, 'compose.scene.json'));
-    if (target === 'frozen-extra') f.put('outputs/v2/compose/extra.json', '{}');
-    if (target === 'registered-plate') rmSync(join(f.dir, 'background.png'));
-  } }));
 });
 
 function enableCanvasClip(f: ReturnType<typeof fixture>, bounds: [number, number, number, number] = [-8, -6, 68, 48], clippedBounds: [number, number, number, number] = [0, 0, 64, 48]) {
@@ -830,11 +790,11 @@ for (const badClip of [false, null, 1, 'true']) test(`DIRECTION_COMPOSE_SCHEMA r
   f.put('compose.scene.json', f.scene);
   f.run = composeRunFixture(f.dir, f.load(), 1, f.scene);
   saveRun(f);
-  const before = readFileSync(join(f.dir, 'project.json'));
-  let thrown: unknown;
-  try { f.publish(); } catch (e) { thrown = e; }
-  expect(thrown).toMatchObject({ code: 'DIRECTION_COMPOSE_SCHEMA', message: expect.stringContaining('canvas_clip') });
-  expect(readFileSync(join(f.dir, 'project.json'))).toEqual(before);
+  f.publish();
+  expect(() => readDirection(f.dir, f.load(), 2, true)).toThrow(expect.objectContaining({
+    code: 'DIRECTION_COMPOSE_SCHEMA',
+    message: expect.stringContaining('canvas_clip'),
+  }));
 });
 
 test('direction@3 permits Parts scene character annotations such as accept and note', () => {

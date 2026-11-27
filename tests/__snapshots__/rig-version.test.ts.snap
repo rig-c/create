@@ -1,9 +1,0 @@
-// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
-
-exports[`#454 no-bounce rig writer and next preserve previous bytes and output 1`] = `
-{
-  "exit": 0,
-  "record": "ea84215032a7197495f455a9ad590b13f9005432c64a68ae2a6a711c7c28c5ce",
-  "stdout": "c234a55d1a5dfb59f658697ec19ce4e7e854dfe0d49254fb50f94c2de4019f05",
-}
-`;

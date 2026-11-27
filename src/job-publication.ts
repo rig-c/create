@@ -620,6 +620,16 @@ export function composedPublishedBuildFiles(root: string, project: JsonObject, n
   return { doc, files };
 }
 
+/** Inspect a numbered post and validate the independent compose closure when present. */
+export function inspectNumberedPostPublication(root: string, project: JsonObject, n: number) {
+  const directionPath = `evidence/direction/v${n}.json`;
+  let direction: JsonObject | undefined;
+  try { direction = JSON.parse(publicationFile(root, directionPath).toString('utf8')) as JsonObject; } catch { /* Legacy posts may lack a direction document. */ }
+  const composed = direction?.schema === DIRECTION_COMPOSE_SPEC
+    ? composedPublishedBuildFiles(root, project, n) : undefined;
+  return { directionPath, direction, composed };
+}
+
 export function publicationSelector(project: JsonObject, n: number): NumberedPublicationSelector {
   const version = (project.versions as JsonObject[]).find(version => version.n === n);
   if (!version) refuse('JOB_PUBLICATION_INVALID', `versions[v${n}]: result version is missing; restore the recorded version`);
@@ -700,13 +710,10 @@ export function prepareLiveManifest(root: string, project: JsonObject, n: number
   let scene: string | undefined;
   let composed = false;
   if (selector.kind === 'post') {
-    const directionPath = `evidence/direction/v${n}.json`;
-    let direction: JsonObject | undefined;
-    try { direction = JSON.parse(publicationFile(root, directionPath).toString('utf8')) as JsonObject; } catch { /* Legacy manifests did not require a direction document. */ }
-    if (direction?.schema === DIRECTION_COMPOSE_SPEC) {
+    const { directionPath, direction, composed: compose } = inspectNumberedPostPublication(root, project, n);
+    if (compose) {
       composed = true;
-      const { doc } = composedPublishedBuildFiles(root, project, n);
-      model = String((doc.model as JsonObject).path);
+      model = String((compose.doc.model as JsonObject).path);
     }
     scene = sealedScene(root, project, directionPath, direction)?.path;
   }
@@ -1061,11 +1068,9 @@ export const readPublished: JobPublicationReader = async ({ root, record, result
   }
   const answered = selector.kind === 'post' ? answeredDirectionFeedbackContext(project, selector.version) : {};
   if (selector.kind === 'post') {
-    const directionPath = `evidence/direction/v${selector.version}.json`;
-    let raw: JsonObject | undefined;
-    try { raw = JSON.parse(publicationFile(root, directionPath).toString('utf8')); } catch { /* Legacy post path below. */ }
-    if (raw?.schema === DIRECTION_COMPOSE_SPEC) {
-      const { files } = composedPublishedBuildFiles(root, project, selector.version);
+    const { directionPath, composed } = inspectNumberedPostPublication(root, project, selector.version);
+    if (composed) {
+      const { files } = composed;
       files.push({ path: directionPath, sha256: jobHash(publicationFile(root, directionPath)) }, { path: result.path, sha256: jobHash(publicationFile(root, result.path)) });
       const steps = isObject(project.plan) ? asArray(project.plan.steps).filter(isObject) : [];
       return { selector, plan: { steps: steps.map(step => ({ id: String(step.id), hash: stepHash(step) })) }, parts: null,

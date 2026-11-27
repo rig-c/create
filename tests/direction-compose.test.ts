@@ -198,8 +198,42 @@ test('JOB_PUBLICATION_INVALID refuses a declared build file whose name contains 
     code: 'JOB_PUBLICATION_INVALID',
     message: expect.stringContaining('outputs/v2/compose/check/build/a:idle.png'),
   });
+  const { clockedCli } = await import('./helpers.ts');
+  const { jobHostStateRoot, jobPrivateRoot, readWriterBinding } = await import('../src/job-outbox.ts');
+  const open = Bun.spawnSync([process.execPath, ...clockedCli(), 'job', 'open', f.dir,
+    '--rig', '2', '--reviewer', 'reviewer', '--role', 'owner'], { cwd: f.dir, stdout: 'pipe', stderr: 'pipe', timeout: 10_000 });
+  expect(open.exitCode).toBe(1);
+  expect(open.stdout.toString()).toBe('');
+  expect(open.stderr.toString()).toContain('JOB_PUBLICATION_INVALID:');
+  expect(open.stderr.toString()).toContain('outputs/v2/compose/check/build/a:idle.png');
+  expect(readWriterBinding(f.dir)).toBeNull();
+  expect(existsSync(jobHostStateRoot(f.dir))).toBe(false);
+  expect(existsSync(jobPrivateRoot(f.dir))).toBe(false);
   expect(existsSync(join(f.dir, 'review-live-v2.json'))).toBe(false);
   expect(readFileSync(join(f.dir, 'project.json'))).toEqual(before);
+});
+
+test('explicit rig and uncomposed post preflight still require the parent review package', async () => {
+  const { assertRequestedRig } = await import('../src/job-host.ts');
+  const { sceneFixture } = await import('./scene-fixture.ts');
+  const { DIRECTION_SCENE_SPEC } = await import('../src/direction.ts');
+  const { currentScene, sceneReference } = await import('../src/scene.ts');
+  const f = sceneFixture();
+  roots.push(f.dir);
+  expect(f.writeScene().exit).toBe(0);
+  const doc = { ...f.doc, schema: DIRECTION_SCENE_SPEC,
+    rig: { version: 1, model: f.modelBinding }, scene: sceneReference(currentScene(f.load())!) };
+  f.write('evidence/input.json', JSON.stringify(doc));
+  expect(directionCommand(['write', '2', f.dir, '--file', 'evidence/input.json', '--rig', '1']).exit).toBe(0);
+  const project = f.load();
+  delete objects(project.versions).find(version => version.n === 1)!.review_package;
+  f.save(project);
+  for (const version of ['1', '2']) {
+    expect(() => assertRequestedRig(f.dir, version)).toThrow(expect.objectContaining({
+      code: 'JOB_PUBLICATION_INVALID',
+      message: expect.stringContaining('versions[v1].review_package: retained package identity is missing'),
+    }));
+  }
 });
 
 test('direction@3 publishes through the pinned Review inspection and live job host', async () => {

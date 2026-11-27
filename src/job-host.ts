@@ -5,8 +5,9 @@ import { startJobHost, waitForJobAct, type JobHostAttachFailure, type JobHostOpt
 import { asArray, checkProject, collectItems, loadCollection, isObject, type Finding } from './check.ts';
 import { baselineOf, newFindings } from './refusal-baseline.ts';
 import { assembleOnlyDraftTarget, assembleOnlyVersionFinding, assertDraftHasRig, readAssembleOnlyDraftTarget } from './draft-layout.ts';
+import { DirectionError } from './direction.ts';
 import { Refusal, refuse, USAGE_EXIT } from './refusal.ts';
-import { CURRENT_LIVE_MANIFEST, liveManifestPath, draftPackageIdentity, draftPublishedContext, eligibleRigDraftModel, inspectCurrentPublication, inspectDraftPublication, currentJobIdentity, optionPublicationRemedy, optionPublicationStage, partsEnumerator, prepareCurrentManifest, prepareDraftManifest, prepareLiveManifest, publicationFile, publicationSelector, publishedDraft, readPublished, readRecordPublished, recordOptionSets, riggingDraftPartsChange, type RecordPublicationResult } from './job-publication.ts';
+import { CURRENT_LIVE_MANIFEST, liveManifestPath, draftPackageIdentity, draftPublishedContext, eligibleRigDraftModel, inspectCurrentPublication, inspectDraftPublication, inspectNumberedPostPublication, currentJobIdentity, optionPublicationRemedy, optionPublicationStage, partsEnumerator, prepareCurrentManifest, prepareDraftManifest, prepareLiveManifest, publicationFile, publicationSelector, publishedDraft, readPublished, readRecordPublished, recordOptionSets, riggingDraftPartsChange, type RecordPublicationResult } from './job-publication.ts';
 import { acknowledgePublication, acquireJobLock, assertJobIdentity, CURRENT_PUBLICATION_OUTPUTS, enqueuePublication, ensureJobPrivateIgnores, failPublication, JOB_BINDING_FILE, jobHash, jobHostStateRoot, pendingPublications, privateDirectory, publicationVersionHash, readAcknowledgedPublication, readWriterBinding, reconcilePublication, refuseJobIdentityMismatch, writePrivateJson, isRecordResult, type CreateJobSelector, type CurrentPublicationOutput, type CurrentPublicationSelector, type NumberedPublicationSelector, type PublicationResult, type JobIdentity, type PendingPublication, type WriterBinding, type PublicationSubject } from './job-outbox.ts';
 import { commitCurrentPublication } from './project-step-commit.ts';
 import { draftPublicationResult } from './job-writer.ts';
@@ -604,6 +605,13 @@ export function assertRequestedRig(root: string, requested?: string, draft?: str
   if (selector.kind === 'post') {
     const finding = assembleOnlyVersionFinding(root, project, rigVersion, `versions[v${rig}]`);
     if (finding) refuse(finding.code, finding.message);
+    try {
+      // A composed post is sealed by its own build, while still binding the recorded parent above.
+      if (inspectNumberedPostPublication(root, project, n).composed) return selector;
+    } catch (error) {
+      if (error instanceof DirectionError) refuse(error.code, error.message);
+      throw error;
+    }
   }
   const pkg = rigVersion.review_package;
   if (!isObject(pkg) || !Array.isArray(pkg.files) || pkg.files.length === 0) {

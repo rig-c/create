@@ -344,6 +344,13 @@ Every verdict in `versions[].verdicts[]` is read against
   (`FEEDBACK_OPEN`) — the record is truthful and the next build is simply not
   made, and a refusal there would fail the check between every bounce and its
   rebuild.
+- **A current direction answers a numbered direction bounce** when its
+  `answers_feedback[]` names that open verdict. Pass repeatable
+  `--answers-feedback <version>:<verdict>` to `record direction --from`; the
+  writer records the references with the new output and retains them on later
+  direction recordings. Check reports the explicit answer as
+  `feedback[].answered_by_current_direction`. Output replacement alone leaves
+  the bounce open.
 - **A `not-asked` item** needs an `additions[]` entry at that answer (current or
   `history[]`) with `source: "polish feedback, v<n>"` whose `verbatim` is a
   fragment of the verdict's `verbatim`.
@@ -657,7 +664,7 @@ Exit `0`. Bookkeeping that names no missing decision.
 | `SECTION_RETIRED` | the table places a section on a waypoint or post item, but the installed parts no longer has it | drop it from the table and the record's `config[]` |
 | `WAYPOINT_CONFIG_STALE` | a record waypoint's `config[]` is not the set of sections parts places there | `rig-create packages upgrade --by <operator>`; it regenerates `config[]` from the installed parts in the same validated write and records the move |
 | `WAYPOINT_UNKNOWN` | the record has a waypoint no parts section is placed on | remove it, or place a section on it |
-| `FEEDBACK_OPEN` | the latest version has a human bounced verdict and no version is built after it yet. If `current.direction.adopted.version` names that post, the warning quotes the owner's open comment and the JSON exposes it in `feedback[].open_direction_comment` (check) and `open_direction_comments[]` (next) | use the comment when rebuilding the current direction, or for a numbered project build the next version and list the verdict in its `answers_feedback` |
+| `FEEDBACK_OPEN` | the latest version has an unanswered human bounced verdict and no numbered version is built after it yet. If `current.direction.adopted.version` names that post, the warning quotes the owner's open comment and the JSON exposes it in `feedback[].open_direction_comment` (check) and `open_direction_comments[]` (next) | rebuild the current direction and pass repeatable `--answers-feedback <version>:<verdict>` to `record direction --from`, or for a numbered project list the verdict in the next version's `answers_feedback` |
 | `PROVENANCE_CONFIG_CHANGED` | a version's `provenance.config.path` is present but its sha256 is not the recorded one, so its sections were not read | regenerate the config from the recorded command, or leave it: the sections provenance lists were checked |
 | `DIFF_MAP_MISSING`, `DIFF_MAP_NOT_AGENT`, `DIFF_MAP_REPORT`, `DIFF_MAP_STACK_MISMATCH`, `DIFF_MAP_POLICY`, `DIFF_MAP_COMPONENT_UNLISTED`, `DIFF_MAP_COMPONENT_UNKNOWN`, `DIFF_MAP_STATUS`, `DIFF_MAP_CLASS`, `DIFF_MAP_CLASS_WHY` | a draft at unsigned `parts-review` lacks a valid agent map for its retained stack; the publication reader omits the approval subject, and bound draft writers and `job open` print the named findings as WARNs while draft registration remains usable | prepare the producer report and record agent classifications with `rig-create diff-classes --diff-report <path> [--triage-file <file> \| --component <id>=<status>:<why>] --by agent`, then run `rig-create job open` to publish and ask the prepared approval subject; the person's approval is still required |
 | `DIFF_MAP_PREDATES` | a gated parts-review sign-off predates `DIFF_MAP_SINCE` and has no diff_map | preserve the record and include the map when parts are reviewed again |
@@ -2117,6 +2124,7 @@ until the owner signs the new output or a reopen makes the signature historical.
 | `RECORD_ADOPT_SOURCE_MISSING` | there is no live version of the applicable role, or the latest live version has no retained output bindings for the requested kind | restore the source version's bound inventory or produce new output and record it with `--from` |
 | `RECORD_ADOPT_SOURCE_INVALID` | `current` has an invalid shape, the source version is ambiguous or has invalid build metadata, a source binding is malformed or duplicated, or a bound file is missing, unreadable, symlinked or differs from its recorded SHA-256 or byte count | restore valid legacy bindings and their exact files, or produce new output and record it with `--from` |
 | `RECORD_ADOPT_DIRECTION_BOUNCED` | WARN on stderr after `record direction --adopt` succeeds and the source post's latest human direction verdict is bounced | use `rig-create next` to read the retained verdict's open comment before rebuilding the current direction |
+| `DIRECTION_FEEDBACK_REF_INVALID` | `current.direction.answers_feedback` is malformed, appears on an adopted node, or names a verdict other than an open human direction-review bounce that predates or coincides with the current write | record the new output using `record direction --from` and repeat `--answers-feedback <version>:<verdict>` once per open verdict you addressed |
 | `RECORD_FROM_INVALID` | `--from` is outside the project, is neither `outputs/<kind>` nor a sibling folder beside `outputs/<kind>/`, is not a real folder, or holds a symlink or other non-regular entry | point `--from` at a folder beside `outputs/<kind>/` (normally `outputs/<kind>.next`) or `outputs/<kind>` itself |
 | `RECORD_CONFIG_MISMATCH` | `--config` is outside the project, inside the output, not a regular file, or its sha256 differs from the config the `rig-run/1` record or the `rig-run/2` or `rig-run/3` build record names | pass the config the parts or rig output was built from, kept under `specs/rig/` |
 | `RECORD_MOTION_RIG_INVALID` | the current rig lacks a valid compiled-model binding, those model bytes are missing or changed, or the render run's skeleton or any supplied atlas or model input differs in path or hash from the recorded rig | restore or record the current rig, render from its bound build and record motion again |

@@ -14,7 +14,7 @@ import { readDirectionOutput } from './current-direction.ts';
 import { directionLoopSeamFindings } from './direction-loop-seam.ts';
 import { builtFromNameAllowed, CURRENT_KINDS, CURRENT_RIG_MODEL, currentFileBinding, currentHash, currentShapeFindings, isRunRecordFile, outputRoot, outputSetHash, RUN_RECORD_NAME, sha256, treeFiles, type CurrentKind, type RebuildRunSpec } from './current.ts';
 import { DirectionError } from './direction.ts';
-import { readProject } from './feedback.ts';
+import { directionFeedbackRefFinding, parseFeedbackPair, readProject } from './feedback.ts';
 import { recordCurrentPartsLedger } from './fix-ledger.ts';
 import { acquireBoundJobWrite } from './job-writer.ts';
 import type { CommandResult } from './interview.ts';
@@ -47,6 +47,7 @@ export const RECORD_HELP = `record:
                  record rigc frames.json and its render tree beside outputs/motion/, with render-run.json when present.
   rig-create record direction [<dir>] --from <compose out> --direction specs/direction/direction.json [--by <who>] [--json]
                  record green rig-parts compose output beside outputs/direction/, with compose-run.json and check/check.json.
+                 Repeat --answers-feedback <version>:<verdict> to answer open numbered direction-review bounces.
   rig-create record <kind> [<dir>] --adopt [--json]
                  record the latest live legacy version's bound output in place, when current.<kind> is absent.`;
 
@@ -524,12 +525,18 @@ export function recordCommand(args: string[], now: number): CommandResult {
   const valueFlags = ['--from', '--by', sourceFlag, ...(kind === 'parts' ? ['--ledger-report'] : [])];
   const positional: string[] = [];
   const options: Record<string, string> = {};
+  const feedbackPairs: string[] = [];
   let adopt = false;
   let json = false;
   for (let i = 0; i < rest.length; i++) {
     const arg = rest[i]!;
     if (arg === '--json' && !json) json = true;
     else if (arg === '--adopt' && !adopt) adopt = true;
+    else if (arg === '--answers-feedback' && kind === 'direction') {
+      const value = rest[++i];
+      if (value === undefined || value.startsWith('--') || !value.trim()) usage(`${arg} needs one value`, kind);
+      feedbackPairs.push(value!);
+    }
     else if (valueFlags.includes(arg) && options[arg] === undefined) {
       const value = rest[++i];
       if (value === undefined || value.startsWith('--') || !value.trim()) usage(`${arg} needs one value`, kind);
@@ -537,7 +544,7 @@ export function recordCommand(args: string[], now: number): CommandResult {
     } else if (arg.startsWith('-')) usage(`unexpected or repeated option ${arg}`, kind);
     else positional.push(arg);
   }
-  if (adopt && (positional.length > 1 || Object.keys(options).length)) {
+  if (adopt && (positional.length > 1 || Object.keys(options).length || feedbackPairs.length)) {
     usage('pass --adopt with at most one project folder and optional --json', kind);
   }
   if (!adopt && (positional.length > 1 || !options['--from'] || (sourceFlag && !options[sourceFlag]))) {
@@ -566,6 +573,15 @@ export function recordCommand(args: string[], now: number): CommandResult {
     const project = JSON.parse(original.toString('utf8')) as JsonObject;
     if (project.schema !== PROJECT_SCHEMA) refuse('SCHEMA_UNKNOWN', `project.json.schema: record ${kind} reads ${PROJECT_SCHEMA}`);
     if (adopt) return recordAdoption(dir, file, original, project, kind, now, json);
+    const current = isObject(project.current) ? project.current : {};
+    const priorNode = isObject(current[kind]) ? current[kind] : undefined;
+    const priorAnswers = kind === 'direction' ? priorNode?.answers_feedback : undefined;
+    if (feedbackPairs.length > 0 && priorAnswers !== undefined && !Array.isArray(priorAnswers)) {
+      const finding = directionFeedbackRefFinding('current.direction.answers_feedback', 'restore the existing answer array before adding an answer');
+      refuse(finding.code, finding.message);
+    }
+    const answers = feedbackPairs.length === 0 ? priorAnswers
+      : [...(Array.isArray(priorAnswers) ? priorAnswers : []), ...feedbackPairs.map(parseFeedbackPair)];
 
     // The producer's tree, read in place: every regular file, recorded at its path after the rename.
     let fromIsDir = false;
@@ -600,11 +616,10 @@ export function recordCommand(args: string[], now: number): CommandResult {
       ...(details.run ? { run: details.run } : {}),
       ...(details.report ? { report: details.report } : {}),
       ...(details.rebuild ? { rebuild: details.rebuild } : {}),
+      ...(answers === undefined ? {} : { answers_feedback: answers }),
     };
     const ledgerReport = options['--ledger-report'];
     const verifyLedger = kind === 'parts' ? recordCurrentPartsLedger(dir, project, node, ledgerReport, now) : undefined;
-    const current = isObject(project.current) ? project.current : {};
-    const priorNode = isObject(current[kind]) ? current[kind] : undefined;
     const previousBuiltFrom = priorNode && Array.isArray(priorNode.built_from)
       ? (priorNode.built_from as JsonObject[])
         .filter((entry): entry is FileHash => isObject(entry) && typeof entry.path === 'string' && typeof entry.sha256 === 'string')
@@ -684,6 +699,7 @@ export function recordCommand(args: string[], now: number): CommandResult {
       ...(sourceFlag ? [sourceFlag, config ?? options[sourceFlag]!] : []),
       ...(ledgerReport ? ['--ledger-report', ledgerReport] : []),
       ...(options['--by'] ? ['--by', options['--by']] : []),
+      ...feedbackPairs.flatMap(pair => ['--answers-feedback', pair]),
     ].map(value => /^[\w./@+-]+$/.test(value) ? value : JSON.stringify(value)).join(' ');
     const migrationWarning = migration.changed ? undefined : migration.warning;
     const commitWarning = !migration.changed && migration.failed ? undefined : commitProjectStep(dir, kind, writer, 'project.json', root, stale, {

@@ -435,6 +435,8 @@ describe('#992 real compose from next in two folders', () => {
       }
     }
   });
+});
+
 test('#1062 direction@4 accepts unsigned post steps, still requires unique camera and timing steps, and binds live post-interview signoffs when present', () => {
   const f = composeFixture();
   currentRig(f);

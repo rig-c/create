@@ -287,6 +287,32 @@ test('direction write seals current scene and record direction binds the real co
   expect(check(f.dir).warnings.map(f => f.code)).not.toContain('OUTPUT_STALE');
 });
 
+test('#1073 direction refuses missing staged evidence and dates the check of a recorded take', () => {
+  const f = composeFixture();
+  currentRig(f);
+  render(f.dir, false);
+  recordMotion(f.dir);
+  stagedDirection(f);
+  const original = raw(f.dir, 'project.json');
+  write(f.dir, seamSpec, seamBudget);
+  expect(() => recordDirection(f.dir)).toThrow(expect.objectContaining({ code: 'DIRECTION_LOOP_SEAM_MISSING' }));
+  expect(raw(f.dir, 'project.json')).toEqual(original);
+  expect(existsSync(join(f.dir, directionFrom))).toBe(true);
+
+  rmSync(join(f.dir, seamSpec));
+  expect(recordDirection(f.dir).exit).toBe(0);
+  write(f.dir, seamSpec, seamBudget);
+  const project = f.load();
+  const direction = (project.current as JsonObject).direction as JsonObject;
+  const since = Date.parse(LOOP_SEAM_REPORT_SINCE);
+  direction.at = new Date(since - 1).toISOString();
+  f.save(project);
+  expect(check(f.dir).warnings.map(f => f.code)).toContain('DIRECTION_LOOP_SEAM_MISSING');
+  direction.at = new Date(since).toISOString();
+  f.save(project);
+  expect(check(f.dir).refusals.map(f => f.code)).toContain('DIRECTION_LOOP_SEAM_MISSING');
+});
+
 test('a changed motion PNG with identical frames.json refuses new authoring and stales recorded direction', () => {
   const f = composeFixture();
   currentRig(f);

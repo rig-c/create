@@ -50,7 +50,8 @@ export const outputRoot = (kind: CurrentKind): string => `outputs/${kind}`;
 export const sha256 = (bytes: Buffer | string): string => createHash('sha256').update(bytes).digest('hex');
 const hex64 = (value: Json | undefined): value is string => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
 const literal = (path: Json | undefined): path is string => typeof path === 'string' && path.length > 0 && !path.startsWith('/')
-  && !path.includes('\\') && !path.includes(':') && path.split('/').every(part => part !== '' && part !== '.' && part !== '..');
+  && !/^[A-Za-z]:/.test(path) && !path.includes('\\') && !path.includes('\0')
+  && path.split('/').every(part => part !== '' && part !== '.' && part !== '..');
 
 /** Whether a `built_from` entry may name `path`: never a run record, never the compose check report. */
 export function builtFromNameAllowed(path: string): boolean {

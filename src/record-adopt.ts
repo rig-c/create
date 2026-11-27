@@ -13,7 +13,8 @@ type SourceProblem = {
 };
 
 function binding(value: Json | undefined): Binding | undefined {
-  if (!isObject(value) || typeof value.path !== 'string' || /[\\:\0]/.test(value.path)
+  if (!isObject(value) || typeof value.path !== 'string' || value.path.startsWith('/')
+    || /^[A-Za-z]:/.test(value.path) || /[\\\0]/.test(value.path)
     || value.path.split('/').some(part => !part || part === '.' || part === '..')
     || typeof value.sha256 !== 'string' || !/^[0-9a-f]{64}$/.test(value.sha256)) return undefined;
   return { path: value.path, sha256: value.sha256 };

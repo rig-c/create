@@ -126,10 +126,10 @@ describe('#871 retained assemble plate source checking', () => {
     expect(checkProject(dir).refusals).toEqual([]);
 
     const source = readPlatePainting(join(dir, painting));
-    const maskDir = join(dir, 'outputs/v1/out');
+    const maskDir = join(dir, 'outputs/v1/plate-assemble/rig');
     const readMask = () => readSourceMask('figure-mask', maskDir, 8, 16, source.raster, source.bytes);
     expect(readMask().inside.reduce((sum, pixel) => sum + pixel, 0)).toBe(128);
-    const maskPath = 'outputs/v1/out/figure_rig.png';
+    const maskPath = 'outputs/v1/plate-assemble/rig/figure_rig.png';
     const mask = readFileSync(join(dir, maskPath));
     mask[mask.length - 1] = mask[mask.length - 1]! ^ 1;
     writeFileSync(join(dir, maskPath), mask);

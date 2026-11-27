@@ -107,7 +107,7 @@ function checked(f: ReturnType<typeof setup>) {
 test('direction@2 keeps direction@1 camera and timing and gains the scene-bound post identity', () => {
   const f = setup(); expect(f.publish().exit).toBe(0);
   expect(readDirection(f.dir, f.load(), 2)).toEqual(f.doc);
-  expect((readDirection(f.dir, f.load(), 2).scene as JsonObject)).toEqual(f.doc.scene!);
+  expect(readDirection(f.dir, f.load(), 2).scene).toEqual(f.doc.scene!);
   expect(checked(f).refusals).toEqual([]); expect(checked(f).warnings).toEqual([]);
 });
 

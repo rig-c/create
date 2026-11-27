@@ -14,7 +14,7 @@ import {
 import { Refusal } from '../src/refusal.ts';
 import { sceneCommand } from '../src/scene-writers.ts';
 import { signoffCommand } from '../src/signoff.ts';
-import { repinNumberedCopy } from './fixtures.ts';
+import { repinNumberedCopy } from '../scripts/check-example-numbered.ts';
 
 export const STEP4_RETIRED_CODES = [
   'ASSEMBLY_CONFIG_STALE',

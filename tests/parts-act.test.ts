@@ -507,7 +507,7 @@ test('a new-id rebuild with failed publication retries through job reconcile', a
     ...current,
     drafts: [...(current.drafts as JsonObject[]), (current.drafts as JsonObject[])[1]!],
   };
-  expect(checkProject(root, duplicateCandidate).refusals.map(f => f.code)).toContain('DRAFT_RIG_MALFORMED');
+  expect(checkProject(root, duplicateCandidate, { now: Date.now() }).refusals.map(f => f.code)).toContain('DRAFT_RIG_MALFORMED');
 }, MULTI_SPAWN_TIMEOUT_MS);
 
 test('unbound draft seed allocates no job outbox', () => {

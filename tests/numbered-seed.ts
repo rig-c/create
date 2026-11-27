@@ -14,8 +14,8 @@ import { isDeepStrictEqual } from 'node:util';
 import { readPartsManifest, FIGURE_MASK_FILE, PAINTING_IN_RIG_FILE, partsFileReferences } from '@rig-c/parts/src/parts.ts';
 import { asArray, isObject } from '../src/check.ts';
 import { configInputBindings, configInputReferences, DIRECTORY_INPUT_RECEIPT, plateReceiptSpec, receiptSpec } from '../src/config-inputs.ts';
-import { closed, DIRECTION_SPEC, directionHash, objects } from '../src/direction.ts';
-import { composeInventory, composeRoot, composeScenePath, DIRECTION_COMPOSE_SPEC, readComposeRun } from '../src/direction-compose.ts';
+import { closed, DIRECTION_SPEC, directionHash } from '../src/direction.ts';
+import { composeRoot, composeScenePath, DIRECTION_COMPOSE_SPEC, readComposeRun } from '../src/direction-compose.ts';
 import { diffStackCandidates } from '../src/diff-map.ts';
 import { ASSEMBLE_ONLY } from '../src/draft-layout.ts';
 import { DRAFT_ID, relativeInventory } from '../src/draft-reuse.ts';
@@ -27,12 +27,12 @@ import { locateParts } from '../src/parts-sections.ts';
 import { readOwnerChat } from '../src/owner-chat.ts';
 import { readVerbatim } from '../src/record-input.ts';
 import { decodeReviewAct, draftReviewStillEvidence, isDraftReviewVerdict, retainedActBy, reviewActVerdict } from '../src/review-act.ts';
-import { parseRigCheckReport, RIG_CHECK_REPORT_FILE, SOURCE_EXPOSURE_ID, type RigCheckTarget } from '../src/rig-check-report.ts';
+import { parseRigCheckReport, RIG_CHECK_REPORT_FILE, SOURCE_EXPOSURE_ID } from '../src/rig-check-report.ts';
 import { FROZEN_RUN_SPECS, validateRunRecord } from '../src/run-record.ts';
 import { resolveAgentCitationSpec } from '../src/scene-authority.ts';
 import { plateRegistration, pngDimensions, SCENE_SPEC, sceneEntries, scenePath, sceneRig } from '../src/scene.ts';
 import { isScratchBindingPath } from '../src/scratch-bindings.ts';
-import { approvedStructureDelta } from '../src/structure.ts';
+import { approvedStructureDelta, rigPartsApproval } from '../src/structure.ts';
 import type { Json, JsonObject } from '../src/templates.ts';
 import { lockedPackage, type ToolchainKind } from '../src/toolchain-lock.ts';
 
@@ -118,11 +118,15 @@ export function materializeReviewPackageOnVersion(
       isObject(r) && isObject(r.source) && typeof r.source.path === 'string' ? [r.source.path] : []));
     const toolchain = version.registration.toolchain;
     const lockPath = isObject(toolchain) && isObject(toolchain.source) ? toolchain.source.path : undefined;
-    const metadataNames = new Set(['at-source.json', 'compile-report.json', 'config-source.json', 'requirements-source.json', 'config.json', 'package-lock.json', 'path-adapter.json', 'citations.json']);
+    const metadataNames = new Set([
+      'at-source.json', 'compile-report.json', 'config-source.json', 'requirements-source.json',
+      'config.json', 'package-lock.json', 'bun.lock', 'path-adapter.json', 'citations.json',
+      'depth-manifest.json', 'depth-report.json', 'depth-source-parts.json', RIG_CHECK_REPORT_FILE,
+    ]);
     for (const binding of asArray(version.registration.files)) {
       if (!isObject(binding) || typeof binding.path !== 'string' || !binding.path.startsWith(prefix)) continue;
       const rel = binding.path.slice(prefix.length);
-      if (binding.path === lockPath || metadataNames.has(rel) || runFiles.has(binding.path)) continue;
+      if (binding.path === lockPath || metadataNames.has(rel) || rel.startsWith('depth-map-bindings/') || runFiles.has(binding.path)) continue;
       if ([...directories].some(d => rel.startsWith(`${d}/`)) && !named.some(input => input.path === rel)) continue;
       const file = realpathSync(resolve(dir, binding.path));
       const path = relative(dirname(configAbs), file).split(sep).join('/');
@@ -428,7 +432,7 @@ export function seedRetainedDirectionPost(args: string[], now = Date.UTC(2026, 1
     };
     const runBinding = findRow('compose-run.json');
     const parsedRun = readComposeRun(readFileSync(join(dir, String(runBinding.path))), String(runBinding.path));
-    const clipped = parsedRun.characters.find(c => c.placement !== undefined)?.placement?.clippedBounds;
+    const clipped = parsedRun.characters.find(c => c.placement !== undefined)?.placement?.clipped_bounds;
     doc = {
       ...doc,
       rig: { version: rigN, acceptance: (rigBinding.rig as JsonObject).acceptance! },
@@ -669,15 +673,19 @@ export function seedRetainedRigVersion(args: string[], now = Date.UTC(2026, 10, 
   const dir = realpathSync(resolve(positional[1] ?? process.cwd()));
   const { project } = readProjectJson(dir);
   const answersFeedback = answerValues.map(v => parseFeedbackPair(v)!);
+  const regAt = new Date(now).toISOString();
   const checkAccepted = acceptedBars.length > 0 || acceptedLines.length > 0 || acceptExposure
-    ? {
-        by: options['--check-accepted-by']!,
-        chat: readOwnerChat({
-          '--owner-chat': options['--owner-chat'],
-          '--said-at': options['--said-at'],
-          '--relayed-by': options['--relayed-by'],
-        }, `versions[v${n}].registration.check_report`, now)!,
-      }
+    ? readOwnerChat(
+        {
+          ...(options['--owner-chat'] !== undefined ? { '--owner-chat': options['--owner-chat'] } : {}),
+          ...(options['--said-at'] !== undefined ? { '--said-at': options['--said-at'] } : {}),
+          ...(options['--relayed-by'] !== undefined ? { '--relayed-by': options['--relayed-by'] } : {}),
+        },
+        options['--check-accepted-by'] ?? '',
+        now,
+        `versions[v${n}].registration.check_report`,
+        true,
+      )!
     : undefined;
 
   const out = `outputs/v${n}`;
@@ -720,19 +728,18 @@ export function seedRetainedRigVersion(args: string[], now = Date.UTC(2026, 10, 
         const { spec, record } = validateRunRecord(runBytes, `${assemblyRel}/run.json`, { allowAssembleInputs: true });
         const manifest = readPartsManifest(join(dir, out, 'out/parts.json'));
         if (spec === 'rig-run/1' && record.command === 'assemble' && manifest.scene?.figure_mask === FIGURE_MASK_FILE) {
+          const plateDir = join(dir, out, 'plate-assemble');
+          mkdirSync(plateDir, { recursive: true });
+          writeFileSync(join(plateDir, 'run.json'), runBytes);
           for (const o of asArray(record.outputs).filter(isObject)) {
             const p = String(o.path);
-            if (!p.startsWith('rig/')) {
-              const src = join(dir, assemblyRel, p);
-              const dst = join(dir, out, 'out', p);
-              if (existsSync(src) && !existsSync(dst)) {
-                mkdirSync(dirname(dst), { recursive: true });
-                writeFileSync(dst, readFileSync(src));
-              }
+            const src = join(dir, assemblyRel, p);
+            const dst = join(plateDir, p);
+            if (existsSync(src)) {
+              mkdirSync(dirname(dst), { recursive: true });
+              writeFileSync(dst, readFileSync(src));
             }
           }
-          const runDst = join(dir, out, 'out/run.json');
-          if (!existsSync(runDst)) writeFileSync(runDst, runBytes);
         }
       } catch { /* optional */ }
     }
@@ -746,8 +753,8 @@ export function seedRetainedRigVersion(args: string[], now = Date.UTC(2026, 10, 
   catch { lockRaw = Bun.JSONC.parse(lockBytes.toString('utf8')) as Json; }
   const lockKind: ToolchainKind = strictJson && isObject(lockRaw) && lockRaw.lockfileVersion === 3 ? 'npm-lock-v3' : 'bun-lock';
   const builtWith: JsonObject = {
-    '@rig-c/parts': lockedPackage(lockRaw as JsonObject, lockKind, '@rig-c/parts').version!,
-    '@rig-c/core': lockedPackage(lockRaw as JsonObject, lockKind, '@rig-c/core').version!,
+    '@rig-c/parts': String(lockedPackage(lockRaw as JsonObject, lockKind, '@rig-c/parts').version),
+    '@rig-c/core': String(lockedPackage(lockRaw as JsonObject, lockKind, '@rig-c/core').version),
   };
   const lockTarget = `${evidence}/${lockKind === 'bun-lock' ? 'bun.lock' : 'package-lock.json'}`;
   const lockBinding = retain(lockTarget, lockBytes);
@@ -894,27 +901,41 @@ export function seedRetainedRigVersion(args: string[], now = Date.UTC(2026, 10, 
   const idleBinding = outputs.find(f => f.path === `${out}/idle/frames.json`)!;
 
   let depthRecord: JsonObject | undefined;
+  const drPath = join(partsAbs, 'depth-report.json');
   const sheetsOutput = outputs.find(f => f.path === `${out}/out/rig/depth_sheets.json`);
-  if (sheetsOutput || options['--depth-manifest'] || depthMapBindings.length > 0) {
+  const usesConfigDepth = isObject(configObj.depth) || (isObject(configObj.turn) && Object.values(configObj.turn).some(g =>
+    isObject(g) && isObject(g.roles) && Object.values(g.roles).some(r => isObject(r) && typeof r.depth === 'number')));
+  if (usesConfigDepth || sheetsOutput || options['--depth-manifest'] || existsSync(drPath) || depthMapBindings.length > 0) {
+    const perPart = options['--depth-manifest'] !== undefined || existsSync(drPath) || !isObject(configObj.depth);
     const sheets = sheetsOutput ? { path: sheetsOutput.path, sha256: sheetsOutput.sha256 } : undefined;
-    if (options['--depth-manifest']) {
-      const dmAbs = resolve(dir, options['--depth-manifest']);
-      const dmBinding = retain(`${evidence}/depth-manifest.json`, readFileSync(dmAbs));
-      const drPath = join(partsAbs, 'depth-report.json');
-      const drBinding = existsSync(drPath) ? retain(`${evidence}/depth-report.json`, readFileSync(drPath)) : undefined;
-      const mapBindings = depthMapBindings.map(p => {
-        const bBytes = readFileSync(resolve(dir, p));
-        const bDoc = JSON.parse(bBytes.toString('utf8')) as JsonObject;
-        const retained = retain(`${evidence}/depth-map-bindings/${String(bDoc.part)}.json`, bBytes);
-        return { part: bDoc.part!, spec: bDoc.spec!, ...retained };
-      });
-      depthRecord = {
-        route: 'per-part',
-        ...(sheets ? { sheets } : {}),
-        manifest: dmBinding,
-        ...(drBinding ? { report: drBinding } : {}),
-        ...(mapBindings.length ? { map_bindings: mapBindings } : {}),
-      };
+    if (perPart) {
+      depthRecord = { route: 'per-part' };
+      const approval = rigPartsApproval(project, { at });
+      const approvedDraft = asArray(project.drafts).filter(isObject).find(d => d.id === approval?.draft_id);
+      if (approval && isObject(approvedDraft?.parts) && typeof approvedDraft.parts.path === 'string') {
+        const originalParts = resolve(dir, approvedDraft.parts.path, 'parts.json');
+        if (existsSync(originalParts)) {
+          depthRecord.source_parts = retain(`${evidence}/depth-source-parts.json`, readFileSync(originalParts));
+          if (realpathSync(resolve(dir, approvedDraft.parts.path)) === partsAbs && existsSync(drPath)) {
+            depthRecord.source_parts_applied = true;
+          }
+        }
+      }
+      if (sheets) depthRecord.sheets = sheets;
+      if (options['--depth-manifest']) {
+        depthRecord.manifest = retain(`${evidence}/depth-manifest.json`, readFileSync(resolve(dir, options['--depth-manifest'])));
+      }
+      if (existsSync(drPath)) {
+        depthRecord.report = retain(`${evidence}/depth-report.json`, readFileSync(drPath));
+      }
+      if (depthMapBindings.length) {
+        depthRecord.map_bindings = depthMapBindings.map((p, idx) => {
+          const bBytes = readFileSync(resolve(dir, p));
+          const bDoc = JSON.parse(bBytes.toString('utf8')) as JsonObject;
+          const retained = retain(`${evidence}/depth-map-bindings/${idx}.json`, bBytes);
+          return { ...retained, spec: bDoc.spec!, part: bDoc.part! };
+        });
+      }
     } else if (sheets) {
       depthRecord = { route: 'per-layer', sheets };
     }
@@ -925,32 +946,24 @@ export function seedRetainedRigVersion(args: string[], now = Date.UTC(2026, 10, 
     const crBytes = readFileSync(resolve(dir, options['--check-report']));
     const target = `${evidence}/${RIG_CHECK_REPORT_FILE}`;
     const retained = retain(target, crBytes);
-    const parsed = parseRigCheckReport(crBytes, target);
-    const targets: RigCheckTarget[] = [
-      ...acceptedBars.map((id): RigCheckTarget => ({ kind: 'bar', id })),
-      ...acceptedLines.map((id): RigCheckTarget => ({ kind: 'requirement', id })),
-      ...(acceptExposure ? [{ kind: 'exposure', id: SOURCE_EXPOSURE_ID } as const] : []),
-    ];
+    const parsed = parseRigCheckReport(crBytes);
+    const acceptances: JsonObject[] = checkAccepted
+      ? [
+          ...acceptedBars.map(id => ({ kind: 'bar', id, ...checkAccepted, at: regAt })),
+          ...acceptedLines.map(id => ({ kind: 'line', id, ...checkAccepted, at: regAt })),
+          ...(acceptExposure ? [{ kind: 'exposure', id: SOURCE_EXPOSURE_ID, ...checkAccepted, at: regAt }] : []),
+        ]
+      : [];
     checkReportBinding = {
       ...retained,
-      ...(parsed.spec ? { spec: parsed.spec } : {}),
-      ...(checkAccepted ? {
-        accepted: {
-          by: checkAccepted.by,
-          at: new Date(now).toISOString(),
-          verbatim: checkAccepted.chat.verbatim,
-          said_at: checkAccepted.chat.said_at,
-          relayed_by: checkAccepted.chat.relayed_by,
-          source: checkAccepted.chat.source,
-          targets,
-        },
-      } : {}),
+      spec: parsed.spec ?? null,
+      ...(acceptances.length ? { acceptances } : {}),
     };
   }
 
   const registration: JsonObject = {
     kind: 'frozen-rig/1',
-    at: new Date(now).toISOString(),
+    at: regAt,
     by: options['--by']!,
     ...(skipped.length ? { skipped } : {}),
     toolchain: { kind: lockKind, source: lockBinding },
@@ -968,7 +981,6 @@ export function seedRetainedRigVersion(args: string[], now = Date.UTC(2026, 10, 
     copied: { files: outputs.length, bytes: outputs.reduce((s, o) => s + o.bytes, 0) },
   };
 
-  const delta = approvedStructureDelta(dir, project, configObj, Date.parse(at));
   const version: JsonObject = {
     n,
     kind: 'rig',
@@ -983,16 +995,18 @@ export function seedRetainedRigVersion(args: string[], now = Date.UTC(2026, 10, 
     verdicts: [],
     answers_feedback: answersFeedback,
     review_origin: null,
-    provenance: { config: configBinding, sections, ...(delta ? { structure_delta: delta } : {}) },
+    provenance: { config: configBinding, sections },
     registration,
   };
+  const delta = approvedStructureDelta(dir, project, version, configObj);
+  if (delta.length) (version.provenance as JsonObject).structure_delta = delta;
 
   const manifestDoc = readPartsManifest(join(dir, out, 'out/parts.json'));
-  const partRefs = partsFileReferences(manifestDoc);
-  if (manifestDoc.painting_in_rig && !partRefs.some(r => r.path === PAINTING_IN_RIG_FILE)) {
-    partRefs.push({ path: PAINTING_IN_RIG_FILE, at: 'painting_in_rig.path' });
+  const partRefs = partsFileReferences(join(dir, out, 'out')).map(r => r.path);
+  if (manifestDoc.painting_in_rig && !partRefs.includes(PAINTING_IN_RIG_FILE)) {
+    partRefs.push(PAINTING_IN_RIG_FILE);
   }
-  materializeReviewPackageOnVersion(dir, n, version, String(configBinding.path), `${out}/out`, partRefs.map(r => r.path));
+  materializeReviewPackageOnVersion(dir, n, version, String(configBinding.path), `${out}/out`, partRefs);
 
   if (carryDraftVerdict) {
     const carried = findCarriedDraftVerdict(dir, project, version, configAbs, configInputSources, now);

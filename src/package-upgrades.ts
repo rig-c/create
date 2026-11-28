@@ -3,17 +3,20 @@ import { join } from 'node:path';
 import { lstatSync } from './check-reads.ts';
 import { isObject, readJsonObject, type Finding } from './check.ts';
 import { COLLECTION_SCHEMA } from './collection-binding-reader.ts';
+import { LAST_NUMBERED_CREATE_RELEASE } from './numbered-retirement.ts';
 import { CREATE_PACKAGE, runningCreateVersion } from './pins.ts';
 import type { JsonObject } from './templates.ts';
 
 export const LEGACY_PACKAGE_NAMES = ['@rig-c/core', '@rig-c/parts', '@rig-c/review'] as const;
 export const PACKAGE_NAMES = ['@rig-c/core', CREATE_PACKAGE, '@rig-c/parts', '@rig-c/review'] as const;
 export const exactVersion = (value: unknown): value is string => typeof value === 'string' && /^\d+\.\d+\.\d+$/.test(value);
+const LAST_NUMBERED_CREATE_SERIES = `${LAST_NUMBERED_CREATE_RELEASE.split('.').slice(0, 2).join('.')}.x`;
 
 export function createPinWarning(
   dir: string,
   collection: JsonObject | null = null,
   running = runningCreateVersion(),
+  currentPath = true,
 ): Finding | undefined {
   const file = join(dir, 'package.json');
   if (lstatSync(file, { throwIfNoEntry: false }) === undefined) {
@@ -43,10 +46,17 @@ export function createPinWarning(
     };
   }
   if (declared !== running) {
+    const retiredNumberedWalk = !currentPath
+      && exactVersion(declared)
+      && exactVersion(running)
+      && compareVersions(declared, LAST_NUMBERED_CREATE_RELEASE) <= 0
+      && compareVersions(running, LAST_NUMBERED_CREATE_RELEASE) > 0;
     return {
       code: 'CREATE_PIN_MISMATCH',
       path,
-      message: `${path}: declares ${JSON.stringify(declared)}, while the running ${CREATE_PACKAGE} is ${running}; run rig-create packages upgrade --by <operator> to move the pin, or run the project's declared ${CREATE_PACKAGE}`,
+      message: retiredNumberedWalk
+        ? `${path}: declares ${JSON.stringify(declared)}, while the running ${CREATE_PACKAGE} is ${running}, where numbered writers are retired; use Create ${LAST_NUMBERED_CREATE_SERIES} (${CREATE_PACKAGE}@${LAST_NUMBERED_CREATE_RELEASE}) to keep writing on the numbered path, or adopt onto the current path (docs/PROJECT.md#adopting-existing-numbered-outputs)`
+        : `${path}: declares ${JSON.stringify(declared)}, while the running ${CREATE_PACKAGE} is ${running}; run rig-create packages upgrade --by <operator> to move the pin, or run the project's declared ${CREATE_PACKAGE}`,
     };
   }
   return undefined;

@@ -7,7 +7,7 @@ import { packagesCommand } from '../src/packages-upgrade.ts';
 import { packageUpgradeFindings, packageUpgradeWarnings } from '../src/package-upgrades.ts';
 import { CREATE_PACKAGE, PINNED_PACKAGES, runningCreateVersion } from '../src/pins.ts';
 import { readTemplate } from '../src/templates.ts';
-import { checkProject } from '../src/check.ts';
+import { checkProject, formatReport } from '../src/check.ts';
 import { Refusal } from '../src/refusal.ts';
 import { tempDir } from './helpers.ts';
 import { EXAMPLE_ANCHOR, EXAMPLE_NOW } from '../scripts/example-time.ts';
@@ -539,4 +539,152 @@ test('a standalone project without package.json (or with a dangling symlink) war
   expect(existsSync(join(member.dir, 'package.json'))).toBe(false);
   const memberReport = checkProject(member.dir, undefined, { now: EXAMPLE_NOW, readOnly: true });
   expect(memberReport.warnings).toEqual([]);
+});
+
+test('#1158 numbered projects pinned at or below LAST_NUMBERED_CREATE_RELEASE warn the two retired-writer routes on 2.x, while current, adopted and 1.x runs keep packages upgrade', async () => {
+  const { cpSync } = await import('node:fs');
+  const { LAST_NUMBERED_CREATE_RELEASE } = await import('../src/numbered-retirement.ts');
+  const { cli, gitEnv } = await import('./helpers.ts');
+  const { fixture: materialize } = await import('./fixtures.ts');
+  const env = gitEnv();
+
+  const repo = join(import.meta.dir, '..');
+  const chainDir = join(repo, 'templates/example-chain');
+  const remeshDir = join(repo, 'templates/example-remesh');
+  const currentTemplateDir = join(repo, 'templates/example-current');
+  const numberedFrozenPkg = JSON.parse(readFileSync(join(repo, 'templates/example-numbered/package.json'), 'utf8')) as {
+    dependencies: Record<string, string>;
+  };
+  const numberedDeclared = numberedFrozenPkg.dependencies[CREATE_PACKAGE]!;
+  expect(numberedDeclared).toBe('1.26.0');
+
+  const numberedDir = materialize(() => {}, 'example-numbered/example-project.json');
+  roots.push(numberedDir);
+  const numberedPkgPath = join(numberedDir, 'package.json');
+  const numberedPkg = JSON.parse(readFileSync(numberedPkgPath, 'utf8')) as { dependencies: Record<string, string> };
+  numberedPkg.dependencies[CREATE_PACKAGE] = numberedDeclared;
+  writeFileSync(numberedPkgPath, `${JSON.stringify(numberedPkg, null, 2)}\n`);
+
+  // Bar 1: all three frozen numbered fixtures check with 0 refusals and exactly one CREATE_PIN_MISMATCH warning on 2.0.0.
+  for (const [dir, expectedDeclared] of [
+    [chainDir, LAST_NUMBERED_CREATE_RELEASE],
+    [remeshDir, LAST_NUMBERED_CREATE_RELEASE],
+    [numberedDir, numberedDeclared],
+  ] as const) {
+    const report = checkProject(dir, undefined, { now: EXAMPLE_NOW, readOnly: true, runningCreateVersion: '2.0.0' });
+    expect(report.refusals).toEqual([]);
+    expect(report.warnings.map(f => f.code)).toEqual(['CREATE_PIN_MISMATCH']);
+    const [warning] = report.warnings;
+    expect(warning!.path).toBe(`package.json.dependencies[${CREATE_PACKAGE}]`);
+    expect(warning!.message).toContain(`declares ${JSON.stringify(expectedDeclared)}, while the running ${CREATE_PACKAGE} is 2.0.0`);
+    expect(warning!.message).toContain(`use Create 1.27.x (${CREATE_PACKAGE}@${LAST_NUMBERED_CREATE_RELEASE}) to keep writing on the numbered path`);
+    expect(warning!.message).toContain('docs/PROJECT.md#adopting-existing-numbered-outputs');
+    expect(warning!.message).not.toContain('packages upgrade');
+    expect(warning!.message).not.toContain('Create 1.26');
+  }
+
+  // A numbered project declaring 1.27.0 at running 1.27.0 gets no warning; 1.26.0 at running 1.27.0 and >1.27.0 at running 2.0.0 keep generic text.
+  const chainAt127 = checkProject(chainDir, undefined, {
+    now: EXAMPLE_NOW,
+    readOnly: true,
+    runningCreateVersion: LAST_NUMBERED_CREATE_RELEASE,
+  });
+  expect(chainAt127.refusals).toEqual([]);
+  expect(chainAt127.warnings).toEqual([]);
+
+  const numberedAt127 = checkProject(numberedDir, undefined, {
+    now: EXAMPLE_NOW,
+    readOnly: true,
+    runningCreateVersion: LAST_NUMBERED_CREATE_RELEASE,
+  });
+  expect(numberedAt127.refusals).toEqual([]);
+  expect(numberedAt127.warnings.map(f => f.code)).toEqual(['CREATE_PIN_MISMATCH']);
+  expect(numberedAt127.warnings[0]!.message).toContain('rig-create packages upgrade --by <operator>');
+
+  const numberedAboveLast = tempDir();
+  roots.push(numberedAboveLast);
+  cpSync(chainDir, numberedAboveLast, { recursive: true });
+  const abovePkg = JSON.parse(readFileSync(join(numberedAboveLast, 'package.json'), 'utf8')) as { dependencies: Record<string, string> };
+  abovePkg.dependencies[CREATE_PACKAGE] = '2.1.0';
+  writeFileSync(join(numberedAboveLast, 'package.json'), `${JSON.stringify(abovePkg, null, 2)}\n`);
+  const aboveReport = checkProject(numberedAboveLast, undefined, { now: EXAMPLE_NOW, readOnly: true, runningCreateVersion: '2.0.0' });
+  expect(aboveReport.warnings.map(f => f.code)).toEqual(['CREATE_PIN_MISMATCH']);
+  expect(aboveReport.warnings[0]!.message).toContain('rig-create packages upgrade --by <operator>');
+
+  // Bar 2 (adopt route) + Bar 3 (adopted projects at 1.26.0 and 1.27.0 drop numbered-route text on 2.0.0).
+  // example-numbered predates rig-version output bindings (RECORD_ADOPT_SOURCE_MISSING in example-numbered-baseline.json),
+  // so docs/PROJECT.md#adopting-existing-numbered-outputs transitions it via canonical `record rig --from`.
+  const missingAdopt = cli(['record', 'rig', numberedDir, '--adopt', '--json'], numberedDir, env);
+  expect(missingAdopt.code).toBe(1);
+  expect(missingAdopt.stderr).toContain('RECORD_ADOPT_SOURCE_MISSING');
+
+  cpSync(join(repo, 'templates/example-draft/out'), join(numberedDir, 'outputs/rig.next'), { recursive: true });
+  mkdirSync(join(numberedDir, 'specs/rig'), { recursive: true });
+  cpSync(join(repo, 'templates/example-draft/config.json'), join(numberedDir, 'specs/rig/config.json'));
+  const draftModelSha = createHash('sha256')
+    .update(readFileSync(join(numberedDir, 'outputs/rig.next/check/build/skeleton.model.json')))
+    .digest('hex');
+  mkdirSync(join(numberedDir, 'outputs/rig.next/check'), { recursive: true });
+  writeFileSync(
+    join(numberedDir, 'outputs/rig.next/check/check.json'),
+    JSON.stringify({ spec: 'rig-parts-check/1', bar_outcomes: {}, build: { model_sha256: draftModelSha }, PASS: true }),
+  );
+  const numberedCanonical = cli(
+    ['record', 'rig', numberedDir, '--from', 'outputs/rig.next', '--config', 'specs/rig/config.json', '--json'],
+    numberedDir,
+    env,
+  );
+  expect(numberedCanonical.code).toBe(0);
+  const numberedAfterReport = checkProject(numberedDir, undefined, { now: EXAMPLE_NOW, readOnly: true, runningCreateVersion: '2.0.0' });
+  expect(numberedAfterReport.refusals).toEqual([]);
+  expect(numberedAfterReport.warnings.map(f => f.code)).toEqual(['CREATE_PIN_MISMATCH', 'REBUILD_ARGS_UNRECORDED']);
+  const numberedFormatted = formatReport(numberedAfterReport);
+  expect(numberedFormatted).toContain('warning CREATE_PIN_MISMATCH:');
+  expect(numberedFormatted).toContain('rig-create packages upgrade --by <operator>');
+  expect(numberedFormatted).not.toContain('numbered writers are retired');
+
+  for (const declared of [numberedDeclared, LAST_NUMBERED_CREATE_RELEASE]) {
+    const adoptedClone = tempDir();
+    roots.push(adoptedClone);
+    cpSync(chainDir, adoptedClone, { recursive: true });
+    const clonePkgPath = join(adoptedClone, 'package.json');
+    const clonePkg = JSON.parse(readFileSync(clonePkgPath, 'utf8')) as { dependencies: Record<string, string> };
+    clonePkg.dependencies[CREATE_PACKAGE] = declared;
+    writeFileSync(clonePkgPath, `${JSON.stringify(clonePkg, null, 2)}\n`);
+
+    const adopted = cli(['record', 'rig', adoptedClone, '--adopt', '--json'], adoptedClone, env);
+    expect(adopted.code).toBe(0);
+    expect(JSON.parse(adopted.stdout)).toMatchObject({ adopted: { version: 1 } });
+
+    const adoptedReport = checkProject(adoptedClone, undefined, { now: EXAMPLE_NOW, readOnly: true, runningCreateVersion: '2.0.0' });
+    expect(adoptedReport.refusals).toEqual([]);
+    expect(adoptedReport.warnings.map(f => f.code)).toEqual(['CREATE_PIN_MISMATCH', 'REBUILD_ARGS_UNRECORDED']);
+    const formatted = formatReport(adoptedReport);
+    expect(formatted).toContain('warning CREATE_PIN_MISMATCH:');
+    expect(formatted).toContain('rig-create packages upgrade --by <operator>');
+    expect(formatted).not.toContain('numbered writers are retired');
+  }
+
+  // Bar 3 & Bar 4: current-path project gets generic text when mismatched at 2.0.0, and 0 warnings when matching.
+  const currentClone = tempDir();
+  roots.push(currentClone);
+  cpSync(currentTemplateDir, currentClone, { recursive: true });
+  const currentPkgPath = join(currentClone, 'package.json');
+  const currentPkg = JSON.parse(readFileSync(currentPkgPath, 'utf8')) as { dependencies: Record<string, string> };
+  currentPkg.dependencies[CREATE_PACKAGE] = LAST_NUMBERED_CREATE_RELEASE;
+  writeFileSync(currentPkgPath, `${JSON.stringify(currentPkg, null, 2)}\n`);
+
+  const currentMismatch = checkProject(currentClone, undefined, { now: EXAMPLE_NOW, readOnly: true, runningCreateVersion: '2.0.0' });
+  expect(currentMismatch.refusals).toEqual([]);
+  expect(currentMismatch.warnings.map(f => f.code)).toEqual(['CREATE_PIN_MISMATCH']);
+  expect(currentMismatch.warnings[0]!.message).toContain('rig-create packages upgrade --by <operator>');
+  expect(currentMismatch.warnings[0]!.message).not.toContain('numbered writers are retired');
+
+  const currentMatching = checkProject(currentClone, undefined, {
+    now: EXAMPLE_NOW,
+    readOnly: true,
+    runningCreateVersion: LAST_NUMBERED_CREATE_RELEASE,
+  });
+  expect(currentMatching.refusals).toEqual([]);
+  expect(currentMatching.warnings).toEqual([]);
 });

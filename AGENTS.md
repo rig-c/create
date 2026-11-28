@@ -128,6 +128,9 @@ that comment exists. Codex's own review of it does not count.
    - The frozen numbered fixtures (`templates/example-numbered/`,
      `templates/example-chain/` and `templates/example-remesh/`) have no
      writers: they are verified by SHA-256 and never regenerated.
+   - The 0-warnings rule applies to `templates/example-current/`; the frozen
+     numbered fixtures check at 0 refusals and only WARN `CREATE_PIN_MISMATCH`
+     when running Create 2.x.
 6. **Writers refuse before they write.** A command that records into
    `project.json` validates with the same function the check uses, and a
    refused write leaves the file byte-identical.

@@ -102,7 +102,7 @@ restore instructions. See {{LIFETIME_LINK}}.
 
 {{READ_FIRST}}
 
-Read installed docs at the pins in `package.json` and run named remedies.
+Read installed docs at the pins in `package.json` and run named remedies; for `CREATE_PIN_MISMATCH` on a numbered project, use Create 1.27.x or adopt, not `packages upgrade`.
 
 {{PACKAGE_DOCS}}
 

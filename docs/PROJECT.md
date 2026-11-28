@@ -2180,10 +2180,11 @@ A later human bounce makes the earlier bound acceptance stale.
 
 ## Scene composition and direction@2
 
-On the current path, `scene write [<dir>] --compose-scene <file>` seals the
-`spine-parts-scene/1` composition at `specs/direction/compose-scene.json`
-before `record direction`. Numbered `scene write` (`--rig`, `--background`,
-`--citations-file`) is retired (`NUMBERED_WRITER_REMOVED`, exit 2), while
+On the current path, `scene write [<dir>] --background <path> [--foreground <path>] [--background-rect x,y,w,h] [--foreground-rect x,y,w,h] [--animation <name>] --citations-file <file>`
+and `scene write [<dir>] --compose-scene <file> [--animation <name>]` write
+`specs/direction/scene.json` (`rig-create/scene@2`), binding `current.rig` and
+`current.motion` before `direction write` and `record direction`. Numbered
+`scene write --rig <n>` is retired (`NUMBERED_WRITER_REMOVED`, exit 2), while
 `check` continues to validate stored `scenes[]` entries `{n,path,sha256,at,by}`
 and immutable `evidence/scene/s<N>.json` documents (`rig-create/scene@1`)
 read-only. Stored agent entries carry `by:"agent"`, authorized by the ingested

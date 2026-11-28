@@ -632,7 +632,7 @@ function interviewPlanMoves(dir: string, project: JsonObject, stageItems: Item[]
       command: `rig-create plan add ${id} ${shellWord(dir)} --by agent --phase ${phase} --order ${order} --does '<work>' --produces '<result>' --rests-on ${guideId} --bar '<acceptance bar>' --checkpoint-proposed false`,
       act: postRecovery
         ? `Record the ${id} plan step from the recorded ${guideId} answer; replace the work, result and acceptance bar placeholders.`
-        : `author the ${id} plan step for approval at ${stage}; replace the work, result and acceptance bar placeholders`,
+        : `author the ${id} plan step at ${stage}; replace the work, result and acceptance bar placeholders`,
       unanswered_by_record: 'plan.steps' });
   }
   return { planIds, missingPlanIds, moves };

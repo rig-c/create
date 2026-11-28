@@ -1985,7 +1985,7 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
     const signoffs = asArray(project.signoffs);
     const readyToResign = new Map<string, boolean>();
     for (const finding of report.refusals) {
-      if (finding.code !== 'SIGNOFF_ANSWERS_STALE') continue;
+      if (currentPath || finding.code !== 'SIGNOFF_ANSWERS_STALE') continue;
       const match = /^signoffs\[(\d+)\]\.answer_hashes\[(.+)\]$/.exec(finding.path);
       if (!match) continue;
       const signoff = signoffs[Number(match[1])];

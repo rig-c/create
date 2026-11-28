@@ -111,7 +111,9 @@ export function checkSignoffTarget(dir: string, project: JsonObject, signoff: Js
   const missing = target === undefined || target === null;
   let reason = missing ? 'target missing' : '';
   const signedAt = Date.parse(String(signoff.at));
-  const historical = current && currentOutputSupersedesSignoff(project, kind, signedAt);
+  const historical = current && signoff.checkpoint === null
+    && typeof signoff.by === 'string' && typeof signoff.verbatim === 'string'
+    && currentOutputSupersedesSignoff(project, kind, signedAt);
   if (!missing && current) {
     try {
       if (!isObject(target) || target.subject !== `current.${kind}` || Object.keys(target).length !== 3
@@ -150,11 +152,11 @@ export function checkSignoffTarget(dir: string, project: JsonObject, signoff: Js
     } catch (error) { reason = error instanceof Error ? error.message : String(error); }
   }
   if (!reason) {
-    if (currentParts || historical) {
+    if (currentParts) {
       const authority = ownerChatAuthorityFinding(signoff, path, signoff.verbatim);
       // The generic owner-chat scan already reports malformed relay fields.
       if (authority?.code === 'OWNER_CHAT_REQUIRED') refusals.push(authority);
-      if (currentParts) checkCurrentPartsStructure(dir, project, signoff, path, refusals, historical);
+      checkCurrentPartsStructure(dir, project, signoff, path, refusals, historical);
       return;
     }
     const pair = current ? undefined : signoffPairFinding(project, signoff, path);
@@ -165,7 +167,8 @@ export function checkSignoffTarget(dir: string, project: JsonObject, signoff: Js
   const code = `SIGNOFF_TARGET_${missing ? 'MISSING' : 'STALE'}${legacy ? '_LEGACY' : ''}`;
   const at = `${path}.target`;
   const remedy = current ? currentRemedy(kind, stage) : `numbered ${stage} signatures are read-only — restore the signed target and reviewed inputs, or record current.${kind} with rig-create record ${kind} and relay owner chat sign-off with rig-create signoff ${stage} --by <owner> --owner-chat <words file> --said-at <ISO date> --relayed-by <operator>`;
-  (legacy ? warnings : refusals).push({ code, path: at, message: `${at}: ${reason}; ${remedy}` });
+  const fix = historical ? 'restore the original signature and its bound evidence' : remedy;
+  (legacy ? warnings : refusals).push({ code, path: at, message: `${at}: ${reason}; ${fix}` });
 }
 
 function checkCurrentPartsStructure(dir: string, project: JsonObject, signoff: JsonObject, path: string, refusals: Finding[], historical: boolean): void {

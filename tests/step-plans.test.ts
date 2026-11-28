@@ -276,7 +276,7 @@ function approvePartsPlan(dir: string): void {
   expect(signed.code).toBe(0);
 }
 
-test('#983 sign-offs bind a plan-covered question to its step plan; a changed plan makes the binding stale', () => {
+test('#983 current sign-offs verify the plan revision that covered each question when signed', () => {
   const dir = freshProject();
   approvePartsPlan(dir);
   const signoffs = arr(JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')).signoffs).map(obj);
@@ -287,10 +287,18 @@ test('#983 sign-offs bind a plan-covered question to its step plan; a changed pl
   // A changed plan is a new revision of every question it covers.
   testClock.set(testClock.now() + 1000);
   proposeParts(dir, `${PARTS_PLAN}The hair is cut into finer locks.\n`);
-  const stale = checkProject(dir, undefined, { now: testClock.now() }).refusals.filter(r => r.code === 'SIGNOFF_ANSWERS_STALE').map(r => r.path);
-  expect(stale).toContain('signoffs[1].answer_hashes[seethrough]');
-  // #997: an answered value delegated under the plan is covered by it too, so its binding is stale as well.
-  expect(stale).toContain('signoffs[1].answer_hashes[assemble]');
+  expect(checkProject(dir, undefined, { now: testClock.now() }).refusals).toEqual([]);
+  const project = JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8'));
+  expect(project.signoffs).toEqual(signoffs);
+
+  const original = obj(arr(obj(project.interview).step_plans)[0]);
+  original.sha256 = '0'.repeat(64);
+  const refusals = checkProject(dir, project, { now: testClock.now() }).refusals;
+  expect(refusals).toEqual(expect.arrayContaining([
+    expect.objectContaining({ code: 'SIGNOFF_ANSWERS_STALE', path: 'signoffs[1].answer_hashes[seethrough]' }),
+    // #997: a delegated value also binds the plan revision that covered it.
+    expect.objectContaining({ code: 'SIGNOFF_ANSWERS_STALE', path: 'signoffs[1].answer_hashes[assemble]' }),
+  ]));
 });
 
 test('#1054 a fresh project records current parts and advances with a retained check', () => {

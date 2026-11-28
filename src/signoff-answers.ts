@@ -117,6 +117,8 @@ export function checkSignoffAnswers(ctx: Ctx, signoff: JsonObject, path: string,
       ? historicalRevisionHash(ctx, item, stage, at) : boundRevisionHash(ctx.project, item, stage));
     if (hash === expected) continue;
     const field = `${path}.answer_hashes[${id}]`;
-    ctx.refusals.push({ code: 'SIGNOFF_ANSWERS_STALE', path: field, message: `${field}: ${id} is missing, unresolved or changed since signing; sign ${stage} again after restoring the intended answer` });
+    const remedy = currentPath ? 'restore the signed answer or plan revision and its original hash'
+      : `sign ${stage} again after restoring the intended answer`;
+    ctx.refusals.push({ code: 'SIGNOFF_ANSWERS_STALE', path: field, message: `${field}: ${id} is missing, unresolved or changed since signing; ${remedy}` });
   }
 }

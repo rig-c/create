@@ -315,7 +315,7 @@ function realRigOptions() {
   return { dir, config, registered, answer };
 }
 
-test('a rebuilt rig can publish a plan based on the answered current-rig set', () => {
+test('a rebuilt rig can publish a plan based on the answered current-rig set without reapproval', () => {
   const f = realRigOptions();
   const answer = JSON.parse(f.answer()) as JsonObject;
   expect(obj(answer.choice).set).toEqual(f.registered.pending);
@@ -333,17 +333,23 @@ test('a rebuilt rig can publish a plan based on the answered current-rig set', (
   expect(rig.files_sha256).not.toBe(obj(f.registered.context.target).files_sha256);
   expect(run.sha256).not.toBe(obj(f.registered.context.run).sha256);
   const check = checkProject(f.dir, undefined, { now: testClock.now(), readOnly: true });
-  expect(check.refusals.map(finding => finding.code)).toEqual(['SIGNOFF_TARGET_STALE']);
+  expect(check.refusals).toEqual([]);
 
-  signRig(f.dir, reapprovedAt);
   const published = load(f.dir);
   const step = arr(obj(published.plan).steps).map(obj).find(step => step.id === 'camera');
   expect(step?.rests_on).toContain(questionId);
   const item = collectItems(published, { collection: null }).find(item => item.id === questionId)!;
   expect(obj(obj(item.raw).choice).set).toEqual(f.registered.pending);
 
-  const record = { path: 'project.json' as const, sha256: sha256(readFileSync(join(f.dir, 'project.json'))) };
   const result = { kind: 'plan' as const };
+  const recordBinding = () => ({ path: 'project.json' as const, sha256: sha256(readFileSync(join(f.dir, 'project.json'))) });
+  const historical = readRecordPublished({ root: f.dir, record: recordBinding(), result, phase: 'inventory' }, testClock.now());
+  expect(historical.plan.steps.map(step => step.id)).toContain('camera');
+  expect(historical.files).toContainEqual(f.registered.pending);
+  expect(historical.files).not.toContainEqual(f.registered.context.run);
+
+  signRig(f.dir, reapprovedAt);
+  const record = recordBinding();
   const publication = readRecordPublished({ root: f.dir, record, result, phase: 'inventory' }, testClock.now());
   expect(publication.plan.steps.map(step => step.id)).toContain('camera');
   expect(publication.files).toContainEqual(f.registered.pending);

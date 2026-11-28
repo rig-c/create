@@ -197,6 +197,9 @@ test.each([
 
   expect(record().exit).toBe(0);
   const project = f.load();
+  const checked = checkProject(f.dir, project);
+  expect(checked.warnings.map(finding => finding.code)).toContain('SCENE_CAMERA_CHOICE_MISSING');
+  expect(checked.refusals.map(finding => finding.code)).not.toContain('SCENE_CAMERA_CHOICE_MISSING');
   expect(((project.current as JsonObject).direction as JsonObject).files).toEqual(expect.arrayContaining(Object.values(bindings).map(binding => expect.objectContaining(binding))));
   const publication = inspectCurrentPublication(f.dir, project, 'direction', sha256(readFileSync(join(f.dir, 'project.json'))));
   expect(publication.closureFiles).toEqual(expect.arrayContaining(Object.values(bindings)));

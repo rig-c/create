@@ -15,19 +15,19 @@ signature. While paused, follow the resume move from next.
 
 `interview` → `plan-approved` → `parts` → `parts-review` (parts, by eye) →
 `rigging-interview` → `rigging` → `rig-review` → `post-interview` → `post` →
-`direction-review` → `accepted`. These are progress markers ([Stages](https://github.com/rig-c/create/blob/main/docs/PROJECT.md#stages)).
-Use `rig-create advance <stage>` and `rig-create step-status <id> <status> --by agent` when next offers them.
+`direction-review` → `accepted`. See [Stages](https://github.com/rig-c/create/blob/main/docs/PROJECT.md#stages).
+Follow next for `rig-create advance <stage>` and `rig-create step-status <id> <status> --by agent`.
 
-At the end of each step run `rig-create interview --check`. Fix refusals,
-read warnings and check again. Retain producer reports and use writers for
-every record change. Relay exact owner words with attribution.
+After each step run `rig-create interview --check`. Fix refusals, read warnings
+and check again. Keep producer reports, use record writers and quote exact
+owner words with attribution.
 
 ## The user's four steps
 
-Write one plan per step with
-`rig-create plan propose <step> --file <plan.md> --by agent`. Use a summary,
-what and why, exclusions and direction questions. Tell the owner once in
-chat and proceed. Record feedback with
+One plan per step with
+`rig-create plan propose <step> --file <plan.md> --by agent`. Summarize the work,
+why, exclusions and direction questions. Tell the owner once in chat and
+proceed. Record feedback with
 `rig-create plan feedback <step> --words-file <file> --by <owner> --said-at <ISO> --relayed-by <operator>`.
 Feedback and approval never gate writes. For machine-read parts and rigging values use
 `rig-create interview-decision <question> --by agent --reasoning-file <file> --value-file <json> --plan-quote-file <file>`.
@@ -68,8 +68,9 @@ Feedback and approval never gate writes. For machine-read parts and rigging valu
 **Live Review loop**
 
 Start `rig-create job open --reviewer <id> --role owner --current <parts|rig|direction>`
-to show a recorded result. Review accepts comments only. Share its private URL
-once and rerun the command to update the page.
+to show a recorded result for looking and comments (Review refuses verdicts,
+signoffs, checkpoints and picks). Share its private URL once; rerun it to
+update. Reused opens exit. The page updates in place.
 
 `rig-create job acts --json` lists finalized acts; wait with
 `rig-create job acts --wait`, then record comment acts with

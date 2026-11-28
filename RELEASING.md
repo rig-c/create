@@ -29,6 +29,11 @@ publisher for the convenience alias `rig-create`.
    paths and module references, following the current validation policy. Review
    every command's exit and first error. Required PR checks and the cross-family
    review in `AGENTS.md` must pass at the candidate head before release.
+   Any full-suite census run ahead of the release PR runs with the version
+   already bumped in `package.json`. Running Create's version feeds checks such
+   as `CREATE_PIN_MISMATCH`, so a census at the old version cannot see what the
+   bump changes: the 2.0.0 candidate went red on 49 tests that a census at
+   1.27.0 passed.
 5. Follow [Verify the release candidate](#verify-the-release-candidate): stage
    the package outside the repository, run native `npm pack` in that directory,
    verify the exact resulting tarball, then try publication with `--dry-run`.

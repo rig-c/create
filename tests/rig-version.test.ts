@@ -509,14 +509,89 @@ describe('frozen rig registration reader', () => {
     expect(checkProject(f.dir, candidate).refusals.map(finding => finding.code)).toContain('RIG_PATH_ADAPTER_INVALID');
   });
 
+  function rebindRequirementsEvidence(dir: string, project: JsonObject, mutate: (requirements: JsonObject) => void) {
+    const registration = obj(obj(arr(project.versions)[0]).registration);
+    for (const key of ['requirements_source', 'requirements'] as const) {
+      const binding = obj(registration[key]);
+      const doc = JSON.parse(readFileSync(join(dir, String(binding.path)), 'utf8')) as JsonObject;
+      mutate(doc);
+      const bytes = Buffer.from(`${JSON.stringify(doc, null, 2)}\n`);
+      writeFileSync(join(dir, String(binding.path)), bytes);
+      binding.sha256 = jobHash(bytes);
+      binding.bytes = bytes.length;
+      for (const entry of arr(registration.files).map(obj)) {
+        if (entry.path === binding.path) entry.sha256 = binding.sha256;
+      }
+    }
+  }
+
+  test('#409 seven requirements provenance JSON pointers validate in retained registration', () => {
+    const { dir, args, load, requirements } = setupProvenancePointers();
+    const originalConfig = readFileSync(join(dir, 'source/config.json'));
+    const originalRequirements = readFileSync(join(dir, 'source/requirements.json'));
+    expect(seedRig(args).exit).toBe(0);
+    expect(readFileSync(join(dir, 'evidence/v1/registration/config-source.json'))).toEqual(originalConfig);
+    expect(readFileSync(join(dir, 'evidence/v1/registration/requirements-source.json'))).toEqual(originalRequirements);
+    const runtime = JSON.parse(readFileSync(join(dir, 'evidence/v1/registration/requirements.json'), 'utf8'));
+    const packaged = JSON.parse(readFileSync(join(dir, 'derived/review/v1/requirements.json'), 'utf8'));
+    expect(runtime.setup_painting.regions).toEqual(requirements.setup_painting.regions);
+    expect(packaged).toEqual(runtime);
+    expect(rigRegistrationFindings(dir, load())).toEqual([]);
+    expect(checkProject(dir).refusals).toEqual([]);
+  });
+
   test.each(['/METRICS/a~1b/~0name', '/', '/METRICS//pixel_count', '/report.json', ''])('#409 provenance pointer syntax preserves %j', pointer => {
     const { dir, args, load, requirements } = setupProvenancePointers();
     requirements.setup_painting.regions[0]!['x-source'].json_pointer = pointer;
     put(dir, 'source/requirements.json', requirements);
+    const original = readFileSync(join(dir, 'source/requirements.json'));
     expect(seedRig(args).exit).toBe(0);
+    expect(readFileSync(join(dir, 'evidence/v1/registration/requirements-source.json'))).toEqual(original);
     const runtime = JSON.parse(readFileSync(join(dir, 'evidence/v1/registration/requirements.json'), 'utf8'));
     expect(runtime.setup_painting.regions[0]['x-source'].json_pointer).toBe(pointer);
     expect(rigRegistrationFindings(dir, load())).toEqual([]);
+  });
+
+  test.each([
+    ['declared asset', (requirements: JsonObject) => {
+      obj(requirements.setup_painting).figure_mask = { path: '/foreign/mask.png', sha256: '1'.repeat(64) };
+    }],
+    ['undeclared field', (requirements: JsonObject) => {
+      obj(requirements.setup_painting).unlisted = '/foreign/asset.png';
+    }],
+    ['other provenance field', (requirements: JsonObject) => {
+      obj((obj(requirements.setup_painting).regions as JsonObject[])[0]!['x-source']).unlisted = '/foreign/asset.png';
+    }],
+    ['json_pointer outside x-source', (requirements: JsonObject) => {
+      (obj(requirements.setup_painting).regions as JsonObject[])[0]!.json_pointer = '/METRICS/regions/0/pixel_count';
+    }],
+    ['json_pointer under another extension', (requirements: JsonObject) => {
+      (obj(requirements.setup_painting).regions as JsonObject[])[0]!['x-other'] = { json_pointer: '/METRICS/regions/0/pixel_count' };
+    }],
+  ] as const)('#409 reader refuses a rehashed absolute value in %s', (_name, mutate) => {
+    const { dir, args, load } = setupProvenancePointers();
+    expect(seedRig(args).exit).toBe(0);
+    const candidate = load();
+    rebindRequirementsEvidence(dir, candidate, mutate);
+    const finding = rigRegistrationFindings(dir, candidate).find(f => f.code === 'RIG_REGISTRATION_FILE_INVALID');
+    expect(finding).toBeDefined();
+    expect(finding!.message).toContain('evidence/v1/registration/requirements.json#/');
+    expect(finding!.message).toContain('restore the retained registration inputs');
+    expect(checkProject(dir, candidate).refusals.map(f => f.code)).toContain('RIG_REGISTRATION_FILE_INVALID');
+  });
+
+  test.each(['/METRICS/bad~2escape', '/METRICS/trailing~', 'C:\\foreign\\report.json'])('#409 reader refuses rehashed invalid provenance pointer %j', pointer => {
+    const { dir, args, load } = setupProvenancePointers();
+    expect(seedRig(args).exit).toBe(0);
+    const candidate = load();
+    rebindRequirementsEvidence(dir, candidate, requirements => {
+      (obj(requirements.setup_painting).regions as JsonObject[])[0]!['x-source'] = { json_pointer: pointer };
+    });
+    const finding = rigRegistrationFindings(dir, candidate).find(f => f.code === 'RIG_REGISTRATION_FILE_INVALID');
+    expect(finding).toBeDefined();
+    expect(finding!.message).toContain('requirements.json#/setup_painting/regions/0/x-source/json_pointer');
+    expect(finding!.message).toContain('RFC 6901');
+    expect(checkProject(dir, candidate).refusals.map(f => f.code)).toContain('RIG_REGISTRATION_FILE_INVALID');
   });
 
   test('reads a retained Bun text lock with trailing commas', () => {
@@ -866,6 +941,154 @@ describe('frozen rig registration reader', () => {
       expect(rigRegistrationFindings(dir, candidate).map(f => f.code)).toContain('RIG_REGISTRATION_FILE_INVALID');
       writeFileSync(join(dir, 'evidence/v1/registration/config.json'), cfgBytes);
     }
+  });
+
+  test('legacy absolute adapter rows on relative values remain unused declarations', () => {
+    const { dir, args, load } = setup();
+    const config = {
+      key: 'synthetic', requirements: 'requirements.json', assemble: {
+        editor_receipts: { receipts: [{ file: 'rig/images/rectangle.png' }] },
+      },
+    };
+    const adapter = [
+      { at: '.requirements', before: join(dir, 'unused-requirements.json'), after: 'requirements.json' },
+      { at: '.assemble.editor_receipts.receipts.0.file', before: join(dir, 'unused-receipt.png'), after: 'rig/images/rectangle.png' },
+    ];
+    put(dir, 'source/config.json', config);
+    put(dir, 'source/adapter.json', adapter);
+    put(dir, 'source/citations.json', { assemble: [{ entry: 'plan[lantern]', guide: 'assemble', quote: 'The lantern is its own part.', asks: ['emphasis'] }] });
+    expect(seedRig([...args, '--citations', 'source/citations.json']).exit).toBe(0);
+    const project = load();
+    expect(rigRegistrationFindings(dir, project)).toEqual([]);
+    expect(checkProject(dir).refusals).toEqual([]);
+    const runtime = JSON.parse(readFileSync(join(dir, 'evidence/v1/registration/config.json'), 'utf8')) as JsonObject;
+    expect(runtime.requirements).toBe('requirements.json');
+    expect(((obj(obj(runtime.assemble).editor_receipts).receipts as JsonObject[])[0]!).file).toBe('inputs/assemble/editor_receipts/receipts/0/file');
+    const retainedRows = JSON.parse(readFileSync(join(dir, 'evidence/v1/registration/path-adapter.json'), 'utf8')) as JsonObject[];
+    expect(retainedRows.slice(0, 2)).toEqual(adapter);
+    expect(retainedRows[2]!.doc).toBe('config');
+  });
+
+  test('accepts explicitly cited UTC microseconds and an escaped JSON pointer', () => {
+    const { dir, args, load } = setup();
+    put(dir, 'source/at-source.json', { 'event/date': { '~at': '2026-11-06T20:44:42.081669+00:00' } });
+    args[args.indexOf('--at-pointer') + 1] = '/event~1date/~0at';
+    expect(seedRig(args).exit).toBe(0);
+    expect((load().versions as JsonObject[])[0]!.at).toBe('2026-11-06T20:44:42.081669+00:00');
+    expect(rigRegistrationFindings(dir, load())).toEqual([]);
+    expect(checkProject(dir).refusals).toEqual([]);
+  });
+
+  test.each([false, true])('keeps the pointer contract after removing its sole adapter row (removeRequirementsBindings=%s)', removeRequirementsBindings => {
+    const { dir, args, load } = setup();
+    put(dir, 'source/donor/input.png', 'synthetic receipt');
+    const config: JsonObject = {
+      key: 'synthetic', requirements: 'requirements.json',
+      assemble: { editor_receipts: { receipts: [{ file: 'donor/input.png' }] } },
+    };
+    put(dir, 'source/config.json', config);
+    put(dir, 'source/citations.json', { assemble: [{ entry: 'plan[lantern]', guide: 'assemble', quote: 'The lantern is its own part.', asks: ['emphasis'] }] });
+    expect(seedRig([...args, '--citations', 'source/citations.json']).exit).toBe(0);
+    const project = load();
+    const registration = obj((project.versions as JsonObject[])[0]!.registration);
+    expect(obj(registration.path_adapter).format).toBe('json-pointer/1');
+    expect(rigRegistrationFindings(dir, project)).toEqual([]);
+    if (removeRequirementsBindings) {
+      delete registration.requirements_source;
+      delete registration.requirements;
+    }
+    const adapterPath = String(obj(registration.path_adapter).path);
+    const rows = JSON.parse(readFileSync(join(dir, adapterPath), 'utf8')) as JsonObject[];
+    expect(rows).toHaveLength(1);
+    const emptyAdapter = Buffer.from('[]\n');
+    writeFileSync(join(dir, adapterPath), emptyAdapter);
+    obj(registration.path_adapter).sha256 = jobHash(emptyAdapter);
+    obj(registration.path_adapter).bytes = emptyAdapter.length;
+    for (const file of registration.files as JsonObject[]) {
+      if (file.path === adapterPath) file.sha256 = jobHash(emptyAdapter);
+    }
+    expect(rigRegistrationFindings(dir, project).map(f => f.code)).toContain('RIG_REGISTRATION_FILE_INVALID');
+    expect(checkProject(dir, project).refusals.map(f => f.code)).toContain('RIG_REGISTRATION_FILE_INVALID');
+  });
+
+  test('pointer-adapted registration reader refuses rehashed runtime config/requirements edits, backdrop byte drift, and removed config pointer rows', () => {
+    const { dir, args, load } = setup();
+    const backdropBytes = readFileSync(join(dir, 'source/rig/images/rectangle.png'));
+    writeFileSync(join(dir, 'source/backdrop.png'), backdropBytes);
+    put(dir, 'source/donor/receipt.png', 'synthetic receipt bytes');
+    put(dir, 'source/requirements.json', {
+      spec: 'spine-parts-requirements/1', fps: 4, requirements: [],
+      setup_painting: {
+        required: true,
+        backdrop: { path: 'backdrop.png', sha256: jobHash(backdropBytes) },
+      },
+    });
+    put(dir, 'source/config.json', {
+      key: 'synthetic', requirements: 'requirements.json',
+      assemble: { editor_receipts: { receipts: [{ file: 'donor/receipt.png' }] } },
+    });
+    put(dir, 'source/citations.json', { assemble: [{ entry: 'plan[lantern]', guide: 'assemble', quote: 'The lantern is its own part.', asks: ['emphasis'] }] });
+    expect(seedRig([...args, '--citations', 'source/citations.json']).exit).toBe(0);
+    const cleanProject = load();
+    expect(rigRegistrationFindings(dir, cleanProject)).toEqual([]);
+
+    const rebindFile = (candidate: JsonObject, relPath: string, newBytes: Buffer) => {
+      writeFileSync(join(dir, relPath), newBytes);
+      const h = jobHash(newBytes);
+      const ver = (candidate.versions as JsonObject[])[0]!;
+      const reg = obj(ver.registration);
+      for (const f of reg.files as JsonObject[]) {
+        if (f.path === relPath) f.sha256 = h;
+      }
+      if (relPath === 'evidence/v1/registration/config.json') {
+        obj(obj(ver.provenance).config).sha256 = h;
+        obj(obj(ver.provenance).config).bytes = newBytes.length;
+      }
+      if (relPath === 'evidence/v1/registration/requirements.json') {
+        obj(reg.requirements).sha256 = h;
+        obj(reg.requirements).bytes = newBytes.length;
+      }
+      if (relPath === 'evidence/v1/registration/path-adapter.json') {
+        obj(reg.path_adapter).sha256 = h;
+        obj(reg.path_adapter).bytes = newBytes.length;
+      }
+    };
+
+    {
+      const saved = readFileSync(join(dir, 'evidence/v1/registration/config.json'));
+      const candidate = structuredClone(cleanProject);
+      const runtimeCfg = JSON.parse(saved.toString('utf8')) as JsonObject;
+      runtimeCfg.key = 'tampered-key';
+      rebindFile(candidate, 'evidence/v1/registration/config.json', Buffer.from(`${JSON.stringify(runtimeCfg, null, 2)}\n`));
+      expect(rigRegistrationFindings(dir, candidate).map(f => f.code)).toContain('RIG_REGISTRATION_FILE_INVALID');
+      writeFileSync(join(dir, 'evidence/v1/registration/config.json'), saved);
+    }
+    {
+      const saved = readFileSync(join(dir, 'evidence/v1/registration/requirements.json'));
+      const candidate = structuredClone(cleanProject);
+      const runtimeReq = JSON.parse(saved.toString('utf8')) as JsonObject;
+      runtimeReq.fps = 99;
+      rebindFile(candidate, 'evidence/v1/registration/requirements.json', Buffer.from(`${JSON.stringify(runtimeReq, null, 2)}\n`));
+      expect(rigRegistrationFindings(dir, candidate).map(f => f.code)).toContain('RIG_REGISTRATION_FILE_INVALID');
+      writeFileSync(join(dir, 'evidence/v1/registration/requirements.json'), saved);
+    }
+    {
+      const targetRel = 'evidence/v1/registration/inputs/setup_painting/backdrop/path';
+      const saved = readFileSync(join(dir, targetRel));
+      const candidate = structuredClone(cleanProject);
+      rebindFile(candidate, targetRel, Buffer.from('tampered backdrop bytes'));
+      expect(rigRegistrationFindings(dir, candidate).map(f => f.code)).toContain('RIG_REGISTRATION_FILE_INVALID');
+      writeFileSync(join(dir, targetRel), saved);
+    }
+    {
+      const saved = readFileSync(join(dir, 'evidence/v1/registration/path-adapter.json'));
+      const candidate = structuredClone(cleanProject);
+      const rowsOnlyReq = (JSON.parse(saved.toString('utf8')) as JsonObject[]).filter(r => r.doc === 'requirements');
+      rebindFile(candidate, 'evidence/v1/registration/path-adapter.json', Buffer.from(`${JSON.stringify(rowsOnlyReq, null, 2)}\n`));
+      expect(rigRegistrationFindings(dir, candidate).map(f => f.code)).toContain('RIG_REGISTRATION_FILE_INVALID');
+      writeFileSync(join(dir, 'evidence/v1/registration/path-adapter.json'), saved);
+    }
+    expect(rigRegistrationFindings(dir, cleanProject)).toEqual([]);
   });
 });
 
@@ -1241,6 +1464,37 @@ describe('#514 producer depth bindings in frozen registration reader', () => {
     expect(rigRegistrationFindings(dir, project).map(f => f.code)).toContain('RIG_REGISTRATION_FILE_INVALID');
   });
 
+  test.each(['spec', 'part', 'mapSha256', 'inputSha256', 'extra', 'json', 'duplicate'] as const)('#559 reader refuses rehashed %s map-binding receipt tampering', kind => {
+    const { dir, args, load } = boundDepthSetup();
+    approveFrozenParts(dir, load(), args);
+    testClock.set(new Date(DEPTH_MAP_BINDING_SINCE));
+    expect(seedRig(args).exit).toBe(0);
+    const project = load();
+    const registration = obj(obj(arr(project.versions)[0]).registration);
+    const bindings = arr(obj(registration.depth).map_bindings);
+    const binding = obj(bindings[0]);
+    const relPath = String(binding.path);
+    const rebind = (bytes: Buffer) => {
+      writeFileSync(join(dir, relPath), bytes);
+      binding.sha256 = jobHash(bytes);
+      binding.bytes = bytes.length;
+      for (const file of arr(registration.files).map(obj)) {
+        if (file.path === relPath) file.sha256 = binding.sha256;
+      }
+    };
+    if (kind === 'json') {
+      rebind(Buffer.from('{\n'));
+    } else if (kind === 'duplicate') {
+      bindings.push(structuredClone(binding));
+    } else {
+      const receipt = JSON.parse(readFileSync(join(dir, relPath), 'utf8')) as JsonObject;
+      receipt[kind] = kind.endsWith('Sha256') ? 'e'.repeat(64) : 'wrong';
+      if (kind === 'spec') binding.spec = 'wrong';
+      rebind(Buffer.from(`${JSON.stringify(receipt)}\n`));
+    }
+    expect(rigRegistrationFindings(dir, project).map(f => f.code)).toContain('RIG_DEPTH_BINDING_INVALID');
+  });
+
   test('#559 depth moves prescribe inference, bind, apply, registration and unchanged-input receipt reuse', () => {
     const project: JsonObject = { interview: { waypoints: [{ id: 'turn', guide: { delegated: false, value: { mode: 'depth' }, by: 'user', at: DEPTH_MAP_BINDING_SINCE, verbatim: 'Head turn.' } }] } };
     const moves = depthPlanMoves(project).map(move => move.act).join('\n');
@@ -1353,7 +1607,8 @@ describe('#514 producer depth bindings in frozen registration reader', () => {
       testClock.set(new Date(DEPTH_MAP_BINDING_SINCE));
       expect(seedRig(args).exit).toBe(0);
       expect(rigRegistrationFindings(dir, load())).toEqual([]);
-      const registeredParts = JSON.parse(readFileSync(join(dir, 'outputs/v1/out/parts.json'), 'utf8'));
+      const cleanPartsBytes = readFileSync(join(dir, 'outputs/v1/out/parts.json'));
+      const registeredParts = JSON.parse(cleanPartsBytes.toString('utf8'));
       registeredParts.parts[1].depth = registeredParts.parts[0].depth;
       const bytes = Buffer.from(`${JSON.stringify(registeredParts)}\n`);
       writeFileSync(join(dir, 'outputs/v1/out/parts.json'), bytes);
@@ -1361,6 +1616,26 @@ describe('#514 producer depth bindings in frozen registration reader', () => {
       for (const f of arr(v.outputs).map(obj)) if (f.path === 'outputs/v1/out/parts.json') { f.sha256 = jobHash(bytes); f.bytes = bytes.length; }
       obj(obj(v.registration).copied).bytes = arr(v.outputs).map(obj).reduce((sum, f) => sum + Number(f.bytes), 0);
       expect(rigRegistrationFindings(dir, p).map(f => f.code)).toContain('RIG_DEPTH_BINDING_INVALID');
+      expect(checkProject(dir, p).refusals.map(f => f.code)).toContain('RIG_DEPTH_BINDING_INVALID');
+
+      writeFileSync(join(dir, 'outputs/v1/out/parts.json'), cleanPartsBytes);
+      expect(rigRegistrationFindings(dir, load())).toEqual([]);
+      const cleanSheetsBytes = readFileSync(join(dir, 'outputs/v1/out/rig/depth_sheets.json'));
+      const sheetsDoc = JSON.parse(cleanSheetsBytes.toString('utf8'));
+      const torsoSheet = structuredClone(sheetsDoc.parts[0]);
+      torsoSheet.part = 'torso';
+      torsoSheet.depth.sources[0].from = 'full:author:torso';
+      sheetsDoc.parts.push(torsoSheet);
+      const tamperedSheets = Buffer.from(`${JSON.stringify(sheetsDoc)}\n`);
+      writeFileSync(join(dir, 'outputs/v1/out/rig/depth_sheets.json'), tamperedSheets);
+      const pSheets = load(), vSheets = obj(arr(pSheets.versions)[0]);
+      for (const f of arr(vSheets.outputs).map(obj)) {
+        if (f.path === 'outputs/v1/out/rig/depth_sheets.json') { f.sha256 = jobHash(tamperedSheets); f.bytes = tamperedSheets.length; }
+      }
+      obj(obj(obj(vSheets.registration).depth).sheets).sha256 = jobHash(tamperedSheets);
+      obj(obj(vSheets.registration).copied).bytes = arr(vSheets.outputs).map(obj).reduce((sum, f) => sum + Number(f.bytes), 0);
+      expect(rigRegistrationFindings(dir, pSheets).map(f => f.code)).toContain('RIG_DEPTH_BINDING_INVALID');
+      writeFileSync(join(dir, 'outputs/v1/out/rig/depth_sheets.json'), cleanSheetsBytes);
     });
 
     test.each([['head only', undefined, 'depth'], ['fixed view', { bone: 'rectangle', pivot: 15, roles: { rectangle: 'surface' } }, 'fixed'], ['empty body roles', { bone: 'rectangle', pivot: 15, roles: {} }, 'depth']] as const)('%s raises no RIG_TURN_EXTRA_GROUP', (_name, body, mode) => {
@@ -1689,6 +1964,47 @@ describe('#514 producer depth bindings in frozen registration reader', () => {
     reseal(p2, 'sheets', doc => { obj(obj(arr(doc.parts)[0]).depth).sources = [{ ...(arr(obj(obj(arr(doc.parts)[0]).depth).sources)[0] as JsonObject), sha256: 'e'.repeat(64) }]; });
     expect(rigRegistrationFindings(dir, p2).map(f => f.code)).toContain('RIG_DEPTH_BINDING_INVALID');
     writeFileSync(join(dir, String(obj(obj(obj(obj(arr(base.versions)[0]).registration).depth).sheets).path)), origSheets);
+  });
+
+  test.each(['sourceSha256', 'sheetSha256', 'mapSha256', 'inputSha256'] as const)('another rig %s cannot be paired with a retained depth report', field => {
+    const { dir, args, load } = depthSetup();
+    expect(seedRig(args).exit).toBe(0);
+    const project = load();
+    const reg = obj(obj(arr(project.versions)[0]).registration);
+    const binding = obj(obj(reg.depth).report);
+    const report = JSON.parse(readFileSync(join(dir, String(binding.path)), 'utf8')) as JsonObject;
+    obj(arr(report.parts)[0])[field] = 'e'.repeat(64);
+    const bytes = Buffer.from(`${JSON.stringify(report)}\n`);
+    writeFileSync(join(dir, String(binding.path)), bytes);
+    binding.sha256 = jobHash(bytes);
+    for (const row of arr(reg.files).map(obj)) if (row.path === binding.path) row.sha256 = binding.sha256;
+    expect(rigRegistrationFindings(dir, project).map(f => f.code)).toContain('RIG_DEPTH_BINDING_INVALID');
+  });
+
+  test.each(['partsSha256', 'recipeSha256', 'rigConfigSha256'] as const)('missing mandatory digest %s is invalid even when both retained reports omit it', field => {
+    const { dir, args, load } = depthSetup();
+    expect(seedRig(args).exit).toBe(0);
+    const project = load();
+    const reg = obj(obj(arr(project.versions)[0]).registration);
+    const depth = obj(reg.depth);
+    const manifestBinding = obj(depth.manifest);
+    const reportBinding = obj(depth.report);
+    const manifest = JSON.parse(readFileSync(join(dir, String(manifestBinding.path)), 'utf8')) as JsonObject;
+    const report = JSON.parse(readFileSync(join(dir, String(reportBinding.path)), 'utf8')) as JsonObject;
+    delete manifest[field];
+    delete report[field];
+    const manifestBytes = Buffer.from(`${JSON.stringify(manifest)}\n`);
+    writeFileSync(join(dir, String(manifestBinding.path)), manifestBytes);
+    manifestBinding.sha256 = jobHash(manifestBytes);
+    report.manifestSha256 = manifestBinding.sha256;
+    const reportBytes = Buffer.from(`${JSON.stringify(report)}\n`);
+    writeFileSync(join(dir, String(reportBinding.path)), reportBytes);
+    reportBinding.sha256 = jobHash(reportBytes);
+    for (const row of arr(reg.files).map(obj)) {
+      if (row.path === manifestBinding.path) row.sha256 = manifestBinding.sha256;
+      if (row.path === reportBinding.path) row.sha256 = reportBinding.sha256;
+    }
+    expect(rigRegistrationFindings(dir, project).map(f => f.code)).toContain('RIG_DEPTH_BINDING_INVALID');
   });
 
   test('an unregistered depth rig before the boundary WARNs, and on the boundary refuses', () => {

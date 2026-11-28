@@ -948,7 +948,9 @@ export function seedRetainedRigVersion(args: string[], now = Date.UTC(2026, 10, 
   let reqSourcePath: string | undefined;
   let portableReqRel: string | undefined;
   for (const ref of configRefs) {
-    const legacyRow = callerAdapter.find(r => typeof r.at === 'string' && `/${r.at.slice(1).split('.').map(escapePointer).join('/')}` === ref.pointer);
+    const legacyRow = isAbsolute(ref.value)
+      ? callerAdapter.find(r => typeof r.at === 'string' && r.after === ref.value && `/${r.at.slice(1).split('.').map(escapePointer).join('/')}` === ref.pointer)
+      : undefined;
     const pointerRow = callerAdapter.find(r => r.doc === 'config' && r.pointer === ref.pointer);
     const srcAbs = isAbsolute(ref.value) && legacyRow && typeof legacyRow.before === 'string'
       ? resolve(dir, legacyRow.before)

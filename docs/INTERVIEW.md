@@ -1,37 +1,27 @@
 # The interview
 
-The direction a user gives before any rig work starts, and the shape every
-answer takes in `project.json`. The interview is organised by the **waypoints**
-the rig work always passes through — the sections of a `@rig-c/parts` config —
-and the user's decisions attach at each one. New work proposes one [plan per step](#step-plans); records already begun use [per-ask choices](#per-ask-choices-interview2), and the sentence format below remains historical. Camera framing and timing are
-**post-production**, asked separately after the rig is accepted. The plan the
-work follows is drafted from these answers ([PROJECT.md § The plan](PROJECT.md#the-plan));
-the [current worked example](../templates/example-current/project.json) records
-these decisions. The [historical interview](../templates/example-interview.md)
-has a [frozen numbered record](../templates/example-numbered/example-project.json).
+One plan per user step puts the agent's proposed choices in front of the
+owner early. Make each plan about the whole figure, write it in the
+[owner's language](PROJECT.md#owner-language), and tell the owner the plan
+once in chat. Use Review to look at current results and discuss them.
 
-Write the questions and option copy in the [owner's language](PROJECT.md#owner-language).
-
-Why this exists: an agent rigging a painting makes direction calls at every
-waypoint — which parts move on physics, where the torso is cut, what stays
-rigid, whether the hands move. Made alone, each of those calls is only found out
-when a person watches the result and sends it back, and every bounce re-runs a
-full build and review. The interview moves the calls to before the work. A user
-who answers "auto" has chosen to hand that call to the agent, and the record
-says so.
+The plan guides agent decisions. In post-interview the owner still chooses
+camera/depth, timing and composition in chat. Keep the shown sets and the
+owner's exact words. Feedback and any signoff are optional records of what a
+person said. Earlier per-ask answers and numbered verdicts remain readable.
 
 ## The user's four steps
 
-The user sees parts/mesh review, the rigging questionnaire, rig/animation correction, and direction. The historical three-step grouping below applies to legacy records; new projects use the split order in PROJECT.md. Everything else in this file — waypoints, states,
-provenance — is the machinery under them and is not something the user has to
-learn; the interviewer asks in plain questions and never shows a waypoint id or
-a form.
-
-| User step | In this file | When |
+| User step | Plan ID | What to discuss |
 | --- | --- | --- |
-| 1. **Base motion** | Framing (`rig_type`, `reference`), then a guide at each rig waypoint: `seethrough`, `assemble`, `bones`, `meshes`, `constraints`, `motion` | stage `interview`, before any rig work; the parts judged at `parts-review` before rigging, the rig at the first review |
-| 2. **Direction** | Post items: `camera_depth`, `post_timing`, `post_composition` | stage `post-interview`, after the rig is accepted; judged at the second review |
-| 3. **Polish feedback** | Verdicts on a shown version, each tied to a waypoint or post item | at either review, as often as it takes |
+| Parts and meshes | `parts` | Source, layers, split and projection. |
+| Rigging interview | `rigging` | Bones, deformation, constraints and depth turn, against the current parts. |
+| Rig and animation | `motion` | Motion, timing within the rig, and readings over the full loop. |
+| Direction | `direction` | Camera, timing and composition against the recorded rig, with three choices in chat. |
+
+The [current worked example](../templates/example-current/project.json)
+shows record shapes. The [historical interview](../templates/example-interview.md)
+documents the old question-by-question workflow.
 
 ## Step plans
 
@@ -87,25 +77,26 @@ comment"`, `words`, `comment_id`, `by`, `said_at`, `relayed_by`, `at`).
 `said_at` is when the words were said; `at` is the write. Words from `agent`
 are refused: feedback is what a person said.
 
-A question whose step has a current plan is answered by that plan. The check
-does not refuse it as silent, a `plan.steps` entry may rest on it, and `next`
-does not ask it. A sign-off binds such a question to the plan entry (its step and
-sha256). On the current path, the retained entry can still verify a signature
-after a new proposal. If a plan changed since acceptance, `next` offers to
-check its effect on the outputs and record the accepted boundary again.
-Numbered records still check approval against the latest proposal.
-On a stage the per-question process has not touched, `next`
-proposes `plan propose <step>` for each step still open there instead of option
-sets. At `post-interview` on a project using only current outputs, `next` offers
-option sets for the three owner choices, including when a direction plan is
-already proposed. A stage that already
-holds a registered option set or a recorded answer
-keeps its per-question moves, and every recorded set and answer is still read
-and checked as before ([§ Per-ask choices](#per-ask-choices-interview2)).
+A current plan can cover silent guides for its step. `next` offers needed
+plan values and executable work rows separately. Read `next` again after
+each write and before advancing. At `post-interview`, `next` offers the
+three owner choices even when the direction plan is already proposed.
+Retain the shown sets and relay `camera_depth`, `post_timing` and
+`post_composition` from chat with `interview-answer --owner-chat`.
+`interview-decision` refuses these three questions with
+`POST_OWNER_CHOICE_REQUIRED`. Earlier registered sets and recorded answers
+keep their bindings and remain checkable.
 
-Some questions have a value that code reads, so a plan's prose alone is not
-enough for them: `rig_type`, `assemble`, `turn`, and `meshes` (all value
-readers are listed in `INTERVIEW_VALUE_READERS` in `src/stages.ts`). With an empty value a full-screen
+A signature on a plan-covered question binds the step and hash of the
+plan it was signed against. On the current path the retained plan entry
+can still verify the signature after a new proposal. If a plan changed
+since acceptance, `next` offers to check its effect on the outputs and
+record the accepted boundary again. Numbered records still check approval
+against the latest proposal.
+
+Some parts and rigging values are read by code: `rig_type`, `assemble`,
+`turn` and `meshes`. See `INTERVIEW_VALUE_READERS` in `src/stages.ts` for
+the readers. With an empty value a full-screen
 project skips its CG gates, assemble's projection is not compared with
 `config.json`, no head turn is built, or a structure delta is refused. Direction
 and scene citations use the recorded post choices. Under a step plan the agent states
@@ -129,6 +120,8 @@ or by a quote of its plan's text.
 
 ## Every item has an owner
 
+These answer states describe recorded individual answers, including the three post choices and answers retained from earlier projects. A current step plan can cover silent guides as described above.
+
 No answer is left empty for the agent to fill later. Each question ends in
 exactly one of four states:
 
@@ -146,16 +139,14 @@ Rules that follow from the table:
   theirs, they answer it: the new answer replaces the old, and the old one moves
   to that question's `history[]`. Reason: a bounce on a delegated item is a cost
   the user chose, and the record must still say so after the plan is signed.
-- **The agent's decision on a delegated item is written before the plan is
-  signed**, so the user sees every agent choice the plan rests on at the moment
-  they sign. A delegated item the plan does not need yet may wait, but its
-  `agent_decision` is written before the step that uses it starts.
+- **Record delegated values before using them.** Explain the value in the
+  plan so the owner can see what a build will use.
 - **A bounce is attributed to the items it is about.** Each verdict lists
   `on_items[]`: the answer ids it concerns and whether each was a user answer,
   delegated, or never asked ([§ Polish feedback](#polish-feedback)).
-- **A changed answer needs fresh approval where it was signed.** Every plan
-  step whose `rests_on` names that answer needs the plan signed again before
-  it runs.
+- **A changed answer needs fresh approval where it was signed.** A stored signature may
+  have stale bindings after an answer changes. Rebuild the affected outputs
+  from the new answer and relay any actual owner feedback separately.
 
 `rig-create interview --check` is the machine check of these rules — refusing
 by name every waypoint with neither a guide nor a delegation, every step that
@@ -429,13 +420,11 @@ it means they look again.
 
 ## Post-production: asked after the rig is accepted
 
-Camera framing and timing are separate from rigging: nothing in the rig is built or
-judged for them. They are not rig waypoints. Their guides are asked when
-`post-interview` opens, after the rig has passed `rig-review`, in the same
-answer shape and under the same rule: every post item the plan passes carries a
-sentence or a delegation. Asking them earlier would ask about a rig that may
-still change. "Accepted" means one rig version accepted at `rig-review`. Post work runs on that version, which `rig-create handoff`
-names ([PROJECT.md § The hand-off to post-production](PROJECT.md#the-hand-off-to-post-production)).
+Record the current rig and inspect it at a fixed view before discussing
+direction. At `post-interview`, ask the three questions below in chat.
+Record the exact set presented, its hash, the selected option and the
+owner's words. Keep reading `next` in `post-interview` after each choice.
+Use the current output chain for post work.
 
 | id | Config sections | Prompt | What the agent decides there | Guide sentence, example |
 | --- | --- | --- | --- | --- |
@@ -443,13 +432,13 @@ names ([PROJECT.md § The hand-off to post-production](PROJECT.md#the-hand-off-t
 | `post_timing` | — | How long, does it loop, and where are the beats? | clip length, loop point, timing of motions against each other | *"Ten seconds, looping; the gust comes once, in the middle."* |
 | `post_composition` | — | What is around the figure — background, framing, other figures, light? | framing, background plate, what else is on screen | *"Frame from the knees up; keep the lighthouse in shot."* |
 
-Ask `turn` at rigging-interview, against the accepted parts: “Should this rig
+Ask `turn` at rigging-interview, against the recorded parts: “Should this rig
 keep the painted view, or turn its head with depth?” Offer **Fixed view**,
 **Head turn**, **Other** and **Let the agent decide**. Fixed view adds no depth
 step. Head turn records only `{ "mode": "depth" }`; the agent records the chosen
 route and reason in the `turn` plan step text. Draft that step in phase `rig`,
 resting on `turn`, before the steps that run rig. Its bar reads the retained
-producer reports, and rigging-interview approval covers it. The default
+producer reports. The default
 per-part sequence runs `depth-prepare`, a separately supplied model (face
 normals, scalar depth for the other parts), then
 `rig-parts depth-bind --map <numeric-map.json> --input <prepared.png> --part <name>`
@@ -483,7 +472,7 @@ its clause in the plan's `bar` text. No new record field is needed.
 
 For example, for a compiled synthetic eight-second `idle` candidate in
 `derived/rig/`, these are two draft clauses, each with its reading command.
-The candidate and its named animation must exist before the draft is signed.
+Run the reading on the candidate and its named animation before marking the work done.
 
 - A warm idle loop has a frame series and bone geometry available for review.
   Run `node_modules/.bin/rigc render --candidate derived/rig --animation idle --fps 24 --geometry --preroll 3 --out derived/warm`.
@@ -566,7 +555,7 @@ a measurement tool that does not exist.
 The filled example adds only the chain-tip clause that can be read from
 `render --geometry`, with its reduction stated beside the command. It omits
 the unavailable whole-figure comparison. A project requiring all three clauses
-must resolve the missing reading before it can sign its post bar.
+must resolve the missing reading before recording a passing post build.
 
 ## Provenance: every config section cites its guide
 
@@ -634,6 +623,8 @@ new rig version, which needs a new first review.
 
 ### Recording a verdict
 
+Historical numbered verdicts. Use current publication comments and owner chat for new work.
+
 `rig-create review` and `rig-create parts-review` are retired (`NUMBERED_WRITER_REMOVED`, exit 2).
 `check` continues to validate stored `versions[v<N>].verdicts[]` and `review_acts[]`
 receipts recorded by earlier releases (`rig-review` on a `rig` version,
@@ -658,7 +649,7 @@ without a new signature (#981).
 
 To update a waypoint or post answer on the current path, register a fresh option
 set with `interview-options`, relay the owner's pick with `interview-answer --owner-chat`,
-and relay any renewed approval named by `rig-create next` with `signoff <stage> --owner-chat`.
+then follow `rig-create next` for the affected outputs. Relay any signoff the owner actually gives in chat.
 
 An item id in a stored verdict that is no framing, waypoint or post item is refused
 (`FEEDBACK_ITEM_UNKNOWN`). A verdict never moved `stage` and wrote no sign-off:
@@ -777,6 +768,8 @@ rigging guide. Hand pass means the correction loop of rig-review, not another
 signature whose meaning nobody defined.
 
 ## Per-ask choices (interview@2)
+
+Use this format for the three current direction choices and when reading or completing already registered individual choices.
 
 New projects explicitly adopt `interview.order.spec: "rig-create/stage-order@2"`,
 with `adopted_at` for the split order and `choices_adopted_at` for choices.
@@ -949,13 +942,10 @@ The decision writer supplies exactly the auto fragments. To correct a recorded
 answer at a later stage, register a fresh option set and record the owner’s
 selection with `interview-answer`. The stage stays in place. Check reports the
 signoffs whose answer hashes are stale, and `next` offers the corresponding
-re-sign commands. Collection members write local overrides and retain the
+re-sign commands for retained historical signatures. Collection members write local overrides and retain the
 inherited source answers as historical evidence.
 
-Option-set publications (`job open --question <question>` or
-`job open --questions`) publish the pending set(s) and their images to Review
-with `subjects: []` so the person can view them and comment. Ask the owner in
-chat and record their answer with `interview-answer --owner-chat`.
+In current work, read the choices to the owner in chat and record their answer with `interview-answer --owner-chat`. Retain the exact option IDs and the shown hash. Historical option-set publications may still be opened view-only.
 
 `interview-answer --from-review` and `--batch` are retired and refuse with
 `SIGNOFF_FROM_REVIEW_REMOVED` (exit 2) before reading or writing `project.json`;

@@ -1,4 +1,6 @@
 import { describe, expect, test } from 'bun:test';
+import { readFileSync } from 'node:fs';
+import { renderAgentGuide } from '../src/agent-guide.ts';
 import { cli, gitEnv, tempDir } from './helpers.ts';
 
 const ownerChat = ['--by', 'owner', '--owner-chat', 'words.txt', '--said-at', '2026-11-27T00:00:00Z', '--relayed-by', 'agent'];
@@ -6,9 +8,19 @@ const missingProject = 'PROJECT_JSON_MISSING';
 
 // These probes run outside a project so the real CLI parses the complete
 // invocation without building, publishing or writing a project record.
-const guideCommands: ReadonlyArray<{ args: string[]; code: string; exit?: number }> = [
+const guideCommands: ReadonlyArray<{ args: string[]; code: string; exit?: number; needsProject?: boolean }> = [
+  {
+    args: ['init', 'project', '--painting', 'painting.png', '--origin', 'owner', '--owner-language', 'en'],
+    code: 'INIT_ARTWORK_USAGE', exit: 2,
+  },
+  { args: ['structure-snapshot', '.'], code: 'STRUCTURE_SNAPSHOT_USAGE', exit: 2 },
+  { args: ['input', 'add', 'background.png', '.', '--origin', 'owner'], code: 'PROJECT_JSON_INVALID' },
+  { args: ['job', 'acts', '.', '--json'], code: 'JOB_HOST_ATTACH_REFUSED' },
+  { args: ['job', 'acts', '.', '--wait'], code: 'JOB_HOST_ATTACH_REFUSED' },
+  { args: ['job', 'close', '.'], code: 'JOB_BINDING_INVALID' },
+  { args: ['comment', '--from-review', 'act@10', 'project'], code: 'JOB_BINDING_INVALID', needsProject: true },
   { args: ['next', '.'], code: missingProject },
-  { args: ['interview', '--check', '.', '--json'], code: missingProject },
+  { args: ['interview', '--check', '.'], code: missingProject },
   { args: ['history', '.'], code: 'PROJECT_NOT_IN_GIT', exit: 0 },
   { args: ['plan', 'propose', 'parts', '.', '--file', 'plan.md', '--by', 'agent'], code: missingProject },
   {
@@ -60,12 +72,46 @@ const guideCommands: ReadonlyArray<{ args: string[]; code: string; exit?: number
 ];
 
 describe('current agent-guide command forms reach their project or input checks', () => {
-  for (const { args, code, exit = 1 } of guideCommands) {
+  for (const { args, code, exit = 1, needsProject } of guideCommands) {
     test(`rig-create ${args.join(' ')}`, () => {
-      const result = cli(args, tempDir(), gitEnv());
+      const dir = tempDir();
+      const env = gitEnv();
+      if (needsProject) {
+        const init = cli(['init', 'project', '--no-install'], dir, env);
+        expect(init.code, init.stderr).toBe(0);
+      }
+      const result = cli(args, dir, env);
       const output = result.stdout + result.stderr;
       expect(result.code, output).toBe(exit);
       expect(output).toMatch(new RegExp(`\\b${code}\\b`));
     }, 15_000);
+  }
+});
+
+test('the rendered guide has a CLI probe for each written command form and its flags', () => {
+  const guide = renderAgentGuide();
+  const spans = [...guide.matchAll(/`([^`]+)`/g)].map(match => match[1]!);
+  const commands = spans.filter(span => span.startsWith('rig-create ')).map(span => span.slice('rig-create '.length));
+  const flags = (text: string): string[] => (text.match(/--[a-z][a-z0-9-]*/g) ?? []).sort();
+  expect(commands.length).toBeGreaterThan(20);
+  for (const command of commands) {
+    const literalPrefix = command.split(/ (?=<|--)/, 1)[0]!.split(' ');
+    expect(guideCommands.some(({ args }) =>
+      literalPrefix.every((word, index) => args[index] === word) &&
+      flags(args.join(' ')).join(' ') === flags(command).join(' ')), command).toBe(true);
+  }
+  expect([...new Set(spans.flatMap(flags))].sort()).toEqual([...new Set(commands.flatMap(flags))].sort());
+});
+
+test('each refusal or warning named in the rendered guide is implemented and documented', () => {
+  const guide = renderAgentGuide();
+  const checks = readFileSync(new URL('../docs/CHECKS.md', import.meta.url), 'utf8');
+  const generators = ['parts-check.ts', 'current.ts'].map(file =>
+    readFileSync(new URL(`../src/${file}`, import.meta.url), 'utf8')).join('\n');
+  const codes = [...guide.matchAll(/`([A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+)`/g)].map(match => match[1]!);
+  expect(codes.length).toBeGreaterThan(0);
+  for (const code of codes) {
+    expect(generators).toContain(`'${code}'`);
+    expect(checks).toContain(`| \`${code}\` |`);
   }
 });

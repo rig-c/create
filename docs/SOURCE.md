@@ -194,6 +194,9 @@ Measured limits:
 - drift measured outside the fixed region;
 - the result recorded with `assemble.edited_parts` receipts (part, file,
   from_sha256, sha256, editor).
+- Assemble or build and check the result, then use the matching current parts
+  or rig record writer with that config so the record binds the receipts.
+  Show the result in Review and relay any signoff the owner gives in chat.
 - *Source*: owner ruling, 2026-11-20 (the editor gets the original beside the part).
 
 ### Feather only continuous skin

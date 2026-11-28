@@ -1,111 +1,80 @@
 # A project
 
-One painting in, one rig (and the takes made from it) out. Each rig is a
-**project**: a folder of its own that holds the painting, the user's direction,
-the plan the user signed, every version shown and every verdict given. Without
-it, the story of a rig is split across a chat thread, a scratch folder and
-someone's memory, and every resume re-reads context and re-guesses.
+A project holds one painting, its authored plans and specs, and the current
+parts, rig, motion and direction. `project.json` binds data produced by Create
+writers. Relay the owner's exact chat words through a writer when recording
+a choice or an optional signoff. Review comments bind the files they saw.
 
-A project's `project.json` is **the only place a decision is recorded**. Chat
-is not a record: a decision made in chat is copied here, verbatim, with who said
-it and when.
-
-The field set is **v0** — `"schema": "rig-create/project@0"` — and is expected
-to change while the structure is piloted by hand. The `@0` is there so a reader
-of a record can tell which shape it follows once the shape moves; a validator
-and a migration come with the first shape change, not before. The empty
-skeleton is [../templates/project.json](../templates/project.json). The
-[current worked example](../templates/example-current/project.json) reaches
-acceptance with synthetic sign-offs. The
-[frozen numbered record](../templates/example-numbered/example-project.json)
-illustrates the historical format.
+The record schema is `rig-create/project@0`. Start from the
+[empty template](../templates/project.json) or read the
+[current worked example](../templates/example-current/project.json).
+The [frozen numbered record](../templates/example-numbered/example-project.json)
+documents the earlier format. Sections labelled historical describe retained
+records and their readers.
 
 ## Layout
 
-```
+```text
 <project>/
-  project.json         the decision record: interview, plan, split, stage, sign-offs, versions
-  AGENTS.md            the agent guide: the order, and which installed docs to read; CLAUDE.md imports it
-  inputs/              immutable: the painting, the user's references
-    references/
-  evidence/v<N>/       what a verdict rested on: crops, sheets, check tables
-  derived/             regenerable intermediates (ignored by git)
-  outputs/v<N>/        skeleton, atlas, takes (ignored by git)
-  scratch/             anything; deletable any time (ignored by git)
+  project.json         recorded plans, choices, progress and current output bindings
+  AGENTS.md            current workflow and entry points; CLAUDE.md imports it
+  inputs/              immutable painting, references and authored source plates
+  plans/               step plans in the owner's language
+  specs/               authored configuration, motion and direction inputs
+  evidence/            retained reports, receipts and comment evidence
+  outputs/parts/       current assembled parts
+  outputs/rig/         current checked rig
+  outputs/motion/      current render
+  outputs/direction/   current composed take
+  derived/             regenerable intermediates
+  scratch/             disposable work
 ```
 
-A project is its own git repository, so the history of its decisions is its
-`git log`. A collection member is the exception: it lives in its collection's
-repository, which holds its history ([COLLECTIONS.md § Making one](COLLECTIONS.md#making-one)). `rig-create init <dir>` writes the layout above, a `.gitignore`
-for the untracked folders, a `package.json` pinning the rig-c packages, and a
-first commit.
+`rig-create init <dir>` writes the project record, guide, Git repository and
+package pins. A collection member instead shares its
+[collection's repository](COLLECTIONS.md#making-one).
 
-`rig-create history [<dir>] [--json]` reads the project's Create step-data
-commits reachable from Git HEAD, newest first. It includes `record` commits
-and spec commits from `scene write` and `direction write`. Each entry shows
-the abbreviated SHA, UTC commit time and subject; when the commit holds both
-`specs` and `outputs/parts`, it is followed by a copyable `back:` command
-that restores them and runs `next` (otherwise the `back:` line is omitted
-and `back` is `null` in `--json`).
-JSON returns an array with `sha`, `short_sha`, `at`, `subject` and `back`.
-History leaves the project and its Git state untouched. With no project
-work tree or matching commit, it warns on stderr and leaves stdout empty.
-Run the parts rebind from the project directory with
-`rig-create record parts --from outputs/parts --config specs/rig/config.json`
-using the config from the restored build.
+Build each replacement in an adjacent staging directory such as
+`outputs/rig.next/`. `record` validates the relevant producer reports
+and records the dependency hashes, then replaces the canonical directory.
+Follow `next` to rebuild stale dependents in dependency order.
+
+`rig-create history [<dir>] [--json]` reads Create step-data commits reachable
+from Git HEAD. An entry that holds both `specs` and `outputs/parts` includes a
+`back:` command to restore those paths and run `next`. Preserve unfinished
+changes before restoring. Rebind the restored parts with
+`rig-create record parts --from outputs/parts --config <restored-config>`,
+then rebuild the affected dependents. Older numbered outputs are described
+under [Versions](#versions).
 
 ## Data is split by lifetime
 
-Rigging derives far more data than it ships. Sorting every file by how long it
-must live keeps the record small and makes "can I delete this?" a question the
-folder answers.
+| Data | Lifetime |
+| --- | --- |
+| `project.json`, `inputs/`, plans, `specs/` | Keep in Git. Register a changed immutable input under a new name. |
+| `evidence/` | Keep the small reports and the files needed to read stored evidence and comments. |
+| `outputs/parts/` | Current source-derived parts. Create tracks this tree when recording canonical parts. |
+| `outputs/rig/`, `outputs/motion/`, `outputs/direction/` | Current regenerable outputs. The record keeps their identities and dependencies. |
+| `derived/`, `scratch/` | Working data. Carry any inputs that cannot be regenerated in tracked paths. |
 
-| Folder | Lifetime | Tracked | Rule |
-| --- | --- | --- | --- |
-| `project.json` | forever | yes | The only place a decision is recorded. |
-| `inputs/` | forever, never edited | yes | Every file has its sha256 in `project.json` `inputs[]`. A changed input is a new file with a new name, not an edit — otherwise a verdict given on the old file cannot be re-read. |
-| `evidence/v<N>/` | forever | yes | The crop, sheet or table a bounce or an acceptance rested on, for the version it judged. If it is not here, the verdict cannot be re-read later. Keep each file small; a larger review image stays where it is and is listed in `versions[].evidence` with its path and sha256. |
-| `derived/` | until regenerated | no | Depth maps, masks, layers, configs, frames. Every file (or folder) is listed in `derived[]` with the command and the input hashes that made it. Something that cannot be listed that way is either an input or scratch. |
-| `outputs/v<N>/` | until discarded | no | One folder per version that was shown to anyone, frozen when shown. Hashes go into `versions[].outputs`. If the user keeps finals elsewhere, `archive` records where. |
-| `scratch/` | none | no | Anything. Deleting it must never lose information; if it would, the file belongs in `evidence/` or `derived/`. |
+Keep earlier numbered records and their referenced evidence when using a historical reader.
 
 ## Stages
 
-`interview` → `plan-approved` → `parts` → `parts-review` → `rigging-interview` → `rigging` →
-`rig-review` → `post-interview` → `post` → `direction-review` → `accepted`,
-plus `paused`.
+Use the stage names to see where work stands. The usual sequence is:
 
-**No approval gates a write, build or publish (#981).** `advance` moves
-`stage` to any stage of the order without a sign-off, and any step may run in
-any stage. When the agent wants a go-ahead it asks in chat. Older records keep
-their `signoffs[]` and still open, check and build; the table's last column
-describes how the old process closed each stage.
+| User step | Stage markers | Work |
+| --- | --- | --- |
+| Parts and meshes | `interview`, `plan-approved`, `parts`, `parts-review` | Propose the parts plan, prepare layers, assemble and check the parts, then record and inspect them. |
+| Rigging interview | `rigging-interview` | Plan the bones, deformation and physics from the current parts and structure. |
+| Rig and animation | `rigging`, `rig-review` | Record the motion plan, build and check the rig, and look at it on a fixed camera. |
+| Direction | `post-interview`, `post`, `direction-review`, `accepted` | Plan direction, ask the three choices in chat, then render, compose, record and inspect the take. |
 
-A project is *in* a stage while that stage's work happens; the sign-off named
-in the last column used to end it. The order is written once, in
-`src/stages.ts`; dependency, not stage, decides what is rebuilt.
-
-| Stage | User step | What happens | Ends with |
-| --- | --- | --- | --- |
-| `interview` | 1 | Framing and source/parts guides (the later rig guides wait for rigging-interview) ([INTERVIEW.md](INTERVIEW.md)): the user's sentences, a delegation ("auto"), or not applicable — never left for the agent to fill. | The user signs `{ "stage": "interview" }`. |
-| `plan-approved` | 1 | The parts steps (`phase: "rig"`) are drafted from the guides, with the agent's decision written on every delegated item. The user sets each step's checkpoint and signs. | `{ "stage": "plan-approved" }`. |
-| `parts` | 1 | The rig steps that make the parts run: `seethrough` and `assemble`. At a step whose checkpoint is on, work stops until `{ "stage": "parts", "checkpoint": "<step id>" }` is signed (the split, [below](#split-approval-is-a-plan-checkpoint)). Only a labelled draft may contain proposed bones/weights for mesh/chest inspection; production rigging remains forbidden. | Every step it runs is `done`, `assemble`'s bar including the parts check passing on the assembled parts. |
-| `parts-review` | 1 | **The parts are reviewed before any production rig is built** ([below](#the-parts-are-reviewed-before-rigging)): the user looks at the assembled parts in rig-review's parts view. Changes-requested is corrected here at `parts-review`, with a new draft and fresh agent evidence; it does not send the project back to `parts`. | `{ "stage": "parts-review" }`, signed by a person, carrying the approved parts verdict as `evidence`. |
-| `rigging-interview` | 2 | Ask bones, meshes, constraints and motion while viewing the approved parts and structure; draft their rigging plan. | The human signs `rigging-interview`, binding accepted parts and structure. |
-| `rigging` | 3 | The remaining rig steps run in order (`bones`, `meshes`, `constraints`, `motion`); each config section cites its guide (`versions[].provenance`). At a step whose checkpoint is on, work stops until `{ "stage": "rigging", "checkpoint": "<step id>" }` is signed. | The last rig step's bar is met. |
-| `rig-review` | 1 → 3 | **First review, rig alone**: the rig alone, fixed camera, no post-production — seams, cuts, physics and motion played in place. Feedback is recorded verbatim with `on_items`; a bounce makes a new rig version. | The user accepts one rig version: an `accepted` verdict with `review: "rig-review"` on it, and `{ "stage": "rig-review" }` signed ([below](#the-rig-review)). |
-| `post-interview` | 2 | The post items (camera and 2.5D, timing, composition) are asked, and the post steps (`phase: "post"`) drafted from them. | The user signs `{ "stage": "post-interview" }` — guides and post steps together. |
-| `post` | 2 | Post-production on the accepted rig version (`versions[].kind: "post"`, `rig_version` naming it); post tooling asks `rig-create handoff` first ([below](#the-hand-off-to-post-production)). | The last post step's bar is met. |
-| `direction-review` | 2 → 3 | **Second review, direction**: camera, depth, timing, framing. Same feedback rule. | The user accepts one post version. |
-| `accepted` | — | Done. If finals go somewhere else, `archive` says where. | — |
-| `paused` | — | Work stopped by a human sign-off, entered and left through `pause` and `resume` ([below](#pausing-and-resuming)). While paused it is checked as the first stage whose sign-off is missing; `resume` returns it to the stage it was paused from. | — |
-
-**Why two reviews.** The rig is reviewed first with a fixed camera — the rig alone — so a seam cannot hide behind a camera move, and a
-depth complaint cannot bounce a correct rig. `post-interview` mirrors
-`interview`: post guides are asked only once the rig they apply to is accepted,
-so they are not asked about a rig that may still change. A rig change after
-`rig-review` means a new rig version and a new first review, and the post
-version built on the old rig is redone on the new one.
+Tell the owner each step plan once in chat. Writers, builds and publishing
+do not wait for a signature or approval. Use `next` before advancing and
+`interview --check` at the completed step boundaries. Dependency hashes
+decide what to rebuild even after `accepted`. The `paused` state has
+[its own pause and resume commands](#pausing-and-resuming).
 
 ### Refusals a record already carries
 
@@ -131,27 +100,20 @@ rig-create advance parts-review --parts-check evidence/parts-check.json --parts 
 rig-create step-status <step> <status> --by <who> [<project dir>] [--note-file <path>] [--json]
 ```
 
-`signoff` records approval, then `advance` records the move that approval
-authorizes. The move's authority is the person's stage-level signature, so
-`advance` takes no `--by` or words of its own (`ADVANCE_WORDS_REMOVED`): its
-entry names the signature it rests on. The stage level signature closes its
-named stage. `plan-approved` authorizes `parts`
-for both the split-interview order and the legacy order that includes parts.
-Only an already-passed pre-parts project keeps the historical route to rigging.
-The legacy order omits `rigging-interview`; explicit adoption adds it.
-A bar stage advances once every step it runs is done, using the preceding
-stage-level signature as authority. All post items marked not applicable
-allow `post-interview` to advance directly to `accepted`.
+On the current path, `advance` records progress without collecting a
+signature. It takes no `--by` or words of its own (`ADVANCE_WORDS_REMOVED`).
+The reader preserves signature references that older moves already bind.
+`step-status` records execution status and its operator.
 
-Arrival at `rigging-interview` or `post-interview` permits only the target
-interview's silent-item `INTERVIEW_INCOMPLETE` findings, counted by code and
-item path, so its answers can be recorded there. The ordinary check still
-reports them, and approval or departure requires the answers.
+Arrival at `rigging-interview` or `post-interview` permits that target
+interview's silent-item findings so its inputs can be recorded there.
+Finish the plan or chat choices, read `next` again, and run the check
+before leaving the stage.
 
 The move from `parts` to `parts-review` also takes `--parts-check <report>
 --parts <assembled dir>`, both project-relative: the `parts-check.json` that
 `rig-parts check-parts` wrote for the assembled parts, retained in the project
-the way the parts verdict is, and the root it was run on. Write the report
+as evidence with the root it was run on. Write the report
 straight into `evidence/` (`check-parts --out <project>/evidence`, as `next`
 prints it): the move binds the report's bytes and every later `check` rereads
 them, so a report under `derived/`, `outputs/` or `scratch/`, which a clone
@@ -201,12 +163,8 @@ check refuses incomplete pairs or mismatched hashes. Notes do not change signed
 step content.
 `checkpoint_required` snapshots the resolved boolean requirement at that event.
 History validates that snapshot when checking a done entry. Reopening and
-replanning a checkpoint preserve earlier completion history. The current
-writer still requires a live checkpoint signature whenever the current
-checkpoint is enabled. Its `signoff` uses the same stable
-identity object or null. A checkpointed `done` references
-the latest matching live human checkpoint signature. Other transitions have
-`signoff` null. Existing status-only history remains readable. Status and its
+replanning a checkpoint preserve earlier completion history. Earlier completion history preserves any bound checkpoint signature. Other
+transitions have `signoff` null. Existing status-only history remains readable. Status and its
 history stay outside the signed plan hash.
 History must link: each advance or reopen leaves from the stage the previous
 move reached (starting at `interview`), and each status entry starts from the
@@ -367,6 +325,8 @@ leaves `project.json` byte-identical. After an accepted post is bounced,
 `next` offers `amend direction-review` to record the owner's artifact change.
 
 ### The parts are reviewed before rigging
+
+For current work, record the checked parts, inspect them in Review and retain a structure snapshot. Relay any actual owner signoff against that output. The numbered draft and verdict workflow below describes historical records.
 
 On a project with `current`, prepare the structure snapshot and relay the
 owner's approval at `parts-review`.
@@ -552,6 +512,8 @@ assembled parts before `rigging` starts.
 
 ### The rig review
 
+For current work, show the checked current rig with a fixed camera and collect any comments. The numbered verdict rules below apply to historical records.
+
 The rig is accepted at `rig-review` by **one verdict on one version**: a
 human `verdicts[]` entry with `"review": "rig-review"` and `"verdict":
 "accepted"` on a `kind: "rig"` version. The `{ "stage": "rig-review" }`
@@ -592,6 +554,8 @@ replaced would accept something that no longer matches the rig.
 
 ### The hand-off to post-production
 
+Historical numbered handoff. Current direction builds from the recorded current rig and motion.
+
 ```
 rig-create handoff [<project dir>] [--rig <n>] [--json]
 ```
@@ -631,8 +595,7 @@ Rebuild into the normal producer staging folder, such as
 options when you need a canonical output. This replaces the adopted entry
 for that kind with a producer-backed entry under `outputs/<kind>/`.
 
-The numbered write flow applies to projects without `current`. Once a project
-has `current`, use the current writers. Historical readers still resolve
+Use the current writers for new work. An existing numbered project can adopt its retained outputs or finish with the last numbered-writer release, Create 1.27.0. Historical readers still resolve
 numbered rigs, scenes and posts through their retained bindings. Current
 consumers that require canonical inputs, such as the current scene writer,
 use the recorded files under `outputs/<kind>/`. See
@@ -719,6 +682,8 @@ record shapes and input hashes. Advancing to `direction-review` still requires
 a live numbered post (#1032).
 
 ### Split approval is a plan checkpoint
+
+Historical checkpoint records. Current steps use the producer readings and optional chat feedback.
 
 The split — which parts the painting becomes — is the decision most often sent
 back, so it is shown to the user as a labelled image before the rest of the rig
@@ -873,6 +838,8 @@ checkpoints against history. Live approvals bind current steps.
 
 ## Recording a sign-off
 
+A signoff on a current output is optional. If the owner gives one in chat, relay the exact words to the current target. Keep older signatures as history.
+
 ```sh
 rig-create signoff <stage> --by <owner> --owner-chat <words file> --said-at <ISO date> --relayed-by <operator> [<project dir>] [--json]
 rig-create signoff <stage> --by <who> [--steps <id,id,...>] [--verbatim-file <file>] [<project dir>] [--json]
@@ -958,6 +925,8 @@ existing verdict of an earlier version without duplicates.
 
 ## Versions
 
+Historical numbered records. New builds use the current output layout above.
+
 Amendments and historical reopens preserve every version and verdict. Numbered
 `versions[]` entries are read-only history; new builds record into `current`
 through `record parts`, `record rig`, `record motion` and `record direction`.
@@ -1015,6 +984,8 @@ want to see — it holds a place and is replaced, never a basis for moving a
 stage.
 
 ### Registering a frozen rig build
+
+Historical registration details for already recorded numbered builds.
 
 `rig-create rig-version` (including its `adapter` and `--preflight` modes) is
 retired (`NUMBERED_WRITER_REMOVED`, exit 2). Record new rig and motion builds
@@ -1324,30 +1295,25 @@ Top-level fields of `project.json`:
 | `split` | the `assemble` checkpoint's data: `label_values`, `proposal_image`, `proposed_by`, `proposed_at`, `parts[]` (`name`, `label`, `note`) |
 | `inputs[]` | `path`, `sha256`, `bytes`, `origin` (where the file came from, in words), `at` (writer timestamp) |
 | `derived[]` | `path`, `what`, `command`, `inputs[]` (`path`, `sha256`), `bytes` |
-| `versions[]` | above |
+| `current` | One producer-backed or adopted result per kind, with file and dependency hashes. |
+| `comments[]` | Comments and the content hashes of the files they saw. |
+| `versions[]` | Historical numbered results, when present. |
 | `archive` | `null`, or `{ "where", "at", "by" }` if the finals were moved out of the project |
 | `collection_binding` | optional on collection members: `{ "path", "sha256", "spec": "rig-create/collection-binding@1", "collection_sha256" }` binding a project-relative snapshot of `../../collection.json` so retained checks and model-free record publication run without reading outside the member root |
 | `notes[]` | free text that is not a decision; anything that is one goes in the field it belongs to |
 
 ## How an agent resumes a project
 
-1. Read `project.json` — nothing else first. `stage`, the last `signoffs[]`
-   entry, the first `plan.steps[]` entry not `done` and the last `versions[]`
-   entry say where it stands. For a collection member, read the collection's
-   `collection.json` next ([COLLECTIONS.md](COLLECTIONS.md)): its stage and
-   `plan.order` say whether this member may run now, and its interview holds
-   every answer marked `inherited`.
-2. If the interview has a `null` answer or the plan is unsigned, that is the
-   next work, and it is the user's to answer; do not fill it from the image.
-3. If the last version was bounced, its verdict's `verbatim`, its `on_items`
-   and the files in its `evidence` are the brief. Open the evidence; do not
-   reconstruct the reason from chat. Feedback with `answer_was: "not-asked"`
-   becomes a guide sentence at its waypoint before the next version is built.
-4. Check `inputs[]` hashes against `inputs/` before using them.
-5. Reuse `derived/` only through `derived[]`: an entry whose input hashes no
-   longer match is stale — regenerate it with its recorded command.
-6. When a new version is shown to anyone: freeze `outputs/v<N>/`, hash it, add
-   the `versions[]` entry and its evidence in the same turn.
+1. Read `project.json`, then run `rig-create next` from the project. For a
+   collection member, also read its [collection record](COLLECTIONS.md).
+2. Read the current plans, any open chat choices and comments. Compare the
+   files named in each comment with the current output hashes before acting.
+3. Check registered input and derived-file bindings. If an earlier artifact
+   changed, rerun the affected producers and use the corresponding `record`
+   writers to rebuild upstream first. Keep the project at its current stage
+   while correcting its data.
+4. Take the next stage move only after reading the remaining moves in that
+   stage. Use `interview --check` at the completed boundary.
 
 ### Registering immutable inputs
 
@@ -1470,6 +1436,8 @@ is per history entry's own `at`, not the project's age: malformed bounces before
 with the new shape. Malformed bounces on or after it are refused.
 
 ### The package handed to rig review
+
+Historical retained review packages. For current work use the live current selector described in LIVE-REVIEW.md.
 
 `rig-create review-package` is retired (`NUMBERED_WRITER_REMOVED`, exit 2);
 record new rig builds with `rig-create record rig --from <dir> --config <file>`
@@ -1604,6 +1572,8 @@ producer feedback; `review_origin: null` remains legal for a first rig. A
 separate choice-answer schema and correction-path union are subsequent cards.
 
 ## Labelled draft rigs and structure decisions
+
+Historical numbered drafts are retained for reading. The current structure snapshot is taken from recorded parts.
 
 After assemble, `parts`/`parts-review` may use a proposed draft to inspect meshes
 and refine chest structure before asking the production rigging plan. The
@@ -2666,30 +2636,17 @@ the project's next moves and whose they are from `project.json`:
 - **Role ownership.** Every move names `role`:
   - `agent`: a complete, runnable `rig-create` command the agent may run now.
   - `producer`: a command of a pinned package (`rig-parts`, `rigc`).
-  - `human`: a person's act — either a verdict collected through the review tool
-    (`review_act`, `command: null`) or an owner-chat question/relay step
-    (`--owner-chat`, never a bare `--by user` writer).
-- **Host and ingest human acts.** Start the first `job open` in the background
-  and share its private URL once. Later opens with a question, group of stage
-  questions, plan, draft or rig selector publish into the running host and exit.
-  For pending interview option sets, `next` states that the owner is asked in
-  chat, prints the `interview-answer --owner-chat` relay command, and offers an
-  optional `job open --question` (or `--questions`) command to show the option
-  images in Review without opening a Review ask.
-  For a Review comment act, run `rig-create job acts --wait --json` in the
-  background and ingest comments with `comment --from-review '<actId>'`.
-  Advance as each stage completes and keep the job open for the next view.
-  See [the live Review loop](LIVE-REVIEW.md#the-live-review-loop) for recovery,
-  close and the one-time close and reopen for legacy package-only hosts. Moves marked
-  `unanswered_by_record` retain their missing-field guidance.
-- **Scene writing does not plan work.** `scene write` adds no plan step.
-  Author the post plan steps through `plan add` before post-interview sign-off.
-- **Current outputs.** For each missing kind, `next` prefers
-  `record <kind> --adopt` when the latest live source version binds the
-  output and the retained files match. Projects without `current` still
-  get the numbered scene and direction moves. With `current`, `next`
-  also offers preparation guidance for `outputs/<kind>.next` and the
-  corresponding producer recording command.
+  - `human`: an owner-chat question or relay of what the owner actually said.
+- **Show current work.** Publish the current parts, rig or direction into the
+  standing [Review job](LIVE-REVIEW.md#the-live-review-loop) for viewing and
+  comments. Ask the three direction questions in chat and use the relay move
+  from `next` with the exact set and option identifiers.
+- **Read next in the same stage.** After each writer or producer, read it
+  again before advancing. It gives the remaining work in `post-interview`
+  after a pick and the build and record commands at `post`.
+- **Current outputs.** When a numbered output can be adopted, `next` can
+  offer `record <kind> --adopt`. Otherwise follow its staging guidance for
+  `outputs/<kind>.next` and the matching current writer.
   Canonical motion needs a canonical rig, and canonical direction needs
   both a canonical rig and canonical motion. When one of those inputs
   is adopted, `next` guides its rebuild before offering the dependent
@@ -2700,12 +2657,9 @@ the project's next moves and whose they are from `project.json`:
   `next` lists each in `refusals[]` with its `CHECKS.md` remedy (`fix`) before
   any forward move. A project with a blocking refusal has `moves: []` and
   `awaits: []`.
-- **Rigging plan before sign-off.** At `rigging-interview`, when no rig step
-  belongs to that approval stage, `next` lists `plan add <id> <dir> --by agent
-  --phase rig …` for each answered guide without a step (bones, meshes,
-  constraints, motion). The agent supplies the authored plan fields; these
-  steps must be approved at `rigging-interview`. The human sign-off stays
-  unanswered by record until the plan steps exist.
+- **Work rows.** At an interview stage, `next` lists the executable rows
+  still needed for the covered guides. Fill in the authored fields from
+  the current step plan, record the rows and read `next` again.
 - **Read-only and deterministic.** `project.json` and the project tree remain
   byte-identical. An `accepted` project with no lapsed approvals reports
   `accepted: true`, `moves: []` and exits `0`.

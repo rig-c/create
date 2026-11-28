@@ -1,5 +1,12 @@
 # Checking the interview
 
+Run `rig-create interview --check` at completed step boundaries and after
+rebuilding stale outputs. It validates the record, authored inputs, producer
+reports and dependency bindings. Current progression has no approval gate.
+The historical refusal and warning sections still apply to retained numbered
+records and any signoff or Review act references they carry. For the current
+work order, use `rig-create next`.
+
 ## Owner language
 
 The check reports declaration problems as warnings at every record date.
@@ -1382,9 +1389,8 @@ counts. The check still reports them.
 History reads `status_history[].checkpoint_required` and
 `advances[].post_not_passed` from their event snapshots. Current checkpoint
 changes and post applicability changes after reopen preserve the original
-authorization. Missing or non-boolean snapshots are malformed. Current done
-writes still require a live human checkpoint signature, and current stage
-checks still use current post applicability.
+authorization. Missing or non-boolean snapshots are malformed. Current `done` writes preserve a live checkpoint signature when present.
+Current stage checks use current post applicability.
 
 ### Parts-stage check at the parts → parts-review move
 
@@ -1392,8 +1398,7 @@ The move from `parts` to `parts-review` binds the report of `rig-parts
 check-parts`, spec `rig-parts-parts-check/1` (`@rig-c/parts`
 docs/STABILITY.md § Parts-stage integrity report). `advance parts-review
 --parts-check <report> --parts <assembled dir>` takes both paths
-project-relative; the report is retained the way the parts verdict is, and the
-assembled root is the one the report was run on. The entry gains a closed
+project-relative; retain the report under the project and point to the assembled root it was run on. The entry gains a closed
 `parts_check { path, sha256, spec, parts, exit_code, holes, reported }`:
 `sha256` binds the report bytes, and `exit_code`, `holes` and `reported` are
 copied from the report, never computed. At the write the check refuses a

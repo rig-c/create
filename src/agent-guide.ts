@@ -88,7 +88,7 @@ export const PACKAGE_DOCS: readonly PackageDoc[] = [
   {
     package: '@rig-c/core',
     path: 'docs/FACE.md',
-    why: 'blink and gaze in the accepted rig',
+    why: 'blink and gaze in the checked rig',
   },
   {
     package: '@rig-c/core',
@@ -106,11 +106,11 @@ export interface CreateDoc {
 export const CREATE_DOCS: readonly CreateDoc[] = [
   {
     path: 'docs/PROJECT.md',
-    why: 'project fields, stages, sign-offs, and rig registration with the build’s `bun.lock` or npm v3 lock',
+    why: 'project layout, current outputs, stage markers and retained history',
   },
   {
     path: 'docs/INTERVIEW.md',
-    why: 'how to ask, and the shape every answer, delegation and piece of feedback takes',
+    why: 'step plans and the three choices recorded from chat',
   },
   {
     path: 'docs/CRAFT.md',
@@ -126,10 +126,8 @@ export const CREATE_DOCS: readonly CreateDoc[] = [
 export const RESUME_LINK = { path: 'docs/PROJECT.md', anchor: 'how-an-agent-resumes-a-project' } as const;
 export const DERIVED_LINK = { path: 'docs/INTERVIEW.md', anchor: 'derived-answers' } as const;
 export const GATES_LINK = { path: 'docs/CRAFT.md', anchor: 'for-the-gates-not-the-interview' } as const;
-export const DRAFTS_LINK = { path: 'docs/PROJECT.md', anchor: 'labelled-draft-rigs-and-structure-decisions' } as const;
 export const STAGES_LINK = { path: 'docs/PROJECT.md', anchor: 'stages' } as const;
 export const LIFETIME_LINK = { path: 'docs/PROJECT.md', anchor: 'data-is-split-by-lifetime' } as const;
-export const INTAKE_LINK = { path: 'docs/PROJECT.md', anchor: 'advisory-intake-reports' } as const;
 export const CG_GATES_LINK = { path: 'docs/CHECKS.md', anchor: 'cg-gates' } as const;
 export const APPEARANCE_LINK = { path: 'docs/CHECKS.md', anchor: 'appearance-bar-wording' } as const;
 export const BUST_LINK = { path: 'docs/CHECKS.md', anchor: 'the-bust-at-meshes' } as const;
@@ -158,25 +156,18 @@ function createLink(label: string, path: string, anchor?: string): string {
 export const READ_FIRST = [
   '1. **Before the interview**: INTERVIEW.md; CRAFT.md (waypoint defaults);',
   '   parts AUTHORING §3, *`config.json`, field by field*;',
-  `   ${createLink('CHECKS.md', 'docs/CHECKS.md')} before a sign-off.`,
-  '2. **Before `seethrough` and `assemble`**: SOURCE.md, split/cut order:',
+  `   ${createLink('CHECKS.md', 'docs/CHECKS.md')} for the checks at each step.`,
+  '2. **Before splitting and assembling**: SOURCE.md, split/cut order:',
   `   ${createLink('bad-split reruns', 'docs/SOURCE.md', 're-run-first')},`,
   `   ${createLink('allowed cuts', 'docs/SOURCE.md', 'where-a-cut-is-allowed')};`,
   '   parts AUTHORING *See-through head-run source reading*, *Source before',
   '   scissors* and *Limbs: cut at their joints*.',
   `3. **Before rigging**: ${createLink('CRAFT.md § For the gates', 'docs/CRAFT.md', 'for-the-gates-not-the-interview')}`,
-  '   (G1–G9); core RIGGING and MOTION; parts AUTHORING §7, the bars `check` enforces.',
+  '   (G1–G9); core RIGGING and MOTION; parts AUTHORING §7, the producer checks.',
   `4. **Before showing the user**: ${createLink('LESSONS.md § The self-check', 'docs/LESSONS.md', 'the-self-check')},`,
   `   the ${createLink('per-frame seam count', 'docs/LESSONS.md', 'count-the-seam-bar-over-every-frame')},`,
   `   ${createLink('what to show first', 'docs/LESSONS.md', 'what-to-show-the-user-first')}.`,
 ].join('\n');
-
-/**
- * The check an agent runs before asking for the interview sign-off: since
- * rig-c/create#3 it is `rig-create interview --check`, which refuses every
- * `null` answer by name, so the line names the command, not the doc reference.
- */
-export const INTERVIEW_CHECK_LINE = 'Run `rig-create interview --check` before interview sign-off: it names every `null` answer.';
 
 export const GUIDE_TEMPLATE = 'agent-guide.md';
 /** Copied from the same installed create distribution as the rendered guide. */
@@ -202,13 +193,10 @@ function linkLine(label: string, href: string, why: string): string {
 export function renderAgentGuide(): string {
   const fills: Record<string, string> = {
     RESUME_LINK: `[Resume](${createDocUrl(RESUME_LINK.path, RESUME_LINK.anchor)})`,
-    INTERVIEW_CHECK: INTERVIEW_CHECK_LINE,
     DERIVED_LINK: `[INTERVIEW.md § Derived answers](${createDocUrl(DERIVED_LINK.path, DERIVED_LINK.anchor)})`,
     GATES_LINK: `[CRAFT.md G8](${createDocUrl(GATES_LINK.path, GATES_LINK.anchor)})`,
-    DRAFTS_LINK: `[Draft rigs](${createDocUrl(DRAFTS_LINK.path, DRAFTS_LINK.anchor)})`,
     STAGES_LINK: `[Stages](${createDocUrl(STAGES_LINK.path, STAGES_LINK.anchor)})`,
     LIFETIME_LINK: `[PROJECT.md § Data is split by lifetime](${createDocUrl(LIFETIME_LINK.path, LIFETIME_LINK.anchor)})`,
-    INTAKE_LINK: `[PROJECT.md § Advisory intake reports](${createDocUrl(INTAKE_LINK.path, INTAKE_LINK.anchor)})`,
     CG_GATES_LINK: `[CHECKS.md § CG gates](${createDocUrl(CG_GATES_LINK.path, CG_GATES_LINK.anchor)})`,
     APPEARANCE_LINK: `[CHECKS.md § Appearance bar wording](${createDocUrl(APPEARANCE_LINK.path, APPEARANCE_LINK.anchor)})`,
     BUST_LINK: `[CHECKS.md § The bust at meshes](${createDocUrl(BUST_LINK.path, BUST_LINK.anchor)})`,

@@ -7,10 +7,16 @@ bound host with `job close`, then open a new job at the current pin:
 
 ```sh
 rig-create job close <project>
-rig-create job open <project> --reviewer <id> --role <owner|delegate> [--draft <id>]
+rig-create job open <project> --reviewer <id> --role owner --current <parts|rig|direction>
 ```
 
 ## Recovery rules
+
+For a live job with `JOB_ACTS_PENDING`, inspect `job acts` and ingest any
+current comment-only acts with `comment --from-review`. Use
+`job withdraw-act` when the owner explicitly withdraws an eligible act,
+or retain an explicit discard receipt when closing. Historical verdict,
+signoff and reopen entries may be listed with retired-route codes.
 
 - **Pending outbox entries block ordinary close.** If `.rig-create-review/outbox/`
   holds a pending publication, `job close` refuses `JOB_PUBLISH_PENDING`

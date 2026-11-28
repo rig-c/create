@@ -61,6 +61,8 @@ const PROJECT_WRITERS = new Set([
   'interview-answer',
   'interview-decision',
   'job open',
+  'ledger add',
+  'ledger retire',
   'owner-language set',
   'plan add',
   'plan bar-amend',
@@ -74,6 +76,8 @@ const PROJECT_WRITERS = new Set([
 const BINDING_WRITERS = new Set([
   'comment close',
   'comment ingest',
+  'correction',
+  'diff-classes',
   'input add',
   'interview-options',
   'plan propose',

@@ -8,16 +8,19 @@ import { lstatSync } from './check-reads.ts';
 import { asArray, checkProject, collectSignoffs, isObject, type Finding } from './check.ts';
 import { CORRECTIONS_SPEC, CORRECTION_SPEC, CORRECTION_STAGES, CorrectionError, checkCorrections, correctionApplied, correctionCheckCoverage, correctionApprovalFindings, currentDirectionIdentity, feedbackPackageInput, correctionBinding, correctionBytes, correctionFinding, correctionHash, correctionIsLive, correctionJson, correctionsAdopted, draftPartBinding, meshDeltaKey, validatePartImageArtifact, validateCorrectionIdentity, versionRecord } from './corrections.ts';
 import { readProject } from './feedback.ts';
+import { acquireBoundJobWrite } from './job-writer.ts';
 import { assertDraftHasRig, draftRigDirectory } from './draft-layout.ts';
 import { checkReviewPackages } from './review-package.ts';
 import { reviewActBy, reviewActVerbatim, reviewActVerdict, type CommentMeshAct, type DraftMeshVerdictAct, type MeshReviewVerdictAct } from './review-act.ts';
 import { commentSource } from './comment-record.ts';
+import { assertCleanProjectStep, commitToolWrite } from './project-step-commit.ts';
 import { readVerbatim } from './record-input.ts';
 import { collectReopens, liveSignoff } from './reopen.ts';
 import { refuse, USAGE_EXIT } from './refusal.ts';
 import { baselineOf, newFindings } from './refusal-baseline.ts';
 import { applyMeshEdits, isMeshEditAct, type MeshEditAct, type MeshEditEntry, type MeshEditPaths, type MeshEditResult } from './mesh-edit.ts';
-import type { JsonObject } from './templates.ts';
+import type { Json, JsonObject } from './templates.ts';
+import { eligibleBoundPaths } from './writer-commit-paths.ts';
 
 export const CORRECTION_HELP = `correction --adopt [<dir>]
 correction record [<dir>] --id <id> --path described|made --stage <review-stage>
@@ -72,16 +75,36 @@ function identity(dir: string, project: JsonObject, opts: Record<string, string>
 function localValidation(dir: string, project: JsonObject, now: number): Finding[] {
   const refusals: Finding[] = []; checkCorrections({dir,project,refusals,warnings:[]},now); return refusals;
 }
+function collectCorrectionBoundPaths(value: Json | undefined, out: string[] = []): string[] {
+  if (Array.isArray(value)) {
+    for (const item of value) collectCorrectionBoundPaths(item, out);
+    return out;
+  }
+  if (!isObject(value)) return out;
+  if (typeof value.path === 'string' && typeof value.sha256 === 'string' && /^[a-f0-9]{64}$/.test(value.sha256)) {
+    out.push(value.path);
+  }
+  if (typeof value.file === 'string') out.push(value.file);
+  if (Array.isArray(value.files) && value.files.every((entry): entry is string => typeof entry === 'string')) {
+    out.push(...value.files);
+  }
+  for (const child of Object.values(value)) collectCorrectionBoundPaths(child, out);
+  return out;
+}
 /** Like choice ingestion, tolerate unrelated pre-existing holes but never a new finding or this record's own invalidity. */
-function save(dir: string, file: string, beforeBytes: string, original: JsonObject, next: JsonObject, now: number): void {
+function save(dir: string, file: string, beforeBytes: string, original: JsonObject, next: JsonObject, now: number, assets: readonly string[] = []): string | undefined {
   const own = localValidation(dir,next,now)[0]; if (own) refuse(own.code,own.message);
   const fresh = newFindings(baselineOf(checkProject(dir,original,{now})),checkProject(dir,next,{now}).refusals)[0];
   if (fresh) refuse(fresh.code,fresh.message);
   // Refuse concurrent record replacement rather than overwriting another writer.
   if (correctionBytes(dir,'project.json').toString('utf8') !== beforeBytes) refuse('CORRECTION_SOURCE','project.json: changed during capture; retry against the current record');
+  const bound = eligibleBoundPaths(assets.map(p => relative(dir, resolve(dir, p)).split(sep).join('/')));
+  assertCleanProjectStep(dir, ['project.json']);
+  assertCleanProjectStep(dir, bound, true);
   const tmp = join(dirname(file),`.correction-${process.pid}-${crypto.randomUUID()}.tmp`);
   try { writeFileSync(tmp,`${JSON.stringify(next,null,2)}\n`,{flag:'wx'});renameSync(tmp,file); }
   finally { rmSync(tmp,{force:true}); }
+  return commitToolWrite(dir, 'correction', ['project.json', ...bound]);
 }
 function openStage(project: JsonObject, stage: string): void {
   const reopens=collectReopens(project,[]);
@@ -318,24 +341,29 @@ export function applyMeshDeltaCorrections(
   return returned;
 }
 
-export function correctionCommand(args: string[], now: number, runner?: ReviewReadRunner): {stdout:string;exit:number} {
+export function correctionCommand(args: string[], now: number, runner?: ReviewReadRunner): {stdout:string;exit:number;stderr?:string} {
   try { return command(args,now,runner); } catch(e) { if(e instanceof ReviewReadError) refuse(e.code,e.message); if(e instanceof DirectionError) refuse(e.code,e.message); if(e instanceof CorrectionError) { const f=correctionFinding(e.code,'corrections',e.message);refuse(f.code,f.message); } throw e; }
 }
-function command(args:string[],now:number,runner?:ReviewReadRunner): {stdout:string;exit:number} {
+function command(args:string[],now:number,runner?:ReviewReadRunner): {stdout:string;exit:number;stderr?:string} {
   if(args.some(arg=>arg==='--direction-patch-file'||arg.startsWith('--direction-patch-file=')))refuse('CORRECTION_DIRECTION_PATCH_FILE_REMOVED','project.json.corrections: --direction-patch-file was removed; numbered direction posts are read-only — write the current direction spec with rig-create direction write [<dir>] --file <intent.json> and record the compose output with rig-create record direction --from <compose out> --direction specs/direction/direction.json',USAGE_EXIT);
   const action=args[0];const opts:Record<string,string>={};const positional:string[]=[];let json=false;
   const allowed=action==='record'?[...common,'--id','--path','--stage','--verbatim-file','--source','--resolves','--patch-file','--feedback-file','--item','--part-image-file','--part','--mask-file','--tool','--before-file']:action==='resolve'?[...common,'--reasoning-file','--applied-feedback','--feedback-id']:[];
   for(let i=1;i<args.length;i++) {const arg=args[i] as string;if(arg==='--json'){if(json)usage('duplicate --json');json=true;}else if(allowed.includes(arg)){const value=args[++i];if(!value||value.startsWith('--')||opts[arg]!==undefined)usage(`${arg} requires one value`);opts[arg]=value;}else if(arg.startsWith('-'))usage(`unknown ${arg}`);else positional.push(arg);}
   if(!['--adopt','record','resolve'].includes(action??'')||positional.length>(action==='resolve'?2:1))usage('invalid action or directory count');
   if(action==='resolve'&&!positional[0])usage('resolve requires correction id');
-  const dir=resolve(positional[action==='resolve'?1:0]??process.cwd());const {file,project}=readProject(dir);const originalBytes=correctionBytes(dir,'project.json').toString('utf8');const next=structuredClone(project);const at=new Date(now).toISOString();
+  const dir=resolve(positional[action==='resolve'?1:0]??process.cwd());
+  readProject(dir);
+  const release=acquireBoundJobWrite(dir,undefined,true);
+  try {
+  const {file,project}=readProject(dir);const originalBytes=correctionBytes(dir,'project.json').toString('utf8');const next=structuredClone(project);const at=new Date(now).toISOString();
   if(action==='--adopt') {
     if (next.corrections_contract !== undefined) {
       const invalid=localValidation(dir,next,now)[0];if(invalid)refuse(invalid.code,invalid.message);
       if(correctionsAdopted(next))return{stdout:'correction: already adopted; original adoption preserved',exit:0};
     }
     next.corrections_contract={schema:CORRECTIONS_SPEC,adopted_at:at};next.corrections=next.corrections??[];
-    save(dir,file,originalBytes,project,next,now);return{stdout:json?JSON.stringify(next.corrections_contract):'correction: adopted; historical records preserved',exit:0};
+    const warning=save(dir,file,originalBytes,project,next,now);
+    return{stdout:json?JSON.stringify(next.corrections_contract):'correction: adopted; historical records preserved',exit:0,...(warning===undefined?{}:{stderr:warning})};
   }
   if(!correctionsAdopted(next))throw new CorrectionError('CORRECTION_CONTRACT_INVALID','adopt corrections explicitly first');
   const records=objects(next.corrections);
@@ -443,9 +471,14 @@ function command(args:string[],now:number,runner?:ReviewReadRunner): {stdout:str
     }
     record.closure={by:'agent',at,reasoning:readVerbatim(opts['--reasoning-file']) + (coverage ? `\n${coverage}` : '')};
   }
-  save(dir,file,originalBytes,project,next,now);
+  const bound = [
+    ...(opts['--parts-file'] ? [opts['--parts-file']] : []),
+    ...collectCorrectionBoundPaths(action === 'record' ? { on: record.on, artifact: record.artifact } : { artifact: record.artifact, outcome: record.outcome }),
+  ];
+  const warning = save(dir,file,originalBytes,project,next,now,bound);
   const alphaReport = isObject(record.artifact) && record.artifact.kind === 'part-image' ? `; added-alpha texels: ${String(record.artifact.added_alpha_texels ?? 0)}` : '';
-  return{stdout:json?JSON.stringify(record,null,2):`correction: ${action==='record'?'recorded':'resolved'} ${String(record.id)}; stage unchanged${alphaReport}${coverage ? `\n${coverage}` : ''}`,exit:0};
+  return{stdout:json?JSON.stringify(record,null,2):`correction: ${action==='record'?'recorded':'resolved'} ${String(record.id)}; stage unchanged${alphaReport}${coverage ? `\n${coverage}` : ''}`,exit:0,...(warning===undefined?{}:{stderr:warning})};
+  } finally { release(); }
 }
 
 /** Public approval paths that do not run checkProject still share the correction validator. */

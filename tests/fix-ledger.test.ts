@@ -38,9 +38,15 @@ function refused(dir: string, code: string, action: () => unknown): Refusal {
 function commit(dir: string, root = dir): void {
   const identity = gitEnv({ name: 'Synthetic Owner', email: 'owner@example.com' });
   const git = (...args: string[]): void => { const r = run(['git', ...args], root, identity); if (r.code !== 0) throw new Error(`git ${args[0]}: ${r.stderr}`); };
-  if (!existsSync(join(root, '.git'))) git('init', '-q');
+  if (!existsSync(join(root, '.git'))) {
+    git('init', '-q');
+    git('config', 'user.name', 'Synthetic Owner');
+    git('config', 'user.email', 'owner@example.com');
+  }
   git('add', '--', relative(root, join(dir, 'project.json')));
-  git('commit', '-q', '-m', 'record');
+  if (run(['git', 'diff', '--cached', '--quiet'], root, identity).code !== 0) {
+    git('commit', '-q', '-m', 'record');
+  }
 }
 const restartArgs = (dir: string, reason = 'restart'): string[] => [dir, '--by', 'owner', ...ownerChatArgs(words(dir, reason))];
 
@@ -435,11 +441,13 @@ test('restart refuses before writing unless project.json is committed: untracked
   expect(refused(untracked, 'RESTART_RECORD_UNCOMMITTED', () => restartCommand(restartArgs(untracked), step())).message).toContain('never committed');
   const dirty = example(); commit(dirty);
   addRow(dirty, 'T2');
+  const committedBytes = readFileSync(join(dirty, 'project.json'));
+  writeFileSync(join(dirty, 'project.json'), `${committedBytes.toString('utf8')}\n`);
   const refusal = refused(dirty, 'RESTART_RECORD_UNCOMMITTED', () => restartCommand(restartArgs(dirty), step()));
   expect(refusal.message).toContain(`${join(dirty, 'project.json')}: differs from HEAD:project.json`);
   expect(refusal.message).toContain('commit project.json, then restart');
-  // Committing the ledger row makes the record clean at HEAD; the restart keeps the row.
-  commit(dirty);
+  // Restoring the committed record makes it clean at HEAD; the restart keeps the ledger row.
+  writeFileSync(join(dirty, 'project.json'), committedBytes);
   restartCommand(restartArgs(dirty), step());
   expect(arr(load(dirty).fix_ledger).map(row => obj(row).id)).toEqual(['T1', 'T2']);
 });
@@ -519,6 +527,7 @@ test('#949: source options put a painting re-added after restart ahead of retain
   save(dir, project);
   commit(dir);
   restartCommand(restartArgs(dir), step());
+  commit(dir);
   const plate = 'evidence/scene-background.png';
   expect(arr(load(dir).inputs).map(entry => obj(entry).path)).toEqual([plate]);
 

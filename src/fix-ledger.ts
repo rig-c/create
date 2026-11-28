@@ -13,7 +13,9 @@ import { currentPartsManifestHash } from './current.ts';
 import { assertDraftHasRig, draftRigRequired, isAssembleOnlyDraft } from './draft-layout.ts';
 import { readProject } from './feedback.ts';
 import { IGNORED_DIRS } from './init.ts';
+import { acquireBoundJobWrite } from './job-writer.ts';
 import { REOPEN_RESTART_OWNER_CHAT_SINCE, ownerChatAuthorityFinding } from './owner-chat.ts';
+import { assertCleanProjectStep, commitToolWrite } from './project-step-commit.ts';
 import { readVerbatim, writeRecord } from './record-input.ts';
 import { refuse, USAGE_EXIT } from './refusal.ts';
 import { newRefusals } from './refusal-baseline.ts';
@@ -530,7 +532,7 @@ export const LEDGER_HELP = `ledger:
   --note is corrections[<id>] or versions[v<n>].verdicts[<i>]; the words must be quoted from that note.
   Every version inherits every row; record parts --ledger-report binds the project's own check report.`;
 
-export function ledgerCommand(args: string[], now: number): { stdout: string; exit: number } {
+export function ledgerCommand(args: string[], now: number): { stdout: string; exit: number; stderr?: string } {
   const action = args[0];
   if (action !== 'add' && action !== 'retire') refuse('LEDGER_USAGE', LEDGER_HELP, USAGE_EXIT);
   const allowed = action === 'add' ? ['--by', '--check', '--bar', '--note', '--verbatim-file'] : ['--by', '--reason-file'];
@@ -550,36 +552,43 @@ export function ledgerCommand(args: string[], now: number): { stdout: string; ex
   const id = positional[0];
   if (!id || !idPattern.test(id) || positional.length > 2 || allowed.some(flag => opts[flag] === undefined)) refuse('LEDGER_USAGE', LEDGER_HELP, USAGE_EXIT);
   const dir = resolve(positional[1] ?? process.cwd());
-  const { file, project } = readProject(dir);
-  const original = readFileSync(file);
-  const before = structuredClone(project);
-  const rows = project.fix_ledger === undefined ? [] : project.fix_ledger;
-  if (!Array.isArray(rows)) refuse('FIX_LEDGER_MALFORMED', 'fix_ledger: expected a list of rows; restore the rows written by ledger add');
-  const stamp = new Date(now).toISOString();
-  let index: number;
-  let row: JsonObject;
-  if (action === 'add') {
-    const ref = opts['--note']!;
-    if (!NOTE_REF.test(ref)) refuse('LEDGER_USAGE', `fix_ledger: --note ${ref} must be corrections[<id>] or versions[v<n>].verdicts[<i>]`, USAGE_EXIT);
-    row = { id, note: { ref, verbatim: readVerbatim(opts['--verbatim-file']!).trim() }, at: stamp, by: opts['--by']!, check: opts['--check']!, bar: opts['--bar']! };
-    index = rows.length;
-    project.fix_ledger = [...rows, row];
-  } else {
-    index = rows.findIndex(r => isObject(r) && r.id === id);
-    if (index < 0) refuse('LEDGER_ROW_UNKNOWN', `fix_ledger: no row has id ${id}; name a row ledger add wrote`);
-    const current = rows[index] as JsonObject;
-    if (current.retired !== undefined) refuse('LEDGER_ROW_RETIRED', `fix_ledger[${index}]: ${id} is already retired; the retirement is kept`);
-    const reason = readVerbatim(opts['--reason-file']!).trim();
-    if (!reason) refuse('LEDGER_USAGE', `fix_ledger[${index}].retired.reason: the reason file is empty; say why the fix no longer applies`, USAGE_EXIT);
-    row = { ...current, retired: { at: stamp, by: opts['--by']!, reason } };
-    project.fix_ledger = rows.map((r, i) => i === index ? row : r);
-  }
-  const errors: Finding[] = [];
-  ledgerRows(project, errors, now, action === 'add' ? index : undefined);
-  const own = errors.find(f => f.path.startsWith(`fix_ledger[${index}]`)) ?? errors.find(f => f.path === 'fix_ledger');
-  if (own !== undefined) refuse(own.code, own.message);
-  const rejected = newRefusals(dir, before, project, { now })[0];
-  if (rejected !== undefined) refuse(rejected.code, rejected.message);
-  writeRecord(file, original, project, 'ledger', 'LEDGER_SOURCE_CHANGED');
-  return { stdout: json ? JSON.stringify(row, null, 2) : `ledger: ${action === 'add' ? 'added' : 'retired'} ${id}`, exit: 0 };
+  readProject(dir);
+  const release = acquireBoundJobWrite(dir, undefined, true);
+  try {
+    const { file, project } = readProject(dir);
+    const original = readFileSync(file);
+    const before = structuredClone(project);
+    const rows = project.fix_ledger === undefined ? [] : project.fix_ledger;
+    if (!Array.isArray(rows)) refuse('FIX_LEDGER_MALFORMED', 'fix_ledger: expected a list of rows; restore the rows written by ledger add');
+    const stamp = new Date(now).toISOString();
+    let index: number;
+    let row: JsonObject;
+    if (action === 'add') {
+      const ref = opts['--note']!;
+      if (!NOTE_REF.test(ref)) refuse('LEDGER_USAGE', `fix_ledger: --note ${ref} must be corrections[<id>] or versions[v<n>].verdicts[<i>]`, USAGE_EXIT);
+      row = { id, note: { ref, verbatim: readVerbatim(opts['--verbatim-file']!).trim() }, at: stamp, by: opts['--by']!, check: opts['--check']!, bar: opts['--bar']! };
+      index = rows.length;
+      project.fix_ledger = [...rows, row];
+    } else {
+      index = rows.findIndex(r => isObject(r) && r.id === id);
+      if (index < 0) refuse('LEDGER_ROW_UNKNOWN', `fix_ledger: no row has id ${id}; name a row ledger add wrote`);
+      const current = rows[index] as JsonObject;
+      if (current.retired !== undefined) refuse('LEDGER_ROW_RETIRED', `fix_ledger[${index}]: ${id} is already retired; the retirement is kept`);
+      const reason = readVerbatim(opts['--reason-file']!).trim();
+      if (!reason) refuse('LEDGER_USAGE', `fix_ledger[${index}].retired.reason: the reason file is empty; say why the fix no longer applies`, USAGE_EXIT);
+      row = { ...current, retired: { at: stamp, by: opts['--by']!, reason } };
+      project.fix_ledger = rows.map((r, i) => i === index ? row : r);
+    }
+    const errors: Finding[] = [];
+    ledgerRows(project, errors, now, action === 'add' ? index : undefined);
+    const own = errors.find(f => f.path.startsWith(`fix_ledger[${index}]`)) ?? errors.find(f => f.path === 'fix_ledger');
+    if (own !== undefined) refuse(own.code, own.message);
+    const rejected = newRefusals(dir, before, project, { now })[0];
+    if (rejected !== undefined) refuse(rejected.code, rejected.message);
+    assertCleanProjectStep(dir, ['project.json']);
+    writeRecord(file, original, project, 'ledger', 'LEDGER_SOURCE_CHANGED');
+    const warning = commitToolWrite(dir, `ledger ${action}`, ['project.json']);
+    return { stdout: json ? JSON.stringify(row, null, 2) : `ledger: ${action === 'add' ? 'added' : 'retired'} ${id}`, exit: 0,
+      ...(warning === undefined ? {} : { stderr: warning }) };
+  } finally { release(); }
 }

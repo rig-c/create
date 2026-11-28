@@ -1,5 +1,5 @@
 import { beforeEach, expect, test } from 'bun:test';
-import { mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { JOB_COMMENT_ONLY_ACT_SCHEMA } from '@rig-c/review/job-host';
 import { OPTIONS_SPEC, optionContext, sha256 } from '../src/choices.ts';
@@ -11,6 +11,7 @@ import { jobRuntimeExecArgv } from '../src/job-writer.ts';
 import { Refusal } from '../src/refusal.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { TEST_NOW } from './clock.ts';
+import { fixture } from './fixtures.ts';
 import { gitEnv, run, tempDir, type Run } from './helpers.ts';
 
 const PROJECT = 'project.json';
@@ -485,5 +486,110 @@ test('#1168 group 4: comment ingest and comment close commit exact paths, list i
   const beforeReplayClose = fullState(repo);
   success(cli(repo, ...closeArgs));
   expect(fullState(repo)).toEqual(beforeReplayClose);
+});
+
+test('#1168 group 5: ledger, correction, and diff-classes commit exact paths and leave unrelated/refused/no-op states intact', () => {
+  // Use example-current at direction-review so current.direction exists for correction record/resolve.
+  const dir = fixture(() => {}, 'example-current/project.json');
+  const repo = { dir, env: gitEnv({ name: 'Synthetic Writer', email: 'writer@example.test' }) };
+  const record = JSON.parse(bytes(repo, PROJECT).toString('utf8')) as JsonObject;
+  record.stage = 'direction-review';
+  record.signoffs = (record.signoffs as JsonObject[]).filter(row => row.stage !== 'direction-review');
+  record.advances = (record.advances as JsonObject[]).filter(row => row.stage !== 'accepted');
+  delete record.corrections_contract;
+  delete record.corrections;
+  putJson(repo, PROJECT, record);
+  put(repo, UNRELATED, 'initial unrelated\n');
+  git(repo, 'init', '-q');
+  git(repo, 'add', '--', '.');
+  git(repo, 'commit', '-qm', 'Seed current direction-review fixture');
+
+  const unrelated = plantUnrelated(repo);
+  let parent = head(repo);
+
+  // correction --adopt + unchanged retry
+  success(cli(repo, 'correction', '--adopt', repo.dir));
+  parent = assertCommittedStep(repo, parent, 'correction', [PROJECT], unrelated);
+  const beforeAdoptRetry = fullState(repo);
+  success(cli(repo, 'correction', '--adopt', repo.dir));
+  expect(fullState(repo)).toEqual(beforeAdoptRetry);
+
+  // Refused correction record (missing verbatim file) leaves HEAD, index and tree unchanged.
+  assertRefusedUnchanged(repo, [
+    'correction', 'record', repo.dir, '--id', 'dir-fix-1', '--path', 'described',
+    '--stage', 'direction-review', '--by', 'synthetic-owner',
+  ], 'CORRECTION_USAGE');
+
+  // correction record (described on current.direction)
+  put(repo, 'scratch/corr-words.txt', 'Slow the camera settle slightly at the loop seam.\n');
+  success(cli(repo,
+    'correction', 'record', repo.dir, '--id', 'dir-fix-1', '--path', 'described',
+    '--stage', 'direction-review', '--by', 'synthetic-owner', '--verbatim-file', 'scratch/corr-words.txt',
+  ));
+  parent = assertCommittedStep(repo, parent, 'correction', [PROJECT], unrelated);
+
+  // ledger add + refused duplicate + ledger retire + refused double retire
+  put(repo, 'scratch/ledger-quote.txt', 'Slow the camera settle slightly at the loop seam.\n');
+  assertRefusedUnchanged(repo, [
+    'ledger', 'add', 'L1', repo.dir, '--by', 'agent', '--check', 'seam-settle',
+    '--bar', 'seam delta <= 8', '--note', 'corrections[unknown]', '--verbatim-file', 'scratch/ledger-quote.txt',
+  ], 'FIX_LEDGER_NOTE_UNKNOWN');
+
+  success(cli(repo,
+    'ledger', 'add', 'L1', repo.dir, '--by', 'agent', '--check', 'seam-settle',
+    '--bar', 'seam delta <= 8', '--note', 'corrections[dir-fix-1]', '--verbatim-file', 'scratch/ledger-quote.txt',
+  ));
+  parent = assertCommittedStep(repo, parent, 'ledger add', [PROJECT], unrelated);
+
+  put(repo, 'scratch/retire-reason.txt', 'Superseded by scene loop-seam bar.\n');
+  success(cli(repo, 'ledger', 'retire', 'L1', repo.dir, '--by', 'synthetic-owner', '--reason-file', 'scratch/retire-reason.txt'));
+  parent = assertCommittedStep(repo, parent, 'ledger retire', [PROJECT], unrelated);
+  assertRefusedUnchanged(repo, [
+    'ledger', 'retire', 'L1', repo.dir, '--by', 'synthetic-owner', '--reason-file', 'scratch/retire-reason.txt',
+  ], 'LEDGER_ROW_RETIRED');
+
+  // Update current.direction.files_sha256 in a fresh record commit or test correction resolve refusal + success:
+  // Refused correction resolve (unchanged current.direction output) leaves HEAD, index and tree unchanged.
+  put(repo, 'scratch/resolve-reason.txt', 'Recomposed direction with updated loop timing.\n');
+  assertRefusedUnchanged(repo, [
+    'correction', 'resolve', 'dir-fix-1', repo.dir, '--by', 'agent', '--reasoning-file', 'scratch/resolve-reason.txt',
+  ], 'CORRECTION_OUTCOME');
+
+  // diff-classes on example-numbered fixture with a newly added diff-report file
+  const draftDir = fixture(() => {}, 'example-numbered/example-project.json');
+  const diffRepo = { dir: draftDir, env: repo.env };
+  const draftRecord = JSON.parse(bytes(diffRepo, PROJECT).toString('utf8')) as JsonObject;
+  delete draftRecord.diff_map;
+  putJson(diffRepo, PROJECT, draftRecord);
+  put(diffRepo, UNRELATED, 'initial unrelated\n');
+  git(diffRepo, 'init', '-q');
+  git(diffRepo, 'add', '--', '.');
+  git(diffRepo, 'commit', '-qm', 'Seed numbered fixture for diff-classes');
+  const diffUnrelated = plantUnrelated(diffRepo);
+  const diffParent = head(diffRepo);
+
+  const reportRel = 'evidence/fresh-diff-components.json';
+  const srcReport = join(import.meta.dir, '..', 'templates', 'example-numbered', 'evidence', 'diff-components.json');
+  cpSync(srcReport, join(diffRepo.dir, reportRel));
+
+  // Read-only diff-classes makes no commit and leaves untracked report + unrelated edits untouched.
+  const classesOut = success(cli(diffRepo, 'diff-classes', diffRepo.dir, '--diff-report', reportRel));
+  expect(head(diffRepo)).toBe(diffParent);
+  expect(snapshot(diffRepo)).toEqual(diffUnrelated);
+
+  // Refused diff-classes (--by human) leaves HEAD, index and tree unchanged.
+  const parsedClasses = JSON.parse(classesOut) as { id: string; key: { coverage_band: string; border_parts: string[] } }[];
+  const triage: Record<string, { status: string; why: string }> = {};
+  for (const cls of parsedClasses) {
+    triage[cls.id] = { status: 'in-painting', why: `Measured ${cls.key.coverage_band} border ${cls.key.border_parts[0] ?? 'edge'}.` };
+  }
+  put(diffRepo, 'scratch/triage.json', `${JSON.stringify({ classes: triage })}\n`);
+  assertRefusedUnchanged(diffRepo, [
+    'diff-classes', diffRepo.dir, '--diff-report', reportRel, '--triage-file', 'scratch/triage.json', '--by', 'human-user',
+  ], 'DIFF_MAP_NOT_AGENT');
+
+  // Valid diff-classes commits project.json and the bound diff report.
+  success(cli(diffRepo, 'diff-classes', diffRepo.dir, '--diff-report', reportRel, '--triage-file', 'scratch/triage.json', '--by', 'agent'));
+  assertCommittedStep(diffRepo, diffParent, 'diff-classes', [PROJECT, reportRel], diffUnrelated);
 });
 

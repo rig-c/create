@@ -114,7 +114,7 @@ restore instructions. See [PROJECT.md § Data is split by lifetime](https://gith
    the [per-frame seam count](https://github.com/rig-c/create/blob/main/docs/LESSONS.md#count-the-seam-bar-over-every-frame),
    [what to show first](https://github.com/rig-c/create/blob/main/docs/LESSONS.md#what-to-show-the-user-first).
 
-Read installed docs at the pins in `package.json` and run named remedies.
+Read installed docs at the pins in `package.json` and run named remedies; for `CREATE_PIN_MISMATCH` on a numbered project, use Create 1.27.x or adopt, not `packages upgrade`.
 
 - [@rig-c/parts README.md](node_modules/@rig-c/parts/README.md): painting-to-rig pipeline and command order.
 - [@rig-c/parts docs/AUTHORING.md](node_modules/@rig-c/parts/docs/AUTHORING.md): config fields, interview waypoints and refusal remedies.

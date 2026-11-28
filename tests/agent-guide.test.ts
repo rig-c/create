@@ -353,3 +353,9 @@ test('#1122 neither the rendered guide nor AGENT-REFERENCE.md names any retired 
     expect(targetSpans.filter(spanNamesCommand), `renderAgentGuide() names \`${name}\` in backticks`).toEqual([]);
   }
 });
+
+test('#1158 the rendered guide tells numbered projects with CREATE_PIN_MISMATCH to use Create 1.27.x or adopt instead of packages upgrade', () => {
+  const guide = renderAgentGuide();
+  expect(guide).toContain('for `CREATE_PIN_MISMATCH` on a numbered project, use Create 1.27.x or adopt, not `packages upgrade`');
+  expect(Buffer.byteLength(guide)).toBeLessThan(GUIDE_MAX_BYTES);
+});

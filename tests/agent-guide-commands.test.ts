@@ -106,7 +106,7 @@ test('the rendered guide has a CLI probe for each written command form and its f
 test('each refusal or warning named in the rendered guide is implemented and documented', () => {
   const guide = renderAgentGuide();
   const checks = readFileSync(new URL('../docs/CHECKS.md', import.meta.url), 'utf8');
-  const generators = ['parts-check.ts', 'current.ts'].map(file =>
+  const generators = ['parts-check.ts', 'current.ts', 'package-upgrades.ts'].map(file =>
     readFileSync(new URL(`../src/${file}`, import.meta.url), 'utf8')).join('\n');
   const codes = [...guide.matchAll(/`([A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+)`/g)].map(match => match[1]!);
   expect(codes.length).toBeGreaterThan(0);

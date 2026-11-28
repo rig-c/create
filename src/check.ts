@@ -886,6 +886,8 @@ interface CheckOptions {
   includeRoutedAnswerWarnings?: boolean;
   /** Candidate `comment_closures[]` index whose `after` hashes must match disk at write time. */
   verifyingCommentClosure?: number;
+  /** Test-only override for the running Create version; never set by any CLI path. */
+  runningCreateVersion?: string;
 }
 
 /**
@@ -959,8 +961,10 @@ function checkProjectOnce(projectDirArg: string, candidate: JsonObject | undefin
   checkScratchBindings(project, refusals, warnings);
   checkCollectionBinding(dir, project, refusals);
   const collection = loadCollection(dir, project);
+  const items = collectItems(project, { collection });
+  const currentPath = isCurrentPathProject(project, items);
   if (!options.recordPublication) {
-    const createPin = createPinWarning(dir, collection);
+    const createPin = createPinWarning(dir, collection, options.runningCreateVersion, currentPath);
     if (createPin) warnings.push(createPin);
   }
   const reopens = collectReopens(project, refusals, warnings);
@@ -971,8 +975,6 @@ function checkProjectOnce(projectDirArg: string, candidate: JsonObject | undefin
     return false;
   });
   const signoffs = historySignoffs.filter(s => liveSignoff(reopens, s.stage, s.at));
-  const items = collectItems(project, { collection });
-  const currentPath = isCurrentPathProject(project, items);
   const currentSignoffs = currentTargetSignoffs(signoffs);
   const activeReviewSignoffs = new Set([PARTS_REVIEW, 'rig-review', 'direction-review'].map(review => latestSignoff({ signoffs: currentSignoffs }, review)));
   for (const s of historySignoffs) {

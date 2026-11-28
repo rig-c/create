@@ -44,7 +44,7 @@ export const testClock = {
   reset: (): void => { current = TEST_NOW; },
 };
 
-export const checkProject = (dir: string, candidate?: JsonObject, options: { forwardWrite?: boolean } = {}): check.CheckReport =>
+export const checkProject = (dir: string, candidate?: JsonObject, options: { forwardWrite?: boolean; runningCreateVersion?: string } = {}): check.CheckReport =>
   check.checkProject(dir, candidate, { ...options, now: current });
 export const checkCorrections = (ctx: Parameters<typeof corrections.checkCorrections>[0]): void => corrections.checkCorrections(ctx, current);
 export const checkDirections = (ctx: Parameters<typeof direction.checkDirections>[0], selected?: number, currentOverride?: boolean): void =>

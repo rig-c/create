@@ -11,15 +11,15 @@ import { tmpdir } from 'node:os';
 import { startJobHost } from '@rig-c/review/job-host';
 import { EXAMPLE_NOW } from '../scripts/example-time.ts';
 import { inputCommand } from '../src/inputs.ts';
-import { askDeclaredSubjects, closeCreateJob, openCreateJob, openDraftPublication, publishPending, reconcileCreateJob, refuseAskOutcomes } from '../src/job-host.ts';
-import { acknowledgePublication, enqueuePublication, failPublication, isRecordResult, jobHash, jobHostStateRoot, jobPrivateRoot, pendingPublications, publicationVersionHash, readAcknowledgedPublication, readWriterBinding, reconcilePublication, type AcknowledgedPublication } from '../src/job-outbox.ts';
-import { draftPublicationContext, prepareDraftManifest, prepareLiveManifest, readPublished } from '../src/job-publication.ts';
-import { agentCall } from '../src/job-acts.ts';
+import { closeCreateJob, openCreateJob, openDraftPublication, openRecordPublication, publishPending, reconcileCreateJob } from '../src/job-host.ts';
+import { acknowledgePublication, enqueuePublication, failPublication, isRecordResult, jobHash, jobHostStateRoot, jobPrivateRoot, pendingPublications, publicationVersionHash, readAcknowledgedPublication, readWriterBinding, type AcknowledgedPublication } from '../src/job-outbox.ts';
+import { draftPublicationContext, prepareLiveManifest, readPublished } from '../src/job-publication.ts';
 import { draftPublicationResult, jobRuntimeExecArgv, prepareDraftIntent } from '../src/job-writer.ts';
 import { hostPortRefuses } from '../src/job-host-state.ts';
 import { advanceCommand } from '../src/progress-writers.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { OWN_NODE_MODULES, PARTS_PACKAGE } from '../src/parts-sections.ts';
+import { seedHistoricalPendingAsk } from './historical-review-fixture.ts';
 import { seedRetainedDirectionPost, seedRetainedDraft, seedRetainedScene } from './numbered-seed.ts';
 
 const CLI = join(import.meta.dir, '../src/cli.ts');
@@ -316,25 +316,12 @@ test('#827 a mixed outbox reconciles an option-set without asks and still preser
     // 1. If an earlier host state holds a legacy interview ask on the published record, the queued draft stops with JOB_ASK_PENDING.
     let seededLegacyAsk = false;
     const publishWithLegacyAsk = async (entry: Parameters<typeof publishPending>[0]) => {
-      const outcomes = await publishPending(entry, undefined, undefined, async () => ({ ...host, reused: true, stop: () => {} }));
+      await publishPending(entry, undefined, undefined, async () => ({ ...host, reused: true, stop: () => {} }));
       if (!seededLegacyAsk && isRecordResult(entry.result)) {
         seededLegacyAsk = true;
-        const session = host.session as unknown as {
-          jobId: string;
-          store: { update(jobId: string, rev: null, fn: (row: { data: { generation: number; publications: Record<string, { retained: { source: unknown } }>; asks: Record<string, unknown> } }) => { data: unknown }): unknown };
-          event(data: unknown, value: object): unknown;
-        };
         const publicationId = host.session.status().publication!.publicationId;
-        session.store.update(session.jobId, null, ({ data }) => {
-          data.generation++;
-          const askId = randomUUID();
-          const ask = { askId, publicationId, subject: legacySubject, source: data.publications[publicationId]!.retained.source, status: 'pending' };
-          data.asks[askId] = ask;
-          session.event(data, { type: 'pending', ask });
-          return { data };
-        });
+        seedHistoricalPendingAsk(host, publicationId, legacySubject);
       }
-      return outcomes;
     };
 
     for (let attempt = 0; attempt < 2; attempt++) {
@@ -898,23 +885,8 @@ test.each(['signoff', 'checkpoint', 'both'] as const)('#467 replaces an unchange
     expect(reply.ok).toBe(true);
     previousId = reply.value.publicationId;
     acknowledgePublication(entry, previousId, reply.value.generation, requestId, subjects);
-    const live = subjects.filter(subject => subject.kind === 'review-verdict');
-    expect((await askDeclaredSubjects(legacy, previousId, live, false)).map(outcome => outcome.status)).toEqual(live.map(() => 'asked'));
     for (const subject of subjects) {
-      if (subject.kind === 'signoff' || subject.kind === 'checkpoint') {
-        const session = legacy.session as unknown as {
-          jobId: string;
-          store: { update(jobId: string, rev: null, fn: (row: { data: { generation: number; publications: Record<string, { retained: { source: unknown } }>; asks: Record<string, unknown> } }) => { data: unknown }): unknown };
-          event(data: unknown, value: object): unknown;
-        };
-        session.store.update(session.jobId, null, ({ data }) => {
-          data.generation++;
-          const ask = { askId: randomUUID(), publicationId: previousId, subject, source: data.publications[previousId]!.retained.source, status: 'pending' };
-          data.asks[ask.askId] = ask;
-          session.event(data, { type: 'pending', ask });
-          return { data };
-        });
-      }
+      seedHistoricalPendingAsk(legacy, previousId, subject);
     }
     expect(legacy.session.status().pending.map(ask => ask.subject)).toEqual(expect.arrayContaining(subjects));
     expect(legacy.session.status().pending).toHaveLength(subjects.length);
@@ -970,43 +942,56 @@ test('a binding copied from another root is replaced: the copy opens its own job
   expect((read(original).review_job as JsonObject).origin).toBe(first.url.origin);
 }, 20_000);
 
-test('an ask Review refuses is named JOB_ASK_REFUSED, and a declared subject is asked only once', async () => {
+test('publish and reopen send no ask or ask-batch requests and never emit JOB_ASK_REFUSED or JOB_ASK_INVALID', async () => {
   const root = await partsReview();
-  const declared = { kind: 'parts-verdict' as const, draftId: 'chain' };
-  const host = await openCreateJob(root, { id: 'synthetic-owner', role: 'owner' }, Date.now(), options => startJobHost({
-    ...options,
-    readPublished: async input => ({ ...await readPublished(input), subjects: [declared] }),
-  }));
+  const verbs: string[] = [];
+  const wrapHost = async (options: Parameters<typeof startJobHost>[0]) => {
+    const started = await startJobHost(options);
+    const origHandle = started.ports.handleJobApi.bind(started.ports);
+    return {
+      ...started,
+      ports: {
+        ...started.ports,
+        handleJobApi: async (request: Request) => {
+          const body = await request.clone().json() as { verb?: string };
+          verbs.push(String(body.verb ?? ''));
+          return origHandle(request);
+        },
+      },
+    };
+  };
+  const host = await openCreateJob(root, { id: 'synthetic-owner', role: 'owner' }, Date.now(), wrapHost, true);
   try {
-    const result = { path: prepareDraftManifest(root, read(root), 'chain'), selector: { kind: 'draft' as const, id: 'chain' } };
     const binding = readWriterBinding(root)!;
-    const entry = enqueuePublication(root, binding, result);
-    const requestId = randomUUID();
-    await reconcilePublication(root, entry, async pending => {
-      const reply = await agentCall(host, {
-        schema: binding.identity.apiSchema,
-        verb: 'publish',
-        requestId,
-        idempotencyKey: requestId,
-        expectedGeneration: host.session.status().generation,
-        result,
-        freeze: { kind: 'producer-held', holdId: pending.id, record: { path: 'project.json', sha256: pending.recordHash } },
-      });
-      expect(reply.ok).toBe(true);
-      const pub = host.session.status().publication!;
-      acknowledgePublication(pending, pub.publicationId, pub.generation, requestId, [declared]);
-    });
-    const publicationId = host.session.status().publication!.publicationId;
-    expect(await askDeclaredSubjects(host, publicationId, [declared], false)).toEqual([{ subject: declared, status: 'asked' }]);
-    const generation = host.session.status().generation;
-    // Review asks a declared subject only once; a stage this draft cannot sign is refused.
-    const outcomes = await askDeclaredSubjects(host, publicationId, [declared, { kind: 'signoff', stage: 'rig-review' }], false);
-    expect(outcomes.map(outcome => outcome.status)).toEqual(['already', 'refused']);
-    expect(outcomes[1]).toMatchObject({ code: 'JOB_ASK_INVALID' });
-    expect(host.session.status().generation).toBe(generation);
-    expect(() => refuseAskOutcomes(outcomes)).toThrow(expect.objectContaining({ code: 'JOB_ASK_REFUSED' }));
+    const draftEntry = enqueuePublication(root, binding, draftPublicationResult('chain'));
+    await reconcileCreateJob(root, item => publishPending(item, undefined, undefined, opts => wrapHost(opts)));
+    const draftPubId = host.session.status().publication!.publicationId;
+    expect(readAcknowledgedPublication(root, binding.jobId, draftPubId)?.subjects).toEqual([]);
+    expect(host.session.status().pending).toEqual([]);
+    expect(verbs.every(verb => verb === 'next' || verb === 'progress' || verb === 'publish')).toBe(true);
+    expect(verbs).toContain('publish');
+
+    verbs.length = 0;
+    const draftReopen = await openDraftPublication(root, host, Date.now());
+    expect(draftReopen).toEqual([`job: draft chain already published (publication ${draftPubId})`]);
+    expect(verbs).toEqual([]);
+    expect(draftEntry.id).toBeTruthy();
+
+    verbs.length = 0;
+    const planEntry = enqueuePublication(root, binding, { kind: 'plan' });
+    await reconcileCreateJob(root, item => publishPending(item, undefined, undefined, opts => wrapHost(opts)));
+    const planPubId = host.session.status().publication!.publicationId;
+    expect(planEntry.id).toBeTruthy();
+    expect(host.session.status().pending).toEqual([]);
+    expect(verbs.every(verb => verb === 'next' || verb === 'progress' || verb === 'publish')).toBe(true);
+    expect(verbs).toContain('publish');
+
+    verbs.length = 0;
+    const planLines = await openRecordPublication(root, host, undefined, true, Date.now());
+    expect(planLines).toEqual([`job: plan already published (publication ${planPubId})`]);
+    expect(verbs).toEqual([]);
   } finally { host.stop(); }
-});
+}, 20_000);
 
 test('unready parts-review draft context warns by name and leaves the public map repair writer usable', async () => {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'create-job-open-diffmap-')));

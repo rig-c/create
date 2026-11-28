@@ -881,28 +881,19 @@ describe('Frozen Bar 5 — Plants (lapsed approval, changed bound input DRAFT_RI
         acknowledgePublication(pending, pub.publicationId, pub.generation, pubReqId, [{ kind: 'parts-verdict', draftId: 'chain' }]);
       });
       const publication = host.session.status().publication!;
-      const askReq = {
-        schema: 'rig-review/job-api@2',
-        verb: 'ask',
-        jobId: host.session.jobId,
-        requestId: randomUUID(),
-        idempotencyKey: randomUUID(),
-        expectedGeneration: host.session.status().generation,
-        publicationId: publication.publicationId,
-        subject: { kind: 'parts-verdict', draftId: 'chain' },
+      const session = host.session as unknown as {
+        jobId: string;
+        store: { update(jobId: string, rev: null, fn: (row: { data: { generation: number; publications: Record<string, { retained: { source: unknown } }>; asks: Record<string, unknown> } }) => { data: unknown }): unknown };
+        event(data: unknown, value: object): unknown;
       };
-      const askRes = await host.ports.handleJobApi(
-        new Request(`${host.origin}/jobs/${host.session.jobId}/api`, {
-          method: 'POST',
-          headers: {
-            authorization: `Bearer ${host.session.hostCredentials().agent}`,
-            'content-type': 'application/json',
-          },
-          body: JSON.stringify(askReq),
-        }),
-      );
-      const asked = (await askRes.json()) as { ok: boolean; value: { askId: string } };
-      expect(asked.ok).toBe(true);
+      const askId = randomUUID();
+      session.store.update(session.jobId, null, ({ data }) => {
+        const ask = { askId, publicationId: publication.publicationId, subject: { kind: 'parts-verdict', draftId: 'chain' }, source: structuredClone(data.publications[publication.publicationId]!.retained.source), status: 'pending' };
+        data.generation++;
+        data.asks[askId] = ask;
+        session.event(data, { type: 'pending', ask });
+        return { data };
+      });
 
       const pageId = randomUUID();
       const uiReq = (route: string, body: object) =>
@@ -930,7 +921,7 @@ describe('Frozen Bar 5 — Plants (lapsed approval, changed bound input DRAFT_RI
         host.session.jobId,
         uiReq('acts', {
           publicationId: publication.publicationId,
-          askId: asked.value.askId,
+          askId,
           pageId,
           displayedNonce: displayed.value.displayedNonce,
           expectedGeneration: host.session.status().generation,

@@ -7,7 +7,7 @@ import { startJobHost, type JobSubject } from '@rig-c/review/job-host';
 import { EXAMPLE_NOW, EXAMPLE_SOURCE_DATE_EPOCH } from '../scripts/example-time.ts';
 import { checkProject } from '../src/check.ts';
 import { acknowledgePublication, enqueuePublication, jobHash, jobHostStateRoot, pendingPublications, readAcknowledgedPublication, readWriterBinding, reconcilePublication } from '../src/job-outbox.ts';
-import { askDeclaredSubjects, openCreateJob } from '../src/job-host.ts';
+import { openCreateJob } from '../src/job-host.ts';
 import { draftPackageIdentity, prepareDraftManifest, publishedSourcePainting, readPublished } from '../src/job-publication.ts';
 import { jobRuntimeExecArgv } from '../src/job-writer.ts';
 import { decodeReviewAct, draftReviewStillEvidence, isDraftReviewVerdict, reviewActBy, reviewActFindings, reviewActVerdict } from '../src/review-act.ts';
@@ -16,6 +16,7 @@ import type { JsonObject } from '../src/templates.ts';
 import { treeDigest } from './helpers.ts';
 import { meshEdits } from './mesh-edit-fixture.ts';
 import { seedRetainedDraft, seedRetainedRigVersion } from './numbered-seed.ts';
+import { seedHistoricalPendingAsk } from './historical-review-fixture.ts';
 
 const subject = { kind: 'review-verdict', stage: 'rig-review' } as const;
 const draftId = 'synthetic-review';
@@ -131,7 +132,7 @@ async function openLegacyVerdict(root: string, reviewer = 'synthetic-owner'): Pr
       painting: publishedSourcePainting(root, project, `drafts[${draftId}]`),
     });
   });
-  expect(await askDeclaredSubjects(host, publicationId, [subject], false)).toEqual([{ status: 'asked', subject }]);
+  seedHistoricalPendingAsk(host, publicationId, subject);
   return new URL(host.ownerUrl);
 }
 

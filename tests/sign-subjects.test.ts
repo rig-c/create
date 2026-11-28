@@ -7,7 +7,7 @@ import { randomUUID } from 'node:crypto';
 import { cpSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { startJobHost, type JobHostOptions, type JobOwnerHost, type JobSubject } from '@rig-c/review/job-host';
+import { startJobHost, type JobHostOptions, type JobOwnerHost } from '@rig-c/review/job-host';
 import { EXAMPLE_ANCHOR } from '../scripts/example-time.ts';
 import { checkProject } from '../src/check.ts';
 import { structureSnapshotCommand } from '../src/structure-snapshot.ts';
@@ -23,7 +23,7 @@ import { selectSignoffTarget } from '../src/signoff-target.ts';
 import { currentScene, sceneReference } from '../src/scene.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { plantLegacyReopen } from './fixtures.ts';
-import { seedHistoricalCheckpointAct, seedHistoricalCheckpointAsk } from './historical-review-fixture.ts';
+import { seedHistoricalCheckpointAct, seedHistoricalCheckpointAsk, seedHistoricalPendingAsk } from './historical-review-fixture.ts';
 import { seedRetainedDirectionPost, seedRetainedDraft, seedRetainedScene } from './numbered-seed.ts';
 
 const roots: string[] = [];
@@ -68,7 +68,6 @@ async function agent(host: JobOwnerHost, verb: string, fields: object): Promise<
       expectedGeneration: host.session.status().generation, idempotencyKey: randomUUID(), ...fields }) }));
   return await response.json() as { ok: boolean; error?: { code: string }; value: JsonObject };
 }
-const ask = (host: JobOwnerHost, subject: JobSubject) => agent(host, 'ask', { publicationId: host.session.status().publication!.publicationId, subject });
 
 /** The person's page: one displayed acknowledgment, then each act through Review's UI port. */
 async function page(host: JobOwnerHost) {
@@ -152,16 +151,15 @@ async function historicalRigVerdict(root: string) {
     acknowledgePublication(entry, publication!.publicationId, generation, randomUUID(), [rigVerdictSubject]);
   });
   historical = false;
-  const verdictAsk = await ask(host, rigVerdictSubject);
-  expect(verdictAsk.ok).toBe(true);
+  const verdictAsk = seedHistoricalPendingAsk(host, host.session.status().publication!.publicationId, rigVerdictSubject);
   const { pageId, act } = await page(host);
   const publication = host.session.status().publication!;
   const png = readFileSync(join(root, 'evidence/setup.png'));
-  const verdict = await act(String(verdictAsk.value.askId), 'review-verdict', { stage: 'rig-review', verdict: 'approved', words: WORDS }, {
+  const verdict = await act(verdictAsk.askId, 'review-verdict', { stage: 'rig-review', verdict: 'approved', words: WORDS }, {
     capture: { png: `data:image/png;base64,${png.toString('base64')}`, width: png.readUInt32BE(16), height: png.readUInt32BE(20),
       camera: 'fixed', framing: 'default', view: 'whole-rig', frame: 'setup', playing: false,
       binding: { publicationId: publication.publicationId, instanceKey: publication.instanceKey, sourceHash: publication.source.sourceHash,
-        pageId, askId: verdictAsk.value.askId, drawGeneration: 1, playerGeneration: 0 } } });
+        pageId, askId: verdictAsk.askId, drawGeneration: 1, playerGeneration: 0 } } });
   return { host, verdict };
 }
 
@@ -198,10 +196,6 @@ test('a fresh rig version published in rig-review folds its approval into the di
   const freshRoot = copy('3-rig-review');
   const freshHost = await open(freshRoot);
   await publishRigWithoutAsks(freshRoot, freshHost);
-  // Review still allows a manual verdict ask. Only the retired signoff asks refuse.
-  for (const stage of ['rig-review', 'direction-review'] as const) {
-    expect((await ask(freshHost, { kind: 'signoff', stage })).error?.code).toBe('JOB_ASK_INVALID');
-  }
   const root = copy('3-rig-review');
   const { host, verdict } = await historicalRigVerdict(root);
   expect(verdict).toMatchObject({ schema: 'rig-review/act@6', kind: 'review-verdict', source: { selector: { kind: 'rig', version: 1 } }, value: { stage: 'rig-review', verdict: 'approved', comments: [{ text: WORDS }] } });
@@ -229,7 +223,6 @@ test('an act for a subject create did not declare refuses by name and leaves the
   enqueuePublication(root, readWriterBinding(root)!, draftPublicationResult('chain'));
   expect(await reconcileCreateJob(root, entry => publishPending(entry, undefined, undefined, wider))).toBe(1);
   expect(declared(root, host)).toEqual([]);
-  expect(await ask(host, subject)).toMatchObject({ ok: false, error: { code: 'JOB_ASK_INVALID' } });
   const askId = seedHistoricalCheckpointAsk(host, host.session.status().publication!.publicationId, subject);
   const planted = seedHistoricalCheckpointAct(host, askId, 'pass', {
     comments: [{ text: WORDS, anchor: { checkpointId: 'assemble', planStepId: 'assemble' } }],

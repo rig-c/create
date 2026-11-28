@@ -31,7 +31,7 @@ import { seedRetainedDraft } from './numbered-seed.ts';
 import { latestPartsReceipt, latestPartsVerdictStatus, partsReadFindings, recordedPartsVerdict } from '../src/parts-verdict-record.ts';
 import { decodeReviewAct, partsActIssues, reviewActFindings, type PartsVerdictActV5 } from '../src/review-act.ts';
 import { EXAMPLE_ANCHOR, EXAMPLE_NOW } from '../scripts/example-time.ts';
-import { seedStoredPartsSignoff, seedStoredPartsVerdictAct, seedStoredSignoffAct } from './historical-review-fixture.ts';
+import { seedHistoricalPendingAsk, seedStoredPartsSignoff, seedStoredPartsVerdictAct, seedStoredSignoffAct } from './historical-review-fixture.ts';
 import { recordPartsReceipt, seedPartsCliReceipt } from './parts-receipt-fixture.ts';
 import { treeDigest } from './helpers.ts';
 import type { JsonObject } from '../src/templates.ts';
@@ -189,13 +189,7 @@ async function submit(
   showLayers = false,
 ): Promise<JobAct> {
   const publication = host.session.status().publication!;
-  const request = { schema: 'rig-review/job-api@2', verb: 'ask', jobId: host.session.jobId, requestId: randomUUID(),
-    idempotencyKey: randomUUID(), expectedGeneration: host.session.status().generation, publicationId: publication.publicationId,
-    subject: { kind: 'parts-verdict', draftId: 'chain' } };
-  const response = await host.ports.handleJobApi(new Request(`${host.origin}/jobs/${host.session.jobId}/api`, { method: 'POST',
-    headers: { authorization: `Bearer ${host.session.hostCredentials().agent}`, 'content-type': 'application/json' }, body: JSON.stringify(request) }));
-  const asked = await response.json() as { ok: boolean; error?: { code: string }; value: { askId: string } };
-  expect(asked.error).toBeUndefined(); expect(asked.ok).toBe(true);
+  const asked = seedHistoricalPendingAsk(host, publication.publicationId, { kind: 'parts-verdict', draftId: 'chain' });
   const pageId = randomUUID();
   const ui = (route: string, body: object) => new Request(`${host.origin}/jobs/${host.session.jobId}/ui/${route}`, { method: 'POST',
     headers: { origin: host.origin, 'X-Review-Capability': host.session.hostCredentials().ui, 'content-type': 'application/json' }, body: JSON.stringify(body) });
@@ -256,7 +250,7 @@ async function submit(
     const prepared = await cropRes.json() as { comment: Record<string, unknown> };
     issues = [prepared.comment];
   }
-  const result = await host.ports.commitUIAct(host.session.jobId, ui('acts', { publicationId: publication.publicationId, askId: asked.value.askId,
+  const result = await host.ports.commitUIAct(host.session.jobId, ui('acts', { publicationId: publication.publicationId, askId: asked.askId,
     pageId, displayedNonce: displayed.value.displayedNonce, expectedGeneration: host.session.status().generation,
     submissionId: randomUUID(), kind: 'parts-verdict', value: { verdict, issues, words: '  Synthetic parts review.\r\n' } }));
   expect(result.ok ? undefined : result.error.code).toBeUndefined();

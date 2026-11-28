@@ -1,5 +1,5 @@
 import { afterAll, expect, test } from 'bun:test';
-import { cpSync, existsSync, mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs';
+import { cpSync, existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { generateExampleCurrent } from '../scripts/generate-example-current.ts';
@@ -150,9 +150,16 @@ async function expectPublishedEvents(owner: URL, publications: readonly { id: st
 
 test('#1119 next offers retirement of a refused current publication and camera_depth can recover', async () => {
   await withProject(true, async ({ root, record, open, run }) => {
+    const setPath = join(root, 'evidence/interview/camera_depth.json');
+    const savedSet = readFileSync(setPath);
+    writeFileSync(setPath, Buffer.concat([savedSet, Buffer.from('\n')]));
     const beforeOpen = record();
     const refused = await open('--current', 'rig');
+    writeFileSync(setPath, savedSet);
     expect(refused.stderr).toMatch(/^JOB_PUBLISH_PENDING: .*JOB_RECORD_INCOMPLETE/m);
+    expect(pendingPublications(root)).toEqual([expect.objectContaining({
+      failure: expect.objectContaining({ code: 'JOB_RECORD_INCOMPLETE' }),
+    })]);
     const initial = record();
     expectJobLocatorOnly(beforeOpen, initial, refused.url);
 
@@ -194,6 +201,8 @@ test('#1119 next offers retirement of a refused current publication and camera_d
 
 test('#1119 mixed retirement keeps the unfailed parts publication in the same live job', async () => {
   await withProject(true, async ({ root, record, open, run }) => {
+    const setPath = join(root, 'evidence/interview/camera_depth.json');
+    writeFileSync(setPath, Buffer.concat([readFileSync(setPath), Buffer.from('\n')]));
     const beforeOpen = record();
     const refused = await open('--current', 'rig');
     expect(refused.stderr).toMatch(/^JOB_PUBLISH_PENDING: .*JOB_RECORD_INCOMPLETE/m);
@@ -219,7 +228,7 @@ test('#1119 mixed retirement keeps the unfailed parts publication in the same li
     expect(readWriterBinding(root)).toEqual(binding);
     expect(record()).toEqual(initial);
 
-    // Review 4.24 also refuses parts while the camera options are pending.
+    // Review also refuses parts while the pending option bytes do not match their sha256.
     // Reconcile must actually try it on the same job before it can be retired.
     const reconciled = await run('job', 'reconcile', root);
     expect(reconciled).toMatchObject({ exit: 1, stderr: expect.stringMatching(/^JOB_PUBLISH_PENDING: .*JOB_RECORD_INCOMPLETE/m) });

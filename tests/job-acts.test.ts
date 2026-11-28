@@ -22,7 +22,7 @@ import { JOB_COMMENTS_ACT_SCHEMA, JOB_RECORD_ACT_SCHEMA, parseCommentsAct, parse
 import { interviewAnswerCommand } from '../src/choice-writers.ts';
 import { decodeReviewAct, reviewActFindings, reviewActTransport } from '../src/review-act.ts';
 import { sorted, stepHash } from '../src/step-hash.ts';
-import { seedStoredInterviewPicks, seedStoredInterviewPicksAnswer, seedStoredVersionSignoff } from './historical-review-fixture.ts';
+import { seedHistoricalPendingAsk, seedStoredInterviewPicks, seedStoredInterviewPicksAnswer, seedStoredVersionSignoff } from './historical-review-fixture.ts';
 import type { Json, JsonObject } from '../src/templates.ts';
 import { testClock } from './clock.ts';
 import { EXAMPLE_NOW } from '../scripts/example-time.ts';
@@ -272,17 +272,12 @@ async function openRetainedVerdict(root: string, kind: 'rig' | 'post') {
   const host = await openCreateJob(root, { id: 'synthetic-owner', role: 'owner' }, now);
   try {
     await openDraftPublication(root, host, now, undefined, kind === 'rig' ? '1' : '2');
-    const { publication, generation } = host.session.status();
-    // Create opens an askless view. Model an already-issued ask via Review's manual package API.
-    const reply = await agentCall(host, {
-      schema: 'rig-review/job-api@2',
-      verb: 'ask',
-      publicationId: publication!.publicationId,
-      expectedGeneration: generation,
-      idempotencyKey: randomUUID(),
-      subject: { kind: 'review-verdict', stage: kind === 'rig' ? 'rig-review' : 'direction-review' },
+    const { publication } = host.session.status();
+    // Create opens an askless view. Seed an already-issued historical ask on the retained publication.
+    seedHistoricalPendingAsk(host, publication!.publicationId, {
+      kind: 'review-verdict',
+      stage: kind === 'rig' ? 'rig-review' : 'direction-review',
     });
-    expect(reply.ok, JSON.stringify(reply.error)).toBe(true);
     return { host, url: new URL(host.ownerUrl) };
   } catch (error) {
     host.stop();

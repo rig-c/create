@@ -17,7 +17,6 @@ import {
   parseContextCommentsAct,
   parseMeshEditsAct,
   parseRecordAct,
-  prepareJobRecordAct,
   prepareJobRecordSource,
   type JobOwnerHost,
 } from '@rig-c/review/job-host';
@@ -114,7 +113,6 @@ test('installed Review exports the act and previous-draft contracts and retains 
   expect(typeof parseContextCommentsAct).toBe('function');
   expect(typeof parseMeshEditsAct).toBe('function');
   expect(typeof parseRecordAct).toBe('function');
-  expect(typeof prepareJobRecordAct).toBe('function');
   expect(typeof prepareJobRecordSource).toBe('function');
 
   const root = makeProject();

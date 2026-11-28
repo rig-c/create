@@ -1555,6 +1555,56 @@ test.each([
   });
 });
 
+test('#1136 a relayed post-interview approval can enable a checkpoint without blocking completion', () => {
+  const dir = join(tempDir(), 'current-post-checkpoint');
+  cpSync(join(REPO, 'templates/example-current'), dir, { recursive: true });
+  const file = join(dir, 'project.json');
+  const read = (): JsonObject => JSON.parse(readFileSync(file, 'utf8')) as JsonObject;
+  const project = read();
+  project.stage = 'post-interview';
+  project.advances = arr(project.advances).filter(row => stageIndex(String(obj(row).stage)) <= stageIndex('post-interview'));
+  project.signoffs = arr(project.signoffs).filter(row => stageIndex(String(obj(row).stage)) < stageIndex('post-interview'));
+  delete obj(project.current).motion;
+  delete obj(project.current).direction;
+  for (const step of arr(obj(project.plan).steps).map(obj).filter(step => step.phase === 'post')) {
+    step.checkpoint = null;
+    step.status = 'pending';
+    delete step.status_history;
+  }
+  writeFileSync(file, JSON.stringify(project));
+  const composition = () => arr(obj(read().plan).steps).map(obj).find(step => step.id === 'composition')!;
+  const write = (args: string[], at: number) => {
+    const result = runMainCapture(args, at);
+    expect(result.code, result.stderr).toBe(0);
+  };
+  write(['plan', 'replace', 'composition', dir, '--by', 'agent', '--phase', 'post', '--order', '9',
+    '--does', 'Prepare synthetic composition.', '--produces', 'Synthetic composition evidence.',
+    '--rests-on', 'post_composition', '--bar', 'Retain the proposed synthetic result.', '--checkpoint-proposed', 'true'], CHAIN_NOW);
+  expect(composition().checkpoint).toBeNull();
+
+  const words = join(dir, 'owner-words.txt');
+  writeFileSync(words, 'The synthetic post plan is ready.');
+  write(['signoff', 'post-interview', dir, '--by', 'owner', '--owner-chat', words,
+    '--said-at', new Date(CHAIN_NOW).toISOString(), '--relayed-by', 'operator'], CHAIN_NOW + 1000);
+  expect(obj(composition().checkpoint).value).toBe(true);
+  write(['advance', 'post', dir], CHAIN_NOW + 2000);
+  write(['step-status', 'composition', 'in-progress', dir, '--by', 'agent'], CHAIN_NOW + 3000);
+
+  for (const [index, status] of ['at-checkpoint', 'done'].entries()) {
+    const at = CHAIN_NOW + 4000 + index * 1000;
+    const result = runMainCapture(['next', dir, '--json'], at);
+    expect(result.code, result.stderr).toBe(0);
+    const report = JSON.parse(result.stdout) as NextReport;
+    expect(report.refusals).toEqual([]);
+    expect(report.awaits, result.stdout).not.toContain('signoffs[checkpoint=composition]');
+    const command = report.moves.find(move => move.field === 'plan.steps[composition].status')?.command;
+    expect(command).toBe(`rig-create step-status composition ${status} ${dir} --by agent`);
+    write(printedArgs(command!).slice(1), at);
+  }
+  expect(composition().status).toBe('done');
+  expect(obj(arr(composition().status_history).at(-1)).signoff).toBeNull();
+});
+
 test('#490 agent guide remains below 10000 rendered bytes', () => {
   expect(Buffer.byteLength(renderAgentGuide())).toBeLessThan(10_000);
 });

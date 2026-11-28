@@ -424,12 +424,29 @@ test('#1165 current publication leaves a live closure edit unstaged and lists th
   });
 }, 20_000);
 
-test('#1165 plan proposal still saves and emits the portable no-Git warning', () => {
+test('#1165 plan proposal preserves its output contract outside Git', () => {
   const repo = planFixture();
   put(repo, PLAN, 'Keep the joint line along the outline.\n');
   const result = cli(repo, 'plan', 'propose', 'parts', repo.dir, '--file', PLAN, '--by', OPERATOR);
   success(result);
-  expect(result.stderr).toContain('PROJECT_NOT_IN_GIT');
+  expect(result.stderr).toBe('');
   expect(arr(obj(json(repo, PROJECT).interview).step_plans).at(-1)).toMatchObject({ path: PLAN });
   expect(existsSync(join(repo.dir, '.git'))).toBe(false);
+});
+
+test('#1165 baseline clears a dead plan writer lock after its record was saved', async () => {
+  const repo = planFixture();
+  seed(repo);
+  const original = json(repo, PROJECT);
+  putJson(repo, PROJECT, { ...original, title: 'Saved by the interrupted writer' });
+  const deadWriter = Bun.spawn(['/bin/sh', '-c', 'exit 0']);
+  expect(await deadWriter.exited).toBe(0);
+  const lock = join(repo.dir, '.plan.lock');
+  mkdirSync(lock);
+  writeFileSync(join(lock, `${deadWriter.pid}-aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa`), '');
+
+  success(cli(repo, 'history', 'baseline', repo.dir, '--by', OPERATOR));
+  expect(existsSync(lock)).toBe(false);
+  expect(git(repo, 'status', '--porcelain')).toBe('');
+  expect(historyEntries(repo)).toEqual([expect.objectContaining({ command: 'history baseline', attribution: 'unverified' })]);
 });

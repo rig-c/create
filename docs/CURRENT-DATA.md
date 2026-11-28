@@ -445,7 +445,7 @@ Commit scopes today:
 | `job open` | `project.json` when the live job binding changes |
 | `job open --current` | its generated manifest when HEAD already contains the exact record and trackable inputs |
 | `packages upgrade` | `project.json`, `package.json` and `bun.lock` |
-| `plan propose`, `interview-options` | `project.json` and the explicitly registered file |
+| `plan propose`, `interview-options` | `project.json` and explicitly registered, trackable files |
 | `plan feedback` / `add` / `revise`, `comment --from-review` / `--close`, `input add`, `ledger add` / `retire`, `derived add`, `correction`, `owner-language set` | working-tree writes |
 
 Converted record writers check their shared paths before mutation. Review any
@@ -460,7 +460,8 @@ Commit rules for the final design:
 
 - Pathspec only: `git commit --only -- <paths>`. It never uses `git add -A` or
   touches other staged work. The pattern is `src/collection.ts:101-106`.
-- No work tree: skipped, with WARN `PROJECT_NOT_IN_GIT`.
+- A work tree is required to create a commit. Current output and spec writers
+  warn with `PROJECT_NOT_IN_GIT` when Git is unavailable.
 - A collection member commits in its collection's repository
   (`docs/PROJECT.md:36-38`).
 - A failed commit keeps the written record. It raises WARN

@@ -142,7 +142,7 @@ export async function openCreateJob(
         writeFileSync(temporary, `${JSON.stringify(next, null, 2)}\n`, { flag: 'wx' });
         renameSync(temporary, file);
         const warning = commitToolWrite(root, 'job open', ['project.json']);
-        if (warning && !warning.includes('WARN PROJECT_NOT_IN_GIT:')) process.stderr.write(`${warning}\n`);
+        if (warning) process.stderr.write(`${warning}\n`);
       }
       return host;
     } catch (error) { host.stop(); throw error; }

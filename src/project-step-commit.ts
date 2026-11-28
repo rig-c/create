@@ -409,7 +409,7 @@ function requireUnstaged(dir: string, paths: readonly string[]): void {
 export function commitToolWrite(dir: string, command: string, paths: readonly string[], subject?: string): string | undefined {
   if (!paths.length) return;
   try {
-    if (!hasProjectGit(dir)) return NO_PROJECT_GIT;
+    if (!hasProjectGit(dir)) return;
     const scope = projectPaths(paths);
     requireUnstaged(dir, scope);
     const changed = exactChanges(dir, scope);

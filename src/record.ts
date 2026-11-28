@@ -500,8 +500,7 @@ function backfillMotionProvenance(dir: string, file: string, original: Buffer, p
       refuse('RECORD_SOURCE_CHANGED', 'current.motion.provenance: the numbered model or motion bytes changed while recording; restore them and retry --adopt');
     }
     writeRecord(file, original, candidate, 'record-motion-adopt', 'RECORD_SOURCE_CHANGED');
-    const warning = commitToolWrite(dir, 'record motion adopt', ['project.json']);
-    if (warning && !warning.includes('WARN PROJECT_NOT_IN_GIT:')) stderr = warning;
+    stderr = commitToolWrite(dir, 'record motion adopt', ['project.json']);
   }
   return { stdout: json ? JSON.stringify(node, null, 2) : `record motion: v${String(provenance.version)} provenance ${existing ? 'already recorded' : 'recorded in place'}`, exit: 0, ...(stderr ? { stderr } : {}) };
 }
@@ -549,7 +548,7 @@ function recordAdoption(dir: string, file: string, original: Buffer, project: Js
   const commitWarning = commitToolWrite(dir, `record ${kind} adopt`, ['project.json']);
   const bounceWarning = source.bouncedDirectionVerdict === undefined ? undefined
     : `WARN [${ADOPT_DIRECTION_BOUNCED}]: current.direction adopted bounced v${source.version} in place (versions[v${source.version}].verdicts[${source.bouncedDirectionVerdict}]); run rig-create next to read the open direction feedback before rebuilding`;
-  const stderr = [bounceWarning, commitWarning?.includes('WARN PROJECT_NOT_IN_GIT:') ? undefined : commitWarning].filter(Boolean).join('\n');
+  const stderr = [bounceWarning, commitWarning].filter(Boolean).join('\n');
   return { stdout: json ? JSON.stringify(node, null, 2) : `record ${kind}: adopted v${source.version} in place (${files.length} files)`, exit: 0, ...(stderr ? { stderr } : {}) };
 }
 

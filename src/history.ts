@@ -163,18 +163,24 @@ function historyBaseline(args: string[]): CommandResult {
   const dir = realpathSync(requested);
   let releaseRecord: (() => void) | null = null;
   let releaseJob: (() => void) | null = null;
+  let releasePlan: (() => void) | null = null;
   try {
     releaseRecord = tryJobDirectoryLock(join(dir, 'project.json.record.lock'));
     if (!releaseRecord) refuse('RECORD_BUSY', 'project.json: finish the active record writer before retrying history baseline');
     releaseJob = acquireJobLock(dir);
+    releasePlan = tryJobDirectoryLock(join(dir, '.plan.lock'));
+    if (!releasePlan) refuse('PLAN_WRITE_CONFLICT', 'project.json: finish the active plan writer before retrying history baseline');
     const paths = commitProjectBaseline(dir, operator);
     return { stdout: paths.length ? `history baseline: attribution unverified (${paths.join(', ')})` : 'history baseline: shared paths are clean', exit: 0 };
   } catch (error) {
     if (error instanceof Refusal) throw error;
     return refuse('HISTORY_BASELINE_FAILED', `project.json: ${error instanceof Error ? error.message : String(error)}; correct the Git error and review the shared files before retrying history baseline`);
   } finally {
-    try { releaseJob?.(); }
-    finally { releaseRecord?.(); }
+    try { releasePlan?.(); }
+    finally {
+      try { releaseJob?.(); }
+      finally { releaseRecord?.(); }
+    }
   }
 }
 

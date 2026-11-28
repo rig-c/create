@@ -632,8 +632,9 @@ test('#1168 group 6: restart, derived add, intake-report, checkpoint-evidence, s
   ));
   parent = assertCommittedStep(repo, parent, 'amend', [PROJECT, 'inputs/replacement-panel.svg'], unrelated);
 
-  // signoff (paused): domain refusal + valid commit of project.json
+  // signoff (paused): terminal accepted pause refuses, agent signer refuses, valid signoff commits project.json
   put(repo, 'scratch/pause-sign.txt', 'Pause work temporarily.\n');
+  assertRefusedUnchanged(repo, ['pause', repo.dir, '--by', 'synthetic-owner', '--verbatim-file', 'scratch/pause-sign.txt'], 'PAUSE_STAGE_INVALID');
   assertRefusedUnchanged(repo, ['signoff', 'paused', repo.dir, '--by', 'agent', '--verbatim-file', 'scratch/pause-sign.txt'], 'SIGNOFF_NOT_HUMAN');
   success(cli(repo, 'signoff', 'paused', repo.dir, '--by', 'synthetic-owner', '--verbatim-file', 'scratch/pause-sign.txt'));
   parent = assertCommittedStep(repo, parent, 'signoff', [PROJECT], unrelated);
@@ -687,6 +688,8 @@ test('#1168 group 6: restart, derived add, intake-report, checkpoint-evidence, s
   git(intakeRepo, 'commit', '-qm', 'Seed intake repo');
   const intakeUnrelated = plantUnrelated(intakeRepo);
   let intakeParent = head(intakeRepo);
+  put(intakeRepo, 'scratch/pause-words.txt', 'Pause parts stage.\n');
+  assertRefusedUnchanged(intakeRepo, ['pause', intakeRepo.dir, '--by', 'synthetic-owner', '--verbatim-file', 'scratch/pause-words.txt'], 'PAUSED_UNSIGNED');
 
   const preflightBytes = readFileSync(join(import.meta.dir, 'fixtures/intake/preflight.json'));
   put(intakeRepo, 'evidence/intake-preflight.json', preflightBytes);
@@ -866,17 +869,14 @@ test('#1168 group 7: pause, resume, advance, step-status, direction --adopt, rec
   const unrelated = plantUnrelated(repo);
   let parent = head(repo);
 
-  // pause & resume: refusal when unsigned -> signoff paused -> pause -> refused wrong resume -> resume
+  // pause & resume on current path (#1170): unsigned pause commits project.json -> repeat pause & wrong resume refuse -> resume commits
   put(repo, 'scratch/pause-words.txt', 'Pause parts stage temporarily.\n');
-  assertRefusedUnchanged(repo, ['pause', repo.dir, '--by', 'synthetic-owner', '--verbatim-file', 'scratch/pause-words.txt'], 'PAUSED_UNSIGNED');
   assertRefusedUnchanged(repo, ['resume', 'parts', repo.dir, '--by', 'synthetic-owner', '--verbatim-file', 'scratch/pause-words.txt'], 'RESUME_NOT_PAUSED');
-
-  success(cli(repo, 'signoff', 'paused', repo.dir, '--by', 'synthetic-owner', '--verbatim-file', 'scratch/pause-words.txt'));
-  parent = assertCommittedStep(repo, parent, 'signoff', [PROJECT], unrelated);
-
   assertRefusedUnchanged(repo, ['pause', repo.dir, '--by', 'agent', '--verbatim-file', 'scratch/pause-words.txt'], 'SIGNOFF_NOT_HUMAN');
+
   success(cli(repo, 'pause', repo.dir, '--by', 'synthetic-owner', '--verbatim-file', 'scratch/pause-words.txt'));
   parent = assertCommittedStep(repo, parent, 'pause', [PROJECT], unrelated);
+  assertRefusedUnchanged(repo, ['pause', repo.dir, '--by', 'synthetic-owner', '--verbatim-file', 'scratch/pause-words.txt'], 'PAUSE_ALREADY_PAUSED');
 
   put(repo, 'scratch/resume-words.txt', 'Resume parts stage.\n');
   assertRefusedUnchanged(repo, ['resume', 'interview', repo.dir, '--by', 'synthetic-owner', '--verbatim-file', 'scratch/resume-words.txt'], 'RESUME_STAGE_MISMATCH');

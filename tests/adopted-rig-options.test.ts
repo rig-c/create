@@ -42,7 +42,7 @@ test('#1127 registers fresh post-composition options against the adopted rig', (
   const project = read();
   expect(project.signoffs).toEqual(signoffs);
   const item = collectItems(project, { collection: null }).find(item => item.id === 'post_composition');
-  expect(item?.raw?.choice).toMatchObject({ set: binding });
+  expect(item?.raw).toMatchObject({ choice: { set: binding } });
   // The numbered fixture retains a historical post-interview signoff on the previous answer.
   expect(checkProject(dir, undefined, { now: EXAMPLE_NOW + 1_000 }).refusals).toEqual([
     expect.objectContaining({ code: 'SIGNOFF_ANSWERS_STALE', path: expect.stringContaining('.answer_hashes[post_composition]') }),

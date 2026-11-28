@@ -1156,10 +1156,10 @@ function optionalCurrentSignoffMove(
   dir: string,
   project: JsonObject,
   targetStage: string,
-  hasLiveSignoff: boolean,
+  hasPriorSignoff: boolean,
   now: number,
 ): NextMove | undefined {
-  if (hasLiveSignoff) return;
+  if (hasPriorSignoff) return;
   let command: string | undefined;
   if (targetStage === 'parts-review') {
     let target: JsonObject | undefined;
@@ -2208,7 +2208,8 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
         act: `advance stage from ${effectiveStage} to ${nextStage}`,
       });
     }
-    const optionalSignoff = optionalCurrentSignoffMove(dir, project, targetStage, hasLiveStageSignoff(targetStage), now);
+    const hasPriorSignoff = signoffs.some(signature => signature.stage === targetStage && signature.checkpoint === null);
+    const optionalSignoff = optionalCurrentSignoffMove(dir, project, targetStage, hasPriorSignoff, now);
     if (optionalSignoff) moves.push(optionalSignoff);
   };
   const addCurrentReviewSignoff = (targetStage: string, field = 'signoffs', lapse?: NextLapse): void => {

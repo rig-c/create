@@ -541,8 +541,8 @@ test('a lapsed numbered direction verdict stays visible without a re-signoff gat
   const dir = staleFixture();
   put(dir, 'project.json', freshPost(dir, readProject(dir)));
   plantLegacyReopen(dir, 'direction-review', { at: new Date(testClock.now() - 1_000).toISOString() });
-  expectCurrentReview(dir, 'direction-review');
   const report = next(dir);
+  expect(report).toMatchObject({ effective_stage: 'direction-review', refusals: [] });
   expect(report.warnings).toContainEqual(expect.objectContaining({ code: 'REOPEN_VERDICT_LAPSED' }));
-  expect(report.moves.find(move => move.awaits === 'signoffs[stage=direction-review]')?.lapse).toBeUndefined();
+  expect(report.moves.some(move => move.field === 'signoffs')).toBe(false);
 });

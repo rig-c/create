@@ -439,18 +439,22 @@ Commit scopes today:
 | Writer | Commits |
 | --- | --- |
 | `init`, `init --collection`, `init --member` | the initial project or collection files (or the new member's files and `collection.json`) |
-| `record parts`, `record rig`, `record motion`, `record direction` | `project.json`, the tracked files of that kind, `.gitignore` when first rewritten |
+| `record parts`, `record rig`, `record motion`, `record direction` | `project.json`, eligible verified output paths and removals from the prior recorded output, `.gitignore` when first rewritten |
+| `record --adopt` | `project.json` |
 | `scene write`, `direction write` | each writer's generated spec (`specs/direction/scene.json` or `specs/direction/direction.json`) |
-| `job open --current` | `project.json` and every tracked file in the publication closure, before publishing |
-| `plan propose` / `feedback` / `add` / `revise`, `comment --from-review` / `--close`, `input add`, `ledger add` / `retire`, `derived add`, `correction`, `owner-language set`, `packages upgrade` | none (write to the working tree without committing) |
+| `job open` | `project.json` when the live job binding changes |
+| `job open --current` | its generated manifest when HEAD already contains the exact record and trackable inputs |
+| `packages upgrade` | `project.json`, `package.json` and `bun.lock` |
+| `plan propose`, `interview-options` | `project.json` and the explicitly registered file |
+| `plan feedback` / `add` / `revise`, `comment --from-review` / `--close`, `input add`, `ledger add` / `retire`, `derived add`, `correction`, `owner-language set` | working-tree writes |
 
-In #1018, `record motion` and `record direction` attempt a commit of
-`project.json` and already tracked paths within their output trees. The
-unnumbered scene and direction writers save the generated spec, then attempt
-a commit scoped to that spec alone. Unrelated staged `project.json` bytes
-stay staged. The Parts scene and direction intent are separate authored
-inputs outside those commit pathspecs. Commit warnings go to stderr after
-the save, with exit 0. See `src/project-step-commit.ts`.
+Converted record writers check their shared paths before mutation. Review any
+pre-existing edits to `project.json`, `package.json` and `bun.lock` and run
+`rig-create history baseline <dir> --by <operator>` to commit the pending record
+as a baseline with unverified attribution. The same route can recover a record
+saved just before Git failed or the process stopped. Other staged paths stay
+staged. A current publication can serve a hash-bound view without a Git
+pointer when its exact closure is unavailable in HEAD.
 
 Commit rules for the final design:
 
@@ -460,9 +464,10 @@ Commit rules for the final design:
 - A collection member commits in its collection's repository
   (`docs/PROJECT.md:36-38`).
 - A failed commit keeps the written record. It raises WARN
-  `PROJECT_COMMIT_FAILED` with the exact command to run.
-- **A failed commit never blocks looking at the work.** `job open` commits the
-  publication closure first. If that commit fails, it raises WARN
+  `PROJECT_COMMIT_FAILED` with a recovery command.
+- **A failed Git commit never blocks looking at the work.** `job open --current`
+  checks for an exact committed closure before attempting the manifest commit. If
+  either Git step fails, it raises WARN
   `PROJECT_COMMIT_FAILED` and publishes anyway. If there is no work tree, it
   raises WARN `PROJECT_NOT_IN_GIT` and publishes anyway. Either way the
   publication carries no commit, and every comment made on it records

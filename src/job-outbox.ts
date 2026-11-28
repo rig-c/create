@@ -104,7 +104,7 @@ export function tryJobDirectoryLock(lock: string): (() => void) | null {
   const install = (): boolean => {
     try { renameSync(candidate, lock); return true; }
     catch (error) {
-      if (!['EEXIST', 'ENOTEMPTY'].includes((error as NodeJS.ErrnoException).code ?? '')) throw error;
+      if (!['EEXIST', 'ENOTEMPTY', 'ENOTDIR', 'EISDIR'].includes((error as NodeJS.ErrnoException).code ?? '')) throw error;
       return false;
     }
   };

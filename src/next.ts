@@ -1,4 +1,5 @@
 import { isDeepStrictEqual as equal } from 'node:util';
+import { BASELINE_PATHS, projectStepDirtyPaths } from './project-step-commit.ts';
 import { LAST_NUMBERED_CREATE_RELEASE } from './numbered-retirement.ts';
 import { missingPickSignoffSteps, pickSignoffEvidence, requiredInterviewSteps } from './pick-signoff.ts';
 import { ChoiceError, hasPendingOther, isUndecidedDelegation, literalFile, optionFile, pendingInterviewOptions, pendingInterviewOptionsPath, selection } from './choices.ts';
@@ -1848,6 +1849,16 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
   if (recovery) {
     result = { ...result, moves: [recovery, ...result.moves], awaits: [...new Set([recovery.awaits, ...result.awaits])] };
   }
+  const pendingGitPaths = projectStepDirtyPaths(dir, BASELINE_PATHS);
+  if (pendingGitPaths.length > 0) {
+    const field = 'git.baseline';
+    const move: NextMove = {
+      role: 'agent', field, awaits: field,
+      command: `rig-create history baseline ${shellWord(dir)} --by '<operator>'`,
+      act: `Review pending edits to ${pendingGitPaths.join(', ')} before committing them as a baseline with unverified attribution.`,
+    };
+    result = { ...result, moves: [move, ...result.moves], awaits: [field, ...result.awaits] };
+  }
   if (result.accepted || result.moves.length || result.awaits.length || result.refusals.length) {
     if (currentPath && result.accepted && result.refusals.length === 0
       && isObject(project.current) && isObject(project.current.rig)
@@ -2989,7 +3000,7 @@ export function formatNext(report: NextReport | NextCollectionReport): string {
     lines.push(`  [${move.role}] (${move.field} -> ${move.awaits}) ${label}`);
     if (move.command !== null && (ROUTED_ANSWER_COMMENT_PATH.test(move.field) || move.field.startsWith('comments[')
       || move.field.startsWith('current.') || move.field === CURRENT_SCENE_PATH || move.field === CURRENT_DIRECTION_PATH
-      || move.act === SCENE_OPTIONS_REPAIR_ACT
+      || move.act === SCENE_OPTIONS_REPAIR_ACT || move.field === 'git.baseline'
       || move.act.startsWith(OPTIONAL_SIGNOFF_PREFIX))) {
       lines.push(`    ${move.act}`);
     }

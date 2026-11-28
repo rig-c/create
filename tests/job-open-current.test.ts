@@ -737,6 +737,9 @@ test(
       commit: partsHeadSha,
     });
 
+    const baseline = await runCli(root, ['history', 'baseline', root, '--by', 'synthetic-operator']);
+    expect(baseline).toMatchObject({ exit: 0, stdout: expect.stringContaining('attribution unverified') });
+
     // 2. Publish `--current rig` into the same running Review host, submit a comment, and ingest it with 0 warnings.
     const switchedRig = await runCli(root, [
       'job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner', '--current', 'rig',
@@ -852,6 +855,7 @@ test(
     const secondReceipt = latestReceipt(root);
     expect(secondReceipt.publicationId).not.toBe(firstReceipt.publicationId);
     expect(republished.stdout.trim().split('\n').slice(1)).toEqual([
+      expect.stringContaining('WARN PROJECT_COMMIT_FAILED:'),
       `job: current rig published (publication ${secondReceipt.publicationId})`,
     ]);
 

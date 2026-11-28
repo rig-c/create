@@ -5,14 +5,23 @@ import { CURRENT_KINDS } from './current.ts';
 import { CURRENT_DIRECTION_PATH } from './current-direction.ts';
 import { CURRENT_SCENE_PATH } from './scene.ts';
 import type { CommandResult } from './interview.ts';
-import { refuse, USAGE_EXIT } from './refusal.ts';
+import { acquireJobLock, tryJobDirectoryLock } from './job-outbox.ts';
+import { CURRENT_LIVE_MANIFEST } from './job-publication.ts';
+import { BASELINE_PATHS, commitProjectBaseline } from './project-step-commit.ts';
+import { Refusal, refuse, USAGE_EXIT } from './refusal.ts';
 
 const USAGE = 'history [<dir>] [--json]';
 const SPEC_PATHS = { scene: CURRENT_SCENE_PATH, direction: CURRENT_DIRECTION_PATH } as const;
-const RECORD_PATHS = ['project.json', ...CURRENT_KINDS.map(kind => `outputs/${kind}`)];
+const BASELINE_USAGE = 'history baseline [<dir>] --by <operator>';
+const LEGACY_PUBLISH = /^publish: current (?:parts|rig|motion|direction) [0-9a-f]{12}$/;
 const quote = (arg: string): string => "'" + arg.replaceAll("'", "'\\''") + "'";
 
-type Entry = { sha: string; short_sha: string; at: string; subject: string; back: string | null };
+type Entry = {
+  sha: string; short_sha: string; at: string; subject: string; back: string | null;
+  command?: string; attribution?: 'unverified'; operator?: string; files?: string[];
+};
+
+type StepScope = { paths: Set<string>; command?: string; operator?: string };
 
 function git(dir: string, ...args: string[]) {
   return spawnSync('git', ['--literal-pathspecs', ...args], {
@@ -47,8 +56,32 @@ function changedPath(line: string): string | undefined {
   }
 }
 
-/** Match the scoped commit format used by the current record and spec writers. */
-function stepPaths(message: string): Set<string> | undefined {
+const PROJECT_WRITERS = new Set([
+  'direction adopt', 'input painting', 'interview-answer', 'interview-decision',
+  'job open', 'job close', 'job withdraw-act', 'owner-language set',
+  ...CURRENT_KINDS.map(kind => `record ${kind} adopt`),
+]);
+const BINDING_WRITERS = new Set(['derived add', 'input add', 'interview-options', 'plan propose']);
+const SHARED_PATHS = new Set<string>(BASELINE_PATHS);
+
+function commandScope(command: string, subject: string): ((path: string) => boolean) | undefined {
+  if (command === 'publish current') return LEGACY_PUBLISH.test(subject) ? path => path === CURRENT_LIVE_MANIFEST : undefined;
+  const kind = CURRENT_KINDS.find(kind => command === `record ${kind}`);
+  if (kind) return subject.startsWith(`${kind}: `)
+    ? path => path === 'project.json' || path === '.gitignore' || path.startsWith(`outputs/${kind}/`)
+    : undefined;
+  const spec = Object.entries(SPEC_PATHS).find(([kind]) => command === `${kind} write`);
+  if (spec) return subject.startsWith(`${spec[0]}: `) ? path => path === spec[1] : undefined;
+  if (!subject.startsWith(`${command}: `)) return;
+  if (command === 'history baseline' || command === 'packages upgrade') return path => SHARED_PATHS.has(path);
+  if (PROJECT_WRITERS.has(command)) return path => path === 'project.json';
+  if (BINDING_WRITERS.has(command)) return path => path === 'project.json' || (
+    !SHARED_PATHS.has(path) && !['.gitignore', 'collection.json', CURRENT_LIVE_MANIFEST].includes(path)
+    && !/^(?:scratch\/|node_modules\/|\.rig-create-)/.test(path));
+}
+
+/** Read the exact paths of new writes and the declared scope of older step messages. */
+function stepScope(message: string): StepScope | undefined {
   const [subject, blank, writer, ...body] = message.trimEnd().split('\n');
   const stale = body.at(-2);
   const create = body.at(-1);
@@ -56,50 +89,97 @@ function stepPaths(message: string): Set<string> | undefined {
     || !stale || !/^stale: (?:none|(?:parts|rig|motion|direction)(?:, (?:parts|rig|motion|direction))*)$/.test(stale)
     || !create || !/^create: @rig-c\/create \d+\.\d+\.\d+(?:-[\w.-]+)?(?:\+[\w.-]+)?$/.test(create)) return;
 
+  const command = /^command: ([a-z][a-z0-9]*(?:[ -][a-z0-9]+)*)$/.exec(body[0] ?? '')?.[1];
+  const baseline = command === 'history baseline';
+  const operator = baseline ? /^operator: (.+)$/.exec(body[1] ?? '')?.[1] : undefined;
   const kind = CURRENT_KINDS.find(kind => subject.startsWith(`${kind}: `)
     && writer.startsWith(`writer: rig-create record ${kind} `));
   const spec = Object.entries(SPEC_PATHS).find(([command]) =>
     subject.startsWith(`${command}: `) && writer.startsWith(`writer: rig-create ${command} write `))?.[1];
-  if (!kind && !spec) return;
+  const allows = command ? commandScope(command, subject) : undefined;
+  if (command) {
+    if (!allows) return;
+    const identity = `writer: rig-create ${command}`;
+    if (writer !== identity && !writer.startsWith(`${identity} `)) return;
+    if (baseline && (!operator || subject !== 'history baseline: attribution unverified')) return;
+  } else if (!kind && !spec) return;
 
   const paths = new Set<string>();
-  for (const line of body.slice(0, -2)) {
+  for (const line of body.slice(baseline ? 2 : command ? 1 : 0, -2)) {
     const path = changedPath(line);
-    if (!path || posix.normalize(path) !== path || paths.has(path)) return;
-    if (kind ? path !== 'project.json' && path !== '.gitignore' && !path.startsWith(`outputs/${kind}/`) : path !== spec) return;
+    if (!path || posix.normalize(path) !== path || path.split('/').some(part => !part || ['.', '..', '.git'].includes(part.toLowerCase())) || paths.has(path)) return;
+    if (allows && !allows(path)) return;
+    if (!command && (kind ? path !== 'project.json' && path !== '.gitignore' && !path.startsWith(`outputs/${kind}/`) : path !== spec)) return;
     paths.add(path);
   }
-  return paths.size ? paths : undefined;
+  return paths.size ? { paths, command, operator } : undefined;
 }
 
 function readHistory(dir: string, repo: string, head: string): Entry[] {
   const prefix = dir === repo ? '' : relative(repo, dir).split(sep).join('/') + '/';
   const fields = gitOutput(git(dir, 'log', '--full-history', '--no-merges', '--no-follow', '--no-notes', '--no-show-signature',
     '--no-decorate', '--no-color', '--encoding=UTF-8', '--abbrev=8', '-z', '--format=%H%x00%h%x00%cI%x00%B',
-    '--grep=^writer: rig-create ', head, '--', ...RECORD_PATHS, ...Object.values(SPEC_PATHS)), dir).split('\0');
+    '--grep=^writer: rig-create ', '--grep=^publish: current ', head, '--', '.'), dir).split('\0');
   const entries: Entry[] = [];
   for (let i = 0; i + 3 < fields.length; i += 4) {
     const [sha, short_sha, time, message] = fields.slice(i, i + 4) as [string, string, string, string];
-    const paths = stepPaths(message);
-    if (!paths) continue;
-    // The writer lists all of its scoped paths, including unchanged files. Every actual change
-    // must be in that scope, including changes outside this member that the log pathspec hides.
+    const subject = message.split('\n', 1)[0]!;
+    const scope = stepScope(message);
+    const legacyPublish = !scope && LEGACY_PUBLISH.test(message.trimEnd());
+    if (!scope && !legacyPublish) continue;
+    // The log limits candidate commits to this project. Check the whole commit for sibling changes.
+    // Older messages could list unchanged files. New ones list the changed paths exactly.
     const changed = gitOutput(git(repo, 'diff-tree', '--root', '--no-commit-id', '--name-only', '--no-renames', '--ignore-submodules=none',
       '-r', '-z', sha), dir).split('\0').filter(Boolean);
-    if (!changed.length || !changed.every(path => path.startsWith(prefix) && paths.has(path.slice(prefix.length)))) continue;
+    if (!changed.length || !changed.every(path => path.startsWith(prefix) && (!scope || scope.paths.has(path.slice(prefix.length))))) continue;
+    if (scope?.command && changed.length !== scope.paths.size) continue;
     const at = new Date(time).toISOString().replace('.000Z', 'Z');
-    const subject = message.split('\n', 1)[0]!;
     const present = new Set(gitOutput(git(dir, 'ls-tree', '-z', '--name-only', sha, '--', 'specs', 'outputs/parts'), dir)
       .split('\0').filter(Boolean));
     const back = present.has('specs') && present.has('outputs/parts')
       ? `git -C ${quote(dir)} checkout ${short_sha} -- specs outputs/parts && rig-create next ${quote(dir)}`
       : null;
-    entries.push({ sha, short_sha, at, subject, back });
+    entries.push({ sha, short_sha, at, subject, back,
+      ...(scope?.command ? { command: scope.command } : {}),
+      ...(legacyPublish || scope?.operator ? { attribution: 'unverified' as const } : {}),
+      ...(scope?.operator ? { operator: scope.operator, files: changed.map(path => path.slice(prefix.length)) } : {}),
+    });
   }
   return entries.sort((a, b) => b.at.localeCompare(a.at));
 }
 
+function historyBaseline(args: string[]): CommandResult {
+  const [first, second, third, ...extra] = args;
+  const target = first === '--by' ? third : first;
+  const flag = first === '--by' ? first : second;
+  const operator = first === '--by' ? second : third;
+  if (target?.startsWith('-') || flag !== '--by' || !operator?.trim() || operator.startsWith('-') || extra.length) {
+    refuse('HISTORY_USAGE', `history baseline: use rig-create ${BASELINE_USAGE}`, USAGE_EXIT);
+  }
+  const requested = resolve(target ?? process.cwd());
+  if (!['project.json', 'collection.json'].some(path => existsSync(join(requested, path)))) {
+    refuse('PROJECT_JSON_MISSING', `${requested}: name a project or collection to establish a baseline`);
+  }
+  const dir = realpathSync(requested);
+  let releaseRecord: (() => void) | null = null;
+  let releaseJob: (() => void) | null = null;
+  try {
+    releaseRecord = tryJobDirectoryLock(join(dir, 'project.json.record.lock'));
+    if (!releaseRecord) refuse('RECORD_BUSY', 'project.json: finish the active record writer before retrying history baseline');
+    releaseJob = acquireJobLock(dir);
+    const paths = commitProjectBaseline(dir, operator);
+    return { stdout: paths.length ? `history baseline: attribution unverified (${paths.join(', ')})` : 'history baseline: shared paths are clean', exit: 0 };
+  } catch (error) {
+    if (error instanceof Refusal) throw error;
+    return refuse('HISTORY_BASELINE_FAILED', `project.json: ${error instanceof Error ? error.message : String(error)}; correct the Git error and review the shared files before retrying history baseline`);
+  } finally {
+    try { releaseJob?.(); }
+    finally { releaseRecord?.(); }
+  }
+}
+
 export function historyCommand(args: string[]): CommandResult {
+  if (args[0] === 'baseline') return historyBaseline(args.slice(1));
   const positional = args.filter(arg => arg !== '--json');
   if (positional.length > 1 || positional.some(arg => arg.startsWith('-'))) {
     refuse('HISTORY_USAGE', `history: use rig-create ${USAGE}`, USAGE_EXIT);
@@ -124,8 +204,11 @@ export function historyCommand(args: string[]): CommandResult {
   if (entries.length === 0) return empty('no Create step-data commits at HEAD');
   return {
     stdout: args.includes('--json') ? JSON.stringify(entries, null, 2)
-      : entries.map(({ short_sha, at, subject, back }) =>
-        back ? `${short_sha}  ${at}  ${subject}\n  back: ${back}` : `${short_sha}  ${at}  ${subject}`).join('\n'),
+      : entries.map(({ short_sha, at, subject, back, attribution, operator, files }) => {
+        const note = operator ? ` (by ${operator}, files ${files?.join(', ')})` : attribution ? ' (legacy publication, attribution unverified)' : '';
+        const line = `${short_sha}  ${at}  ${subject}${note}`;
+        return back ? `${line}\n  back: ${back}` : line;
+      }).join('\n'),
     exit: 0,
   };
 }

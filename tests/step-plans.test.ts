@@ -331,6 +331,9 @@ test('#1054 a fresh project records current parts and advances with a retained c
   expect(spawnCli(['init', dir, '--no-install'], root, env).code).toBe(0);
   cpSync(join(REPO, 'templates/example-composed-direction/inputs/source'), source, { recursive: true });
   expect(cli(['input', 'add', 'inputs/source/painting.png', dir, '--origin', 'synthetic source']).code).toBe(0);
+  const baseline = () => expect(spawnCli(['history', 'baseline', dir, '--by', 'synthetic-operator'], root, env))
+    .toMatchObject({ code: 0, stdout: expect.stringContaining('attribution unverified') });
+  baseline();
   approvePartsPlan(dir);
   expect(cli(['advance', 'parts', dir]).code).toBe(0);
   for (const id of ['seethrough', 'assemble']) {
@@ -339,6 +342,7 @@ test('#1054 a fresh project records current parts and advances with a retained c
       expect(cli(['step-status', id, status, dir, '--by', 'agent'])).toMatchObject({ code: 0, stderr: '' });
     }
   }
+  baseline();
 
   const projectFile = join(dir, 'project.json');
   const bytes = readFileSync(projectFile, 'utf8');

@@ -44,16 +44,22 @@ function assertBoundJobAskReady(root: string, binding: WriterBinding, askTarget:
   return head;
 }
 
-export function acquireBoundJobWrite(root: string, target?: JobWriteAskTarget): () => void {
+export function acquireBoundJobWrite(root: string, target?: JobWriteAskTarget, lockWithoutBinding = false): () => void {
   // Record-only callers still report their own missing-project refusal.
-  if (target?.kind === 'record-only' && !existsSync(root)) return () => {};
+  if ((target?.kind === 'record-only' || lockWithoutBinding) && !existsSync(root)) return () => {};
+  const projectLock = lockWithoutBinding ? acquireJobLock(root)! : undefined;
+  try { return acquireWriterBindingLock(root, target, projectLock); }
+  catch (error) { projectLock?.(); throw error; }
+}
+
+function acquireWriterBindingLock(root: string, target?: JobWriteAskTarget, projectLock?: () => void): () => void {
   const binding = readWriterBinding(root);
-  if (!binding) return () => {};
-  const release = acquireJobLock(root)!;
+  if (!binding) return projectLock ?? (() => {});
+  const release = projectLock ?? acquireJobLock(root)!;
   try {
     if (pendingPublications(root, true).length) refuse('JOB_PUBLISH_PENDING', 'project.json: an earlier committed publication is pending; run rig-create job reconcile before another bound write');
     if (target) assertBoundJobAskReady(root, binding, target);
-  } catch (error) { checkedBoundTarget = null; release(); throw error; }
+  } catch (error) { checkedBoundTarget = null; if (!projectLock) release(); throw error; }
   return () => {
     checkedBoundTarget = null;
     release();

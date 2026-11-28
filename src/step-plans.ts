@@ -4,15 +4,17 @@
  * Feedback is never a gate: nothing here refuses a record for having none.
  */
 import { createHash } from 'node:crypto';
-import { closeSync, openSync, rmSync } from 'node:fs';
-import { existsSync, readFileSync, statSync } from './check-reads.ts';
+import { readFileSync, statSync } from './check-reads.ts';
 import { isAbsolute, join, normalize, relative, resolve, sep } from 'node:path';
 
 import { answered, asArray, checkProject, collectItems, isObject, loadCollection, type Finding, type Item } from './check.ts';
+import { literalFile } from './choices.ts';
 import { staleSignoffAnswer } from './signoff-answers.ts';
 import { readProject } from './feedback.ts';
+import { tryJobDirectoryLock } from './job-outbox.ts';
 import { acquireBoundJobWrite } from './job-writer.ts';
 import { OWNER_CHAT_SOURCE, ownerChatFinding } from './owner-chat.ts';
+import { assertCleanProjectStep, BASELINE_PATHS, commitToolWrite } from './project-step-commit.ts';
 import { readVerbatim, writeRecord } from './record-input.ts';
 import { refuse, USAGE_EXIT } from './refusal.ts';
 import { baselineOf, newFindings } from './refusal-baseline.ts';
@@ -111,7 +113,7 @@ plan feedback <step> [<project dir>] --words-file <file> --by <who said it> --sa
   relayed owner chat; with it they are a Review comment. Feedback is discussion: no writer waits for it.`;
 
 /** Writer for plan propose and plan feedback; validates the candidate with check before writing. */
-export function stepPlanCommand(args: string[], now: number): { stdout: string; exit: number } {
+export function stepPlanCommand(args: string[], now: number): { stdout: string; exit: number; stderr?: string } {
   const action = args[0] as 'propose' | 'feedback';
   const usage = (why: string): never => refuse('PLAN_OPTION_INVALID', `interview.step_plans: ${why}; see plan help`, USAGE_EXIT);
   const single = action === 'propose' ? ['--file', '--by'] : ['--words-file', '--by', '--said-at', '--relayed-by', '--comment-id', '--sha256'];
@@ -136,25 +138,28 @@ export function stepPlanCommand(args: string[], now: number): { stdout: string; 
   const missing = required.filter(flag => opts[flag] === undefined);
   if (missing.length) usage(`${action} needs ${missing.join(', ')}`);
   const dir = resolve(positional[1] ?? process.cwd());
-  const projectPath = (file: string, flag: string): string => {
+  const readPlanFile = (file: string, flag: string): { path: string; bytes: Buffer } => {
     const path = relative(dir, resolve(dir, file));
-    if (!insidePath(path) || !existsSync(join(dir, path)) || !statSync(join(dir, path)).isFile()) {
-      refuse('STEP_PLAN_FILE_INVALID', `interview.step_plans: ${flag} ${file} is not a readable file inside the project folder; keep the file in the project so its bytes stay bound`);
+    try {
+      const privatePath = /^(?:scratch\/|node_modules\/|\.rig-create-)/.test(path);
+      if (!insidePath(path) || privatePath || [...BASELINE_PATHS, '.gitignore', 'collection.json', 'review-live.json'].includes(path)) {
+        throw new Error('expected a separate project-relative file');
+      }
+      return { path, bytes: readFileSync(literalFile(dir, path)) };
+    } catch {
+      refuse('STEP_PLAN_FILE_INVALID', `interview.step_plans: ${flag} ${file} must name a readable regular file inside the project folder; keep the file in the project so its bytes stay bound`);
     }
-    return path;
   };
   const words = action === 'feedback' ? readVerbatim(opts['--words-file']!) : '';
   if (action === 'feedback' && !words.trim()) usage('--words-file must contain the nonblank words');
 
   readProject(dir);
-  const releaseJob = acquireBoundJobWrite(dir);
-  const lock = join(dir, '.plan.lock');
-  let descriptor: number;
-  try { descriptor = openSync(lock, 'wx'); }
-  catch { releaseJob(); refuse('PLAN_WRITE_CONFLICT', 'project.json: cannot acquire its plan writer lock; finish or recover the active plan write before retrying'); }
+  const releaseJob = acquireBoundJobWrite(dir, undefined, action === 'propose');
+  let releasePlan: (() => void) | null = null;
   try {
-    const { file, project } = readProject(dir);
-    const original = readFileSync(file);
+    releasePlan = tryJobDirectoryLock(join(dir, '.plan.lock'));
+    if (!releasePlan) refuse('PLAN_WRITE_CONFLICT', 'project.json: cannot acquire its plan writer lock; finish or recover the active plan write before retrying');
+    const { file, project, bytes: original } = readProject(dir);
     const next = structuredClone(project);
     if (!isObject(next.interview)) refuse('STEP_PLAN_INVALID', 'interview: missing; restore the interview record before proposing a plan');
     const interview = next.interview as JsonObject;
@@ -162,24 +167,29 @@ export function stepPlanCommand(args: string[], now: number): { stdout: string; 
     const plans = (interview.step_plans ??= []) as JsonObject[];
     const at = new Date(now).toISOString();
     let written: JsonObject;
+    const registered = new Map<string, string>();
     if (action === 'propose') {
-      const path = projectPath(opts['--file']!, '--file');
-      const bytes = readFileSync(join(dir, path));
+      const { path, bytes } = readPlanFile(opts['--file']!, '--file');
       if (!bytes.toString('utf8').trim()) refuse('STEP_PLAN_FILE_INVALID', `interview.step_plans: ${path} is empty; write the plan before proposing it`);
+      const planHash = sha256(bytes);
+      registered.set(path, planHash);
       const bound = new Map<string, string>();
       for (const input of asArray(project.inputs)) {
         if (isObject(input) && insidePath(input.path) && typeof input.sha256 === 'string' && HEX.test(input.sha256)) bound.set(input.path, input.sha256);
       }
       for (const input of extraInputs) {
-        const inputPath = projectPath(input, '--input');
-        bound.set(inputPath, sha256(readFileSync(join(dir, inputPath))));
+        const { path: inputPath, bytes: inputBytes } = readPlanFile(input, '--input');
+        const hash = sha256(inputBytes);
+        if (inputPath === path && hash !== planHash) refuse('PLAN_WRITE_CONFLICT', `${path}: plan bytes changed while binding --input; retry with stable files`);
+        bound.set(inputPath, hash);
+        registered.set(inputPath, hash);
       }
       const inputs = [...bound].map(([inputPath, hash]) => ({ path: inputPath, sha256: hash }));
       const current = currentStepPlan(project, step);
-      if (current && current.path === path && current.sha256 === sha256(bytes) && JSON.stringify(current.inputs) === JSON.stringify(inputs)) {
+      if (current && current.path === path && current.sha256 === planHash && JSON.stringify(current.inputs) === JSON.stringify(inputs)) {
         return { stdout: json ? JSON.stringify(current, null, 2) : `plan: ${step} plan already proposed (${path})`, exit: 0 };
       }
-      written = { schema: STEP_PLAN_SCHEMA, step, path, sha256: sha256(bytes), bytes: bytes.length, inputs, by: opts['--by']!, at, feedback: [] };
+      written = { schema: STEP_PLAN_SCHEMA, step, path, sha256: planHash, bytes: bytes.length, inputs, by: opts['--by']!, at, feedback: [] };
       plans.push(written);
     } else {
       const target = opts['--sha256'] === undefined ? currentStepPlan(next, step)
@@ -204,11 +214,20 @@ export function stepPlanCommand(args: string[], now: number): { stdout: string; 
     };
     const fresh = newFindings(baselineOf(checkProject(dir, project, { now })), checkProject(dir, next, { now }).refusals).filter(f => !covered(f))[0];
     if (fresh !== undefined) refuse(fresh.code, fresh.message);
+    const assets = [...registered.keys()];
+    if (action === 'propose') {
+      assertCleanProjectStep(dir, ['project.json']);
+      assertCleanProjectStep(dir, assets, true);
+      for (const [path, hash] of registered) {
+        const { bytes } = readPlanFile(path, 'registered file');
+        if (sha256(bytes) !== hash) refuse('PLAN_WRITE_CONFLICT', `${path}: registered bytes changed while validating the plan; retry with stable files`);
+      }
+    }
     writeRecord(file, original, next, 'plan', 'PLAN_WRITE_CONFLICT');
-    return { stdout: json ? JSON.stringify(written, null, 2) : `plan: ${action} ${step} by ${opts['--by']} at ${at}`, exit: 0 };
+    const warning = action === 'propose' ? commitToolWrite(dir, 'plan propose', ['project.json', ...assets]) : undefined;
+    return { stdout: json ? JSON.stringify(written, null, 2) : `plan: ${action} ${step} by ${opts['--by']} at ${at}`, exit: 0,
+      ...(warning === undefined ? {} : { stderr: warning }) };
   } finally {
-    closeSync(descriptor!);
-    rmSync(lock);
-    releaseJob();
+    try { releasePlan?.(); } finally { releaseJob(); }
   }
 }

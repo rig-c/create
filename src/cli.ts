@@ -83,6 +83,8 @@ ${INPUT_CLI}  rig-create init <dir> [--no-install]              create a project
                                                     refuse by name every hole the interview and plan still have
   rig-create next [<project dir>] [--json]          derive the next moves and whose they are from project.json
   rig-create history [<project dir>] [--json]       list Create's step-data commits and their back commands
+  rig-create history baseline [<project dir>] --by <operator>
+                                                    commit pending shared record files with unverified attribution
   rig-create handoff [<project dir>] [--rig <n>] [--json]
                                                     name the accepted rig version post work runs on, or refuse
   rig-create diff-classes [<dir>] --diff-report <path> [--triage-file <file> | --component '<id>=<status>:<why>'] [--by agent]

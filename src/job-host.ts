@@ -9,7 +9,7 @@ import { DirectionError } from './direction.ts';
 import { Refusal, refuse, USAGE_EXIT } from './refusal.ts';
 import { CURRENT_LIVE_MANIFEST, liveManifestPath, draftPackageIdentity, draftPublishedContext, eligibleRigDraftModel, inspectCurrentPublication, inspectDraftPublication, inspectNumberedPostPublication, currentJobIdentity, optionPublicationRemedy, optionPublicationStage, partsEnumerator, prepareCurrentManifest, prepareDraftManifest, prepareLiveManifest, publicationFile, publicationSelector, publishedDraft, readPublished, readRecordPublished, recordOptionSets, riggingDraftPartsChange, type RecordPublicationResult } from './job-publication.ts';
 import { acknowledgePublication, acquireJobLock, assertJobIdentity, CURRENT_PUBLICATION_OUTPUTS, enqueuePublication, ensureJobPrivateIgnores, failPublication, JOB_BINDING_FILE, jobHash, jobHostStateRoot, pendingPublications, privateDirectory, publicationVersionHash, readAcknowledgedPublication, readWriterBinding, reconcilePublication, refuseJobIdentityMismatch, writePrivateJson, isRecordResult, type CreateJobSelector, type CurrentPublicationOutput, type CurrentPublicationSelector, type NumberedPublicationSelector, type PublicationResult, type JobIdentity, type PendingPublication, type WriterBinding, type PublicationSubject } from './job-outbox.ts';
-import { commitCurrentPublication } from './project-step-commit.ts';
+import { assertCleanProjectStep, commitCurrentPublication, commitToolWrite, projectStepDirtyPaths, trackedProjectStepPaths } from './project-step-commit.ts';
 import { draftPublicationResult } from './job-writer.ts';
 import { attachCreateJobForClose, refusePendingJobAsks } from './job-close.ts';
 import { actionablePendingAct, ingestedJobActs, ingestedSummary, pendingJobActs, readHostActsAndAsks, shellWord, type IngestedJobAct, type PendingJobAct } from './job-acts.ts';
@@ -92,6 +92,7 @@ export async function openCreateJob(
     // state or connects to that port: it starts this root's own job and replaces the copy.
     const found = readWriterBinding(root);
     const existing = found && found.identity.root === root ? found : null;
+    if (!existing) assertCleanProjectStep(root, ['project.json']);
     if (recordMode && existing && !existing.identity.publicationMode) {
       refuse('JOB_HOST_REUSE_MISMATCH', 'project.json: publicationMode expected=record-and-package found=package-only; finish and ingest pending acts, then run job close once and retry job open');
     }
@@ -123,6 +124,12 @@ export async function openCreateJob(
     const file = join(root, 'project.json');
     const temporary = join(root, '.rig-create-job-record.tmp');
     try {
+      const project = JSON.parse(readFileSync(file, 'utf8'));
+      const next = { ...project, review_job: { jobId: host.session.jobId, origin: host.origin } };
+      const changed = !isDeepStrictEqual(project.review_job, next.review_job);
+      if (changed) assertCleanProjectStep(root, ['project.json']);
+      const failure = newFindings(baselineOf(checkProject(root, project, { now })), checkProject(root, next, { now }).refusals);
+      if (failure[0]) refuse(failure[0].code, failure[0].message);
       if (host.attachment && writerGrant) {
         installBinding(identity.root, {
           schema: 'rig-create/job-binding@1',
@@ -131,14 +138,11 @@ export async function openCreateJob(
           listenerIncarnation: host.attachment.listenerIncarnation,
         });
       }
-      const project = JSON.parse(readFileSync(file, 'utf8'));
-      const next = { ...project, review_job: { jobId: host.session.jobId, origin: host.origin } };
-      const failure = newFindings(baselineOf(checkProject(root, project, { now })), checkProject(root, next, { now }).refusals);
-      // Validation uses the ordinary checker before this writer replaces the record.
-      if (failure[0]) refuse(failure[0].code, failure[0].message);
-      if (JSON.stringify(project.review_job) !== JSON.stringify(next.review_job)) {
+      if (changed) {
         writeFileSync(temporary, `${JSON.stringify(next, null, 2)}\n`, { flag: 'wx' });
         renameSync(temporary, file);
+        const warning = commitToolWrite(root, 'job open', ['project.json']);
+        if (warning && !warning.includes('WARN PROJECT_NOT_IN_GIT:')) process.stderr.write(`${warning}\n`);
       }
       return host;
     } catch (error) { host.stop(); throw error; }
@@ -785,8 +789,10 @@ export async function openCurrentPublication(
         refuse('JOB_PUBLISH_PENDING', 'project.json: a record publication is pending; run rig-create job reconcile before opening the current output');
       }
       await refusePendingJobAsks(root, binding.jobId, host, candidateSelector);
+      const manifestIsTracked = trackedProjectStepPaths(root, [CURRENT_LIVE_MANIFEST]).length > 0;
+      const manifestWasDirty = manifestIsTracked && projectStepDirtyPaths(root, [CURRENT_LIVE_MANIFEST]).length > 0;
       const { closurePaths } = prepareCurrentManifest(root, project, output, recordHash, warnings);
-      const committed = commitCurrentPublication(root, output, recordHash, closurePaths);
+      const committed = commitCurrentPublication(root, output, recordHash, closurePaths, !manifestWasDirty);
       if (committed.warning) warnings.push(committed.warning);
       const pending = enqueuePublication(root, binding, { path: CURRENT_LIVE_MANIFEST, selector: candidateSelector }, undefined, committed.commit);
       ({ publicationId, others } = await reconcileOpenPublication(root, pending.id, now, pending.id));

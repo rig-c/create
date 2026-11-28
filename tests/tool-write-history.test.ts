@@ -1,0 +1,435 @@
+import { expect, test } from 'bun:test';
+import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { delimiter, dirname, join } from 'node:path';
+import { collectItems } from '../src/check.ts';
+import { optionContext } from '../src/choices.ts';
+import { CURRENT_RIG_MODEL, sha256 } from '../src/current.ts';
+import { freshProjectRecord } from '../src/init.ts';
+import { jobPrivateRoot, readWriterBinding, type AcknowledgedPublication } from '../src/job-outbox.ts';
+import { CURRENT_LIVE_MANIFEST } from '../src/job-publication.ts';
+import { jobRuntimeCommand, jobRuntimeExecArgv } from '../src/job-writer.ts';
+import type { NextReport } from '../src/next.ts';
+import { runningCreateVersion } from '../src/pins.ts';
+import type { JsonObject } from '../src/templates.ts';
+import { TEST_NOW } from './clock.ts';
+import { arr, fixture, obj } from './fixtures.ts';
+import { gitEnv, run, stagedCreateRegistry, tempDir, treeDigest, type Run } from './helpers.ts';
+
+const PROJECT = 'project.json';
+const OPTION = 'evidence/interview/history-composition.json';
+const QUESTION = 'post_composition';
+const UNRELATED = 'scratchpad.txt';
+const PLAN = 'plans/parts [v1].md';
+const MODEL = CURRENT_RIG_MODEL;
+const OWNER = ['--reviewer', 'synthetic-owner', '--role', 'owner'];
+const CLOCKED_CLI = join(import.meta.dir, 'cli-at.ts');
+const OPERATOR = 'synthetic-operator';
+
+type Repo = { dir: string; env: Record<string, string> };
+type HistoryEntry = { sha: string; subject: string; command?: string; attribution?: string; operator?: string; files?: string[] };
+
+function success(result: Run): string {
+  expect({ code: result.code, stderr: result.code === 0 ? '' : result.stderr }).toEqual({ code: 0, stderr: '' });
+  return result.stdout;
+}
+
+function git(repo: Repo, ...args: string[]): string {
+  return success(run(['git', '--literal-pathspecs', ...args], repo.dir, repo.env));
+}
+
+function cli(repo: Repo, ...args: string[]): Run {
+  return run([process.execPath, ...jobRuntimeExecArgv(), CLOCKED_CLI, new Date(TEST_NOW).toISOString(), ...args], repo.dir, repo.env);
+}
+
+function bytes({ dir }: Repo, path: string): Buffer {
+  return readFileSync(join(dir, path));
+}
+
+function json(repo: Repo, path: string): JsonObject {
+  return JSON.parse(bytes(repo, path).toString()) as JsonObject;
+}
+
+function put({ dir }: Repo, path: string, content: string | Buffer): void {
+  mkdirSync(dirname(join(dir, path)), { recursive: true });
+  writeFileSync(join(dir, path), content);
+}
+
+function putJson(repo: Repo, path: string, value: JsonObject): void {
+  put(repo, path, `${JSON.stringify(value, null, 2)}\n`);
+}
+
+function fixtureRepo(dir: string): Repo {
+  return { dir, env: gitEnv({ name: 'History Fixture', email: 'fixture@example.test' }) };
+}
+
+function currentFixture(): Repo {
+  return fixtureRepo(fixture(() => {}, 'example-current/project.json'));
+}
+
+function planFixture(): Repo {
+  const repo = fixtureRepo(join(tempDir(), 'project'));
+  putJson(repo, PROJECT, freshProjectRecord('synthetic-history', TEST_NOW));
+  const painting = 'inputs/painting.png';
+  const example = join(import.meta.dir, '..', 'templates', 'example-current', painting);
+  put(repo, painting, readFileSync(example));
+  success(cli(repo, 'input', 'add', painting, repo.dir, '--origin', 'synthetic source'));
+  return repo;
+}
+
+function seed(repo: Repo, subject = 'Seed synthetic consumer', force: string[] = []): void {
+  put(repo, UNRELATED, 'original\n');
+  git(repo, 'init', '-q');
+  git(repo, 'add', '--', '.');
+  if (force.length) git(repo, 'add', '--force', '--', ...force);
+  git(repo, 'commit', '-qm', subject);
+}
+
+function clone(source: Repo): Repo {
+  const repo = { dir: join(tempDir(), 'project'), env: source.env };
+  git(source, 'clone', '-q', '--local', '--', source.dir, repo.dir);
+  // Reuse the same synthetic producer files ignored by a normal consumer clone.
+  for (const path of ['outputs', 'derived']) {
+    cpSync(join(source.dir, path), join(repo.dir, path), { recursive: true });
+  }
+  return repo;
+}
+
+function head(repo: Repo): string {
+  return git(repo, 'rev-parse', 'HEAD').trim();
+}
+
+function scope(repo: Repo): string[] {
+  return git(repo, 'show', '--format=', '--name-only', '--no-renames', '-z', 'HEAD').split('\0').filter(Boolean).sort();
+}
+
+function unrelatedSnapshot(repo: Repo) {
+  return [git(repo, 'ls-files', '--stage', '--', UNRELATED), git(repo, 'show', `:${UNRELATED}`), bytes(repo, UNRELATED)];
+}
+
+function plantUnrelatedChanges(repo: Repo) {
+  put(repo, UNRELATED, 'staged bytes\n');
+  git(repo, 'add', '--', UNRELATED);
+  put(repo, UNRELATED, 'different unstaged bytes\n');
+  expect(git(repo, 'status', '--porcelain', '--', UNRELATED)).toBe(`MM ${UNRELATED}\n`);
+  return unrelatedSnapshot(repo);
+}
+
+function step(repo: Repo, parent: string, subject: RegExp, paths: string[], unrelated?: ReturnType<typeof unrelatedSnapshot>): string {
+  expect(git(repo, 'rev-parse', 'HEAD^').trim()).toBe(parent);
+  expect(git(repo, 'show', '--format=%s', '-s', 'HEAD').trim()).toMatch(subject);
+  expect(scope(repo)).toEqual([...paths].sort());
+  for (const path of paths) expect(git(repo, 'show', `HEAD:${path}`)).toBe(bytes(repo, path).toString());
+  if (unrelated) expect(unrelatedSnapshot(repo)).toEqual(unrelated);
+  return head(repo);
+}
+
+function postInterview(): Repo {
+  const repo = currentFixture();
+  const project = json(repo, PROJECT);
+  project.stage = 'post-interview';
+  project.advances = arr(project.advances).slice(0, 7);
+  project.signoffs = arr(project.signoffs).slice(0, 5);
+  for (const item of arr(obj(obj(project.interview).post).items).map(obj)) item.guide = null;
+  delete obj(project.current).motion;
+  delete obj(project.current).direction;
+  obj(project.plan).steps = arr(obj(project.plan).steps).filter(row => obj(row).phase === 'rig');
+  putJson(repo, PROJECT, project);
+  return repo;
+}
+
+function draftOptions(repo: Repo, path = OPTION, id = 'history-composition'): void {
+  const set = json(repo, `evidence/interview/${QUESTION}.json`);
+  const at = Date.parse(String(set.drafted_at));
+  set.id = id;
+  set.context = optionContext(json(repo, PROJECT), 'post-interview', at, repo.dir);
+  putJson(repo, path, set);
+}
+
+function composition(repo: Repo, project = json(repo, PROJECT)): JsonObject {
+  return collectItems(project, { collection: null }).find(item => item.id === QUESTION)!.record;
+}
+
+function baselineMove(repo: Repo) {
+  const next = JSON.parse(success(cli(repo, 'next', repo.dir, '--json'))) as NextReport;
+  return next.moves.find(move => move.field === 'git.baseline');
+}
+
+function historyEntries(repo: Repo): HistoryEntry[] {
+  return JSON.parse(success(cli(repo, 'history', repo.dir, '--json'))) as HistoryEntry[];
+}
+
+// `job open` keeps the runtime serving. Wait for a publication line before observing Git.
+async function withPublication(repo: Repo, selector: string[], expected: RegExp, inspect: (stdout: string) => void): Promise<void> {
+  const child = Bun.spawn([process.execPath, ...jobRuntimeExecArgv(), CLOCKED_CLI, new Date(TEST_NOW).toISOString(),
+    'job', 'open', repo.dir, ...OWNER, ...selector], { cwd: repo.dir, env: repo.env, stdout: 'pipe', stderr: 'pipe' });
+  const stderr = new Response(child.stderr).text();
+  const reader = child.stdout.getReader();
+  const decoder = new TextDecoder();
+  const deadline = setTimeout(() => child.kill('SIGTERM'), 12_000);
+  let stdout = '';
+  try {
+    while (!expected.test(stdout)) {
+      const chunk = await reader.read();
+      if (chunk.done) throw new Error(`job open exited ${await child.exited}\n${stdout}\n${await stderr}`);
+      stdout += decoder.decode(chunk.value, { stream: true });
+    }
+    inspect(stdout);
+  } finally {
+    clearTimeout(deadline);
+    reader.releaseLock();
+    if (child.exitCode === null && child.signalCode === null) child.kill('SIGTERM');
+    await child.exited;
+  }
+}
+
+test('#1165 a clean consumer clone records an upgrade, option set and question job as three exact steps', async () => {
+  const source = postInterview();
+  const legacyCreate = '2.0.0';
+  const manifest = json(source, 'package.json');
+  obj(manifest.dependencies)['@rig-c/create'] = legacyCreate;
+  delete obj(manifest.dependencies)['@rig-c/review'];
+  putJson(source, 'package.json', manifest);
+  const registry = stagedCreateRegistry();
+  const installEnv = runningCreateVersion() === legacyCreate ? { ...source.env, ...registry } : source.env;
+  success(run([process.execPath, 'install', '--ignore-scripts'], source.dir, installEnv));
+  seed(source);
+
+  const repo = clone(source);
+  repo.env = { ...repo.env, ...registry };
+  expect(git(repo, 'status', '--porcelain')).toBe('');
+  const start = head(repo);
+  const unrelated = plantUnrelatedChanges(repo);
+  success(cli(repo, 'packages', 'upgrade', repo.dir, '--by', OPERATOR));
+  const upgrade = step(repo, start, /^packages upgrade:/, ['bun.lock', 'package.json', PROJECT], unrelated);
+  const upgraded = json(repo, PROJECT);
+  expect(arr(upgraded.package_upgrades).at(-1)).toMatchObject({ by: OPERATOR, lock_sha256: sha256(bytes(repo, 'bun.lock')) });
+  expect(composition(repo, upgraded).pending_options).toBeUndefined();
+  expect(upgraded.review_job).toBeUndefined();
+
+  draftOptions(repo);
+  success(cli(repo, 'interview-options', QUESTION, repo.dir, '--file', OPTION));
+  const options = step(repo, upgrade, /^interview-options:/, [OPTION, PROJECT], unrelated);
+  const pending = { path: OPTION, sha256: sha256(bytes(repo, OPTION)) };
+  expect(composition(repo).pending_options).toEqual(pending);
+  expect(json(repo, PROJECT).review_job).toBeUndefined();
+
+  await withPublication(repo, ['--question', QUESTION], /\njob: option-set post_composition\/history-composition published \(publication [^)]+\)\n/, () => {
+    const binding = step(repo, options, /^job open:/, [PROJECT], unrelated);
+    expect(json(repo, PROJECT).review_job).toMatchObject({ jobId: readWriterBinding(repo.dir)?.jobId });
+    expect(composition(repo).pending_options).toEqual(pending);
+    const history = historyEntries(repo);
+    expect(history).toHaveLength(3);
+    for (const [sha, command] of [[upgrade, 'packages upgrade'], [options, 'interview-options'], [binding, 'job open']]) {
+      expect(history.find(entry => entry.sha === sha)).toMatchObject({ command });
+      expect(history.find(entry => entry.sha === sha)?.attribution).toBeUndefined();
+    }
+    expect(git(repo, 'status', '--porcelain')).toBe(`MM ${UNRELATED}\n`);
+    git(repo, 'restore', '--staged', '--worktree', '--', UNRELATED);
+    expect(git(repo, 'status', '--porcelain')).toBe('');
+  });
+}, 45_000);
+
+test('#1165 plan proposal records its literal retained file and leaves unrelated changes and a no-op retry alone', () => {
+  const repo = planFixture();
+  seed(repo);
+  const initial = head(repo);
+  const unrelated = plantUnrelatedChanges(repo);
+  put(repo, PLAN, 'Cut along the painted outline so the joints stay readable.\n');
+  const args = ['plan', 'propose', 'parts', repo.dir, '--file', PLAN, '--by', OPERATOR];
+  success(cli(repo, ...args));
+  const plan = step(repo, initial, /^plan propose:/, [PLAN, PROJECT], unrelated);
+  expect(historyEntries(repo)).toEqual([expect.objectContaining({ sha: plan, command: 'plan propose' })]);
+  expect(arr(obj(json(repo, PROJECT).interview).step_plans).at(-1)).toMatchObject({ path: PLAN, sha256: sha256(bytes(repo, PLAN)) });
+  success(cli(repo, ...args));
+  expect(head(repo)).toBe(plan);
+  expect(unrelatedSnapshot(repo)).toEqual(unrelated);
+});
+
+test('#1165 a cloned 2.0.0 record with registration and job edits needs a baseline before another writer', () => {
+  const source = postInterview();
+  const manifest = json(source, 'package.json');
+  obj(manifest.dependencies)['@rig-c/create'] = '2.0.0';
+  putJson(source, 'package.json', manifest);
+  draftOptions(source);
+  seed(source);
+  const repo = clone(source);
+  const initial = head(repo);
+  const unrelated = plantUnrelatedChanges(repo);
+  const changed = json(repo, PROJECT);
+  const pending = { path: OPTION, sha256: sha256(bytes(repo, OPTION)) };
+  composition(repo, changed).pending_options = pending;
+  changed.review_job = { jobId: 'legacy-view', origin: 'http://127.0.0.1:43123' };
+  putJson(repo, PROJECT, changed);
+  const oldBytes = bytes(repo, PROJECT);
+  const revised = 'evidence/interview/history-composition-revised.json';
+  draftOptions(repo, revised, 'history-composition-revised');
+  const args = ['interview-options', QUESTION, repo.dir, '--file', revised];
+  const refused = cli(repo, ...args);
+  expect(refused.code).toBe(1);
+  expect(refused.stderr).toMatch(/PROJECT_COMMIT_DIRTY:.*project\.json.*history baseline/s);
+  expect(head(repo)).toBe(initial);
+  expect(bytes(repo, PROJECT)).toEqual(oldBytes);
+  expect(git(repo, 'ls-files', '--stage', '--', revised)).toBe('');
+  expect(unrelatedSnapshot(repo)).toEqual(unrelated);
+
+  expect(baselineMove(repo)).toMatchObject({ command: expect.stringContaining('rig-create history baseline '),
+    act: expect.stringContaining(PROJECT) });
+  success(cli(repo, 'history', 'baseline', repo.dir, '--by', OPERATOR));
+  const saved = step(repo, initial, /baseline/i, [PROJECT], unrelated);
+  expect(historyEntries(repo)).toEqual([expect.objectContaining({ sha: saved, command: 'history baseline',
+    attribution: 'unverified', operator: OPERATOR, files: [PROJECT] })]);
+  expect(bytes(repo, PROJECT)).toEqual(oldBytes);
+  expect(composition(repo).pending_options).toEqual(pending);
+  expect(json(repo, PROJECT).review_job).toEqual(changed.review_job!);
+  expect(baselineMove(repo)).toBeUndefined();
+
+  success(cli(repo, ...args));
+  const options = step(repo, saved, /^interview-options:/, [PROJECT, revised], unrelated);
+  expect(composition(repo).pending_options).toEqual({ path: revised, sha256: sha256(bytes(repo, revised)) });
+  expect(json(repo, PROJECT).review_job).toEqual(changed.review_job!);
+
+  const directionPlan = 'plans/history-direction.md';
+  put(repo, directionPlan, 'Keep the camera fixed and loop for four seconds.\n');
+  success(cli(repo, 'plan', 'propose', 'direction', repo.dir, '--file', directionPlan, '--by', OPERATOR));
+  const plan = step(repo, options, /^plan propose:/, [PROJECT, directionPlan], unrelated);
+  expect(historyEntries(repo)).toContainEqual(expect.objectContaining({ sha: plan, command: 'plan propose' }));
+  expect(baselineMove(repo)).toBeUndefined();
+});
+
+test('#1165 index-only edits to the shared record refuse before a plan is saved', () => {
+  const repo = planFixture();
+  seed(repo);
+  const initial = head(repo);
+  const original = bytes(repo, PROJECT);
+  put(repo, PROJECT, Buffer.concat([original, Buffer.from('\n')]));
+  git(repo, 'add', '--', PROJECT);
+  const staged = git(repo, 'ls-files', '--stage', '--', PROJECT);
+  put(repo, PROJECT, original);
+  put(repo, PLAN, 'Keep the line closely aligned with the original painting.\n');
+  const refused = cli(repo, 'plan', 'propose', 'parts', repo.dir, '--file', PLAN, '--by', OPERATOR);
+  expect(refused.code).toBe(1);
+  expect(refused.stderr).toMatch(/PROJECT_COMMIT_DIRTY:.*project\.json.*history baseline/s);
+  expect(bytes(repo, PROJECT)).toEqual(original);
+  expect(git(repo, 'ls-files', '--stage', '--', PROJECT)).toBe(staged);
+  expect(git(repo, 'ls-files', '--stage', '--', PLAN)).toBe('');
+  expect(head(repo)).toBe(initial);
+});
+
+test('#1165 baseline recovers an interrupted job binding and the same job open can publish again', async () => {
+  const repo = currentFixture();
+  seed(repo);
+  const initial = head(repo);
+  const original = bytes(repo, PROJECT);
+  const wrap = tempDir();
+  const marker = join(wrap, 'killed-runtime');
+  const actualGit = Bun.which('git');
+  if (!actualGit) throw new Error('fixture needs the real Git executable');
+  writeFileSync(join(wrap, 'git'), `#!/bin/sh
+commit=false
+only=false
+binding=false
+for arg do
+  case "$arg" in
+    commit) commit=true ;;
+    --only) only=true ;;
+    *'writer: rig-create job open'*) binding=true ;;
+  esac
+done
+if "$commit" && "$only" && "$binding"; then
+  test "$PPID" = "$RIG_TEST_JOB_PID" || exit 71
+  printf '%s\n' "$PPID" > "$RIG_TEST_KILL_MARKER" || exit 72
+  kill -KILL "$PPID" || exit 73
+  exit 74
+fi
+exec "$RIG_TEST_REAL_GIT" "$@"
+`, { mode: 0o755 });
+  const interrupted = Bun.spawnSync(['sh', '-c', 'export RIG_TEST_JOB_PID=$$; exec "$@"', 'job-runtime', ...jobRuntimeCommand('open')], {
+    cwd: repo.dir,
+    env: { ...repo.env, PATH: `${wrap}${delimiter}${repo.env.PATH}`, RIG_TEST_REAL_GIT: actualGit, RIG_TEST_KILL_MARKER: marker },
+    stdin: Buffer.from(JSON.stringify({ root: repo.dir, reviewer: OWNER[1], role: 'owner', current: 'rig', now: TEST_NOW })),
+    stdout: 'pipe', stderr: 'pipe', timeout: 12_000,
+  });
+  expect(['SIGKILL', 9]).toContain(interrupted.signalCode ?? '<none>');
+  expect(interrupted.exitedDueToTimeout).not.toBe(true);
+  expect(readFileSync(marker, 'utf8')).toBe(`${interrupted.pid}\n`);
+  expect(bytes(repo, PROJECT)).not.toEqual(original);
+  expect(json(repo, PROJECT).review_job).toMatchObject({ jobId: expect.any(String), origin: expect.stringMatching(/^http:\/\//) });
+  expect(head(repo)).toBe(initial);
+  expect(baselineMove(repo)).toBeDefined();
+
+  success(cli(repo, 'history', 'baseline', repo.dir, '--by', OPERATOR));
+  const saved = step(repo, initial, /baseline/i, [PROJECT]);
+  expect(baselineMove(repo)).toBeUndefined();
+  await withPublication(repo, ['--current', 'rig'], /\njob: current rig published \(publication [^)]+\)\n/, () => {
+    expect(json(repo, PROJECT).review_job).toMatchObject({ jobId: readWriterBinding(repo.dir)?.jobId });
+    expect(git(repo, 'merge-base', '--is-ancestor', saved, 'HEAD')).toBe('');
+    expect(git(repo, 'status', '--porcelain', '--', PROJECT)).toBe('');
+  });
+}, 25_000);
+
+test('#1165 record refuses a dirty shared record before moving producer outputs, then records after baseline', () => {
+  const repo = currentFixture();
+  seed(repo);
+  const initial = head(repo);
+  const unrelated = plantUnrelatedChanges(repo);
+  const out = 'outputs/motion';
+  const from = `${out}.next`;
+  cpSync(join(repo.dir, out), join(repo.dir, from), { recursive: true });
+  const changed = json(repo, PROJECT);
+  changed.review_job = { jobId: 'legacy-view', origin: 'http://127.0.0.1:43123' };
+  putJson(repo, PROJECT, changed);
+  const before = [bytes(repo, PROJECT), treeDigest(join(repo.dir, from)), treeDigest(join(repo.dir, out))];
+  const args = ['record', 'motion', repo.dir, '--from', from];
+  const refused = cli(repo, ...args);
+  expect(refused.code).toBe(1);
+  expect(refused.stderr).toMatch(/PROJECT_COMMIT_DIRTY:.*project\.json.*history baseline/s);
+  expect([bytes(repo, PROJECT), treeDigest(join(repo.dir, from)), treeDigest(join(repo.dir, out))]).toEqual(before);
+  expect(head(repo)).toBe(initial);
+  expect(unrelatedSnapshot(repo)).toEqual(unrelated);
+
+  success(cli(repo, 'history', 'baseline', repo.dir, '--by', OPERATOR));
+  const saved = step(repo, initial, /baseline/i, [PROJECT], unrelated);
+  success(cli(repo, ...args));
+  step(repo, saved, /^motion:/, [PROJECT], unrelated);
+  expect(existsSync(join(repo.dir, from))).toBe(false);
+});
+
+test('#1165 current publication leaves a live closure edit unstaged and lists the old publish as legacy', async () => {
+  const repo = currentFixture();
+  const liveModel = bytes(repo, MODEL);
+  put(repo, MODEL, `${liveModel.toString().trimEnd()}\n\n`);
+  const subject = `publish: current rig ${sha256(bytes(repo, PROJECT)).slice(0, 12)}`;
+  seed(repo, subject, [MODEL]);
+  const legacy = head(repo);
+  const oldModel = git(repo, 'show', `HEAD:${MODEL}`);
+  expect(oldModel).not.toBe(liveModel.toString());
+  put(repo, MODEL, liveModel);
+  const unrelated = plantUnrelatedChanges(repo);
+
+  await withPublication(repo, ['--current', 'rig'], /\njob: current rig published \(publication [^)]+\)\n/, stdout => {
+    step(repo, legacy, /^job open:/, [PROJECT], unrelated);
+    expect(stdout).toMatch(/WARN PROJECT_COMMIT_FAILED:.*skeleton\.model\.json differs from the publication input at HEAD/);
+    expect(git(repo, 'show', `HEAD:${MODEL}`)).toBe(oldModel);
+    expect(bytes(repo, MODEL)).toEqual(liveModel);
+    expect(git(repo, 'status', '--porcelain', '--', MODEL)).toBe(` M ${MODEL}\n`);
+    expect(bytes(repo, CURRENT_LIVE_MANIFEST).length).toBeGreaterThan(0);
+
+    const acknowledgments = join(jobPrivateRoot(repo.dir), 'acknowledged-publications');
+    const [receiptFile] = readdirSync(acknowledgments);
+    const receipt = JSON.parse(readFileSync(join(acknowledgments, receiptFile!), 'utf8')) as AcknowledgedPublication;
+    expect(receipt.result.selector).toMatchObject({ kind: 'current', output: 'rig' });
+    expect(historyEntries(repo)).toContainEqual(expect.objectContaining({ sha: legacy, subject, attribution: 'unverified' }));
+    const history = success(cli(repo, 'history', repo.dir));
+    expect(history.split('\n').find(line => line.includes(subject))).toMatch(/legacy.*unverified/i);
+  });
+}, 20_000);
+
+test('#1165 plan proposal still saves and emits the portable no-Git warning', () => {
+  const repo = planFixture();
+  put(repo, PLAN, 'Keep the joint line along the outline.\n');
+  const result = cli(repo, 'plan', 'propose', 'parts', repo.dir, '--file', PLAN, '--by', OPERATOR);
+  success(result);
+  expect(result.stderr).toContain('PROJECT_NOT_IN_GIT');
+  expect(arr(obj(json(repo, PROJECT).interview).step_plans).at(-1)).toMatchObject({ path: PLAN });
+  expect(existsSync(join(repo.dir, '.git'))).toBe(false);
+});

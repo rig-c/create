@@ -15,7 +15,7 @@ import { refuse } from './refusal.ts';
 import type { JsonObject } from './templates.ts';
 
 const object = (value: unknown): value is JsonObject => value !== null && typeof value === 'object' && !Array.isArray(value);
-const fail = (why: string): never => refuse('REVIEW_ACT_SOURCE_STALE', `project.json.review_acts: ${why}; restore the reviewed draft or record and review a new draft id`);
+const fail = (why: string): never => refuse('REVIEW_ACT_SOURCE_STALE', `project.json.review_acts: ${why}; numbered parts verdicts are historical — restore the reviewed draft's retained files or record current parts with rig-create record parts --from <producer out> --config <rig config>`);
 
 export function partsActDraftHash(project: JsonObject, act: PartsVerdictAct): string {
   const hash = publicationVersionHash(Buffer.from(JSON.stringify(project)), { path: '', selector: act.source.selector });
@@ -42,7 +42,7 @@ export function currentPartsAmendment(project: JsonObject, at: number) {
 export function partsCarryAmendment(project: JsonObject, draftId: string, act: PartsVerdictAct, receipt: JsonObject, signedAt: number): number {
   const path = 'project.json.signoffs.parts-review';
   if (act.value.verdict !== 'approved') {
-    refuse('PARTS_VERDICT_NOT_APPROVED', `${path}.evidence: act ${act.actId} requests changes or is pending; record an approval of the corrected draft in Review`);
+    refuse('PARTS_VERDICT_NOT_APPROVED', `${path}.evidence: act ${act.actId} requests changes or is pending; numbered parts verdicts are historical — restore the approved parts-verdict receipt on the historical signoff`);
   }
   const amendment = currentPartsAmendment(project, signedAt);
   if (!amendment || amendment.target.kind !== 'draft' || amendment.target.id !== draftId || amendment.at >= signedAt) {
@@ -70,7 +70,7 @@ export function partsCarryAmendment(project: JsonObject, draftId: string, act: P
   }
   // The source date establishes when the reviewed bytes existed. The target only needs to predate its amendment.
   if (!isDeepStrictEqual(sourceFiles, targetFiles)) {
-    refuse('PARTS_VERDICT_DRAFT_MISMATCH', `${path}.evidence: draft ${draftId}'s parts paths or SHA-256 hashes differ from draft ${sourceId} reviewed by act ${act.actId}; review the amended draft's retained inputs`);
+    refuse('PARTS_VERDICT_DRAFT_MISMATCH', `${path}.evidence: draft ${draftId}'s parts paths or SHA-256 hashes differ from draft ${sourceId} reviewed by act ${act.actId}; numbered parts verdicts are historical — restore the reviewed draft's retained inputs`);
   }
   return amendment.index;
 }
@@ -168,6 +168,6 @@ export function checkPartsActEvidence(root: string, bytes: Buffer, evidenceHash:
   // Later plan approvals can fill checkpoints without changing the reviewed draft.
   assertPartsActSource(root, project, act, { comparePlan: false });
   if (partsActDraftHash(project, act) !== receipt.version_hash) fail('recorded draft entry changed');
-  if (options.requireApproval !== false && act.value.verdict !== 'approved') refuse('PARTS_VERDICT_NOT_APPROVED', 'signoffs.parts-review.evidence: semantic verdict is not approved; review the corrected draft and record a separate approval');
+  if (options.requireApproval !== false && act.value.verdict !== 'approved') refuse('PARTS_VERDICT_NOT_APPROVED', 'signoffs.parts-review.evidence: semantic verdict is not approved; numbered parts verdicts are historical — restore the approved parts-verdict receipt on the historical signoff');
   return join(root, act.source.parts.manifest.path);
 }

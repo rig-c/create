@@ -115,3 +115,36 @@ test('each refusal or warning named in the rendered guide is implemented and doc
     expect(checks).toContain(`| \`${code}\` |`);
   }
 });
+
+const reviewControlRules: ReadonlyArray<{
+  control: string;
+  status: 'still works on Review 5.x' | 'refused on 5.x';
+  pattern: RegExp;
+}> = [
+  { control: 'job open --current parts|rig|direction', status: 'still works on Review 5.x', pattern: /rig-create job open --reviewer <id> --role owner --current <parts\|rig\|direction>/ },
+  { control: 'job acts --json / --wait', status: 'still works on Review 5.x', pattern: /rig-create job acts --(?:json|wait)/ },
+  { control: 'comment --from-review <actId>', status: 'still works on Review 5.x', pattern: /rig-create comment --from-review <actId>/ },
+  { control: 'explicit Review 5.x refusal statement', status: 'still works on Review 5.x', pattern: /for looking and comments \(Review refuses verdicts,\s+signoffs, checkpoints and picks\)/ },
+  { control: 'parts-verdict submission in Review', status: 'refused on 5.x', pattern: /\bparts-verdict\b|\bparts-review\s+--from-review\b|\brecord an approval\b.*\bin Review\b/i },
+  { control: 'review-verdict submission in Review', status: 'refused on 5.x', pattern: /\breview-verdict\b|\breview\s+\S+\s+--from-review\b|\bapprove\s+in\s+Review\b|\baccept(?:\s+[^.;]*)?\s+in\s+Review\b/i },
+  { control: 'signoff submission in Review', status: 'refused on 5.x', pattern: /\bsignoff\b[^`\n]*--from-review\b|\bsign(?:\s+[^.;]*)?\s+in\s+Review\b/i },
+  { control: 'checkpoint submission in Review', status: 'refused on 5.x', pattern: /\bcheckpoint\b[^`\n]*--from-review\b|\bpass(?:es)?\s+checkpoint\b.*\bin\s+Review\b/i },
+  { control: 'interview-picks submission in Review', status: 'refused on 5.x', pattern: /\binterview-picks\b|\binterview-answer\b[^`\n]*--from-review\b|\bin the Review tool\b|\bask for it in Review\b|\bhave the owner pick\b.*\bjob open\b/i },
+];
+
+test('#1157 the rendered guide and stage reference walk Review 5.x controls and exclude retired submissions', () => {
+  const guide = renderAgentGuide();
+  const reference = readFileSync(new URL('../docs/AGENT-REFERENCE.md', import.meta.url), 'utf8');
+  const readme = readFileSync(new URL('../README.md', import.meta.url), 'utf8');
+  expect(Buffer.byteLength(guide)).toBeLessThan(10_000);
+
+  for (const rule of reviewControlRules) {
+    if (rule.status === 'still works on Review 5.x') {
+      expect(rule.pattern.test(guide), `expected guide to include ${rule.control}`).toBe(true);
+    } else {
+      for (const [label, text] of [['renderAgentGuide()', guide], ['docs/AGENT-REFERENCE.md', reference], ['README.md', readme]] as const) {
+        expect(rule.pattern.test(text), `${label} must not instruct ${rule.control}`).toBe(false);
+      }
+    }
+  }
+});

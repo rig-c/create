@@ -21,6 +21,6 @@ export function recordDirectionTarget(project: JsonObject, at = Infinity): numbe
 
 export function requireRecordDirectionTarget(project: JsonObject, at = Infinity): number {
   const version = recordDirectionTarget(project, at);
-  if (version === null) refuse('REVIEW_ACT_RECORD_TARGET_INVALID', 'project.json.versions: the frozen record does not bind one current live post with an accepted direction-review verdict; resolve ambiguous or stale verdicts through the writers and publish the record again');
+  if (version === null) refuse('REVIEW_ACT_RECORD_TARGET_INVALID', 'project.json.versions: the frozen record does not bind one current live post with an accepted direction-review verdict; numbered direction sign-offs are historical — restore the recorded post and verdict');
   return version;
 }

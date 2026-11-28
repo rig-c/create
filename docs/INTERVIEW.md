@@ -1009,7 +1009,7 @@ parts, but later signatures do not make a pending optional choice invalid.
 
 ### Relayed owner chat
 
-When the project has no bound live job holding an unresolved owner ask,
+When the project has no bound live job holding an unresolved finalized act,
 interview questions use `interview-answer --owner-chat <words file>
 --said-at <ISO date> --relayed-by <operator> --by <owner>` alongside the
 existing `--set`, `--sha256` and explicit `--pick` flags. Shared context images

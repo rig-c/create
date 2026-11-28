@@ -124,7 +124,7 @@ export function structureSnapshotCommand(args: string[]): { stdout: string; exit
   }
 
   const meshes = config.meshes;
-  if (meshes !== undefined && !isObject(meshes)) refuse('STRUCTURE_DECISIONS_INVALID', `drafts[${index}].config meshes: expected an object of part declarations; review the labelled draft, retain its exact structure decisions, and sign again`);
+  if (meshes !== undefined && !isObject(meshes)) refuse('STRUCTURE_DECISIONS_INVALID', `drafts[${index}].config meshes: expected an object of part declarations; numbered drafts are historical — restore the recorded draft config, or record current.parts with rig-create record parts and run rig-create structure-snapshot`);
   const entries: Json[] = Object.entries(meshes ?? {}).map(([part, value]) => ({ path: pointer(part), value: structuredClone(value) }));
   const snapshot: JsonObject = { schema: STRUCTURE_SCHEMA, draft_id: draftId, config: structuredClone(draft.config) as Json, entries };
   const errors: Finding[] = [];

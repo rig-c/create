@@ -2221,7 +2221,8 @@ Register a plate with `input add` before `scene write` names it. New agent
 scenes require input-writer metadata `{path,sha256,bytes,origin,at}` for raw input
 candidates, or a bound `rig-parts-plate-receipt/1` for derived candidates. A
 legacy input must be registered under a new source name with
-`input add <path> --origin …`, then selected through Review. Missing, stale or
+`input add <path> --origin …`, then selected in a `post_composition` choice
+recorded with `interview-answer post_composition --owner-chat`. Missing, stale or
 mismatched authority refuses before the project append. Quotes must cite the
 current ingested answer; historical answers remain available to historical
 scene readers. Composite preview presentation remains tracked in
@@ -2863,7 +2864,7 @@ registered project-relative paths from the cited owner value.
 The source scene, report and model must agree with the cited canvas and
 placement. Each plate's bytes must pass `plateRegistration`, including input
 writer metadata or a complete prepared-input/plate receipt chain. Composition
-must come from the recorded Review choice or decided delegation. For cited
+must come from the recorded `post_composition` choice or historical decided delegation. For cited
 offset `[ox,oy]`, scale `s` (default `1`) and canvas `Cw×Ch`, Create uses Parts'
 reported `rig_size` (`W×H`) to check the reported shift in Spine axes against
 `[ox + (s·W − Cw)/2, Ch − oy − s·H]`. If the rest of the scene identifies a

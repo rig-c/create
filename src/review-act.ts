@@ -270,7 +270,7 @@ const sha = (value: unknown): value is string => typeof value === 'string' && /^
 const id = (value: unknown): value is string => typeof value === 'string' && /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(value);
 const file = (value: unknown): value is JsonObject => object(value) && typeof value.path === 'string' && sha(value.sha256);
 function failure(code: string, detail: string): never {
-  refuse(code, `project.json.review_acts: ${detail}; restore the original evidence or request a new act in the live Review job`);
+  refuse(code, `project.json.review_acts: ${detail}; restore the original act evidence, or submit a new comment in the live Review job`);
 }
 
 const RETIRED_IMAGE_REVIEW_STAGE = 'image-review';
@@ -605,7 +605,7 @@ export function fetchReviewActBytes(transport: ReviewActTransport): string {
 export function reviewActTransport(root: string, actId: string): ReviewActTransport {
   const project = JSON.parse(readFileSync(join(root, 'project.json'), 'utf8')) as JsonObject;
   const discarded = asArray(project.review_acts).findIndex(entry => isDiscardReceipt(entry) && entry.actId === actId);
-  if (discarded !== -1) refuse('REVIEW_ACT_DISCARDED', `project.json.review_acts[${discarded}]: Review act ${actId} was discarded; publish the current target and obtain a fresh act`);
+  if (discarded !== -1) refuse('REVIEW_ACT_DISCARDED', `project.json.review_acts[${discarded}]: Review act ${actId} was discarded; publish the current target and submit a fresh comment in Review`);
   const binding = readWriterBinding(root);
   if (!binding) failure('JOB_BINDING_INVALID', 'writer binding is absent, open the live job first');
   if (binding.identity.root !== realpathSync(root) || !object(project.review_job)
@@ -924,7 +924,7 @@ export function assertActSubjectDeclared(root: string, act: SignoffAct | Checkpo
   const subject = act.kind === 'interview-picks' ? { kind: 'interview-picks', questionId: act.value.questionId, setId: act.source.optionSet.id } : act.kind === 'signoff' ? { kind: 'signoff', stage: act.value.stage } : { kind: 'checkpoint', checkpointId: act.value.checkpointId };
   if (receipt.subjects.some(declared => isDeepStrictEqual(declared, subject))) return;
   const named = act.kind === 'interview-picks' ? `answers ${act.value.questionId}` : act.kind === 'signoff' ? `signs ${act.value.stage}` : `passes checkpoint ${act.value.checkpointId}`;
-  refuse('REVIEW_ACT_SUBJECT_UNDECLARED', `${path}: act ${act.jobId}/${act.actId} ${named}, which its publication ${act.publicationId} did not declare; ask for it in Review on a publication made while the record can sign it`);
+  refuse('REVIEW_ACT_SUBJECT_UNDECLARED', `${path}: act ${act.jobId}/${act.actId} ${named}, which its publication ${act.publicationId} did not declare; Review pick, signoff and checkpoint acts are historical — relay owner choices with rig-create interview-answer --owner-chat and optional signoffs with rig-create signoff --owner-chat`);
 }
 
 /** Stages whose sign-off names a reviewed version, and the version kind each one signs. */

@@ -65,17 +65,17 @@ Feedback and approval never gate writes. For machine-read parts and rigging valu
 **Live Review loop**
 
 Start `rig-create job open --reviewer <id> --role owner --current <parts|rig|direction>`
-with the recorded result you want to show. Keep the host running and share its
-private URL once. Run the same invocation to publish another result into the standing job. Reused opens exit. The page updates in place.
+to show a recorded result for looking and comments (Review refuses verdicts,
+signoffs, checkpoints and picks). Share its private URL once; rerun it to
+update. Reused opens exit. The page updates in place.
 
-`rig-create job acts --json` lists the finalized acts and their comments and
-words. Wait for a new act with `rig-create job acts --wait`, then use
-`rig-create comment --from-review <actId>` for comment-only acts. Comments bind files by hash. For an
+`rig-create job acts --json` lists finalized acts; wait with
+`rig-create job acts --wait`, then record comment acts with
+`rig-create comment --from-review <actId>`. Comments bind files by hash. For an
 optional signoff in chat, use its relay move from next.
 
 If the host stops, repeat the same open with its reviewer and role, then
-run `rig-create job reconcile`. Close with `rig-create job close` when done. See the [live Review loop](https://github.com/rig-c/create/blob/main/docs/LIVE-REVIEW.md)
-for recovery and stored acts.
+run `rig-create job reconcile`. Close with `rig-create job close`. See the [live Review loop](https://github.com/rig-c/create/blob/main/docs/LIVE-REVIEW.md).
 
 ## Before you ask, plan or show
 

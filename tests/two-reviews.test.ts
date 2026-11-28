@@ -2,6 +2,7 @@ import { fixture as materializeExample } from './fixtures.ts';
 import { describe, expect, test } from 'bun:test';
 
 import { type CheckReport } from '../src/check.ts';
+import { checkReviews, type ReviewCtx } from '../src/review.ts';
 import type { Json, JsonObject } from '../src/templates.ts';
 import { cli, gitEnv, tempDir } from './helpers.ts';
 import { checkProject } from './clock.ts';
@@ -46,42 +47,16 @@ function addRig5(p: JsonObject, accepted: boolean): void {
   arr(p.versions).push(v5);
 }
 
-describe('post on an unaccepted rig', () => {
+describe('numbered review records', () => {
   test('the filled example passes', () => {
     const r = checkProject(fixture());
     expect(codes(r)).toEqual([]);
     expect(r.ok).toBe(true);
   });
 
-  test('a post version on a rig version with no rig-review acceptance is refused by name', () => {
+  test('check reads a post version whose rig has no rig-review acceptance', () => {
     const r = checkProject(fixture((p) => (version(p, 3).rig_version = 1)));
-    expect(withCode(r, 'POST_ON_UNACCEPTED_RIG').map((f) => f.path)).toEqual(['versions[v3].rig_version']);
-    expect(r.ok).toBe(false);
-  });
-
-  test('a post version naming no rig version, or none at all, is refused', () => {
-    const r = checkProject(
-      fixture((p) => {
-        version(p, 3).rig_version = 9;
-        version(p, 4).rig_version = null;
-      }),
-    );
-    expect(withCode(r, 'POST_ON_UNACCEPTED_RIG').map((f) => f.path)).toEqual(['versions[v3].rig_version', 'versions[v4].rig_version']);
-  });
-
-  test('an acceptance by the agent, or a provisional verdict, is not an acceptance', () => {
-    const agent = checkProject(fixture((p) => (obj(arr(version(p, 2).verdicts)[0]).by = 'agent')));
-    expect(withCode(agent, 'POST_ON_UNACCEPTED_RIG')).toHaveLength(2);
-    const provisional = checkProject(fixture((p) => (obj(arr(version(p, 2).verdicts)[0]).verdict = 'provisional')));
-    expect(codes(provisional)).toContain('POST_ON_UNACCEPTED_RIG');
-  });
-
-  test('a post version built before its rig was accepted is refused', () => {
-    const r = checkProject(fixture((p) => {
-      const acceptedAt = String(obj(arr(version(p, 2).verdicts)[0]).at);
-      version(p, 3).at = new Date(Date.parse(acceptedAt) - 1000).toISOString();
-    }));
-    expect(withCode(r, 'POST_ON_UNACCEPTED_RIG').map((f) => f.path)).toEqual(['versions[v3].rig_version']);
+    expect(codes(r)).toEqual([]);
   });
 
   test('the same unreviewed rig at stage rig-review is the review in progress, not a refusal', () => {
@@ -96,10 +71,18 @@ describe('post on an unaccepted rig', () => {
     expect(codes(r)).not.toContain('RIG_VERSION_UNACCEPTED');
   });
 
-  test('once the new rig is accepted, the current post version on the old rig is refused as superseded', () => {
-    const r = checkProject(fixture((p) => addRig5(p, true)));
-    expect(withCode(r, 'POST_ON_SUPERSEDED_RIG').map((f) => f.path)).toEqual(['versions[v4].rig_version']);
-    expect(codes(r)).not.toContain('RIG_VERSION_UNACCEPTED');
+  test('check reads a post version on an older rig after a new rig is accepted', () => {
+    const ctx: ReviewCtx = {
+      project: { versions: [
+        { n: 1, kind: 'rig', verdicts: [{ by: 'owner', review: 'rig-review', verdict: 'accepted', at: '2026-11-10T00:00:00Z' }] },
+        { n: 2, kind: 'post', rig_version: 1, at: '2026-11-11T00:00:00Z' },
+        { n: 3, kind: 'rig', verdicts: [{ by: 'owner', review: 'rig-review', verdict: 'accepted', at: '2026-11-12T00:00:00Z' }] },
+      ] },
+      effectiveStage: 'post',
+      refusals: [],
+    };
+    checkReviews(ctx);
+    expect(ctx.refusals).toEqual([]);
   });
 });
 
@@ -152,6 +135,25 @@ describe('rig-create handoff', () => {
     expect(r.stderr).toStartWith('rig-create: POST_ON_UNACCEPTED_RIG: versions[v1]');
   });
 
+  test('agent and provisional verdicts cannot authorize handoff', () => {
+    const agent = fixture((p) => (obj(arr(version(p, 2).verdicts)[0]).by = 'agent'));
+    const provisional = fixture((p) => (obj(arr(version(p, 2).verdicts)[0]).verdict = 'provisional'));
+    for (const dir of [agent, provisional]) {
+      const r = cli(['handoff', dir], dir, env);
+      expect(r.code).toBe(1);
+      expect(r.stderr).toStartWith('rig-create: RIG_VERSION_UNACCEPTED:');
+    }
+  });
+
+  test('a later human bounce withdraws the acceptance used by handoff', () => {
+    const dir = fixture((p) => {
+      arr(version(p, 2).verdicts).push({ by: 'owner', at: '2026-11-20T10:00:00Z', review: 'rig-review', verdict: 'bounced', verbatim: 'The hem tears after all.', on_items: [] });
+    });
+    const r = cli(['handoff', dir], dir, env);
+    expect(r.code).toBe(1);
+    expect(r.stderr).toStartWith('rig-create: RIG_VERSION_UNACCEPTED:');
+  });
+
   test('#981 no rig-review sign-off: the accepted rig still hands off', () => {
     const dir = fixture((p) => (p.signoffs = arr(p.signoffs).filter((s) => obj(s).stage !== 'rig-review')));
     const r = cli(['handoff', '--rig', '2', dir], dir, env);
@@ -200,26 +202,7 @@ describe('rig-create handoff', () => {
   });
 });
 
-describe('review fixes: the last human verdict decides, and order is dated', () => {
-  const codesOf = (r: CheckReport): string[] => r.refusals.map((f) => f.code);
-
-  test('a later human bounce withdraws the acceptance', () => {
-    const r = checkProject(
-      fixture((p) => {
-        arr(version(p, 2).verdicts).push({ by: 'owner', at: '2026-11-20T10:00:00Z', review: 'rig-review', verdict: 'bounced', verbatim: 'No, the hem tears after all.', on_items: [] });
-      }),
-    );
-    expect(codesOf(r)).toContain('POST_ON_UNACCEPTED_RIG');
-  });
-
-  test('an undated acceptance authorises nothing', () => {
-    const r = checkProject(fixture((p) => { delete obj(arr(version(p, 2).verdicts)[0]).at; }));
-    expect(codesOf(r)).toContain('VERSION_MALFORMED');
-    expect(codesOf(r)).toContain('POST_ON_UNACCEPTED_RIG');
-  });
-
-  test('an undated post version is refused', () => {
-    const r = checkProject(fixture((p) => { delete version(p, 3).at; }));
-    expect(codesOf(r)).toContain('POST_ON_UNACCEPTED_RIG');
-  });
+test('an undated rig acceptance is malformed', () => {
+  const r = checkProject(fixture((p) => { delete obj(arr(version(p, 2).verdicts)[0]).at; }));
+  expect(codes(r)).toContain('VERSION_MALFORMED');
 });

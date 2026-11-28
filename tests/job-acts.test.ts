@@ -1,9 +1,9 @@
 import { afterEach, expect, test } from 'bun:test';
 import { Database } from 'bun:sqlite';
 import { randomUUID } from 'node:crypto';
-import { appendFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync, lstatSync } from 'node:fs';
+import { appendFileSync, cpSync, existsSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync, lstatSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { join } from 'node:path';
 import { checkProject, collectItems, type Finding } from '../src/check.ts';
 import { optionContext } from '../src/choices.ts';
 import { plantLegacyReopen, fixture, retainSignoffs, arr, obj, step } from './fixtures.ts';
@@ -1985,7 +1985,7 @@ test('#502 all post-interview picks and plan signoff execute next host and expor
   // Measured 19.3 s green in CI (#994); 60 s gives ~3x headroom on slow runners.
 }, 60_000);
 
-test('#502 owner-chat direction signoff accepts a retained approved verdict', async () => {
+test('#502 direction signoff writer is retired and a retained signoff still supports acceptance', async () => {
   testClock.set(Date.now());
   const root = copy('example-chain', project => {
     project.stage = 'direction-review';
@@ -1994,7 +1994,11 @@ test('#502 owner-chat direction signoff accepts a retained approved verdict', as
   });
   const before = nextProject(root, testClock.now());
   expect(before.moves.filter(move => move.command?.includes('--plan'))).toEqual([]);
-  expect(before.moves.some(move => move.awaits === 'signoffs[stage=direction-review]' && move.command === null && move.act.includes('NUMBERED_ACT_RETIRED'))).toBe(true);
+  expect(before.moves).toContainEqual(expect.objectContaining({
+    field: 'versions', command: null, act: expect.stringContaining('Numbered scenes and posts are read-only.'),
+  }));
+  expect(before.moves.some(move => move.awaits === 'signoffs[stage=direction-review]'
+    || move.command?.includes('signoff direction-review'))).toBe(false);
   const directionWords = join(root, 'direction-approval.txt');
   writeFileSync(directionWords, WORDS);
   const removed = await cli(root, ['signoff', 'direction-review', root, '--by', 'synthetic-owner',

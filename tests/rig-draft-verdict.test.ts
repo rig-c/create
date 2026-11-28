@@ -13,7 +13,7 @@ import { jobRuntimeExecArgv } from '../src/job-writer.ts';
 import { decodeReviewAct, draftReviewStillEvidence, isDraftReviewVerdict, reviewActBy, reviewActFindings, reviewActVerdict } from '../src/review-act.ts';
 import { nextProject } from '../src/next.ts';
 import type { JsonObject } from '../src/templates.ts';
-import { staleRecordPlant, treeDigest } from './helpers.ts';
+import { treeDigest } from './helpers.ts';
 import { meshEdits } from './mesh-edit-fixture.ts';
 import { seedRetainedDraft, seedRetainedRigVersion } from './numbered-seed.ts';
 import { seedHistoricalPendingAsk } from './historical-review-fixture.ts';
@@ -425,7 +425,7 @@ test.each(['identical', 'changed', 'historical still'] as const)('#712 retained 
     expect.objectContaining({ code: 'REVIEW_ACT_LEDGER_INVALID', path: 'versions[v1].verdicts[0]' }));
 }, testTimeoutMs);
 
-test('#803 a pending correction refuses carry on check and next offers same-input registration without the verdict', async () => {
+test('#803 check refuses a carried verdict with a pending correction and next leaves numbered registration read-only', async () => {
   const root = checkpoint('3-rig-review');
   const check = () => checkProject(root, undefined, { now: Date.now() + 2000, readOnly: true });
   const initial = read(root);
@@ -450,13 +450,8 @@ test('#803 a pending correction refuses carry on check and next offers same-inpu
   await submit(root, url, 'approved');
 
   const before = readFileSync(join(root, 'project.json'));
-  const registrations = nextProject(root, Date.now() + 2000).moves.filter(move => move.command?.startsWith('rig-create rig-version '));
-  expect(registrations).toHaveLength(1);
-  const [move] = registrations;
-  expect(move?.act).toContain('CORRECTION_PENDING');
-  expect(move?.command).toStartWith('rig-create rig-version 2 ');
-  expect(move?.command).toEndWith(' --no-draft-verdict');
-
+  const next = nextProject(root, Date.now() + 2000);
+  expect(next.moves.some(move => /^rig-create (?:rig-version|record rig)\b/.test(move.command ?? ''))).toBe(false);
   register(root, 'identical', 2);
   expect(check().refusals.map(f => f.code)).toContain('CORRECTION_PENDING');
   writeFileSync(join(root, 'project.json'), before);

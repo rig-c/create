@@ -197,8 +197,7 @@ test('#820 a routed motion comment can be re-signed in Review and cited by the n
 
       const next = JSON.parse(await f.success('next', f.root, '--json')) as JsonObject;
       expect(next.refusals).toEqual([]);
-      expect(next.moves).toContainEqual(expect.objectContaining({ role: 'agent', field: 'versions',
-        command: expect.stringMatching(/^rig-create rig-version 2 .* --answers 1:0$/) }));
+      expect(arr(next.moves).map(obj).some(move => /^rig-create (?:rig-version|record rig)\b/.test(String(move.command)))).toBe(false);
       expect(f.additions()).toEqual(addition);
 
       // Reuse a frozen producer build with stronger motion and byte-identical assembled parts.

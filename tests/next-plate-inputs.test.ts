@@ -69,7 +69,7 @@ function openPostChoices(f: ReturnType<typeof plateProject>): void {
   }
 }
 
-test.each([false, true])('#504 names each existing unregistered plate before its dependent writer (compose=%s)', composed => {
+test.each([false, true])('#504 names each existing unregistered plate on a read-only numbered post (compose=%s)', composed => {
   const f = plateProject(composed);
   const before = readFileSync(f.file);
   expect(arr(f.project.inputs).map(obj).some(input => input.path === f.background)).toBe(false);
@@ -81,8 +81,9 @@ test.each([false, true])('#504 names each existing unregistered plate before its
   expect(registrations.map(move => printedArgs(move.command!))).toEqual([f.background, f.foreground].map(path =>
     ['input', 'add', path, f.dir, '--origin', '<origin>']));
   expect(report.awaits).toEqual(expect.arrayContaining(registrations.map(move => move.awaits)));
-  const dependent = report.moves.findIndex(move => move.command?.startsWith(composed ? 'rig-create direction write ' : 'rig-create scene write '));
-  expect(dependent).toBeGreaterThan(report.moves.indexOf(registrations[1]!));
+  const readOnly = report.moves.findIndex(move => move.field === 'versions' && move.command === null);
+  expect(readOnly).toBeGreaterThan(report.moves.indexOf(registrations[1]!));
+  expect(report.moves.some(move => /^rig-create (?:scene|direction) write\b/.test(move.command ?? ''))).toBe(false);
   expect(readFileSync(f.file)).toEqual(before);
   for (const move of registrations) {
     const args = printedArgs(move.command!).slice(1).map(arg => arg === '<origin>' ? 'synthetic plate source' : arg);
@@ -92,10 +93,8 @@ test.each([false, true])('#504 names each existing unregistered plate before its
   if (!composed) {
     writeFileSync(join(f.dir, 'evidence/plate-citations.json'), JSON.stringify(Object.fromEntries(['background', 'foreground'].map(role =>
       [role, { guide: 'post_composition', asks: ['post_composition'], quote: f.answer.verbatim }]))));
-    const command = nextProject(f.dir, EXAMPLE_NOW).moves.find(move => move.command?.startsWith('rig-create scene write '))!.command!;
-    const args = printedArgs(command).slice(1).map(arg => arg === '<background.png>' ? f.background
-      : arg === '<foreground.png>' ? f.foreground : arg === '<scene-citations.json>' ? 'evidence/plate-citations.json' : arg);
-    expect(seedRetainedScene(args, EXAMPLE_NOW).exit).toBe(0);
+    expect(seedRetainedScene(['write', f.dir, '--rig', '1', '--background', f.background, '--foreground', f.foreground,
+      '--citations-file', 'evidence/plate-citations.json'], EXAMPLE_NOW).exit).toBe(0);
   }
 });
 
@@ -152,7 +151,7 @@ test('#504 discovers plates in the current delegated decision, outside the offer
   expect(report.refusals).toEqual([]);
   const adds = report.moves.filter(move => move.command?.startsWith('rig-create input add '));
   expect(adds.map(move => printedArgs(move.command!)[2])).toEqual([f.background, f.foreground]);
-  expect(report.moves.findIndex(move => move.command?.startsWith('rig-create direction write '))).toBeGreaterThan(report.moves.indexOf(adds.at(-1)!));
+  expect(report.moves.findIndex(move => move.field === 'versions' && move.command === null)).toBeGreaterThan(report.moves.indexOf(adds.at(-1)!));
 });
 
 test('#504 preserves changed-input refusal without suggesting duplicate registration', () => {

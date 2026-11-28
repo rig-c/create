@@ -1,5 +1,7 @@
 import { basename, dirname, join, posix } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
+import corePackage from '@rig-c/core/package.json';
+import partsPackage from '@rig-c/parts/package.json';
 import { readFileSync, realpathSync } from './check-reads.ts';
 import { asArray, isObject, type Finding } from './check.ts';
 import { literalFile } from './choices.ts';
@@ -51,7 +53,7 @@ function inDirectory(dir: string, step: string, quote: ShellWord): string {
   return `(cd -P ${cwd} && test "$PWD" = ${cwd} && ${step})`;
 }
 
-function hasStagedOut(argv: string[], spec: 'rig-run/2' | 'rigc-run/2'): boolean {
+function hasStagedOut(argv: string[], spec: 'rig-run/2' | 'rig-run/3' | 'rigc-run/2'): boolean {
   if (spec === 'rigc-run/2') {
     // Core accepts both flag spellings and refuses a flag token as another flag's value.
     const outs = argv.flatMap((arg, i) => arg === '--out' ? [argv[i + 1]] : arg.startsWith('--out=') ? [arg.slice(6)] : []);
@@ -120,7 +122,7 @@ function migratedConfigMove(dir: string, kind: 'parts' | 'rig', quote: ShellWord
     act: `RECORD_CONFIG_MISMATCH: ${field} has no readable matching build config${source}. Restore the registered config or obtain the producer config from the operator, then build and record the output with record ${kind} --from and --config.` };
 }
 
-function replayRuns(dir: string, kind: CurrentKind, node: JsonObject, stage: string, quote: ShellWord) {
+function replayRuns(dir: string, kind: CurrentKind, node: JsonObject, stage: string, quote: ShellWord, warnings: Finding[]) {
   const rebuild = isObject(node.rebuild) ? node.rebuild : undefined;
   const listed = rebuild?.recorded === true;
   const entries = listed ? asArray(rebuild.runs) : [node.run];
@@ -131,7 +133,7 @@ function replayRuns(dir: string, kind: CurrentKind, node: JsonObject, stage: str
     try {
       const { path, bytes } = boundRun(dir, kind, node, entry);
       const { spec, record } = validateRunRecord(bytes, path, { allowAssembleInputs: kind === 'parts' });
-      if (spec !== 'rig-run/2' && spec !== 'rigc-run/2') {
+      if (spec !== 'rig-run/2' && spec !== 'rig-run/3' && spec !== 'rigc-run/2') {
         throw new Error(`${path} has no recorded argv (${spec})`);
       }
       if (listed && (!isObject(entry) || entry.spec !== spec || !isDeepStrictEqual(entry.argv, record.argv))) {
@@ -141,7 +143,14 @@ function replayRuns(dir: string, kind: CurrentKind, node: JsonObject, stage: str
       if (!hasStagedOut(argv, spec)) throw new Error(`${path} has no single effective --out . for safe staged replay`);
 
       const command = String(record.command);
-      const producer = spec === 'rig-run/2' ? ['rig-parts', ...argv] : ['rigc', command, ...argv];
+      const installed = spec === 'rigc-run/2' ? corePackage : partsPackage;
+      const recorded = record.package as { version: string };
+      if (recorded.version !== installed.version) {
+        const field = `current.${kind}.rebuild`;
+        warnings.push({ code: 'REBUILD_PRODUCER_VERSION_MISMATCH', path: field,
+          message: `${field}: ${path} recorded ${installed.name} ${recorded.version}, and Create has ${installed.version} installed. Run the recorded arguments and record the verified result as a new output.` });
+      }
+      const producer = spec === 'rigc-run/2' ? ['rigc', command, ...argv] : ['rig-parts', ...argv];
       const suffix = posix.dirname(path).slice(outputRoot(kind).length + 1);
       const dirs = suffix ? suffix.split('/').map((_, i, segments) => `${stage}/${segments.slice(0, i + 1).join('/')}`) : [];
       const prepare = dirs.map(path => {
@@ -159,7 +168,7 @@ function replayRuns(dir: string, kind: CurrentKind, node: JsonObject, stage: str
   return { runs, missing };
 }
 
-function rebuildMove(dir: string, kind: CurrentKind, node: JsonObject, finding: Finding, quote: ShellWord): NextMove {
+function rebuildMove(dir: string, kind: CurrentKind, node: JsonObject, finding: Finding, quote: ShellWord, warnings: Finding[]): NextMove {
   const field = finding.path;
   const why = finding.message.replace(`; rebuild it upstream-first and record it with rig-create record ${kind}`, '');
   const target = `${outputRoot(kind)}.next`;
@@ -170,7 +179,7 @@ function rebuildMove(dir: string, kind: CurrentKind, node: JsonObject, finding: 
       act: `${why}. Retain the previous ${kind} at ${retained}. If its hashes still match, the retained output can be reused for its recorded inputs. REBUILD_ARGS_UNRECORDED: ${field}.rebuild has no verified recipe for ${target}. Obtain the ${recipe} arguments from the operator before rebuilding.` };
   }
   const stage = join(realpathSync(dir), target);
-  const { runs, missing } = replayRuns(dir, kind, node, stage, quote);
+  const { runs, missing } = replayRuns(dir, kind, node, stage, quote, warnings);
   const canBindWriterConfig = kind === 'parts' || kind === 'rig';
   const config = canBindWriterConfig ? recordConfig(dir, kind, node) : undefined;
   const record = `rig-create record ${kind} ${quote(dir)} --from ${target}${config === undefined ? '' : ` --config ${quote(config)}`}`;
@@ -242,10 +251,11 @@ function forwardOutput(move: NextMove, next: NextReport): CurrentKind | undefine
 
 export function withStaleOutputs(dir: string, current: JsonObject, warnings: Finding[], next: NextReport, quote: ShellWord,
   missing: ReadonlyMap<CurrentKind, { adoption?: NextMove; producer: NextMove; usesAdoptedInputs?: boolean }>): NextReport {
+  const replayWarnings: Finding[] = [];
   const stale = new Map(CURRENT_KINDS.flatMap(kind => {
     const finding = warnings.find(w => w.code === 'OUTPUT_STALE' && w.path === `current.${kind}`);
     const node = current[kind];
-    return finding && isObject(node) ? [[kind, rebuildMove(dir, kind, node, finding, quote)]] as const : [];
+    return finding && isObject(node) ? [[kind, rebuildMove(dir, kind, node, finding, quote, replayWarnings)]] as const : [];
   }));
 
   const firstStale = stale.keys().next().value;
@@ -301,5 +311,6 @@ export function withStaleOutputs(dir: string, current: JsonObject, warnings: Fin
         return recorded;
       }) }
     : {};
-  return { ...next, ...answerView, moves: [...outputs, ...forward], awaits: [...new Set([...outputs.map(move => move.awaits), ...awaits])] };
+  return { ...next, ...answerView, ...(replayWarnings.length ? { warnings: [...(next.warnings ?? []), ...replayWarnings] } : {}),
+    moves: [...outputs, ...forward], awaits: [...new Set([...outputs.map(move => move.awaits), ...awaits])] };
 }

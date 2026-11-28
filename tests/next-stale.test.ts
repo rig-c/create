@@ -1,6 +1,8 @@
 import { expect, test } from 'bun:test';
 import { cpSync, existsSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { delimiter, dirname, join } from 'node:path';
+import { generateExampleParts } from '../scripts/generate-example-parts.ts';
+import { EXAMPLE_SOURCE_DATE_EPOCH } from '../scripts/example-time.ts';
 import { asArray, checkProject, isObject } from '../src/check.ts';
 import { outputSetHash, sha256, treeFiles, type CurrentKind } from '../src/current.ts';
 import { ledgerCommand } from '../src/fix-ledger.ts';
@@ -8,7 +10,7 @@ import { JOB_BINDING_FILE, writePrivateJson } from '../src/job-outbox.ts';
 import { nextCommand, nextProject } from '../src/next.ts';
 import { recordCommand } from '../src/record.ts';
 import { stageIndex } from '../src/stages.ts';
-import { readTemplate, type Json, type JsonObject } from '../src/templates.ts';
+import { readTemplate, TEMPLATES_DIR, type Json, type JsonObject } from '../src/templates.ts';
 import { advanceCommand, signoffCommand, testClock } from './clock.ts';
 import { fixture, plantLegacyReopen, retainSignoffs, type Mutate } from './fixtures.ts';
 import { ownerChatArgs, tempDir } from './helpers.ts';
@@ -185,6 +187,12 @@ test('rig replay uses fresh sibling and nested directories, unchanged argv and p
   }
   const command = next(dir).moves.find(move => move.field === 'current.rig')?.command;
   expect(command).toBeString();
+  const versionWarnings = next(dir).warnings?.filter(warning => warning.code === 'REBUILD_PRODUCER_VERSION_MISMATCH');
+  expect(versionWarnings).toEqual(expect.arrayContaining([
+    expect.objectContaining({ path: 'current.rig.rebuild', message: expect.stringContaining(`${RIG_RUN} recorded @rig-c/parts ${partsPackage.version}`) }),
+    expect.objectContaining({ path: 'current.rig.rebuild', message: expect.stringContaining(`${nested} recorded @rig-c/core ${corePackage.version}`) }),
+  ]));
+  expect(nextCommand([dir], testClock.now()).stdout).toContain('WARN [REBUILD_PRODUCER_VERSION_MISMATCH]');
   const run = () => Bun.spawnSync(['/bin/sh', '-c', command!], { cwd: dir,
     env: { ...process.env, PATH: `${bin}:${process.env.PATH ?? ''}`, REPLAY_TRACE: trace }, stderr: 'pipe' });
   const output = join(dir, 'outputs');
@@ -208,6 +216,45 @@ test('rig replay uses fresh sibling and nested directories, unchanged argv and p
   expect(run().exitCode).not.toBe(0);
   expect(readFileSync(trace, 'utf8').trimEnd().split('\n')).toEqual(lines);
 });
+
+test('next replays a recorded rig-run/3 build and records the replacement', () => {
+  const dir = staleFixture();
+  const project = readProject(dir);
+  delete project.current;
+  put(dir, 'project.json', project);
+  rmSync(join(dir, 'outputs/rig'), { recursive: true });
+  const plate = join(dir, 'inputs/build');
+  generateExampleParts(plate);
+  const exampleSpecs = join(TEMPLATES_DIR, 'example-current/specs/rig');
+  for (const name of ['config.json', 'interview-requirements.json']) {
+    cpSync(join(exampleSpecs, name), join(dir, 'specs/rig', name));
+  }
+
+  const bin = join(import.meta.dir, '../node_modules/.bin');
+  const createBin = join(dir, 'bin');
+  mkdirSync(createBin);
+  symlinkSync(join(import.meta.dir, '../src/cli.ts'), join(createBin, 'rig-create'));
+  const env = { ...process.env, PATH: [createBin, bin, process.env.PATH].join(delimiter), SOURCE_DATE_EPOCH: EXAMPLE_SOURCE_DATE_EPOCH };
+  const producer = Bun.spawnSync(['rig-parts', 'build', '--config', CONFIG, '--source', 'inputs/build/painting.png',
+    '--full', 'inputs/build/layers', '--requirements', 'specs/rig/interview-requirements.json', '--out', 'outputs/rig.next',
+    '--page-edges', 'free', '--pack-shape', 'polygon', '--no-extremes'], { cwd: dir, env, stderr: 'pipe' });
+  expect(producer.exitCode, `${producer.stdout}\n${producer.stderr}`).toBe(0);
+  expect(recordCommand(['rig', dir, '--from', 'outputs/rig.next', '--config', CONFIG], testClock.now()).exit).toBe(0);
+  const { spec, argv } = readObject(dir, RIG_RUN);
+  expect(spec).toBe('rig-run/3');
+
+  const config = join(dir, CONFIG);
+  writeFileSync(config, `${readFileSync(config, 'utf8')}\n`);
+  const report = next(dir);
+  expect(report.warnings).toContainEqual(expect.objectContaining({ code: 'OUTPUT_STALE', path: 'current.rig' }));
+  expect(report.warnings?.filter(warning => warning.code === 'REBUILD_PRODUCER_VERSION_MISMATCH')).toEqual([]);
+  const command = report.moves.find(move => move.field === 'current.rig')?.command;
+  expect(command).toBeString();
+  const replay = Bun.spawnSync(['/bin/sh', '-c', command!], { cwd: dir, env, stderr: 'pipe' });
+  expect(replay.exitCode, `${replay.stdout}\n${replay.stderr}`).toBe(0);
+  expect(readObject(dir, RIG_RUN).argv).toEqual(argv);
+  expect(next(dir).warnings?.filter(warning => warning.code === 'OUTPUT_STALE' && warning.path === 'current.rig') ?? []).toEqual([]);
+}, 120_000);
 
 test('a recorded rig check survives as a partial step when the preceding rig build arguments are absent', () => {
   const dir = staleFixture();

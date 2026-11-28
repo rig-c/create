@@ -7,8 +7,9 @@ import { CURRENT_SCENE_PATH } from './scene.ts';
 import type { CommandResult } from './interview.ts';
 import { acquireJobLock, tryJobDirectoryLock } from './job-outbox.ts';
 import { CURRENT_LIVE_MANIFEST } from './job-publication.ts';
-import { BASELINE_PATHS, baselineCommitMatches, commitProjectBaseline } from './project-step-commit.ts';
+import { baselineCommitMatches, commitProjectBaseline } from './project-step-commit.ts';
 import { Refusal, refuse, USAGE_EXIT } from './refusal.ts';
+import { BASELINE_PATHS } from './writer-commit-paths.ts';
 
 const USAGE = 'history [<dir>] [--json]';
 const SPEC_PATHS = { scene: CURRENT_SCENE_PATH, direction: CURRENT_DIRECTION_PATH } as const;

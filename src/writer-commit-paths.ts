@@ -1,7 +1,9 @@
+export const OUTPUTS_IGNORE = ['/outputs/*', '!/outputs/parts/'] as const;
+export const BASELINE_PATHS = ['project.json', 'package.json', 'bun.lock'] as const;
+export const GITIGNORE_MIGRATION_LINE = `gitignore: /outputs/ -> ${OUTPUTS_IGNORE.join(' ')}`;
+
 const EXCLUDED_BOUND_PATHS = new Set<string>([
-  'project.json',
-  'package.json',
-  'bun.lock',
+  ...BASELINE_PATHS,
   '.gitignore',
   'collection.json',
   'review-live.json',

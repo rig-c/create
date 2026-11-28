@@ -65,6 +65,8 @@ function makeRepo(record: JsonObject = freshProjectRecord('synthetic-writers', T
   putJson(repo, PROJECT, record);
   put(repo, UNRELATED, 'initial unrelated\n');
   git(repo, 'init', '-q');
+  git(repo, 'config', '--local', 'user.name', 'Synthetic Writer');
+  git(repo, 'config', '--local', 'user.email', 'writer@example.test');
   git(repo, 'add', '--', '.gitignore', PROJECT, UNRELATED);
   git(repo, 'commit', '-qm', 'Seed synthetic project');
   return repo;

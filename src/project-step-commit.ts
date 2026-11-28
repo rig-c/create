@@ -11,11 +11,11 @@ import type { CurrentPublicationOutput } from './job-outbox.ts';
 import { refuse } from './refusal.ts';
 import { PLAN_STEPS, STEP_PLAN_SCHEMA } from './stages.ts';
 import type { Json, JsonObject } from './templates.ts';
+import { BASELINE_PATHS, GITIGNORE_MIGRATION_LINE, OUTPUTS_IGNORE } from './writer-commit-paths.ts';
+
+export { BASELINE_PATHS, GITIGNORE_MIGRATION_LINE, OUTPUTS_IGNORE };
 
 type Step = 'scene' | CurrentKind;
-export const OUTPUTS_IGNORE = ['/outputs/*', '!/outputs/parts/'] as const;
-export const BASELINE_PATHS = ['project.json', 'package.json', 'bun.lock'] as const;
-export const GITIGNORE_MIGRATION_LINE = `gitignore: /outputs/ -> ${OUTPUTS_IGNORE.join(' ')}`;
 const MAX_SUBJECT = 72;
 const UPSTREAM_ORDER = ['motion', 'rig', 'parts'] as const;
 const UPSTREAM_PRIMARY: Record<(typeof UPSTREAM_ORDER)[number], readonly string[]> = {

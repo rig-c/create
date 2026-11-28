@@ -1,6 +1,7 @@
 import { existsSync, realpathSync } from './check-reads.ts';
 import { join } from 'node:path';
-import { candidateBatchPaths, CANDIDATE_STORAGE_PATH } from './candidate-storage.ts';
+import { candidateBatchPaths, candidateStorage, CANDIDATE_STORAGE_PATH } from './candidate-storage.ts';
+import { tryJobDirectoryLock } from './job-outbox.ts';
 import { jobRuntimeCommand } from './job-writer.ts';
 import type { PendingJobAct } from './job-acts.ts';
 import { refuse, USAGE_EXIT } from './refusal.ts';
@@ -51,6 +52,14 @@ export function candidateCommand(args: string[], now: number): number {
 
 export function hasCandidateStorage(root: string): boolean {
   return existsSync(join(root, CANDIDATE_STORAGE_PATH));
+}
+
+/** Never wait on a candidate operation while holding a record lock. */
+export function acquireCandidateRecordWrite(root: string): (() => void) | undefined {
+  if (!hasCandidateStorage(root)) return;
+  const release = tryJobDirectoryLock(join(candidateStorage(realpathSync(root)), '.lock'));
+  if (!release) refuse('JOB_WRITE_BUSY', 'scratch/candidates: wait for the current candidate operation to finish, then retry the record');
+  return release;
 }
 
 /** Called after a writer succeeds and releases its project lock. */

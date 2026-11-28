@@ -3,15 +3,18 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { JobCommentOnlyAct, JobOwnerHost } from '@rig-c/review/job-host';
 import { attachCandidateHost, candidateHostBinding } from '../src/candidate-host.ts';
+import { CANDIDATE_PROOF_FILE } from '../src/candidate-proof.ts';
 import { candidateBatchPaths, candidateOptionPaths, CANDIDATE_STORAGE_PATH } from '../src/candidate-storage.ts';
-import { sha256 } from '../src/current.ts';
+import { checkProject } from '../src/check.ts';
+import { currentRigFileBinding, sha256 } from '../src/current.ts';
 import { objects } from '../src/direction.ts';
 import { jobPrivateRoot } from '../src/job-outbox.ts';
 import { fetchReviewAct } from '../src/review-act.ts';
 import { CANDIDATE_QUESTION, CANDIDATE_SET_PATH } from './candidate-fixture.ts';
 import {
-  finalizeComment, NOW, openArgs, question, record, retirementProject, runCli, standingQuestion, startCli, TIMING, type TraceRow,
+  finalizeComment, NOW, openArgs, question, record, retirementProject, runCli, stageRecord, standingQuestion, startCli, TIMING, type TraceRow,
 } from './candidate-retirement-fixture.ts';
+import { obj } from './fixtures.ts';
 import { treeDigest } from './helpers.ts';
 import { sourceOnlyTest } from './source-only.ts';
 
@@ -20,8 +23,8 @@ const closeArgs = (root: string) => ['candidate', 'close', root, '--question', C
 const traceRows = (path: string) => readFileSync(path, 'utf8').trim().split('\n').map(line => JSON.parse(line) as TraceRow);
 const storage = (root: string) => join(root, CANDIDATE_STORAGE_PATH);
 
-async function startBatch(root: string, trace: string, count = 2, args = openArgs(root)) {
-  const child = startCli(root, args, 'prepared', trace);
+async function startBatch(root: string, trace: string, count = 2, args = openArgs(root), mode: 'prepared' | 'hold-compose' = 'prepared') {
+  const child = startCli(root, args, mode, trace);
   const reader = child.stdout.getReader();
   const stderr = new Response(child.stderr).text();
   const decoder = new TextDecoder();
@@ -244,6 +247,178 @@ sourceOnlyTest('#1171 candidate close retries a stale generation and drains the 
   } finally {
     for (const host of hosts) host.stop();
     await batch.stop();
+  }
+}, 12_000);
+
+const sourceChanges = [
+  ['rig', 'model', '#1171 record rig retires candidates bound to the replaced model and retains finalized comments'],
+  ['rig', 'rig-check', '#1171 record rig retires candidates when a sealed rig input changes with the same model'],
+  ['motion', 'frames', '#1171 record motion retires candidates bound to the replaced frame set and retains finalized comments'],
+] as const;
+
+for (const [kind, change, name] of sourceChanges) {
+  sourceOnlyTest(name, async () => {
+    const f = retirementProject();
+    const { root } = f;
+    const standing = await standingQuestion(root);
+    let batch: Awaited<ReturnType<typeof startBatch>> | undefined;
+    const hosts: JobOwnerHost[] = [];
+    try {
+      const before = standingSnapshot(root, standing);
+      const projectBefore = record(root);
+      const model = 'check/build/skeleton.model.json';
+      const pending = question(root, CANDIDATE_QUESTION);
+      batch = await startBatch(root, join(root, 'open-trace'));
+      hosts.push(...await candidateHosts(root));
+      const comments = [];
+      for (const [i, host] of hosts.entries()) comments.push(await collectComment(host, NOTES[i]!));
+      expect(comments).toHaveLength(2);
+
+      const args = stageRecord(root, kind, change);
+      const stagedTrace = join(root, 'staged-trace');
+      expect(await runCli(root, openArgs(root), 'prepared', stagedTrace)).toEqual({ exit: 0, stdout: batch.stdout, stderr: '' });
+      expect(existsSync(stagedTrace)).toBe(false);
+      expect(record(root)).toEqual(projectBefore);
+
+      if (kind === 'rig') {
+        const staged = treeDigest(join(root, 'outputs/rig.next'));
+        expect(await runCli(root, args)).toEqual({ exit: 1, stdout: '', stderr: expect.stringContaining('INTERVIEW_OPTIONS_STALE') });
+        expect(record(root)).toEqual(projectBefore);
+        expect(treeDigest(join(root, 'outputs/rig.next'))).toEqual(staged);
+        expect(candidateBatchPaths(storage(root))).toHaveLength(1);
+
+        // Exercise the successful writer with the stale context already carried.
+        // The pending option binding and the published candidate proofs stay byte-identical.
+        const carried = structuredClone(projectBefore);
+        obj(obj(carried.current).rig).at = new Date(NOW - 1).toISOString();
+        f.write('project.json', carried);
+        expect(checkProject(root, undefined, { now: NOW }).refusals
+          .filter(finding => finding.code === 'INTERVIEW_OPTIONS_STALE')).toHaveLength(2);
+      }
+      const result = await runCli(root, args);
+      expect(result.exit).toBe(0);
+      expect(result.stderr).toContain('PROJECT_NOT_IN_GIT');
+      expect(result.stderr).not.toContain('JOB_WRITE_BUSY');
+      const projectAfter = record(root);
+      const output = obj(projectAfter.current)[kind]!;
+      expect(output).toEqual(JSON.parse(result.stdout));
+      expect(obj(output).files_sha256).not.toBe(obj(obj(projectBefore.current)[kind]).files_sha256);
+      const beforeModel = currentRigFileBinding(projectBefore, model);
+      const afterModel = currentRigFileBinding(projectAfter, model);
+      if (change === 'model') expect(afterModel?.sha256).not.toBe(beforeModel?.sha256);
+      else expect(afterModel).toEqual(beforeModel);
+      expect(question(root, CANDIDATE_QUESTION)).toEqual(pending);
+      expect(candidateBatchPaths(storage(root))).toEqual([]);
+      for (const host of hosts) await expectListenerClosed(host.origin, host.session.jobId);
+      for (const comment of comments) expectOrdinaryComment(root, comment);
+      expect(objects(projectAfter.comments)).toHaveLength(2);
+      expect(objects(projectAfter.review_acts)).toHaveLength(2);
+      await expectStanding(root, standing, before);
+      if (kind === 'rig') {
+        const reopen = await runCli(root, openArgs(root), 'prepared', join(root, 'stale-reopen-trace'));
+        expect(reopen).toEqual({ exit: 1, stdout: '', stderr: expect.stringContaining('INTERVIEW_OPTIONS_STALE') });
+      } else {
+        const fresh = await startBatch(root, join(root, 'fresh-motion-trace'));
+        try {
+          expect(fresh.stdout).not.toEqual(batch.stdout);
+          const rows = candidateBatchPaths(storage(root)).flatMap(candidateOptionPaths);
+          expect(rows).toHaveLength(2);
+          for (const row of rows) expect(JSON.parse(readFileSync(join(row, CANDIDATE_PROOF_FILE), 'utf8')))
+            .toMatchObject({ motionSha256: obj(output).files_sha256 });
+        } finally { await fresh.stop(); }
+      }
+    } finally {
+      for (const host of hosts) host.stop();
+      await batch?.stop();
+      standing.stop();
+    }
+  }, 16_000);
+}
+
+sourceOnlyTest('#1171 identical rig and motion re-records preserve live candidate links and finalized comments', async () => {
+  const { root } = retirementProject();
+  const batch = await startBatch(root, join(root, 'open-trace'));
+  const hosts: JobOwnerHost[] = [];
+  try {
+    const [path] = candidateBatchPaths(storage(root));
+    expect(traceRows(join(root, 'open-trace')).filter(row => row.event === 'opened')).toHaveLength(2);
+    hosts.push(...await candidateHosts(root));
+    const comment = await collectComment(hosts[0]!, NOTES[0]!);
+    const digest = treeDigest(path!);
+    for (const kind of ['rig', 'motion'] as const) {
+      const before = obj(obj(record(root).current)[kind]);
+      // Live post options also bind the rig record's provenance, so replay it exactly.
+      const by = kind === 'rig' ? String(before.built_by) : 'synthetic-rerecord';
+      const now = kind === 'rig' ? Date.parse(String(before.at)) : NOW;
+      const result = await runCli(root, stageRecord(root, kind, undefined, by), undefined, undefined, now);
+      expect(result.stderr).toContain('PROJECT_NOT_IN_GIT');
+      expect(result.exit).toBe(0);
+      const output = JSON.parse(result.stdout);
+      if (kind === 'rig') expect(output).toEqual(before);
+      else expect(output).toMatchObject({ files_sha256: before.files_sha256, built_by: by });
+      expect(candidateBatchPaths(storage(root))).toEqual([path]);
+      expect(treeDigest(path!)).toEqual(digest);
+      expect(record(root).review_acts).toBeUndefined();
+    }
+    const trace = join(root, 'reuse-trace');
+    expect(await runCli(root, openArgs(root), 'prepared', trace)).toEqual({ exit: 0, stdout: batch.stdout, stderr: '' });
+    expect(existsSync(trace)).toBe(false);
+    expect(await runCli(root, closeArgs(root))).toEqual({ exit: 0, stdout: '', stderr: '' });
+    expectOrdinaryComment(root, comment);
+  } finally {
+    for (const host of hosts) host.stop();
+    await batch.stop();
+  }
+}, 12_000);
+
+sourceOnlyTest('#1171 record motion refuses during candidate compose and retry drains both live batches', async () => {
+  const f = retirementProject(true);
+  const { root } = f;
+  const standing = await standingQuestion(root);
+  let first: Awaited<ReturnType<typeof startBatch>> | undefined;
+  let waiting: Promise<Awaited<ReturnType<typeof startBatch>> | undefined> | undefined;
+  let openError: unknown;
+  const trace = join(root, 'held-trace');
+  const hosts: JobOwnerHost[] = [];
+  try {
+    const before = standingSnapshot(root, standing);
+    first = await startBatch(root, join(root, 'open-trace'));
+    const args = stageRecord(root, 'motion', 'frames');
+    const original = readFileSync(join(root, 'project.json'));
+    const current = treeDigest(join(root, 'outputs/motion'));
+    const staged = treeDigest(join(root, 'outputs/motion.next'));
+    waiting = startBatch(root, trace, 1, openArgs(root, TIMING, String(f.timing.id)), 'hold-compose')
+      .catch(error => { openError = error; return undefined; });
+    const deadline = performance.now() + 4000;
+    while (!existsSync(trace) && !openError && performance.now() < deadline) await Bun.sleep(20);
+    expect(traceRows(trace).map(row => row.event)).toEqual(['compose']);
+
+    expect(await runCli(root, args)).toEqual({ exit: 1, stdout: '', stderr: expect.stringContaining('JOB_WRITE_BUSY') });
+    expect(readFileSync(join(root, 'project.json'))).toEqual(original);
+    expect(treeDigest(join(root, 'outputs/motion'))).toEqual(current);
+    expect(treeDigest(join(root, 'outputs/motion.next'))).toEqual(staged);
+
+    writeFileSync(`${trace}.release`, '');
+    if (!(await waiting)) throw openError;
+    hosts.push(...await candidateHosts(root));
+    expect(hosts).toHaveLength(3);
+    const comments = [];
+    for (const host of hosts) comments.push(await collectComment(host, NOTES[0]!));
+    const result = await runCli(root, args);
+    expect(result.exit).toBe(0);
+    expect(result.stderr).toContain('PROJECT_NOT_IN_GIT');
+    expect(result.stderr).not.toContain('JOB_WRITE_BUSY');
+    expect(candidateBatchPaths(storage(root))).toEqual([]);
+    for (const host of hosts) await expectListenerClosed(host.origin, host.session.jobId);
+    for (const comment of comments) expectOrdinaryComment(root, comment);
+    expect(objects(record(root).review_acts)).toHaveLength(3);
+    await expectStanding(root, standing, before);
+  } finally {
+    for (const host of hosts) host.stop();
+    writeFileSync(`${trace}.release`, '');
+    await (await waiting)?.stop();
+    await first?.stop();
+    standing.stop();
   }
 }, 12_000);
 

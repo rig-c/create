@@ -1,21 +1,23 @@
 import { lstatSync, mkdirSync, readFileSync, realpathSync, rmSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
-import type { ActV3, JobOwnerHost, JobReviewerBinding } from '@rig-c/review/job-host';
+import { waitForJobAct, type ActV3, type JobOwnerHost, type JobReviewerBinding } from '@rig-c/review/job-host';
 import { candidateBatchPath, candidateBatchPaths, candidateStorage, candidateStorageBytes, assertCandidateStorage,
   CANDIDATE_STORAGE_PATH, CANDIDATE_OPTION_RESERVATION_BYTES, CANDIDATE_COMPOSE_DISK_RESERVE_BYTES,
   CANDIDATE_JOB_STATE_RESERVATION_BYTES, candidateOptionPaths, readCandidateBatchIdentity, type CandidateBatchIdentity } from './candidate-storage.ts';
 import { attachCandidateHost, candidateHostBinding, closeCandidateHost, openCandidateHost, awaitCandidateListenerStop } from './candidate-host.ts';
 import { writeCandidatePackage } from './candidate-package.ts';
-import { invalidCandidate, readCandidateProof, type CandidateSelector } from './candidate-proof.ts';
+import { CANDIDATE_PROOF_FILE, invalidCandidate, readCandidateProof, type CandidateProof, type CandidateSelector } from './candidate-proof.ts';
 import { composeCandidate, prepareCandidateScene, resolveCandidateSet } from './candidate.ts';
 import { ingestReviewComment } from './comment-act.ts';
 import { candidateCommentSubject, type CommentOnlyAct } from './comment-record.ts';
 import { currentRigFileBinding, sha256 } from './current.ts';
-import { agentCall, pendingJobActs, readHostActs, type PendingJobAct } from './job-acts.ts';
+import { directionJson, objects } from './direction.ts';
+import { actionablePendingAct, agentCall, ingestedSummary, pendingJobActs, readHostActsAndAsks, type PendingJobAct } from './job-acts.ts';
 import { acquireJobLock, privateJson, tryJobDirectoryLock, writePrivateJson } from './job-outbox.ts';
 import { requireOwnerLanguage } from './owner-language.ts';
 import { formatRefusal, Refusal, refuse } from './refusal.ts';
 import { decodeReviewAct, fetchReviewAct, reviewActFindings, type ReviewActTransport } from './review-act.ts';
+import { sceneBytes } from './scene.ts';
 import { collectItems, isObject, loadCollection } from './check.ts';
 import { isDeepStrictEqual as equal } from 'node:util';
 import type { JsonObject } from './templates.ts';
@@ -102,12 +104,48 @@ function pendingMatches(project: JsonObject, root: string, batch: CandidateBatch
   return isObject(pending) && pending.sha256 === batch.setSha256;
 }
 
+function candidateSourceChanged(root: string, project: JsonObject, proof: CandidateProof): boolean {
+  const model = currentRigFileBinding(project, 'check/build/skeleton.model.json');
+  const current = isObject(project.current) ? project.current : {};
+  const rig = isObject(current.rig) ? current.rig : {};
+  const motion = isObject(current.motion) ? current.motion : undefined;
+  if (proof.rigSha256 !== model?.sha256 || proof.motionSha256 !== motion?.files_sha256) return true;
+  const run = sceneBytes(root, proof.run.path, 'CANDIDATE_RECEIPT_MISMATCH');
+  if (sha256(run) !== proof.run.sha256) invalidCandidate(proof.run.path, proof.selector.optionId);
+  const [character] = objects(directionJson(run, proof.run.path).characters);
+  return objects(character?.files).some(file => {
+    if (typeof file.path !== 'string') return false;
+    const binding = currentRigFileBinding(project, file.path)
+      ?? (file.path.startsWith('rig/') ? currentRigFileBinding(project, file.path.slice('rig/'.length)) : undefined);
+    if (binding) return binding.sha256 !== file.sha256;
+    // A standalone or numbered build can hold these inputs outside the rig inventory.
+    if (file.path === 'parts.json') return false;
+    if (file.path === 'check/check.json' && isObject(rig.adopted) && isObject(rig.report)) {
+      return rig.report.sha256 !== file.sha256;
+    }
+    return true;
+  });
+}
+
+function hasSupersededSource(root: string, path: string, project: JsonObject): boolean {
+  return candidateOptionPaths(path).some(row => {
+    try {
+      // Older batches already seal these sources in the option proof and producer receipt.
+      const proof = privateJson(join(row, CANDIDATE_PROOF_FILE)) as CandidateProof;
+      const link = readLink(row);
+      if (!link || !equal(link.selector, proof.selector)) return false;
+      if (typeof proof.rigSha256 !== 'string' || typeof proof.motionSha256 !== 'string') return false;
+      return candidateSourceChanged(root, project, proof);
+    } catch { return false; }
+  });
+}
+
 async function sweep(root: string, storage: string, now: number, closeQuestion?: string): Promise<void> {
   const project = readProject(root);
   for (const path of candidateBatchPaths(storage)) {
     const batch = readCandidateBatchIdentity(storage, path);
     if (!batch || batch.question === closeQuestion || !pendingMatches(project, root, batch)
-      || !lstatSync(join(path, 'ready.json'), { throwIfNoEntry: false })) {
+      || !lstatSync(join(path, 'ready.json'), { throwIfNoEntry: false }) || hasSupersededSource(root, path, project)) {
       await retireCandidateBatch(root, path, now);
     }
   }
@@ -195,13 +233,11 @@ async function openBatch(root: string, storage: string, request: Request, owned:
       if (fresh.binding.sha256 !== batch.setSha256) {
         refuse('CANDIDATE_OPTION_SET_STALE', `project.json: ${question}/${setId} is no longer the pending post option set. Run rig-create next <dir> and use the candidate open command it shows for the current set.`);
       }
-      const currentModel = currentRigFileBinding(latest, 'check/build/skeleton.model.json');
-      const latestMotion = isObject(latest.current) && isObject(latest.current.motion) ? latest.current.motion : undefined;
       const links: { label: string; url: string }[] = [];
       for (const option of selection.options) {
         const row = join(path, key(option.askId, option.optionId));
         const proof = readCandidateProof(root, row, batch);
-        if (proof.rigSha256 !== currentModel?.sha256 || proof.motionSha256 !== latestMotion?.files_sha256) {
+        if (candidateSourceChanged(root, latest, proof)) {
           invalidCandidate(asRelative(root, row), option.optionId);
         }
         const host = await openCandidateHost(row, reviewer);
@@ -227,23 +263,84 @@ async function openBatch(root: string, storage: string, request: Request, owned:
   }
 }
 
-export async function listCandidateActs(root: string, project: JsonObject): Promise<{ jobId?: string; acts: PendingJobAct[] }> {
-  const found: ActV3[] = [];
-  let jobId: string | undefined;
-  for (const batch of candidateBatchPaths(join(root, CANDIDATE_STORAGE_PATH))) {
-    for (const row of candidateOptionPaths(batch)) {
-      const link = readLink(row);
-      const binding = link ? candidateHostBinding(row) : undefined;
-      if (!binding) continue;
-      const host = await attachCandidateHost(row, binding);
-      if (!host) continue;
-      try {
-        jobId ??= binding.jobId;
-        found.push(...(await readHostActs(host)).filter(act => act.kind === 'comments'));
-      } finally { host.stop(); }
+type CandidateActWait = { timeoutMs: number; signal?: AbortSignal };
+
+async function waitForCandidateAct(cursors: ReadonlyMap<JobOwnerHost, string | null>, deadlineMs: number,
+  detachClosed: (host: JobOwnerHost) => void, signal?: AbortSignal) {
+  const controller = new AbortController();
+  const waitSignal = signal ? AbortSignal.any([signal, controller.signal]) : controller.signal;
+  const waits = new Map([...cursors].map(([host, after]) => [host,
+    waitForJobAct(host, { after, deadlineMs, signal: waitSignal }).then(({ kind }) => {
+      if (kind === 'closed') detachClosed(host);
+      return { host, kind };
+    }),
+  ]));
+  const pending = [...waits.values()];
+  try {
+    while (waits.size) {
+      const { host, kind } = await Promise.race(waits.values());
+      if (kind !== 'closed') return kind;
+      waits.delete(host);
     }
+    return 'closed' as const;
+  } finally {
+    controller.abort();
+    await Promise.allSettled(pending);
   }
-  return { jobId, acts: pendingJobActs(project, found, root) };
+}
+
+export async function listCandidateActs(root: string, project: JsonObject, wait?: CandidateActWait): Promise<{ jobId?: string; acts: PendingJobAct[] }> {
+  const hosts = new Set<JobOwnerHost>();
+  const detach = (host: JobOwnerHost) => { hosts.delete(host); host.stop(); };
+  const read = async (host: JobOwnerHost, snapshot: { found: ActV3[]; cursors: Map<JobOwnerHost, string | null> }) => {
+    const { acts, cursor } = await readHostActsAndAsks(host);
+    if (wait) snapshot.cursors.set(host, cursor);
+    snapshot.found.push(...acts.filter(act => act.kind === 'comments'));
+  };
+  const snapshot = () => ({ found: [] as ActV3[], cursors: new Map<JobOwnerHost, string | null>() });
+  try {
+    let jobId: string | undefined;
+    let listed = snapshot();
+    for (const batch of candidateBatchPaths(join(root, CANDIDATE_STORAGE_PATH))) {
+      for (const row of candidateOptionPaths(batch)) {
+        wait?.signal?.throwIfAborted();
+        const link = readLink(row);
+        const binding = link ? candidateHostBinding(row) : undefined;
+        if (!binding) continue;
+        const host = await attachCandidateHost(row, binding);
+        if (!host) continue;
+        jobId ??= binding.jobId;
+        if (wait) hosts.add(host);
+        try { await read(host, listed); }
+        finally { if (!wait) host.stop(); }
+      }
+    }
+    let acts = pendingJobActs(wait ? readProject(root) : project, listed.found, root);
+    if (!wait || !jobId || acts.some(actionablePendingAct)) return { jobId, acts };
+
+    const deadline = performance.now() + wait.timeoutMs;
+    for (;;) {
+      wait.signal?.throwIfAborted();
+      const remaining = Math.min(wait.timeoutMs, Math.ceil(deadline - performance.now()));
+      if (remaining <= 0) break;
+      const outcome = await waitForCandidateAct(listed.cursors, remaining, detach, wait.signal).catch((error: unknown) => {
+        if (wait.signal?.aborted) throw error;
+        refuse('JOB_ACTS_READ_REFUSED', 'scratch/candidates: live candidate act wait failed; restore the candidate job and retry job acts');
+      });
+      if (outcome === 'timeout') break;
+      if (outcome === 'closed') {
+        refuse('JOB_ACTS_READ_REFUSED', 'scratch/candidates: all candidate jobs closed during the act wait; reopen a candidate before retrying job acts');
+      }
+      listed = snapshot();
+      for (const host of hosts) await read(host, listed);
+      // A writer may have recorded the comment between the wake and this scan.
+      acts = pendingJobActs(readProject(root), listed.found, root);
+      if (acts.some(actionablePendingAct)) return { jobId: hosts.values().next().value?.session.jobId, acts };
+    }
+    return refuse('JOB_NEXT_TIMEOUT', `project.json: no finalized un-ingested act arrived before the deadline; ${ingestedSummary({})}; an ingested act needs no ingest, otherwise retry job acts --wait`, 3);
+  } finally {
+    for (const host of hosts) host.stop();
+  }
 }
 
 async function importComment(root: string, jobId: string, actId: string, now: number, json: boolean) {

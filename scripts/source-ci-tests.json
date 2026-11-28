@@ -274,5 +274,40 @@
     "file": "tests/candidate-retirement.test.ts",
     "name": "#1171 candidate open reuses the same links and a partial publish failure exposes none",
     "reason": "Exercises dedicated candidate jobs with the pinned sibling Review candidate selector."
+  },
+  {
+    "file": "tests/candidate-retirement.test.ts",
+    "name": "#1171 record rig retires candidates bound to the replaced model and retains finalized comments",
+    "reason": "Exercises candidate retirement with the pinned sibling Review candidate selector."
+  },
+  {
+    "file": "tests/candidate-retirement.test.ts",
+    "name": "#1171 record rig retires candidates when a sealed rig input changes with the same model",
+    "reason": "Exercises candidate retirement with the pinned sibling Review candidate selector."
+  },
+  {
+    "file": "tests/candidate-retirement.test.ts",
+    "name": "#1171 record motion retires candidates bound to the replaced frame set and retains finalized comments",
+    "reason": "Exercises candidate retirement with the pinned sibling Review candidate selector."
+  },
+  {
+    "file": "tests/candidate-retirement.test.ts",
+    "name": "#1171 identical rig and motion re-records preserve live candidate links and finalized comments",
+    "reason": "Exercises candidate retirement with the pinned sibling Review candidate selector."
+  },
+  {
+    "file": "tests/candidate-retirement.test.ts",
+    "name": "#1171 record motion refuses during candidate compose and retry drains both live batches",
+    "reason": "Exercises candidate retirement with the pinned sibling Review candidate selector."
+  },
+  {
+    "file": "tests/candidate-wait.test.ts",
+    "name": "#1171 job acts waits for a late finalized comment on a candidate-only job",
+    "reason": "Waits for an attested candidate comment on the pinned sibling Review job host."
+  },
+  {
+    "file": "tests/candidate-wait.test.ts",
+    "name": "#1171 job acts times out on idle candidate-only jobs without leaving a waiter",
+    "reason": "Waits for candidate comments on the pinned sibling Review job host."
   }
 ]

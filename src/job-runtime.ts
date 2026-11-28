@@ -74,13 +74,16 @@ async function run(): Promise<void> {
       process.on('SIGTERM', interrupt);
       try {
         const wait = input.timeoutMs === undefined ? undefined : { timeoutMs: input.timeoutMs, signal: controller.signal };
-        const candidates = existsSync(join(root, CANDIDATE_STORAGE_PATH))
-          ? await listCandidateActs(realpathSync(root), JSON.parse(readFileSync(join(root, 'project.json'), 'utf8')) as JsonObject).catch(error => {
-            if (!readWriterBinding(root)) throw error;
+        const hasCandidateStorage = existsSync(join(root, CANDIDATE_STORAGE_PATH));
+        const candidateWait = hasCandidateStorage && wait && !readWriterBinding(root) ? wait : undefined;
+        const candidates = hasCandidateStorage
+          ? await listCandidateActs(realpathSync(root), JSON.parse(readFileSync(join(root, 'project.json'), 'utf8')) as JsonObject,
+            candidateWait).catch(error => {
+            if (candidateWait || !readWriterBinding(root)) throw error;
             console.error('WARN JOB_ACTS_READ_REFUSED: scratch/candidates: restore the candidate job before reading its comments');
             return undefined;
           }) : undefined;
-        const standing = !candidates?.jobId || readWriterBinding(root)
+        const standing = !candidates?.jobId || (!candidateWait && readWriterBinding(root))
           ? await listCreateJobActs(root, undefined, candidates?.acts.length ? undefined : wait)
           : { jobId: candidates.jobId, acts: [], ingested: [], asked: 0 };
         const result = { ...standing, acts: [...standing.acts, ...(candidates?.acts ?? [])] };

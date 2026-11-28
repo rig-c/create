@@ -7,6 +7,7 @@ import { randomUUID } from 'node:crypto';
 import { closeSync, mkdirSync, openSync, renameSync, rmSync } from 'node:fs';
 import { isAbsolute, join, posix, relative, resolve, sep } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
+import { acquireCandidateRecordWrite, retireSupersededCandidates } from './candidate-command.ts';
 import { existsSync, lstatSync, readFileSync, realpathSync } from './check-reads.ts';
 import { asArray, checkProject, isObject, PROJECT_SCHEMA } from './check.ts';
 import { literalFile } from './choices.ts';
@@ -647,13 +648,23 @@ export function recordCommand(args: string[], now: number): CommandResult {
   const lock = `${file}.record.lock`;
   let descriptor: number;
   try { descriptor = openSync(lock, 'wx'); } catch { return refuse('RECORD_BUSY', `${lock}: another record writer holds the project lock; let it finish and retry`); }
+  const affectsCandidates = kind === 'rig' || kind === 'motion';
   let release = () => {};
+  let releaseCandidates: (() => void) | undefined;
+  let wroteRecord = false;
   try {
-    release = acquireBoundJobWrite(dir, { kind: 'record-only' });
+    if (affectsCandidates) releaseCandidates = acquireCandidateRecordWrite(dir);
+    // An open that creates the first candidate storage still needs this lock to publish.
+    release = acquireBoundJobWrite(dir, { kind: 'record-only' }, affectsCandidates);
+    if (affectsCandidates && !releaseCandidates) releaseCandidates = acquireCandidateRecordWrite(dir);
     const original = readFileSync(file);
     const project = JSON.parse(original.toString('utf8')) as JsonObject;
     if (project.schema !== PROJECT_SCHEMA) refuse('SCHEMA_UNKNOWN', `project.json.schema: record ${kind} reads ${PROJECT_SCHEMA}`);
-    if (adopt) return recordAdoption(dir, file, original, project, kind, now, json);
+    if (adopt) {
+      const result = recordAdoption(dir, file, original, project, kind, now, json);
+      wroteRecord = result.exit === 0;
+      return result;
+    }
     const current = isObject(project.current) ? project.current : {};
     const priorNode = isObject(current[kind]) ? current[kind] : undefined;
     const priorAnswers = kind === 'direction' ? priorNode?.answers_feedback : undefined;
@@ -772,6 +783,7 @@ export function recordCommand(args: string[], now: number): CommandResult {
       verifyLedger?.();
       writeRecord(file, original, candidate, `record-${kind}`, 'RECORD_SOURCE_CHANGED');
       recorded = true;
+      wroteRecord = true;
     } finally {
       if (!recorded) {
         try { if (migration?.changed) migration.restore(); }
@@ -815,5 +827,7 @@ export function recordCommand(args: string[], now: number): CommandResult {
     closeSync(descriptor);
     rmSync(lock, { force: true });
     release();
+    releaseCandidates?.();
+    if (affectsCandidates && wroteRecord) retireSupersededCandidates(dir, now);
   }
 }

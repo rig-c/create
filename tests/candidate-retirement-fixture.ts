@@ -1,12 +1,12 @@
 import { expect, mock } from 'bun:test';
-import { appendFileSync, cpSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { appendFileSync, cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import type { JobCommentOnlyAct, JobOwnerHost } from '@rig-c/review/job-host';
 import * as candidateHost from '../src/candidate-host.ts';
 import * as candidate from '../src/candidate.ts';
 import { collectItems } from '../src/check.ts';
 import { interviewOptionsCommand } from '../src/choice-writers.ts';
-import { treeFiles } from '../src/current.ts';
+import { sha256, treeFiles } from '../src/current.ts';
 import { objects } from '../src/direction.ts';
 import { openCreateJob, openRecordPublication } from '../src/job-host.ts';
 import { SOURCE_CONDITION_FLAG } from '../src/job-writer.ts';
@@ -60,9 +60,40 @@ export async function standingQuestion(root: string): Promise<JobOwnerHost> {
   }
 }
 
-type TestMode = 'prepared' | 'reject-second' | 'close-race';
+type TestMode = 'prepared' | 'reject-second' | 'close-race' | 'hold-compose';
 
-export function startCli(root: string, args: string[], mode?: TestMode, trace?: string) {
+export function stageRecord(root: string, kind: 'rig' | 'motion', change?: 'model' | 'rig-check' | 'frames', by = 'synthetic-rerecord') {
+  const from = `outputs/${kind}.next`;
+  const path = (file: string) => join(root, from, file);
+  cpSync(join(root, 'outputs', kind), join(root, from), { recursive: true });
+  const updateOutputs = (receipt: string, files: Record<string, string>) => {
+    const value = json(path(receipt));
+    for (const row of objects(value.outputs)) {
+      const file = files[String(row.path)];
+      if (file) row.sha256 = sha256(readFileSync(path(file)));
+    }
+    writeFileSync(path(receipt), JSON.stringify(value));
+  };
+  if (change === 'model' || change === 'rig-check') {
+    const model = 'check/build/skeleton.model.json';
+    const report = 'check/check.json';
+    if (change === 'model') {
+      appendFileSync(path(model), '\n');
+      const value = json(path(report));
+      (value.build as JsonObject).model_sha256 = sha256(readFileSync(path(model)));
+      writeFileSync(path(report), JSON.stringify(value));
+      updateOutputs('check/build/run.json', { 'skeleton.model.json': model });
+    } else appendFileSync(path(report), '\n');
+    updateOutputs('check/check-run.json', { 'build/skeleton.model.json': model, 'check.json': report });
+  } else if (change === 'frames') {
+    appendFileSync(path('frames.json'), '\n');
+    updateOutputs('render-run.json', { 'frames.json': 'frames.json' });
+  }
+  return ['record', kind, root, '--from', from, '--by', by, '--json',
+    ...(kind === 'rig' ? ['--config', 'specs/rig/config.json'] : [])];
+}
+
+export function startCli(root: string, args: string[], mode?: TestMode, trace?: string, now = NOW) {
   const env = mode ? {
     ...process.env,
     BUN_OPTIONS: `--preload=${import.meta.path}`,
@@ -70,7 +101,7 @@ export function startCli(root: string, args: string[], mode?: TestMode, trace?: 
     [TRACE_ENV]: trace,
   } : process.env;
   return Bun.spawn([
-    process.execPath, SOURCE_CONDITION_FLAG, join(import.meta.dir, 'cli-at.ts'), new Date(NOW).toISOString(), ...args,
+    process.execPath, SOURCE_CONDITION_FLAG, join(import.meta.dir, 'cli-at.ts'), new Date(now).toISOString(), ...args,
   ], { cwd: root, env, stdin: 'ignore', stdout: 'pipe', stderr: 'pipe', timeout: 10_000 });
 }
 
@@ -160,8 +191,11 @@ function installChildControls(mode: TestMode, tracePath: string) {
   if (mode !== 'close-race') Date.now = () => NOW;
   mock.module('../src/candidate.ts', () => ({
     ...candidate,
-    composeCandidate: (...args: Parameters<typeof preparedCompose>) => {
+    composeCandidate: async (...args: Parameters<typeof preparedCompose>) => {
       trace({ event: 'compose' });
+      if (mode === 'hold-compose') {
+        while (!existsSync(`${tracePath}.release`)) await Bun.sleep(20);
+      }
       return preparedCompose(...args);
     },
   }));

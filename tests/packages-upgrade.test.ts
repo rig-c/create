@@ -30,11 +30,13 @@ function createOverrides(): Record<string, string> {
   return { [CREATE_PACKAGE]: `file:${packedCreate}` };
 }
 afterEach(() => { for (const dir of roots.splice(0)) rmSync(dir, { recursive: true, force: true }); });
+/** The Review release pin, read from Create's own manifest so a pin bump needs no test edit. */
+const releaseReviewPin = (JSON.parse(readFileSync(join(import.meta.dir, '..', 'package.json'), 'utf8')) as { dependencies: Record<string, string> }).dependencies['@rig-c/review']!;
 const pins = {
   '@rig-c/core': PINNED_PACKAGES['@rig-c/core'],
   [CREATE_PACKAGE]: runningCreateVersion(),
   '@rig-c/parts': PINNED_PACKAGES['@rig-c/parts'],
-  '@rig-c/review': '4.24.0',
+  '@rig-c/review': releaseReviewPin,
 };
 const legacyPins = { ...PINNED_PACKAGES, '@rig-c/review': '4.22.0' };
 function fixture(dependencies: Record<string, string>) {

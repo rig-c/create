@@ -227,6 +227,18 @@ A dispatch on a branch is refused. Do not move the cut tag or dispatch on main:
 npm provenance records the run's `GITHUB_SHA`. A failed registry confirmation
 does not undo a publication; inspect npm before attempting recovery.
 
+### A maintenance release on an older major
+
+`release.yml` publishes both names without `--tag`, so npm moves `latest` to
+whatever version it publishes. A later 1.x hotfix (for numbered projects that
+stay on Create 1.27.x) would therefore take `latest` away from 2.x. Before such
+a hotfix is cut, the release workflow needs a dist-tag input (for example
+`--tag v1-maintenance`) for both publish steps, reviewed in its own PR. No
+workflow change is made until a hotfix is needed. If a 1.x version is ever
+published as `latest` by mistake, restore the tag with
+`npm dist-tag add @rig-c/create@<2.x version> latest` and the same for
+`rig-create`.
+
 ## Manual fallback
 
 Use manual publication when trusted publishing is unavailable and tag-based

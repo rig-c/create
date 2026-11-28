@@ -50,7 +50,9 @@ const GUIDE_MAX_BYTES = 10_000;
 
 test('#543 the guide records an owner-accepted retouch through the current record writers', () => {
   const guide = renderAgentGuide();
-  expect(guide).toContain("An owner-accepted retouch enters through parts' `assemble.edited_parts` block and is recorded by `record parts --from <dir> --config <file>` or `record rig --from <dir> --config <file>`");
+  expect(guide).toContain('`assemble.edited_parts`');
+  expect(guide).toContain('`rig-create record parts --from <dir> --config <file>`');
+  expect(guide).toContain('`rig-create record rig --from <dir> --config <file>`');
   expect(guide).not.toContain('`draft-rig`');
   expect(guide).toContain(createDocUrl(RETOUCH_HANDOFF_LINK.path, RETOUCH_HANDOFF_LINK.anchor));
   expect(Buffer.byteLength(guide)).toBeLessThan(GUIDE_MAX_BYTES);
@@ -77,22 +79,25 @@ test('#691 the editor rung documents the four retouch hand-off points and the gu
   }
 });
 
-test('#674 the guide routes a bounced accepted post through a human amendment', () => {
+test('#674 the guide routes current direction corrections through the dependency rebuild', () => {
   const guide = renderAgentGuide();
-  expect(guide).toContain("After an accepted post is bounced, record the owner's correction with `amend direction-review`.");
+  expect(guide).toContain("follow next to rebuild\n");
+  expect(guide).not.toContain("amend direction-review");
   const readme = readFileSync(join(REPO, 'README.md'), 'utf8');
   expect(readme).toContain('with `amend direction-review`');
   for (const text of [guide, readme]) expect(text).not.toContain('reopen direction-review --from-review');
   expect(Buffer.byteLength(guide)).toBeLessThan(GUIDE_MAX_BYTES);
 });
 
-test('#467 the direction guide names current motion, scene, direction and relayed sign-off', () => {
+test('#467 the direction guide names current motion, scene, direction and the chat relay', () => {
   const guide = renderAgentGuide();
-  expect(guide).toContain('`record motion --from <dir>`');
-  expect(guide).toContain('`scene write --compose-scene <file>`');
-  expect(guide).toContain('`direction write --file <json>`');
-  expect(guide).toContain('`record direction --from <dir> --direction specs/direction/direction.json`');
-  expect(guide).toContain('Relay `signoff direction-review` via `--owner-chat`, then `advance accepted`.');
+  expect(guide).toContain('`rig-create record motion --from <dir>`');
+  expect(guide).toContain('`rig-create scene write --compose-scene <file>`');
+  expect(guide).toContain('`rig-create direction write --file <json>`');
+  expect(guide).toContain('`rig-create record direction --from <dir> --direction specs/direction/direction.json`');
+  expect(guide).toContain('`rig-create advance accepted`');
+  expect(guide).toContain('Ask camera/depth, timing and');
+  expect(guide).toContain('composition in chat');
   expect(guide).not.toContain('review <post> --from-review');
 });
 
@@ -180,12 +185,12 @@ describe('init --no-install writes the agent guide', () => {
 const DEFERRED_RULES = [
   "- **Projection.** Ask and record it per [CHECKS.md § Projection and ground](https://github.com/rig-c/create/blob/main/docs/CHECKS.md#projection-and-ground).",
   "- **Camera options.** Post decides fixed framing or camera-box moves. Timed\n  head-turn dials, plate parallax and take-wide gaze remain unavailable in direction.",
-  "- **Upscale first** a painting smaller than the rig needs (SOURCE.md, step 2 below).",
+  "- **Upscale first** a painting smaller than the rig needs (SOURCE.md, “Upscale first”).",
   "- **The crux is a bar.** Before rigging, name every risk band, count background\n  or doubled pixels over every frame and both physics/breath extremes, and\n  report the maximum and its frame. Cover every band crossing another bone.",
   "- **Appearance needs a person**, not a step bar: [CHECKS.md § Appearance bar wording](https://github.com/rig-c/create/blob/main/docs/CHECKS.md#appearance-bar-wording).",
   "- **Nothing unnamed.** Add no unnamed motion, chain or physics. Read references\n  for what they show; ask about anything more.",
-  "- **Re-run first, cut last**, never a polygon in code or config: the ladder in\n  SOURCE.md, step 2 below.",
-  "- **A full-screen scene is a CG build.** For `rig_type` `fullscreen.*`, each\n  rig version declares the gates in [CHECKS.md § CG gates](https://github.com/rig-c/create/blob/main/docs/CHECKS.md#cg-gates). Refusals are the art's to fix.",
+  "- **Re-run first, cut last**, never a polygon in code or config: the rerun ladder in\n  SOURCE.md.",
+  "- **A full-screen scene is a CG build.** For `rig_type` `fullscreen.*`, each\n  checked rig declares the gates in [CHECKS.md § CG gates](https://github.com/rig-c/create/blob/main/docs/CHECKS.md#cg-gates). Refusals are the art's to fix.",
   "- **The bust is meshed** unless the `meshes` guide excludes it with a reason\n  ([CHECKS.md § The bust at meshes](https://github.com/rig-c/create/blob/main/docs/CHECKS.md#the-bust-at-meshes)).",
   "- **Overlaps.** A piece over a part with its own animation (glasses over\n  eyelids) holds none of that part's pixels, or the animation shows its copy.",
   "- **Pairs.** Measure left/right symmetry against the painting before calling a\n  pair uneven ([CRAFT.md G8](https://github.com/rig-c/create/blob/main/docs/CRAFT.md#for-the-gates-not-the-interview)).",
@@ -211,8 +216,9 @@ describe('the shipped stage reference', () => {
 
   test('keeps first-read authority and stage routing in the guide', () => {
     const guide = renderAgentGuide();
-    for (const required of ['Comments go through Review', '--owner-chat --said-at --relayed-by', 'rig-create next', 'Only human `signoffs[]`',
-      '**Prior words.**', '**Bars before sign-off.**', "## The user's four steps", 'job withdraw-act <actId>']) expect(guide).toContain(required);
+    for (const required of ['`rig-create next`', 'Feedback and approval never gate writes',
+      '`rig-create interview --check`', '`rig-create comment --from-review <actId>`',
+      '**Prior words.**', '**Readings.**', "## The user's four steps"]) expect(guide).toContain(required);
     expect(reference).toContain(READ_FIRST);
     for (const link of [APPEARANCE_LINK, BUST_LINK, CG_GATES_LINK, GATES_LINK, PROJECTION_LINK]) {
       expect(markdownLinks(reference)).toContain(createDocUrl(link.path, link.anchor));
@@ -230,7 +236,7 @@ describe('the ordered entry point', () => {
   });
 
   test('names the four steps in order', () => {
-    const steps = ['Before the interview', 'Before `seethrough` and `assemble`', 'Before rigging', 'Before showing the user'];
+    const steps = ['Before the interview', 'Before splitting and assembling', 'Before rigging', 'Before showing the user'];
     const at = steps.map((step) => READ_FIRST.indexOf(`**${step}**`));
     for (const i of at) expect(i).toBeGreaterThanOrEqual(0);
     expect([...at].sort((a, b) => a - b)).toEqual(at);
@@ -301,23 +307,23 @@ test.skipIf(process.env.RIG_CREATE_NETWORK !== '1')(
 );
 
 
-test('parts approval instructions use current parts recording, structure-snapshot and relayed sign-off', () => {
+test('parts instructions keep the check report and make owner signoff optional', () => {
   const guide = renderAgentGuide();
-  expect(guide).toContain('`record parts --from <dir> --config <c>`');
-  expect(guide).toContain('`structure-snapshot`');
-  expect(guide).toContain('`signoff parts-review` via `--owner-chat`');
+  expect(guide).toContain('`rig-create record parts --from <dir> --config <file>`');
+  expect(guide).toContain('`rig-create structure-snapshot`');
+  expect(guide).toContain('`rig-create advance parts-review --parts-check <report> --parts <assembled-dir>`');
+  expect(guide).toContain('optional signoff in chat');
   expect(guide).not.toContain('parts-review --from-review');
   expect(guide).not.toContain('structure-snapshot --draft <id>');
 });
 
-test('rendered guide names both explicit painting declarations and their persistence', () => {
+test('rendered guide names both painting declarations and the current Review route', () => {
   const guide = renderAgentGuide();
-  expect(guide).toContain('init --painting <file> --origin <words>');
+  expect(guide).toContain('init <dir> --painting <file> --origin <words>');
   expect(guide).toContain('input add <path> --painting --origin <words>');
   expect(guide).toContain('project.json.painting');
-  expect(guide).toContain('survives restart');
-  expect(guide).toContain("`job acts [--json]` lists each pending act's comments and `words`, even when ingest is unavailable.");
-  expect(guide).toContain('["rig-review-comment/1", mode, "reference", referenceId, referenceHash, x, y, w, h]');
+  expect(guide).toContain('job open --reviewer <id> --role owner --current <parts|rig|direction>');
+  expect(guide).toContain('job acts --json');
   expect(Buffer.byteLength(guide)).toBeLessThan(GUIDE_MAX_BYTES);
 });
 

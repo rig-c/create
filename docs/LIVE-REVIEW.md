@@ -2,100 +2,50 @@
 
 ## The live Review loop
 
-1. Start `rig-create job open <project> --reviewer <id> --role owner` as a
-   background job. Add the selector for the first ask if it is ready. Keep the
-   first process running. The reviewer identity is Review's trusted bootstrap
-   identity.
-2. Give the owner the printed private URL once. Keep it private. A successful
-   open against the running host prints the same URL, including the same
-   persisted UI capability in its fragment.
-3. Publish each new draft, rig, post, set of stage questions or plan with the matching
-   `job open` selector or a bound writer. Repeat the project, reviewer and role
-   on each open. A reused open publishes and exits while the original host
-   keeps serving. Have the owner leave the page open for live updates.
-4. After publishing a view, run `rig-create job acts --wait` in the background to collect owner comments.
-5. Ingest comment acts (`act@10`) with `comment --from-review <actId>`. Draft,
-   numbered rig, post, option-set and plan publications carry `subjects: []` for
-   viewing and comments; interview answers and stage sign-offs are relayed from
-   chat with `--owner-chat`. Run `advance` as each stage completes, then publish
-   the next target into the same host.
-6. Use `job close` at the end, for an explicit act discard, or to retire the
-   host across a [pin or hook bump](JOB-RETIREMENT.md). If the process stops
-   while the job is active, run `job open` again in the background using the
-   same project, reviewer and role. It restores the same port and URL, then
-   run `job reconcile` before more writes. Share a new URL only after a close.
+Use Review to inspect the current parts, rig or direction and leave comments.
+Tell the owner the step plan and ask the three post-interview choices in
+chat. Relay their exact words through Create when recording an answer or
+an optional signoff. Work proceeds through the checks and writers.
 
-A draft and a question share the same host and URL. If a legacy host
-reports `JOB_HOST_REUSE_MISMATCH` with
-`publicationMode expected=record-and-package found=package-only`, finish and
-ingest its pending acts and run `job close` once. Reopen in the background
-with `--questions`, `--question <id>` or `--plan` and share the new job's URL.
+1. Start a host with the recorded result you want to show. Use the owner's
+   declared language and the Review bootstrap identity. Leave the first
+   process running and share its private URL once.
+2. Open with the desired current selector again to show the next recorded
+   result. A reused open publishes and exits while the first host stays up
+   and the page updates in place.
+3. List or wait for finalized comment acts. Ingest each comment-only
+   `act@10` through `comment --from-review <actId>`. It retains the
+   comment and the files seen by content hash. If you address it, use
+   `comment --close` to record the changed files and their hashes.
+4. If the host stops, restart it with the same project, reviewer and role,
+   then reconcile before further bound writes. Close when finished. See
+   [Job retirement](JOB-RETIREMENT.md) for recovery across pin changes.
 
 ## Job commands
 
 ```sh
-rig-create job open [<dir>] --reviewer <id> --role owner|delegate [--draft <id> | --rig <n> | --questions | --question <question>... | --plan]
-rig-create job acts [<dir>] [--json]
+rig-create job open [<dir>] --reviewer <id> --role owner|delegate --current <parts|rig|direction>
+rig-create job acts [<dir>] [--json] [--wait [--timeout-ms <ms>]]
+rig-create comment --from-review <actId> [<dir>]
+rig-create comment --close <index> [<dir>] --act-sha256 <hash> --after <path>=<hash>
 rig-create job reconcile [<dir>]
+rig-create job withdraw-act <actId> [<dir>] --by <owner> --owner-chat <file> --said-at <ISO> --relayed-by <operator>
 rig-create job close [<dir>] [--retire-refused]
 rig-create job close [<dir>] --discard-acts <reason> --by agent
 rig-create job close [<dir>] --discard-acts --by <owner> --owner-chat <file> --said-at <ISO> --relayed-by <operator>
 ```
 
-`--rig <n>` selects an already registered rig or post and its retained review package,
-including on a new job with an empty publication head. It accepts `1` or `v1`.
-The version, complete retained package inventory and compiled model are checked
-before starting the host or installing its binding, including pre-interview rigs.
-Invalid selections refuse with `JOB_PUBLICATION_INVALID`; missing or changed
-package files use the existing package-check refusal codes. Choose one of `--draft` and `--rig`; combining them
-refuses with `JOB_BINDING_INVALID`. For a post, it retains the recorded parent rig and asks only
-`review-verdict direction-review`. The legacy direction panel cannot render a post
-publication with pending sign-off or checkpoint asks. Reopening an older post head
-that declares those subjects replaces it with a verdict-only publication.
-Reopening the same result over unchanged record
-bytes reuses its publication and asks each declared subject once.
+The current selector publishes `review-live.json` with `subjects: []`.
+A missing or invalid recorded output refuses before publishing. Waiting
+for a new act can return `JOB_NEXT_TIMEOUT` (exit 3). The JSON listing
+still shows the words and comments of historical acts whose ingestion
+writers have retired. See the [act codes](CHECKS.md#finalized-review-acts).
 
-Inspect a recorded post on the Review page with `job open --rig <post>` (view-only, 0 asks).
-Stage sign-off at `direction-review` on `current.direction` is recorded from
-owner chat with `signoff direction-review --owner-chat ...`, followed by
-`advance accepted`. Already recorded historical `signoff` acts from
-[Review 4.21.0](https://github.com/rig-c/review/tree/v4.21.0)
-([Review #795](https://github.com/rig-c/review/pull/795)) continue to validate in `check`.
-
-The act has no version selector. Its record hash binds the exact displayed
-`project.json` bytes. Before the first write, create checks those bytes and
-selects the current/latest live post and its accepted live direction verdict.
-Earlier accepted post versions do not make the current target ambiguous.
-Missing, duplicate or unaccepted current targets refuse
-`REVIEW_ACT_RECORD_TARGET_INVALID`. Create's compact receipt retains
-`record_sha256`, equal to the act's record hash, plus the resolved
-`target_version` and `verdict` reference. Ledger validation and replay compare
-that target with the recorded signoff and verify the act's hash binding even
-after later records or reopens. The full record is not copied into its receipt;
-Review's wire shape is unchanged. Immutable-byte replay precedes current-record
-checks; a changed act or compact receipt refuses without writing.
-
-The default in `parts` and `parts-review` publishes the latest recorded draft.
-`--draft` names a recorded draft in any stage. Opening asks every subject that publication declares (see
-[Asks](#asks)). It prints `job: draft <id> published (publication <publication-id>)`,
-or `job: draft <id> already published (publication <publication-id>)` when it
-reuses the draft publication over the current record. Rig, post, plan and
-option-set successes use the same suffix with their own labels.
-Then `job: asked …` and `job: already asked …` name each subject. A `--draft` id
-the record does not hold refuses `JOB_DRAFT_UNKNOWN` before writing `review_job`. A refused publish or ask
-is printed while the background host keeps serving. The
-versioned `review_job` stores only `jobId` and `origin`. The host installs its
-fetch grant in the owner-only sibling `.rig-create-review-binding.json` and
-ensures it and the durable `.rig-create-review/` outbox are ignored before
-writing either. New projects declare both root patterns in init's `.gitignore`.
-Existing Git projects receive only missing patterns in `.git/info/exclude`,
-preserving their tracked `.gitignore` bytes. A folder without Git receives a
-minimal `.gitignore` append. Effective ignores are checked before writing.
-A tracked private path refuses startup. Agents invoke writers and never construct this file.
-Explicit close revokes the grant and removes the matching binding (see
-[Job retirement](JOB-RETIREMENT.md)). Listener shutdown alone preserves the
-active job. A listener restart updates the private binding's listener
-incarnation while retaining the active job's capabilities.
+The versioned `review_job` stores the job ID and origin. The host installs
+its fetch grant in the private `.rig-create-review-binding.json` and checks
+effective ignores for that file and the durable `.rig-create-review/`
+outbox. Keep these private and let Create write them. Closing revokes the
+grant. Listener shutdown alone preserves the active job.
 
 Re-opening with an existing binding keeps its job. A running host is reused.
 A stopped host restarts on the same job, state directory and port, and the
@@ -115,7 +65,20 @@ state stays outside the project under the system temporary directory, as its
 host contract requires. Losing that host state leaves the durable publication
 HOLE visible.
 
+## Compatibility selectors
+
+For already recorded work, `job open --draft <id>` shows a retained draft;
+`job open --rig <n>` selects a retained numbered rig or post (`1` or `v1`).
+`job open --questions`, `--question <id>` and `--plan` show retained
+question sets or plan material. These selectors are view-only. Choose one
+selector per open. The readers validate the retained identities and files.
+A legacy package-only host must be closed before opening a job that needs
+record publications. Review comments can also be displayed or kept with
+historical evidence. The current workflow uses the current selector above.
+
 ## Phase 1 results
+
+This section describes the historical numbered publication formats and the retained reader. Use the current selector for new work.
 
 Numbered package writers are retired (`NUMBERED_WRITER_REMOVED`, exit 2), and
 current builds publish through `record parts|rig|direction` and
@@ -155,79 +118,30 @@ Review re-enumerates and validates the supplied identity under API@2/act@2.
 
 ## Commit and recovery
 
-`job open --draft <id>` opens an existing recorded draft view-only
-(`subjects: []`); for new work, record `current.parts` with
-`record parts --from <dir> --config <file>` and publish with
-`job open --current parts`.
+Open the current selector to publish a recorded output. Entering
+`rig-review` or `direction-review` on a bound current project checks the
+target output and leaves the existing page open. Open the desired selector
+again when ready to show the result.
 
-A bound writer or `job open` that reports
-`JOB_ASK_PENDING` needs the owner to finish the current asks. Run
-`job acts --wait`, ingest with the printed commands, then retry the command
-to publish into the existing job.
+The outbox retains committed publication work until Review acknowledges
+it. Pending entries keep their identity and generation across retries,
+including acknowledgment loss. A write that already committed can report
+`WARN JOB_PUBLISH_PENDING` and leave the committed result in place.
+A refused record write preserves the previous record bytes.
+`interview --check` reports unresolved publication holes.
 
-A bound version writer refuses with `JOB_PUBLICATION_ASK_REQUIRED` before
-committing if its candidate would replace an open page without an owner ask.
-When a writer updates an open page, its text output names the new publication
-ID and the asks Review accepted.
+Restore the host and named source files, then run `job reconcile`. It
+checks the retained publication bindings and clears acknowledged entries
+without rewriting the project record. Pending publications can block
+other bound work and ordinary close. For a recorded failed publication,
+`job close --retire-refused` archives the failed receipt. When unfailed
+work remains the job stays open for reconciliation. See
+[Job retirement](JOB-RETIREMENT.md) for the close and discard rules.
 
-Participating bound writers hold a shared write lock as well as their existing
-writer lock until publication acknowledgment. Before replacing the project,
-the writer fsyncs a private outbox intent containing the published `versions[]`
-entry hash and result selector. The hash uses that entry's two-space JSON
-serialization with a final newline. After commit, the matching entry is pending until Review
-acknowledges it. The pending identity and generation
-remain stable across retries, including acknowledgment loss. A publish failure
-leaves the committed result, and the writer exits 0 with a
-`WARN JOB_PUBLISH_PENDING:` line on stderr beside its normal output: a
-non-zero exit stays reserved for refusals, which leave the record byte-identical.
-`interview --check` includes every pending entry in `holes[]` and exits 1.
-Unbound projects retain their existing report shape and writer behavior.
-
-On a bound job, `advance rig-review` and `advance direction-review` follow the
-same commit-then-durable-outbox order for the current live `rig` or `post`
-version: holding the shared job write lock, the writer validates the post-advance
-candidate and live version before writing, records the outbox intent for the
-post-advance record bytes, atomically replaces `project.json`, and publishes the
-version with its `review-verdict` subject. A fresh rig approval at effective
-rig-review also signs that stage, so no separate stage `signoff` is asked. If publication
-fails after `project.json` is committed, the stage advance stays committed in
-`project.json`, `JOB_PUBLISH_PENDING` remains in the durable outbox and is
-reported in `interview --check` `holes[]`, and `rig-create job reconcile`
-publishes and clears it. If the atomic record write itself fails before
-`project.json` is replaced, the uncommitted advance intent is removed and
-`project.json` stays byte-identical, so there is never a silent half-advance
-where the stage is advanced without either an acknowledged publication or a
-durable pending outbox entry. Advances into any other stage and advances when no
-job is bound do not publish or touch the outbox.
-
-Run `job reconcile` after restoring the host or declared package. It holds the
-same lock, verifies the retained version and files, publishes against the
-current whole-record hash and removes the acknowledged entry. Reconcile and the
-publish step of `job open` take pending entries in record order, not receipt-hash
-order: record publications first, then drafts in `drafts[]` order, then rig and post
-versions by number, so after a host restart the newest committed version ends as the
-page head. A version or draft named with `job open --rig` or `--draft` goes last and
-ends as the head. `job open` prints `job: pending rig v<n> published` (or
-`draft <id>`, `post v<n>`, `plan`, `option-set …`) for every other pending entry it
-published. Later signoffs,
-inputs and other independent writes remain in that current record.
-Reconciliation never rewrites `project.json`. A changed or missing committed
-version refuses with `JOB_PUBLICATION_STALE`. Pending work blocks other
-participating writers and ordinary close. For a recorded publication failure,
-`next` offers `rig-create job close <dir> --retire-refused`. This archives the
-failed receipts. When unfailed work remains, the job and its URL stay bound for
-`job reconcile`. Otherwise, the command closes the job after the usual act
-checks. See [job retirement](JOB-RETIREMENT.md) for the `--discard-acts` rules.
-After process loss, `check` and reconcile
-recover a dead writer's shared lock. An intent with a matching version entry is
-a pending HOLE, including after other writers change the surrounding record.
-An intent whose version is absent is dropped with its ID and version hash
-in the private `discarded-intents.jsonl` log. Active writer intents stay held.
-A different version hash remains a named HOLE and is preserved. A refused
-write cancels its absent-version intent. Each current-record snapshot has its
-own idempotent request key, with a stable key/generation for retries of that
-snapshot. Receipt recovery and
-acknowledgment never edit project bytes.
+Older jobs may have retained numbered or record-only outbox entries.
+Their immutable receipts continue to govern recovery and replay. A
+historical pending ask concerns that job and its state. It is independent
+of progress through the current four steps.
 
 ## Host attachment and delivery
 
@@ -253,7 +167,7 @@ attach never writes the binding.
 When an open Review host advertises progress, Create reports milestones while
 ingesting live acts, preparing drafts, versions and review packages, checking
 or advancing the project, planning its next actions, and preparing a
-publication. The page shows the latest line between asks. Create keeps the
+publication. The page shows the latest line while progress is active. Create keeps the
 sequence in the private job directory across CLI invocations. Review clears
 the display when a publication, ask or close commits. Commands continue with
 their usual output and exit status if the host is absent, lacks the capability
@@ -271,6 +185,8 @@ refuses invalid or stale editable `pending_options` sets with
 `JOB_RECORD_INCOMPLETE` before this reader runs.
 
 ## Finalized verdict ingestion
+
+Historical verdict receipts remain readable and checkable. Current publications ingest comment-only acts. Numbered verdict writers and Review-act signoff and pick ingestion have retired.
 
 `rig-create review` and `rig-create parts-review` are retired (`NUMBERED_WRITER_REMOVED`, exit 2), and
 `signoff --from-review`, `signoff --checkpoint --from-review`, and
@@ -389,6 +305,8 @@ to bind the replacement direction output to the bounce.
 
 ## Live sign-off routes
 
+This section records the retired Review routes and stored receipts. Current signoffs, when given, are optional relays of actual owner chat.
+
 Review 4.22.0 refuses fresh `signoff`, `checkpoint` and `interview-picks`
 asks with `JOB_ASK_INVALID`. New submissions for those kinds refuse with
 `JOB_ACT_KIND_DISABLED`. Eligible `review-verdict` and `parts-verdict` asks
@@ -424,6 +342,8 @@ the act's subject with that list and refuses one the publication did not declare
 all (a clone), leaves only Review's ask binding.
 
 ### Asks
+
+Historical ask protocol. The job ask commands have retired and current publications carry zero ask subjects.
 
 Declare [owner language](PROJECT.md#owner-language) before starting a new
 live publication. Record-backed asks display the authored plan and option
@@ -549,6 +469,8 @@ A Review host without that contract refuses it with `JOB_SOURCE_MISMATCH`.
 
 ## Rig approval in one sitting
 
+Historical numbered workflow.
+
 `rig-create review` is retired (`NUMBERED_WRITER_REMOVED`, exit 2), and fresh
 numbered rig publications declare `subjects: []` (view-only). `check` continues
 to validate historical folded rig approval receipts in `review_acts[]`, where
@@ -557,6 +479,8 @@ to its approved immutable act (`by`, `at`, exact words, and version/verdict/pack
 target). Old verdict-only receipts remain verdict-only.
 
 ## Parts drafts and independent verdicts
+
+Historical numbered drafts and stored verdicts. Use current parts and comment acts for new work.
 
 ```sh
 rig-create job open <project> --draft <id> --reviewer <id> --role owner
@@ -599,6 +523,8 @@ Parts manifest/images, config, config inputs and retained outputs. Changed
 source files refuse `REVIEW_ACT_SOURCE_STALE`.
 
 ## Sealed checkpoint attachments
+
+Historical attachments and validation. The current loop has no checkpoint approval requirement.
 
 The agent attaches a producer's ordered presentation through the writer.
 

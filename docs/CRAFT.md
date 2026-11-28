@@ -199,8 +199,7 @@ read before `seethrough` and `assemble`, with the cutting rules for `assemble`.
 
 ## Post-production
 
-These are asked after the rig is accepted, never at a rig waypoint: depth and
-camera work are direction applied to a finished rig, not part of rigging.
+Use P1–P4 when planning a rigging `turn`. Ask camera framing, timing and composition in chat after the current rig is recorded. P5 retains a craft reading about visible parallax.
 
 ### P1. Depth is judged by eye
 
@@ -208,7 +207,7 @@ camera work are direction applied to a finished rig, not part of rigging.
   reference, not by how closely a depth map matches.
 - **Why**: a depth map can match well and still turn badly, and a rougher one can
   turn convincingly; only the turn on screen is what the viewer sees.
-- **Waypoint**: `camera_depth`
+- **Waypoint**: `turn`
 - **Proposed default**: "Usually we judge the 2.5D turn by eye, side by side with
   the reference. Shall we?"
 
@@ -219,7 +218,7 @@ camera work are direction applied to a finished rig, not part of rigging.
   defects, not for showing depth.
 - **Why**: the eye does not read a mechanical sweep as a solid head turning; it
   reads a look that wanders and settles.
-- **Waypoint**: `camera_depth`
+- **Waypoint**: `turn`
 - **Proposed default**: "Usually the turn is shown as a gaze wandering with
   pauses. Shall we?"
 
@@ -229,7 +228,7 @@ camera work are direction applied to a finished rig, not part of rigging.
   limit of the input, not of the tool.
 - **Why**: turning a tilted head moves its features along the wrong axis, and the
   skull reads as broken.
-- **Waypoint**: `camera_depth`
+- **Waypoint**: `turn`
 - **Proposed default**: "This head is already tilted — usually a head-turn is left
   out for such a painting. Shall we?"
 
@@ -239,7 +238,7 @@ camera work are direction applied to a finished rig, not part of rigging.
   right and ±12° up and down, and is never rotated flat on the screen.
 - **Why**: beyond that range the painted features have nothing behind them, and a
   flat spin reads as the picture rotating, not the head.
-- **Waypoint**: `camera_depth`
+- **Waypoint**: `turn`
 - **Proposed default**: "Usually the face turns within about ±15° left-right and
   ±12° up-down. Shall we?"
 

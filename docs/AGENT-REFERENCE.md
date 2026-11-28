@@ -19,10 +19,10 @@
   the checked rig with `record rig --from <dir> --config <file>`, which binds
   `depth_sheets.json` in `current.rig.files` and the build's config and declared
   run inputs in `current.rig.built_from` by SHA-256.
-  The layer alternative requires sheets already retained in the accepted
+  The layer alternative requires sheets already retained in the recorded
   assembled parts, bound alongside the existing `config.depth` images:
-  `assemble` consumes `config.depth`, so declaring it after acceptance cannot
-  add sheets. Do not reassemble accepted parts here. Existing sheets need no
+  `assemble` consumes `config.depth`, so declaring it after the build cannot
+  add sheets. Rebuild the parts and their dependents if the sheets change. Existing sheets need no
   model manifest.
 - **Camera options.** Post decides fixed framing or camera-box moves. Timed
   head-turn dials, plate parallax and take-wide gaze remain unavailable in direction.
@@ -32,17 +32,17 @@
   after whole periods of the clip; ten were enough on the measured rig. The
   number depends on the rig's damping, so compare the first and last frames
   before choosing it.
-- **Upscale first** a painting smaller than the rig needs (SOURCE.md, step 2 below).
+- **Upscale first** a painting smaller than the rig needs (SOURCE.md, “Upscale first”).
 - **The crux is a bar.** Before rigging, name every risk band, count background
   or doubled pixels over every frame and both physics/breath extremes, and
   report the maximum and its frame. Cover every band crossing another bone.
 - **Appearance needs a person**, not a step bar: [CHECKS.md § Appearance bar wording](https://github.com/rig-c/create/blob/main/docs/CHECKS.md#appearance-bar-wording).
 - **Nothing unnamed.** Add no unnamed motion, chain or physics. Read references
   for what they show; ask about anything more.
-- **Re-run first, cut last**, never a polygon in code or config: the ladder in
-  SOURCE.md, step 2 below.
+- **Re-run first, cut last**, never a polygon in code or config: the rerun ladder in
+  SOURCE.md.
 - **A full-screen scene is a CG build.** For `rig_type` `fullscreen.*`, each
-  rig version declares the gates in [CHECKS.md § CG gates](https://github.com/rig-c/create/blob/main/docs/CHECKS.md#cg-gates). Refusals are the art's to fix.
+  checked rig declares the gates in [CHECKS.md § CG gates](https://github.com/rig-c/create/blob/main/docs/CHECKS.md#cg-gates). Refusals are the art's to fix.
 - **The bust is meshed** unless the `meshes` guide excludes it with a reason
   ([CHECKS.md § The bust at meshes](https://github.com/rig-c/create/blob/main/docs/CHECKS.md#the-bust-at-meshes)).
 - **Overlaps.** A piece over a part with its own animation (glasses over
@@ -58,14 +58,14 @@
 
 1. **Before the interview**: INTERVIEW.md; CRAFT.md (waypoint defaults);
    parts AUTHORING §3, *`config.json`, field by field*;
-   [CHECKS.md](https://github.com/rig-c/create/blob/main/docs/CHECKS.md) before a sign-off.
-2. **Before `seethrough` and `assemble`**: SOURCE.md, split/cut order:
+   [CHECKS.md](https://github.com/rig-c/create/blob/main/docs/CHECKS.md) for the checks at each step.
+2. **Before splitting and assembling**: SOURCE.md, split/cut order:
    [bad-split reruns](https://github.com/rig-c/create/blob/main/docs/SOURCE.md#re-run-first),
    [allowed cuts](https://github.com/rig-c/create/blob/main/docs/SOURCE.md#where-a-cut-is-allowed);
    parts AUTHORING *See-through head-run source reading*, *Source before
    scissors* and *Limbs: cut at their joints*.
 3. **Before rigging**: [CRAFT.md § For the gates](https://github.com/rig-c/create/blob/main/docs/CRAFT.md#for-the-gates-not-the-interview)
-   (G1–G9); core RIGGING and MOTION; parts AUTHORING §7, the bars `check` enforces.
+   (G1–G9); core RIGGING and MOTION; parts AUTHORING §7, the producer checks.
 4. **Before showing the user**: [LESSONS.md § The self-check](https://github.com/rig-c/create/blob/main/docs/LESSONS.md#the-self-check),
    the [per-frame seam count](https://github.com/rig-c/create/blob/main/docs/LESSONS.md#count-the-seam-bar-over-every-frame),
    [what to show first](https://github.com/rig-c/create/blob/main/docs/LESSONS.md#what-to-show-the-user-first).

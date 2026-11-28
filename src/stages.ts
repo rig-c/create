@@ -165,14 +165,14 @@ export function planStepOfGuide(id: string, post = false): PlanStep {
   return interviewStageOfGuide(id, false, true) === 'interview' ? 'parts' : 'rigging';
 }
 
-/** The latest proposal recorded for one step, if any; check validates its shape. */
-export function currentStepPlan(project: JsonObject, step: PlanStep): JsonObject | undefined {
+/** The latest proposal recorded for one step by the given time; check validates its shape. */
+export function currentStepPlan(project: JsonObject, step: PlanStep, at = Infinity): JsonObject | undefined {
   const interview = project.interview;
   if (interview === null || typeof interview !== 'object' || Array.isArray(interview)) return undefined;
   const plans = interview.step_plans;
   if (!Array.isArray(plans)) return undefined;
-  return plans.filter((entry): entry is JsonObject => entry !== null && typeof entry === 'object' && !Array.isArray(entry)
-    && entry.schema === STEP_PLAN_SCHEMA && entry.step === step).at(-1);
+  return plans.findLast((entry): entry is JsonObject => entry !== null && typeof entry === 'object' && !Array.isArray(entry)
+    && entry.schema === STEP_PLAN_SCHEMA && entry.step === step && (at === Infinity || Date.parse(String(entry.at)) <= at));
 }
 
 /** A question whose step has a proposed plan needs no per-question answer. */

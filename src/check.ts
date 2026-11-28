@@ -968,11 +968,13 @@ function checkProjectOnce(projectDirArg: string, candidate: JsonObject | undefin
     return false;
   });
   const signoffs = historySignoffs.filter(s => liveSignoff(reopens, s.stage, s.at));
+  const items = collectItems(project, { collection });
+  const currentPath = isCurrentPathProject(project, items);
   const currentSignoffs = currentTargetSignoffs(signoffs);
   const activeReviewSignoffs = new Set([PARTS_REVIEW, 'rig-review', 'direction-review'].map(review => latestSignoff({ signoffs: currentSignoffs }, review)));
   for (const s of historySignoffs) {
-    // The current tree is mutable. Only the latest live current signature binds it.
-    if (signoffTargetFormat(s.record.target) === 'current' && !activeReviewSignoffs.has(s)) continue;
+    // Mixed records keep the legacy rule that only the active signature binds the current tree.
+    if (!currentPath && signoffTargetFormat(s.record.target) === 'current' && !activeReviewSignoffs.has(s)) continue;
     checkSignoffTarget(dir, project, s.record, `signoffs[${s.index}]`, refusals, warnings);
   }
   const steps = collectSteps(project, refusals);
@@ -981,7 +983,6 @@ function checkProjectOnce(projectDirArg: string, candidate: JsonObject | undefin
   const replaced = collectPlanReplaced(project, refusals);
   checkReplacedSignoffs(project, replaced, refusals);
   const previousSteps = collectSteps({ plan: { steps: replaced.map(entry => entry.step) } }, []);
-  const items = collectItems(project, { collection });
   const planApprovedAt = planApprovedBeforePartsReview(historySignoffs);
   // Superseded signatures grant no authority, but malformed checkpoint history is still reported.
   for (const s of historySignoffs) {
@@ -997,7 +998,7 @@ function checkProjectOnce(projectDirArg: string, candidate: JsonObject | undefin
   const postItems = items.filter(i => i.kind === 'post');
   const noPost = postItems.length > 0 && postItems.every(i => i.state.state === 'not_applicable');
   const amendedFrom = Math.min(...amendments.map(a => stageIndex(a.stage)));
-  const resumeStage = stage !== PAUSED_STAGE && amendments.length > 0 && isCurrentPathProject(project, items)
+  const resumeStage = stage !== PAUSED_STAGE && amendments.length > 0 && currentPath
     ? currentAmendmentResumeStage(project, amendments, steps, hasStageOrder(project), noPost)
     : firstUnsignedStage(signoffs, steps, planApprovedAt !== null, hasStageOrder(project), amendedFrom, noPost);
   const effectiveStage = stage === PAUSED_STAGE ? resumeStage
@@ -1006,7 +1007,7 @@ function checkProjectOnce(projectDirArg: string, candidate: JsonObject | undefin
   const predatesPartsReview = planApprovedAt !== null && stageIndex(effectiveStage) > stageIndex(PARTS_REVIEW) ? planApprovedAt : null;
   const ctx: Ctx = { dir, project, refusals, warnings, items, signoffs, steps, stage, effectiveStage, collection, predatesPartsReview };
 
-  for (const s of signoffs) checkSignoffAnswers(ctx, s.record, `signoffs[${s.index}]`);
+  for (const s of signoffs) checkSignoffAnswers(ctx, s.record, `signoffs[${s.index}]`, currentPath);
 
   let parts: PartsSections | null = null;
   let derived: DerivedSet | null = null;

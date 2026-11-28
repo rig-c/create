@@ -1322,7 +1322,7 @@ needed, then prepare its structure snapshot and relay the owner's approval.
 | Code | Meaning | Remedy |
 | --- | --- | --- |
 | `SIGNOFF_TARGET_MISSING` | A rig-review or direction-review signature dated on or after `SIGNOFF_TARGET_SINCE` has no target, or a new signature would bind an adopted current node | For an adopted node, rebuild and use `rig-create record rig --from outputs/rig --config <rig config>` or `rig-create record direction --from outputs/direction --direction specs/direction/direction.json` before signing. For other current targets, restore or record the stage's current output and sign again. For a stored numbered signature (read-only), restore the recorded target and reviewed inputs |
-| `SIGNOFF_TARGET_STALE` | A current target or required current node is missing, malformed or differs from its recorded hashes or disk. A current parts signature can also predate its output record or carry numbered review fields. For a numbered target, the version, operative human accepted verdict, package inventory, imported outputs or direction binding no longer resolves | Restore the reviewed current record and outputs or record them with `rig-create record rig` or `rig-create record direction`, then sign again. For a stored numbered target (read-only), restore the recorded target and reviewed inputs |
+| `SIGNOFF_TARGET_STALE` | A current target is malformed, or its still-applicable output record or files are missing or differ from the signed hashes. A current parts signature can also carry numbered review fields. For a numbered target, the version, operative human accepted verdict, package inventory, imported outputs or direction binding no longer resolves | Restore the reviewed current record and outputs or record them with `rig-create record rig` or `rig-create record direction`, then sign again. For a stored numbered target (read-only), restore the recorded target and reviewed inputs |
 | `SIGNOFF_TARGET_MISSING_LEGACY` | A pre-contract signature has no target | Preserve history and bind the next review signature |
 | `SIGNOFF_TARGET_STALE_LEGACY` | WARN when a signature dated before `SIGNOFF_TARGET_SINCE` has a target that no longer resolves | Preserve history and use the remedy for the target format in `SIGNOFF_TARGET_STALE` |
 | `SIGNOFF_PAIR_MISMATCH` | A rig-review or direction-review sign-off predates its target verdict without a human accepted pair bound by unique immutable act receipts to the same job, publication and version. Ingest always refuses; check refuses from `SIGNOFF_PAIR_SINCE = 2026-11-13T00:00:00Z`, dated by `signoffs[].at` | Accept the intended version and sign it again in Review, then ingest both acts |
@@ -1337,7 +1337,7 @@ needed, then prepare its structure snapshot and relay the owner's approval.
 | `SIGNOFF_ANSWERS_UNANSWERED` | The writer's covered `rests_on` item is absent, unanswered or unresolved, and no current step plan covers it (a covered item binds that plan's step and sha256) | Answer the named item, or propose its step plan, before signing |
 | `SIGNOFF_ANSWERS_MISSING` | A current-era live approval has no answer hash map or omits an expected item | Sign the named stage again |
 | `SIGNOFF_ANSWERS_MISSING_LEGACY` | A pre-contract live approval lacks a complete answer hash map | Preserve history and bind the next approval |
-| `SIGNOFF_ANSWERS_STALE` | A live approval's bound item is missing, unresolved or its answer revision differs (for a plan-covered item: the current step plan's sha256 differs) | Complete any missing or unresolved answer. After a correction, use `next` to re-sign each affected approval against the current answer |
+| `SIGNOFF_ANSWERS_STALE` | A live approval's hash does not bind the expected answer or plan. On the current path the check can resolve the retained answer and proposal revisions from the time of signing. Numbered records still compare with the current answer or plan | On the current path, restore the signed answer or proposal in history and its original hash. For a numbered record, complete any missing or unresolved answer and relay the owner's approval for the corrected record |
 
 ## Forward stage and step progress
 
@@ -2124,10 +2124,13 @@ by scene@2, so a changed frame PNG under `outputs/motion/` yields
 [Recording current motion and direction](PROJECT.md#recording-current-motion-and-direction)
 for the post-stage workflow.
 
-`record parts`, `record rig` and `record direction` can replace a signed current output while
-introducing one `SIGNOFF_TARGET_STALE` at the matching active signature. Any
-other new refusal still blocks the write. `check` reports the stale signature
-until the owner signs the new output or a reopen makes the signature historical.
+On the current path, a later producer-backed `record parts`, `record rig` or
+`record direction` supersedes the matching optional signature. The signature
+keeps its target digests, owner attribution and signing time. Parts signatures
+still verify the retained structure snapshot and its bound target. For rig and
+direction, the replaced node's digest can be re-derived from the prior record in
+the project's Git history if that record was committed. The active output still
+has its own checks. A mixed record retains the numbered-era stale-signature check.
 
 | Code | Fires when | Remedy |
 | --- | --- | --- |

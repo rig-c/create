@@ -1,6 +1,6 @@
 /** Approval bindings for local and inherited answer revisions. */
 import { createHash } from 'node:crypto';
-import { answered, asArray, collectItems, isObject, itemFor, loadCollection, postNotPassed, type Ctx, type Finding, type Item } from './check.ts';
+import { answered, asArray, classify, collectItems, isObject, itemFor, loadCollection, postNotPassed, type Ctx, type Finding, type Item } from './check.ts';
 import { refuse } from './refusal.ts';
 import { approvalStageOfStep, currentStepPlan, hasStageOrder, planStepOfGuide, STEP_PLAN_SOURCE } from './stages.ts';
 import { sorted } from './step-hash.ts';
@@ -37,8 +37,8 @@ export function answerRevisionHash(item: Item, stage = 'plan-approved'): string 
  * The revision a signature binds: the answer, or for a silent question its current step plan covers,
  * that plan entry (step and sha256; docs/INTERVIEW.md § Step plans). Undefined when neither exists.
  */
-export function boundRevisionHash(project: JsonObject, item: Item, stage = 'plan-approved'): string | undefined {
-  const plan = () => currentStepPlan(project, planStepOfGuide(item.id, item.kind === 'post'));
+export function boundRevisionHash(project: JsonObject, item: Item, stage = 'plan-approved', at?: number): string | undefined {
+  const plan = () => currentStepPlan(project, planStepOfGuide(item.id, item.kind === 'post'), at);
   const planBinding = (current: JsonObject) => ({ step_plan: { step: current.step ?? null, sha256: current.sha256 ?? null } });
   if (answered(item.state)) {
     const answer = answerRevisionHash(item, stage);
@@ -51,6 +51,18 @@ export function boundRevisionHash(project: JsonObject, item: Item, stage = 'plan
   const current = plan();
   if (current === undefined) return undefined;
   return createHash('sha256').update(JSON.stringify(sorted(planBinding(current)))).digest('hex');
+}
+
+/** Reconstruct the same binding using answer and proposal records present at signing. */
+function historicalRevisionHash(ctx: Ctx, item: Item, stage: string, at: number): string | undefined {
+  if (!isObject(item.raw) || !(Date.parse(String(item.raw.at)) > at)) {
+    return boundRevisionHash(ctx.project, item, stage, at);
+  }
+  const raw = asArray(item.record.history).filter(isObject)
+    .findLast(answer => Date.parse(String(answer.at)) <= at);
+  if (raw !== undefined) return boundRevisionHash(ctx.project, { ...item, raw, state: classify(raw, ctx) }, stage, at);
+  const silent = boundRevisionHash(ctx.project, { ...item, raw: null, state: { state: 'silent' } }, stage, at);
+  return silent ?? boundRevisionHash(ctx.project, item, stage, at);
 }
 
 /** Plan completeness follows the signature's own covered steps. */
@@ -80,7 +92,7 @@ export function selectAnswerHashes(dir: string, project: JsonObject, signoff: Js
 }
 
 /** Called only for live signatures, sharing the writer's coverage resolver. */
-export function checkSignoffAnswers(ctx: Ctx, signoff: JsonObject, path: string): void {
+export function checkSignoffAnswers(ctx: Ctx, signoff: JsonObject, path: string, currentPath = false): void {
   if (!stages.includes(String(signoff.stage))) return;
   const ids = requiredIds(ctx.project, signoff, ctx.items);
   const hashes = isObject(signoff.answer_hashes) ? signoff.answer_hashes : null;
@@ -100,9 +112,11 @@ export function checkSignoffAnswers(ctx: Ctx, signoff: JsonObject, path: string)
       || (isObject(s.record.answer_hashes) && Object.hasOwn(s.record.answer_hashes, id)));
     if (superseded) continue;
     const item = itemFor(ctx, id);
-    if (!item || hash !== boundRevisionHash(ctx.project, item, String(signoff.stage))) {
-      const at = `${path}.answer_hashes[${id}]`;
-      ctx.refusals.push({ code: 'SIGNOFF_ANSWERS_STALE', path: at, message: `${at}: ${id} is missing, unresolved or changed since signing; sign ${String(signoff.stage)} again after restoring the intended answer` });
-    }
+    const stage = String(signoff.stage);
+    const expected = item && (currentPath && Number.isFinite(at)
+      ? historicalRevisionHash(ctx, item, stage, at) : boundRevisionHash(ctx.project, item, stage));
+    if (hash === expected) continue;
+    const field = `${path}.answer_hashes[${id}]`;
+    ctx.refusals.push({ code: 'SIGNOFF_ANSWERS_STALE', path: field, message: `${field}: ${id} is missing, unresolved or changed since signing; sign ${stage} again after restoring the intended answer` });
   }
 }

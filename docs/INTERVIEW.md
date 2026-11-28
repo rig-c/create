@@ -90,8 +90,11 @@ are refused: feedback is what a person said.
 A question whose step has a current plan is answered by that plan. The check
 does not refuse it as silent, a `plan.steps` entry may rest on it, and `next`
 does not ask it. A sign-off binds such a question to the plan entry (its step and
-sha256), so proposing changed plan bytes makes that binding stale
-(`SIGNOFF_ANSWERS_STALE`) until the stage is signed again. On a stage the per-question process has not touched, `next`
+sha256). On the current path, the retained entry can still verify a signature
+after a new proposal. If a plan changed since acceptance, `next` offers to
+check its effect on the outputs and record the accepted boundary again.
+Numbered records still check approval against the latest proposal.
+On a stage the per-question process has not touched, `next`
 proposes `plan propose <step>` for each step still open there instead of option
 sets. At `post-interview` on a project using only current outputs, `next` also
 offers option sets for questions with no covering plan. A stage that already

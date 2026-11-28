@@ -12,7 +12,7 @@ import { activeCurrentSignoffTargetPath, asArray, checkProject, isObject, PROJEC
 import { literalFile } from './choices.ts';
 import { readDirectionOutput } from './current-direction.ts';
 import { directionLoopSeamFindings } from './direction-loop-seam.ts';
-import { builtFromNameAllowed, CURRENT_KINDS, currentFileBinding, currentHash, currentRigFileBinding, currentShapeFindings, isRunRecordFile, outputRoot, outputSetHash, rigModelAtlasRelatives, RUN_RECORD_NAME, sha256, treeFiles, verifiedLegacyMotionProvenance, type CurrentKind, type RebuildRunSpec } from './current.ts';
+import { builtFromNameAllowed, CURRENT_KINDS, currentFileBinding, currentHash, currentRigFileBinding, currentShapeFindings, hasNumberedOutputs, isRunRecordFile, outputRoot, outputSetHash, rigModelAtlasRelatives, RUN_RECORD_NAME, sha256, treeFiles, verifiedLegacyMotionProvenance, type CurrentKind, type RebuildRunSpec } from './current.ts';
 import { DirectionError } from './direction.ts';
 import { directionFeedbackRefFinding, parseFeedbackPair, readProject } from './feedback.ts';
 import { recordCurrentPartsLedger } from './fix-ledger.ts';
@@ -724,8 +724,8 @@ export function recordCommand(args: string[], now: number): CommandResult {
       node.answers_feedback = refs;
     }
     const baseline = baselineOf(before);
-    // Replacing a signed current output stales only its active signature; check keeps reporting it.
-    const targetPath = kind === 'motion' ? undefined : activeCurrentSignoffTargetPath(project, kind);
+    // Mixed records retain the numbered-era replacement behavior.
+    const targetPath = kind === 'motion' || !hasNumberedOutputs(project) ? undefined : activeCurrentSignoffTargetPath(project, kind);
     const checkCandidate = (): ReturnType<typeof checkProject> => {
       const report = checkProject(dir, candidate, { now });
       const blocking = newFindings(baseline, report.refusals);

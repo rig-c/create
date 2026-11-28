@@ -940,8 +940,10 @@ so omitted unanswered items lose approval and earlier interview bindings are sup
 Plan-stage signatures supersede earlier bindings per item within the same stage,
 while completeness still follows each signature's own covered steps.
 Only live approvals are checked, using the same reopen and amendment liveness
-as other approvals. A changed or removed bound item refuses
-`SIGNOFF_ANSWERS_STALE`; an absent or incomplete map refuses
+as other approvals. On the current path, the reader checks the answer or plan
+that the recorded history shows at signing. Numbered records read the current
+binding. A missing bound item or a digest that differs from the expected
+revision refuses `SIGNOFF_ANSWERS_STALE`. An absent or incomplete map refuses
 `SIGNOFF_ANSWERS_MISSING` from `SIGNOFF_ANSWERS_SINCE = 2026-11-06T00:00:00Z`,
 and earlier signatures receive one `SIGNOFF_ANSWERS_MISSING_LEGACY` warning.
 These bindings do not preserve stage approvals during amendments: G2 lapse

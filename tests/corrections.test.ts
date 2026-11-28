@@ -382,7 +382,7 @@ test('a post-checkpoint part edit stays uncovered until a later verdict binds th
   expect(holes[0]?.message).toContain('rig-create record parts');
   const next = nextProject(dir, testClock.now());
   expect(next.refusals.map(finding => finding.code)).toContain('PART_EDIT_UNCOVERED');
-  expect(next.moves.some(move => move.command?.includes('draft-rig'))).toBe(true);
+  expect(next.moves.some(move => move.command?.includes('draft-rig'))).toBe(false);
 
   const legacy = load(dir);
   delete (legacy.derived as JsonObject[])[0]!.at;

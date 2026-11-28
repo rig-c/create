@@ -189,14 +189,7 @@ describe('legacy pre-interview output loss', () => {
     expect(stale[0]?.message).toContain('outputs lost: nothing to bind');
   });
 
-  test('a historical output loss on the accepted rig blocks handoff and post work', () => {
-    const withPost = migratedOutputs((p) => {
-      retimeFixture(p, Date.parse(SIGNOFF_TARGET_SINCE));
-      declareAcceptedOutputLoss(p);
-    });
-    rmSync(join(withPost, 'outputs/v2/rig.json'));
-    expect(codes(checkProject(withPost))).toContain('POST_ON_UNACCEPTED_RIG');
-
+  test('a historical output loss on the accepted rig blocks handoff', () => {
     const prePost = migratedOutputs((p) => {
       p.stage = 'rig-review';
       retainSignoffs(p, (s) => stageIndex(String(s.stage)) <= stageIndex('rig-review'));
@@ -214,20 +207,6 @@ describe('legacy pre-interview output loss', () => {
       code: 'PRE_INTERVIEW_OUTPUTS_LOST',
       exitCode: 1,
     }));
-
-    const candidateWithPost = JSON.parse(readFileSync(join(prePost, 'project.json'), 'utf8')) as JsonObject;
-    arr(candidateWithPost.versions).push({
-      n: 3,
-      kind: 'post',
-      rig_version: 2,
-      at: '2026-11-03T09:00:00Z',
-      outputs: [],
-      evidence: [],
-      verdicts: [],
-      answers_feedback: [{ version: 1, verdict: 0 }, { version: 2, verdict: 0 }],
-      provenance: { config: null, sections: {} },
-    });
-    expect(codes(checkProject(prePost, candidateWithPost))).toContain('POST_ON_UNACCEPTED_RIG');
   });
 
   test('check validates legacy and recorded output loss declarations', () => {

@@ -4,17 +4,16 @@ import { ChoiceError, hasPendingOther, isUndecidedDelegation, literalFile, optio
 import { reviewVerdictSignable, rigVerdictIngestible } from './signable.ts';
 import { checkpointEnabled, checkpointRequired, completedPlanStepNeedsAmendment, planStepCompleted } from './plan-history.ts';
 import { createHash } from 'node:crypto';
-import { existsSync, lstatSync, readdirSync, readFileSync, realpathSync } from './check-reads.ts';
-import { isDeepStrictEqual } from 'node:util';
+import { existsSync, lstatSync, readFileSync } from './check-reads.ts';
 import { CURRENT_KINDS, currentRigFileBinding, isCurrentProject, outputRoot, RUN_RECORD_NAME, sha256, verifiedLegacyMotionProvenance, type CurrentKind } from './current.ts';
 import { ADOPTED_COMPOSE_BUILD, adoptedComposeBuildMatches } from './adopted-compose.ts';
 import { motionLoopSeamFindings, readMotionLoopSeamPolicy } from './motion-loop-seam.ts';
 import { COMPOSE_CHECK_PATH, COMPOSE_RUN_PATH, CURRENT_DIRECTION_PATH, currentDirectionSource } from './current-direction.ts';
 import { directionLoopSeamFindings } from './direction-loop-seam.ts';
 import { currentAdvanceOutputFinding, isPublishAdvanceStage } from './job-advance.ts';
-import { eligibleRigDraftModel, optionPublicationStage, publicationFile, riggingDraftPartsChange } from './job-publication.ts';
+import { eligibleRigDraftModel, optionPublicationStage, riggingDraftPartsChange } from './job-publication.ts';
 import { latestRigDraftVerdict } from './rig-draft-verdict.ts';
-import { basename, dirname, isAbsolute, join, posix, relative, resolve, sep } from 'node:path';
+import { basename, dirname, join, posix, relative, resolve, sep } from 'node:path';
 import {
   answered,
   activeCurrentSignoffTargetPath,
@@ -31,7 +30,7 @@ import {
   type Item,
 } from './check.ts';
 import { amendedAnswerId, amendmentLapsedSteps, collectAmendments } from './amend.ts';
-import { correctionApprovalFindings, pendingMeshDeltaRevision } from './corrections.ts';
+import { correctionApprovalFindings } from './corrections.ts';
 import {
   DIFF_MAP_AGENT_SINCE,
   DIFF_MAP_MAX_FLOOR_PX,
@@ -43,7 +42,7 @@ import {
   validateDiffMapRecord,
 } from './diff-map.ts';
 import { partsStructureSnapshot } from './job-acts.ts';
-import { JOB_BINDING_FILE, readWriterBinding, type CurrentPublicationOutput, type WriterBinding } from './job-outbox.ts';
+import { JOB_BINDING_FILE, pendingPublications, readWriterBinding, type CurrentPublicationOutput, type WriterBinding } from './job-outbox.ts';
 import { beginJobProgress } from './job-writer.ts';
 import { isPartsCheckMove, PARTS_CHECK_FILE, partsCheckFindings, partsCheckRecord } from './parts-check.ts';
 import { isPartsReviewReceipt, latestPartsVerdictStatus, latestRiggingDraftFeedback, recordedPartsVerdict } from './parts-verdict-record.ts';
@@ -53,16 +52,15 @@ import { collectionDirOf, inspectCollection } from './pins-check.ts';
 import { carriedRefusals, findingKey, newFindings } from './refusal-baseline.ts';
 import { Refusal, refuse, USAGE_EXIT } from './refusal.ts';
 import { reopenLapseWarnings } from './reopen-lapses.ts';
-import { collectReopens, liveSignoff, type Reopen } from './reopen.ts';
+import { collectReopens, liveSignoff } from './reopen.ts';
 import type { OpenDirectionComment } from './feedback.ts';
 import { resolveAdoptSource } from './record-adopt.ts';
-import { acceptedReviewVerdict, humanReviewVerdicts, latestAccepted, readVersions, type Versions } from './review.ts';
+import { humanReviewVerdicts, readVersions } from './review.ts';
 import { commentChestAct, decodeReviewAct, SIGNOFF_TARGET_KINDS } from './review-act.ts';
 import { selectSignoffTarget } from './signoff-target.ts';
 import { currentPartsStructureBinding } from './signoff.ts';
 import { bustLandmarkCommands, currentUsesBustVersion } from './review-bust.ts';
 import {
-  directionReviewPostState,
   furthestStageSignoff,
   isSignoffIdentity,
   nextStepStatus,
@@ -92,50 +90,16 @@ import {
   type PlanStep,
 } from './stages.ts';
 import type { Json, JsonObject } from './templates.ts';
-import { CURRENT_SCENE_PATH, currentScene, currentSceneRig, plateRegistration, sceneBinding, sceneBytes, sceneRig, SceneError, validateCurrentScene } from './scene.ts';
+import { CURRENT_SCENE_PATH, currentScene, currentSceneRig, plateRegistration, sceneBinding, sceneBytes, SceneError, validateCurrentScene } from './scene.ts';
 import { depthPlanMoves, turnExtraGroupMoves } from './rig-version.ts';
-import { checkVersionDeclarations, type VersionDeclaration } from './version-declarations.ts';
 import { checkRigReport, parseRigCheckReport, RIG_CHECK_REPORT_FILE } from './rig-check-report.ts';
 import { validateRunRecord } from './run-record.ts';
-import { latestPartsApproval, partsApprovalIdentity } from './structure.ts';
-import { postCompositionSetOffersScene, resolveAgentCitationSpec } from './scene-authority.ts';
-import { DIRECTION_COMPOSE_SPEC } from './direction-compose.ts';
+import { postCompositionSetOffersScene } from './scene-authority.ts';
 import { DirectionError, directionJson, directionPath, missingDirectionStepApprovals } from './direction.ts';
 import { type NextComment, withCurrentComments } from './comment-closures.ts';
 import { adoptedRigInventoryMatches, currentOutputMove, withStaleOutputs } from './next-stale.ts';
 
 export const NEXT_SCHEMA = 'rig-create/next@1';
-
-const BASELINES_AFTER_FINAL_ASSEMBLE = 'Finalize the assembly inputs (turn.depths and constraints.physics included), assemble again, and only then take edited-part baselines (from_sha256); a baseline from an earlier assembly refuses ASSEMBLE_EDITED_PART_BASELINE.';
-const RIG_VERSION_INPUTS = '--parts <dir> --rig <dir> --build <dir> --idle <dir> --config <file> --path-adapter <file> --compile-report <file> --check-report <check.json> --toolchain-lock <file> --run-record <run.json> --at-source <file> --at-pointer <pointer> --by <agent>';
-const NO_DRAFT_VERDICT = '--no-draft-verdict';
-
-function rigRegistrationCommand(args: readonly string[]): string {
-  return ['rig-create', 'rig-version', ...args].map(shellWord).join(' ');
-}
-
-function nextRigRegistrationNumber(dir: string, start: number): number | undefined {
-  const destinations = (n: number): [string, string, string] => [
-    `outputs/v${n}`,
-    `evidence/v${n}/registration`,
-    `derived/review/v${n}`,
-  ];
-  const destinationExists = (target: string): boolean => {
-    let current = dir;
-    for (const part of target.split('/')) {
-      current = join(current, part);
-      if (existsSync(current) && (lstatSync(current).isSymbolicLink() || !lstatSync(current).isDirectory())) {
-        throw Error(`invalid destination parent ${target}`);
-      }
-    }
-    return existsSync(join(dir, target));
-  };
-  try {
-    for (let n = start; Number.isSafeInteger(n); n++) {
-      if (destinations(n).every(target => !destinationExists(target))) return n;
-    }
-  } catch { /* An invalid or unreadable destination prevents a safe suggestion. */ }
-}
 
 export const NEXT_HELP = `next [<project dir>] [--json]
   Derive the next moves and whose they are (agent | producer | human) from project.json.
@@ -359,17 +323,6 @@ function completedPlanRepairCommand(step: JsonObject, dir: string): string | nul
   return `rig-create plan replace ${target} ${definition}`;
 }
 
-interface CheckedRigBuild {
-  source: string;
-  check: string;
-  build: string;
-  run: string;
-  finished: number;
-  config?: string;
-  rig?: string;
-  idle?: string;
-}
-
 function producerHashMatches(dir: string, path: string, sha256: Json | undefined, size?: number): boolean {
   if (typeof sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(sha256)) return false;
   try {
@@ -377,123 +330,6 @@ function producerHashMatches(dir: string, path: string, sha256: Json | undefined
     return (size === undefined || bytes.length === size) && createHash('sha256').update(bytes).digest('hex') === sha256;
   }
   catch { return false; }
-}
-
-function checkedRigBuild(dir: string, source: string, approvedAt: number, reopens: readonly Reopen[], now: number): CheckedRigBuild | undefined {
-  const checkDir = `${source}/check`;
-  const check = `${checkDir}/${RIG_CHECK_REPORT_FILE}`;
-  const build = `${checkDir}/build`;
-  const run = `${build}/run.json`;
-  try {
-    const bytes = readFileSync(literalFile(dir, check));
-    const report = parseRigCheckReport(bytes);
-    if (report.PASS !== true) return;
-    const model = createHash('sha256').update(readFileSync(literalFile(dir, `${build}/skeleton.model.json`))).digest('hex');
-    const warnings: Finding[] = [];
-    if (checkRigReport({ at: new Date(now).toISOString(), check_report: { path: check, spec: report.spec ?? null } },
-      check, check, model, () => bytes, warnings).length || warnings.length) return;
-
-    const stamp = validateRunRecord(readFileSync(literalFile(dir, run)), run);
-    if (stamp.spec !== 'rigc-run/1' || !asArray(stamp.record.outputs).some(row =>
-      isObject(row) && row.path === 'skeleton.model.json' && row.sha256 === model)) return;
-    const finished = Date.parse(String(stamp.record.finished_at));
-    if (finished < approvedAt || finished > now || finished < Date.parse(String(stamp.record.started_at))
-      || !liveSignoff(reopens, 'rig-review', finished)) return;
-
-    let config: string | undefined;
-    if (report.config !== undefined) {
-      // Parts records the argument as typed. Resolve only project-local claims with matching bytes.
-      if (!isObject(report.config) || typeof report.config.path !== 'string' || !report.config.path
-        || report.config.path.includes('\\') || report.config.path.split('/').includes('..')) return;
-      const path = relative(dir, resolve(dir, report.config.path)).split(sep).join('/');
-      if (isAbsolute(path) || !producerHashMatches(dir, path, report.config.sha256)) return;
-      config = path.startsWith('-') ? `./${path}` : path;
-    }
-
-    const rigDir = `${source}/rig`;
-    const inputs = asArray(stamp.record.inputs).filter(isObject);
-    const rig = ['rig', 'motion'].every(role => {
-      const path = `${rigDir}/${role}.json`;
-      return inputs.some(input => input.role === role && input.path === relative(build, path).split(sep).join('/')
-        && producerHashMatches(dir, path, input.sha256));
-    }) ? rigDir : undefined;
-
-    const idleDir = `${checkDir}/idle_frames`;
-    let idle: string | undefined;
-    try {
-      const frames: Json = JSON.parse(readFileSync(literalFile(dir, `${idleDir}/frames.json`), 'utf8'));
-      if (isObject(frames) && frames.spec === 'rigc-frames/1' && asArray(frames.sets).some(set =>
-        isObject(set) && set.animation === 'idle' && typeof set.fps === 'number' && set.fps > 0)) idle = idleDir;
-    } catch { /* Keep --idle as an explicit input when the check did not retain the render. */ }
-    return { source, check, build, run, finished, config, rig, idle };
-  } catch { return undefined; /* Unbound producer output is optional evidence for next. */ }
-}
-
-function latestCheckedRigBuild(dir: string, versions: JsonObject[], approvedAt: number, reopens: readonly Reopen[], now: number): CheckedRigBuild | undefined {
-  let entries: string[];
-  try {
-    const outputs = join(dir, 'outputs');
-    if (!lstatSync(outputs).isDirectory()) return;
-    entries = readdirSync(outputs, { withFileTypes: true }).filter(entry => entry.isDirectory()).map(entry => entry.name);
-  } catch { return; }
-  const registered = new Set(versions.map(v => `v${String(v.n)}`));
-  // rig-parts build's numbered output root has check/ directly below it.
-  // Registered copies under out/check and arbitrary project directories are outside discovery.
-  return entries.filter(entry => /^v[1-9][0-9]*$/.test(entry) && Number.isSafeInteger(Number(entry.slice(1))) && !registered.has(entry))
-    .map(entry => checkedRigBuild(dir, `outputs/${entry}`, approvedAt, reopens, now))
-    .filter(build => build !== undefined)
-    .sort((a, b) => b.finished - a.finished || Number(b.source.slice('outputs/v'.length)) - Number(a.source.slice('outputs/v'.length)))[0];
-}
-
-/**
- * The declarations the registration's record check reads from the checked
- * build's config (create#750), so all of them are seen before a rebuild.
- * Sections are cited by --citations, which next does not know; it lists them.
- */
-function registrationDeclarations(dir: string, project: JsonObject, n: number, checked: CheckedRigBuild): string {
-  if (checked.config === undefined) return '';
-  const path = relative(dir, resolve(dir, checked.config)).split(sep).join('/');
-  let bytes: Buffer;
-  try { bytes = readFileSync(literalFile(dir, path)); } catch { return ''; }
-  const version: JsonObject = { n, kind: 'rig', at: new Date(checked.finished).toISOString(),
-    provenance: { config: { path, sha256: createHash('sha256').update(bytes).digest('hex') }, sections: {} } };
-  const { declarations } = checkVersionDeclarations(dir, project, version);
-  const field = (d: VersionDeclaration): string => d.path.replace(/^versions\[v\d+\]\.provenance\.(config |sections\[)/, '').replace(/\]$/, '');
-  const sections = declarations.filter(d => d.path.includes('.provenance.sections['));
-  const fields = declarations.filter(d => !sections.includes(d));
-  const list = (status: VersionDeclaration['status']): string => fields.filter(d => d.status === status)
-    .map(d => `${field(d)}${d.codes.length ? ` (${d.codes.join(', ')})` : ''}`).join(', ') || 'none';
-  return [
-    ` Registration reads these declarations: cite ${sections.map(field).join(', ') || 'no section'} in --citations;`,
-    `${checked.config} with its requirements carries ${list('carried')}; missing ${list('missing')}; unread ${list('unread')}.`,
-    `Before any rebuild, see every remedy in one run: rig-create rig-version ${n} ${shellWord(dir)} --preflight --config ${shellWord(checked.config)} --citations '<sections JSON>'.`,
-  ].join(' ');
-}
-
-function rigRegistrationMove(dir: string, n: number, checked?: CheckedRigBuild, declarations = '', pending?: Finding): NextMove {
-  const bound: Record<string, string | undefined> = checked ? {
-    '--parts': '<checked parts dir>', '--rig': checked.rig ?? '<checked rig dir>', '--idle': checked.idle ?? '<idle render dir>',
-    '--build': checked.build, '--check-report': checked.check, '--run-record': checked.run, '--at-source': checked.run,
-    '--at-pointer': '/finished_at', '--config': checked.config ?? '<config.json>', '--path-adapter': '<path-adapter.json>',
-    '--compile-report': '<build-report.json>', '--toolchain-lock': '<build toolchain lock>',
-  } : {};
-  const args = [...RIG_VERSION_INPUTS.matchAll(/(--[a-z-]+) (<[^>]+>)/g)]
-    .flatMap(([, flag, placeholder]) => [flag!, bound[flag!] ?? placeholder!]);
-  if (pending) args.push(NO_DRAFT_VERDICT);
-  const act = checked
-    ? [
-      `Register the checked build from ${checked.source} as v${n}.`,
-      "Use --parts from rig-parts assemble or rig-parts build and --rig from rig-parts rig or rig-parts build, both from the checked build's inputs.",
-      'Use the --config supplied to Parts (prepared from the interview or rig-parts propose).',
-      "Use --check-report and --build from rig-parts check and --idle from its rigc render.",
-      "Use the rigc build's run.json for --run-record and --at-source, with --at-pointer /finished_at.",
-      `Generate --path-adapter with rig-create rig-version adapter ${shellWord(dir)} --config ${shellWord(checked.config ?? '<config.json>')} --out '<path-adapter.json>'.`,
-      `Supply --compile-report from ${checked.source}/check/build-report.json, the build-report/1 rig-parts check writes beside --build (from Parts 2.47.0; an earlier check needs a rigc build --report of the same build), and --toolchain-lock from the build's bun.lock (bun install) or package-lock.json (npm install).`,
-      'Supply your identity with --by and include --citations for applicable config sections.',
-    ].join(' ') + declarations
-    : `register a new rig version built after the reopen or amendment with rig-version ${n}`;
-  return { role: 'agent', field: 'versions', awaits: `versions[n=${n}]`, command: rigRegistrationCommand([String(n), dir, ...args]),
-    act: pending ? `${pending.code}: ${pending.message}. Register without carrying the draft verdict. ${act}` : act };
 }
 
 function optionCommand(id: string, dir: string): string {
@@ -877,37 +713,6 @@ function postCompositionSceneRepairMoves(
   }];
 }
 
-function sceneWriteCommand(dir: string, project: JsonObject, rigN: string): string {
-  let flags = ` --background '<background.png>'`;
-  const item = collectItems(project, { collection: loadCollection(dir) }).find(item => item.id === 'post_composition');
-  if (item && (item.state.state === 'user' || item.state.state === 'delegated')) {
-    const answer = item.state.answer;
-    const citation = { guide: 'post_composition', asks: ['post_composition'],
-      ...(item.state.state === 'delegated' ? { delegated: true } : { quote: answer.verbatim! }) };
-    try {
-      const spec = resolveAgentCitationSpec(dir, project, citation);
-      const stage = sceneRig(dir, project, Number(rigN)).stage;
-      for (const role of ['background', 'foreground'] as const) {
-        const plate = spec[role];
-        if (!plate) continue;
-        if (role === 'foreground') flags += ` --foreground '<foreground.png>'`;
-        const { x, y, width, height } = plate.rect;
-        if (x !== stage.x || y !== stage.y || width !== stage.width || height !== stage.height) {
-          flags += ` --${role}-rect ${shellWord([x, y, width, height].join(','))}`;
-        }
-      }
-    } catch (error) {
-      if (!(error instanceof SceneError)) throw error;
-      // The scene writer reports the existing named refusal for an unresolved choice.
-    }
-  }
-  return `rig-create scene write ${shellWord(dir)} --rig ${shellWord(rigN)}${flags} --citations-file '<scene-citations.json>'`;
-}
-
-function directionReviewNeedsNumberedPost(dir: string, versions: Versions): boolean {
-  return !versions.posts.some(post => post.live) && readWriterBinding(dir) !== null;
-}
-
 function candidateAdvance(
   dir: string,
   project: JsonObject,
@@ -972,7 +777,7 @@ function candidateAdvance(
       if (!currentReviewOutput(dir, clone, targetStage)
         || checked.warnings.some(w => w.code === 'OUTPUT_STALE' && w.path === path)) return null;
     }
-  } else if (targetStage === 'direction-review' && directionReviewNeedsNumberedPost(dir, readVersions(clone))) return null;
+  }
   return partsCheck
     ? `rig-create advance ${targetStage} ${shellWord(dir)} --parts-check ${shellWord(partsCheck.report)} --parts ${shellWord(partsCheck.root)}`
     : `rig-create advance ${targetStage} ${shellWord(dir)}`;
@@ -1084,7 +889,7 @@ function resolveLaggingAdvance(
     }
     return null;
   }
-  if (stage === 'post' && !isCurrentProject(project) && !directionReviewPostState(dir, project, now).ready) return null;
+  if (stage === 'post' && !isCurrentProject(project)) return null;
   const cmd = candidateAdvance(dir, project, nextStage, now);
   return cmd !== null ? { targetStage: nextStage, command: cmd } : null;
 }
@@ -1635,52 +1440,11 @@ function retouchPathExists(dir: string, path: string): boolean {
   catch (error) { return (error as NodeJS.ErrnoException).code !== 'ENOENT'; }
 }
 
-/** Resume a related prepared config, without treating it as producer provenance or approval. */
-function preparedPartsRetouch(dir: string, draft: JsonObject, id: string): boolean {
-  try {
-    if (!isObject(draft.config) || typeof draft.config.path !== 'string') return false;
-    const root = realpathSync(dir);
-    const source = publicationFile(root, draft.config.path);
-    if (createHash('sha256').update(source).digest('hex') !== draft.config.sha256) return false;
-    const previous: Json = JSON.parse(source.toString('utf8'));
-    const pending: Json = JSON.parse(publicationFile(root, `derived/drafts/${id}/config.json`).toString('utf8'));
-    if (!isObject(previous) || !isObject(previous.assemble) || !isObject(pending) || !isObject(pending.assemble)) return false;
-    // Keep the source configuration fixed; the producer validates the edited_parts declaration.
-    delete previous.assemble.edited_parts;
-    delete pending.assemble.edited_parts;
-    return isDeepStrictEqual(previous, pending);
-  } catch { return false; }
-}
-
-function partsRetouchMoves(dir: string, project: JsonObject, draft: JsonObject): NextMove[] {
-  const ids = new Set(asArray(project.drafts).filter(isObject).map(row => String(row.id)));
-  let id: string;
-  let suffix = 1;
-  do {
-    const tail = `-retouch-${suffix++}`;
-    id = `${String(draft.id).slice(0, 64 - tail.length)}${tail}`;
-  } while (ids.has(id) || retouchPathExists(dir, `derived/drafts/${id}`) && !preparedPartsRetouch(dir, draft, id));
-  const root = `derived/drafts/${id}`;
-  const build = `${root}/build`;
-  const prepared = retouchPathExists(dir, root);
-  const existingBuild = retouchPathExists(dir, build);
-  const evidence = partsEvidencePaths(id, true);
-  const painting = asArray(project.inputs).filter(isObject)[0]?.path;
-  const paintingPath = typeof painting === 'string' ? painting : '<painting.png>';
-  const move = (role: NextRole, field: string, command: string | null, act: string): NextMove => ({ role, field, awaits: `drafts[${id}]`, command, act });
-  const diff = resolveDiffComponentsMove(dir, id, build, paintingPath, evidence.diff);
-  return [
-    move('agent', `drafts[${id}].config`, null, `Draft ${String(draft.id)} requests changes. Retain it and its verdict and evidence; keep parts-review throughout. ${prepared ? `Resume ${root}/config.json without replacing the prepared config or its inputs; it matches the previous config outside assemble.edited_parts. The producer and draft writer still validate its contents. Original config:` : `Prepare ${root}/config.json from`} ${String(isObject(draft.config) ? draft.config.path : '<previous config>')}, preserving source input bindings and declaring assemble.edited_parts with dir and per-file receipts (part, file, from_sha256, sha256, editor) for the retouch against the painting (docs/SOURCE.md#handing-a-retouch-to-an-image-editor). ${BASELINES_AFTER_FINAL_ASSEMBLE} Do not replace the old draft's files.`),
-    ...(existingBuild
-      ? [move('agent', `drafts[${id}].parts`, null, `Preserve the existing ${build} entry; do not rerun build over it. Try the draft-rig registration below to validate retained output. If incomplete or unrelated, inspect it and choose a separate output target rather than overwriting it.`)]
-      : [move('producer', `drafts[${id}].parts`, `rig-parts build --config ${shellWord(resolve(dir, root, 'config.json'))} --source ${shellWord(resolve(dir, paintingPath))} --full '<source layers dir or PSD>' --out ${shellWord(resolve(dir, build))}`, 'build the edited_parts draft from its source layers; preserve any required head/source arguments and stop on producer refusals')]),
-    move('agent', 'drafts', `rig-create draft-rig ${shellWord(id)} ${shellWord(dir)} --config ${shellWord(`${root}/config.json`)} --from ${shellWord(build)}`, `register NEW draft ${id}; inventory only, without asking for a verdict yet`),
-    move('producer', `drafts[${id}].parts`, `rig-parts check-parts --parts ${shellWord(resolve(dir, build))} --out ${shellWord(resolve(dir, evidence.directory))}`, `retain the new draft's parts-check at ${evidence.check}; preserve the original stage-entry advance evidence`),
-    move('agent', `drafts[${id}]`, `rig-create structure-snapshot ${shellWord(dir)} --draft ${shellWord(id)}`, 'retain a NEW structure snapshot of the retouched draft'),
-    move('producer', `drafts[${id}].parts`, diff.command, diff.act),
-    move('agent', 'diff_map', resolveDiffClassesCommand(dir, evidence.diff, evidence.triage), `classify the NEW diff report ${evidence.diff}; rerun next after producing it to omit triage when no components exist`),
-    numberedVerdictUnavailable('review_acts', `review_acts[kind=parts-verdict,draft_id=${id}]`, `Draft ${id} requires a numbered parts-verdict, which is retired.`),
-  ];
+function numberedAuthoringUnavailable(field: string, detail: string): NextMove {
+  return {
+    role: 'agent', field, awaits: field, command: null,
+    act: `NUMBERED_ACT_RETIRED: ${detail} To continue on the current path, follow the adoption or rebuild instructions in docs/PROJECT.md#adopting-existing-numbered-outputs. To complete the numbered flow, use Create ${LAST_NUMBERED_CREATE_RELEASE}.`,
+  };
 }
 
 function numberedVerdictUnavailable(field: string, awaits: string, detail: string): NextMove {
@@ -1694,12 +1458,10 @@ function partsDraftEvidenceMoves(
   dir: string,
   project: JsonObject,
   effectiveStage: string,
-  jobId: string | undefined,
   now: number,
 ): {
   draftId: string | undefined;
   hasApprovedPartsVerdict: boolean;
-  structure: { path: string; valid: boolean } | undefined;
   retouching: boolean;
   moves: NextMove[];
 } {
@@ -1717,9 +1479,8 @@ function partsDraftEvidenceMoves(
     return {
       draftId,
       hasApprovedPartsVerdict,
-      structure,
       retouching: true,
-      moves: project.current === undefined ? partsRetouchMoves(dir, project, latestDraft!) : [{
+      moves: [{
         role: 'agent', field, awaits: field, command: null,
         act: `Draft ${draftId} requests changes. Read the owner's comments in Review and preserve the draft and its evidence while preparing replacement parts.`,
       }],
@@ -1846,7 +1607,6 @@ function partsDraftEvidenceMoves(
   return {
     draftId,
     hasApprovedPartsVerdict,
-    structure,
     retouching: false,
     moves,
   };
@@ -1877,11 +1637,8 @@ export function nextCollection(collectionDirArg: string): NextCollectionReport {
   };
 }
 
-function moveNeedsJobHost(move: NextMove, hasJobBinding: boolean): boolean {
-  const cmd = move.command;
-  if (!cmd) return false;
-  if (cmd.startsWith('rig-create job ') || cmd.includes(' --from-review')) return true;
-  return hasJobBinding && /^rig-create draft-rig\b/.test(cmd);
+function moveNeedsJobHost(move: NextMove): boolean {
+  return move.command?.startsWith('rig-create job ') === true || move.command?.includes(' --from-review') === true;
 }
 
 function ownerLanguageMove(dir: string, report: CheckReport): NextMove | undefined {
@@ -1898,6 +1655,22 @@ function ownerLanguageMove(dir: string, report: CheckReport): NextMove | undefin
     awaits: 'owner.language',
     command: `rig-create owner-language set '<tag>' ${shellWord(dir)}`,
     act: `${status} (${finding.code}): ask the owner through the relayed chat for their language tag (such as ko or en-US), then declare it with owner-language set before opening Review`,
+  };
+}
+
+function publicationRecoveryMove(dir: string, holes: readonly Finding[]): NextMove | undefined {
+  const publication = holes.find(hole => hole.code === 'JOB_PUBLISH_PENDING' || hole.code === 'JOB_PUBLICATION_STALE');
+  if (!publication) return;
+  try {
+    if (!pendingPublications(dir).some(entry => entry.failure)) return;
+  } catch {
+    // Keep the check's findings if the outbox cannot be read again.
+    return;
+  }
+  return {
+    role: 'agent', field: publication.path, awaits: publication.path,
+    command: `rig-create job close ${shellWord(dir)} --retire-refused`,
+    act: 'To abandon the failed publications, archive their receipts. If any unfailed publications remain, reconcile them on the same job.',
   };
 }
 
@@ -2002,8 +1775,7 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
     ? ownerLanguageMove(dir, report)
     : undefined;
   if (languageMove) {
-    const hasJobBinding = readWriterBinding(dir) !== null;
-    const jobIndex = next.moves.findIndex(move => moveNeedsJobHost(move, hasJobBinding));
+    const jobIndex = next.moves.findIndex(moveNeedsJobHost);
     const moves = jobIndex >= 0
       ? [...next.moves.slice(0, jobIndex), languageMove, ...next.moves.slice(jobIndex)]
       : [...next.moves, languageMove];
@@ -2054,10 +1826,14 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
   };
   const finished = combined.accepted && (!currentComments || (openVerdicts.size === 0 && openComments.length === 0));
   const directionComments = report.feedback.flatMap(feedback => feedback.open_direction_comment ?? []);
-  const result = withCurrentComments(dir, project, {
+  let result = withCurrentComments(dir, project, {
     ...combined, accepted: finished,
     ...(directionComments.length ? { open_direction_comments: directionComments } : {}),
   }, shellWord, now, currentComments);
+  const recovery = publicationRecoveryMove(dir, report.holes ?? []);
+  if (recovery) {
+    result = { ...result, moves: [recovery, ...result.moves], awaits: [...new Set([recovery.awaits, ...result.awaits])] };
+  }
   if (result.accepted || result.moves.length || result.awaits.length || result.refusals.length) return result;
   const code = 'NEXT_NO_FORWARD_MOVE';
   const message = `project.json.stage: no move was derived at effective stage ${result.effective_stage}; inspect the checked record and report the missing workflow route`;
@@ -2082,9 +1858,10 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
   collection: ReturnType<typeof loadCollection>, allItems: Item[]): NextReport & { blocksOutputMoves?: true } {
   const stage = String(project.stage ?? '');
   const effectiveStage = String(report.effective_stage ?? stage);
-  const legacyWrites = !currentPath && !isCurrentProject(project);
+  // Older records still supply review history, but current writers require the current path or a current record.
+  const numberedReadOnly = !currentPath && !isCurrentProject(project);
   const warnings = report.warnings.filter(w => w.code === 'STRUCTURE_DELTA_REVIEW' || w.code === 'REVIEW_ANSWER_COMMENT_ROUTED'
-    || w.code === 'OUTPUT_STALE' || (!legacyWrites && ['FEEDBACK_OPEN', 'REOPEN_SIGNOFF_LAPSED', 'REOPEN_VERDICT_LAPSED'].includes(w.code)));
+    || w.code === 'OUTPUT_STALE' || (!numberedReadOnly && ['FEEDBACK_OPEN', 'REOPEN_SIGNOFF_LAPSED', 'REOPEN_VERDICT_LAPSED'].includes(w.code)));
   const splitOrder = hasStageOrder(project);
   const stageItems = allItems.filter(item => interviewStageOfGuide(item.id, item.kind === 'post', splitOrder) === effectiveStage);
   const answers = allItems.flatMap(item => {
@@ -2179,7 +1956,7 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
   }
 
   // A signed current stage is not refused (#981); next still offers the move to the stage after it.
-  const currentStageKind = !legacyWrites && isPublishAdvanceStage(stage) ? currentReviewKind(stage) : undefined;
+  const currentStageKind = !numberedReadOnly && isPublishAdvanceStage(stage) ? currentReviewKind(stage) : undefined;
   const laggingAdvance = !currentPath && stageSignedThrough(project, stage)
     && (!currentStageKind || activeCurrentSignoffTargetPath(project, currentStageKind) !== undefined)
     ? resolveLaggingAdvance(dir, project, stage, now)
@@ -2240,7 +2017,7 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
     for (const [stage, ready] of readyToResign) {
       if (!ready) continue;
       if (hasStaleApprovalStep(stage)) continue;
-      if (!legacyWrites && isPublishAdvanceStage(stage)) {
+      if (!numberedReadOnly && isPublishAdvanceStage(stage)) {
         const path = `current.${currentReviewKind(stage)}`;
         if (report.warnings.some(w => w.code === 'OUTPUT_STALE' && w.path === path)) continue;
       }
@@ -2283,7 +2060,7 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
   const moves: NextMove[] = [...depthMoves, ...registrations];
   moves.forEach(move => addAwait(move.awaits));
   if (effectiveStage === 'parts-review') {
-    const draftState = partsDraftEvidenceMoves(dir, project, effectiveStage, jobId, now);
+    const draftState = partsDraftEvidenceMoves(dir, project, effectiveStage, now);
     if (partsEditHoles.length > 0 || (!draftState.hasApprovedPartsVerdict && draftState.moves.length > 0)) {
       if (draftState.retouching) {
         return {
@@ -2302,7 +2079,7 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
       if (partsEditHoles.length > 0 && (draftState.hasApprovedPartsVerdict || runnableDraftMoves.length === 0)) {
         for (const hole of partsEditHoles) runnableDraftMoves.push({
           role: 'agent', field: hole.path, awaits: hole.path, command: null,
-          act: `${hole.message}. ${legacyWrites ? 'Register a new draft if the current one binds different bytes. ' : ''}If the stage is already signed, record the owner's amendment before continuing with a replacement.`,
+          act: `${hole.message}. If the stage is already signed, record the owner's amendment before continuing with a replacement.`,
         });
       }
       for (const move of runnableDraftMoves) addAwait(move.awaits);
@@ -2320,24 +2097,11 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
     }
   }
   const rigN = parsedVersions.rigs.filter(rig => rig.live).at(-1)?.n ?? null;
-  const nextRigN = Math.max(0, ...versions.map(v => Number(v.n) || 0)) + 1;
-  const approval = legacyWrites && stage !== PAUSED_STAGE && rigN === null && (effectiveStage === 'rigging' || effectiveStage === 'rig-review')
-    ? latestPartsApproval(project, now) : undefined;
-  const approvalIdentity = approval && partsApprovalIdentity(approval);
-  const checked = approvalIdentity ? latestCheckedRigBuild(dir, versions, Date.parse(approvalIdentity.signoff_at), reopens, now) : undefined;
-  const checkedRigN = checked ? nextRigRegistrationNumber(dir, nextRigN) : undefined;
-  const pendingCarryCorrection = effectiveStage === 'rigging' && compiledVerdict?.value.verdict === 'approved'
-    ? correctionApprovalFindings(project, 'rig-review').find(finding => finding.code === 'CORRECTION_PENDING')
-    : undefined;
-  const checkedRegistration = checked && checkedRigN !== undefined
-    ? rigRegistrationMove(dir, checkedRigN, checked, registrationDeclarations(dir, project, checkedRigN, checked), pendingCarryCorrection)
-    : undefined;
-
   if (effectiveStage === 'rigging') {
     const feedback = compiledDraftId === undefined && typeof riggingDraft?.id === 'string'
       ? latestRiggingDraftFeedback(project, riggingDraft.id) : undefined;
     const currentRig = isObject(project.current) ? project.current.rig : undefined;
-    if (compiledVerdict?.value.verdict === 'changes-requested' && (legacyWrites ? rigN === null
+    if (compiledVerdict?.value.verdict === 'changes-requested' && (numberedReadOnly ? rigN === null
       : !isObject(currentRig) || Date.parse(String(currentRig.at)) <= Date.parse(compiledVerdict.at))) {
       const field = `drafts[${compiledVerdict.source.selector.id}]`;
       const source = `review act ${compiledVerdict.jobId}/${compiledVerdict.actId}`;
@@ -2345,12 +2109,8 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
         .findLast(row => row.source === source && isObject(row.outcome) && row.outcome.kind === 'mesh-delta')?.outcome;
       addAwait(field);
       moves.push({ role: 'agent', field, awaits: field,
-        command: legacyWrites ? `rig-create draft-rig '<new-id>' ${shellWord(dir)} --config '<new-config>' --from '<new-output>'` : null,
-        act: `Read the retained comments in ${source} and ${legacyWrites ? 'build a new draft with a new ID' : 'prepare the replacement rig output'}${isObject(revision) ? ` using the retained Parts revision ${String(revision.revision)}` : ''}. Preserve ${field} and its verdict${legacyWrites ? ', then register the new draft' : ''}.` });
-      if (checkedRegistration) {
-        addAwait(checkedRegistration.awaits);
-        moves.push(checkedRegistration);
-      }
+        command: null,
+        act: `Read the retained comments in ${source} and prepare the replacement rig output${isObject(revision) ? ` using the retained Parts revision ${String(revision.revision)}` : ''}. Preserve ${field} and its verdict.` });
       return { schema: NEXT_SCHEMA, project_id: String(project.name ?? ''), stage, effective_stage: effectiveStage,
         accepted: false, refusals, ...warningFields, awaits: awaitsList, moves };
     }
@@ -2362,8 +2122,8 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
         assertPartsActSource(dir, project, feedback.act, { comparePlan: false });
         moves.push({
           role: 'agent', field, awaits: field,
-          command: legacyWrites ? `rig-create draft-rig '<new-id>' ${shellWord(dir)} --config '<new-config>' --from '<new-output>'` : null,
-          act: `Rigging draft ${id} requests changes. Read the owner's exact comments in ${String(feedback.evidence.path)} (sha256 ${String(feedback.evidence.sha256)}), ${legacyWrites ? 'apply them to a new draft output, then register and publish it for review' : 'and apply them to the replacement rig output'}. Preserve the reviewed draft and evidence.`,
+          command: null,
+          act: `Rigging draft ${id} requests changes. Read the owner's exact comments in ${String(feedback.evidence.path)} (sha256 ${String(feedback.evidence.sha256)}), and apply them to the replacement rig output. Preserve the reviewed draft and evidence.`,
         });
       } catch (error) {
         if (!(error instanceof Refusal)) throw error;
@@ -2374,67 +2134,29 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
     }
   }
   // The check owns bounce/withdrawal/answer logic; consume its open findings.
-  const openFeedback = report.warnings.filter(w => w.code === 'FEEDBACK_OPEN');
-  const pendingMesh = legacyWrites && stage !== PAUSED_STAGE && (effectiveStage === 'rigging' || effectiveStage === 'rig-review')
-    ? pendingMeshDeltaRevision(project) : null;
-  if (openFeedback.length > 0 || pendingMesh !== null) {
+  const openPostFeedback = !numberedReadOnly && report.warnings.some(finding => finding.code === 'FEEDBACK_OPEN'
+    && report.feedback.some(summary => summary.verdict === finding.path
+      && versions.find(version => version.n === summary.version)?.kind === 'post'));
+  if (openPostFeedback) {
     const previousMoves = moves.length;
-    const n = nextRigN;
-    const rigInputs = RIG_VERSION_INPUTS.replace('--rig <dir>', '--rig <rig-dir>');
-    const groups = new Map<string, { version: number; verdict: number }[]>();
-    for (const finding of openFeedback) {
-      const summary = report.feedback.find(f => f.verdict === finding.path);
-      if (!summary) continue;
-      const kind = versions.find(v => v.n === summary.version)?.kind;
-      if (kind !== 'rig' && kind !== 'post') continue;
-      groups.set(kind, [...(groups.get(kind) ?? []), { version: summary.version, verdict: summary.index }]);
+    if (effectiveStage === 'direction-review' && optionPublicationStage(project, effectiveStage, now) === 'post-interview') {
+      const pendingPostItems = allItems.filter(item => item.kind === 'post' && pendingInterviewOptions(item));
+      const questions = interviewQuestionMoves(dir, pendingPostItems, effectiveStage);
+      for (const question of questions) addAwait(question.awaits);
+      moves.push(...questions);
     }
-
-    if (pendingMesh !== null) {
-      const field = `versions[n=${n}]`;
-      const args = rigInputs.replace(/<[^>]+>/g, arg => shellWord(arg === '<rig-dir>' ? pendingMesh.revision : arg));
-      const answers = (groups.get('rig') ?? []).map(ref => ` --answers ${ref.version}:${ref.verdict}`).join('');
-      addAwait(field);
-      moves.push({ role: 'agent', field: 'versions', awaits: field,
-        command: `rig-create rig-version ${n} ${shellWord(dir)} ${args}${answers}`,
-        act: `build and check from the recorded mesh revision ${pendingMesh.revision} of rig v${pendingMesh.sourceVersion}, then register it with rig-version ${n} and pass that build's run.json to --run-record` });
-      return { schema: NEXT_SCHEMA, project_id: String(project.name ?? ''), stage, effective_stage: effectiveStage, accepted: false, refusals, ...warningFields, awaits: awaitsList, moves };
-    }
-
-    for (const [kind, refs] of groups) {
-      if (kind === 'post') {
-        if (effectiveStage === 'direction-review' && optionPublicationStage(project, effectiveStage, now) === 'post-interview') {
-          const pendingPostItems = allItems.filter(item => item.kind === 'post' && pendingInterviewOptions(item));
-          const questions = interviewQuestionMoves(dir, pendingPostItems, effectiveStage);
-          if (questions.length > 0) {
-            for (const question of questions) addAwait(question.awaits);
-            moves.push(...questions);
-            continue;
-          }
-        }
-        if (!currentPath) {
-          const missingApprovals = missingDirectionStepApprovals(project, allItems);
-          if (missingApprovals.length > 0) {
-            const target = 'signoffs[stage=post-interview]';
-            const ids = missingApprovals.join(',');
-            addAwait(target);
-            moves.push({ role: 'human', field: 'signoffs', awaits: target,
-              command: `rig-create signoff post-interview ${shellWord(dir)} --steps ${ids} ${OWNER_CHAT_COMMAND_FLAGS}`,
-              act: `Re-approve the post-interview steps ${missingApprovals.join(', ')} before writing the replacement post.` });
-            continue;
-          }
-        }
+    if (moves.length === previousMoves && !currentPath) {
+      const missingApprovals = missingDirectionStepApprovals(project, allItems);
+      if (missingApprovals.length > 0) {
+        const target = 'signoffs[stage=post-interview]';
+        const ids = missingApprovals.join(',');
+        addAwait(target);
+        moves.push({ role: 'human', field: 'signoffs', awaits: target,
+          command: `rig-create signoff post-interview ${shellWord(dir)} --steps ${ids} ${OWNER_CHAT_COMMAND_FLAGS}`,
+          act: `Re-approve the post-interview steps ${missingApprovals.join(', ')} before writing the replacement post.` });
       }
-      if (!legacyWrites) continue;
-      const field = `versions[n=${n}]`;
-      addAwait(field);
-      const writer = kind === 'rig' ? `rig-version ${n}` : `direction write ${n}`;
-      const inputs = kind === 'rig' ? rigInputs.replace('<rig-dir>', '<dir>') : '--file <direction.json> --rig <rig-version>';
-      moves.push({ role: 'agent', field: 'versions', awaits: field,
-        command: `rig-create ${writer} ${shellWord(dir)} ${inputs.replace(/<[^>]+>/g, shellWord)} ${refs.map(r => `--answers ${r.version}:${r.verdict}`).join(' ')}`,
-        act: `build the next ${kind} version with ${writer}, recording answers_feedback ${JSON.stringify(refs)}` });
     }
-    if (moves.length > (legacyWrites ? 0 : previousMoves)) return { schema: NEXT_SCHEMA, project_id: String(project.name ?? ''), stage, effective_stage: effectiveStage, accepted: false, refusals, ...warningFields, awaits: awaitsList, moves: runnableNextMoves(dir, project, effectiveStage, moves) };
+    if (moves.length > previousMoves) return { schema: NEXT_SCHEMA, project_id: String(project.name ?? ''), stage, effective_stage: effectiveStage, accepted: false, refusals, ...warningFields, awaits: awaitsList, moves: runnableNextMoves(dir, project, effectiveStage, moves) };
   }
   const recordedLapseTargets = new Set<string>();
   const stageHasPendingOptions = stageItems.some(pendingInterviewOptions);
@@ -2446,7 +2168,7 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
   const rawReopens = asArray(project.reopens).filter(isObject);
   const signoffs = collectSignoffs(project, []);
   const hasLiveStageSignoff = (targetStage: string): boolean => {
-    if (!legacyWrites && isPublishAdvanceStage(targetStage)) {
+    if (!numberedReadOnly && isPublishAdvanceStage(targetStage)) {
       return activeCurrentSignoffTargetPath(project, currentReviewKind(targetStage)) !== undefined;
     }
     if (currentPath && targetStage === 'parts-review') {
@@ -2528,7 +2250,7 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
       if (hasStaleApprovalStep(lapsedStage, checkpoint)) continue;
       if (checkpoint !== null && withdrawnCheckpoint(checkpoint)) continue;
       if (checkpoint === null && lapsedStage === effectiveStage && stageHasPendingOptions) continue;
-      if (!legacyWrites && checkpoint === null && isPublishAdvanceStage(lapsedStage)) {
+      if (!numberedReadOnly && checkpoint === null && isPublishAdvanceStage(lapsedStage)) {
         addCurrentReviewSignoff(lapsedStage, reopenField, { code: warning.code, source_field: reopenField,
           target_field: warning.path, ...(reopenId ? { reopen_id: reopenId } : {}), message: warning.message });
         continue;
@@ -2555,10 +2277,11 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
           act: `re-approve lapsed checkpoint ${checkpoint} (${warning.path}, lapsed by ${reopenField}${reopenId ? ` ${reopenId}` : ''}: ${warning.code})`,
           lapse,
         });
-      } else if (legacyWrites && (lapsedStage === 'parts-review' || lapsedStage in SIGNOFF_TARGET_KINDS)) {
+      } else if (numberedReadOnly && (lapsedStage === 'parts-review' || lapsedStage in SIGNOFF_TARGET_KINDS)) {
+        const detail = `The ${lapsedStage} signoff at ${warning.path} lapsed after ${reopenField}${reopenId ? ` (${reopenId})` : ''} (${warning.code}).`;
         moves.push({
-          ...numberedVerdictUnavailable(reopenField, awaitTarget, `The ${lapsedStage} signoff at ${warning.path} lapsed after ${reopenField}${reopenId ? ` (${reopenId})` : ''} (${warning.code}).`),
-          lapse,
+          ...numberedVerdictUnavailable(reopenField, awaitTarget, detail),
+          lapse: { ...lapse, message: detail },
         });
       } else {
         moves.push({
@@ -2575,7 +2298,7 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
           lapse,
         });
       }
-    } else if (legacyWrites && warning.code === 'REOPEN_VERDICT_LAPSED') {
+    } else if (numberedReadOnly && warning.code === 'REOPEN_VERDICT_LAPSED') {
       const vMatch = /^versions\[v(\d+)\]\.verdicts\[(\d+)\]$/.exec(warning.path);
       const n = vMatch ? Number(vMatch[1]) : 1;
       if (isHistoryVersion(n)) continue;
@@ -2595,14 +2318,15 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
       const awaitTarget = `versions[n=${n}].verdicts[review=${reviewStage}]`;
       addAwait(awaitTarget);
       recordedLapseTargets.add(awaitTarget);
+      const detail = `The ${reviewStage} verdict at ${warning.path} lapsed after ${reopenField}${reopenId ? ` (${reopenId})` : ''} (${warning.code}).`;
       moves.push({
-        ...numberedVerdictUnavailable(reopenField, awaitTarget, `The ${reviewStage} verdict at ${warning.path} lapsed after ${reopenField}${reopenId ? ` (${reopenId})` : ''} (${warning.code}).`),
+        ...numberedVerdictUnavailable(reopenField, awaitTarget, detail),
         lapse: {
           code: warning.code,
           source_field: reopenField,
           target_field: warning.path,
           ...(reopenId ? { reopen_id: reopenId } : {}),
-          message: warning.message,
+          message: detail,
         },
       });
     }
@@ -2620,7 +2344,7 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
       if (checkpoint !== null ? hasLiveCheckpointSignoff(targetStage, checkpoint) : hasLiveStageSignoff(targetStage)) continue;
       if (checkpoint === null && targetStage === effectiveStage && stageHasPendingOptions) continue;
       const vMatch = /^versions\[(\d+)\]\.verdicts\[\d+\]$/.exec(lapsedApproval.path);
-      if (!legacyWrites && checkpoint === null && isPublishAdvanceStage(targetStage)) {
+      if (!numberedReadOnly && checkpoint === null && isPublishAdvanceStage(targetStage)) {
         if (!vMatch) addCurrentReviewSignoff(targetStage, amendField, { code: 'AMENDED_STEP', source_field: amendField,
           target_field: lapsedApproval.path, ...(targetId ? { amendment_id: targetId } : {}), message: lapsedApproval.reason });
         continue;
@@ -2655,7 +2379,7 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
           act: `re-approve ${lapsedApproval.path} (${targetStage}) lapsed by ${amendField}${targetId ? ` (${targetId})` : ''}`,
           lapse,
         });
-      } else if (legacyWrites && (targetStage === 'parts-review' || targetStage in SIGNOFF_TARGET_KINDS)) {
+      } else if (numberedReadOnly && (targetStage === 'parts-review' || targetStage in SIGNOFF_TARGET_KINDS)) {
         moves.push({
           ...numberedVerdictUnavailable(amendField, awaitTarget, `The ${targetStage} approval at ${lapsedApproval.path} lapsed after ${amendField}${targetId ? ` (${targetId})` : ''}.`),
           lapse,
@@ -2717,8 +2441,6 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
   }
 
   // 3. Stage-specific derivation from project.json.
-  const drafts = asArray(project.drafts).filter(isObject);
-
   if (stage === PAUSED_STAGE) {
     const resumeTarget = pausedFrom(project);
     addAwait('project.stage');
@@ -2863,15 +2585,9 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
     );
     const openPartsSteps = partsSteps.filter(s => s.status !== 'done');
 
-    if (legacyWrites && effectiveStage === 'parts' && asArray(project.drafts).length === 0) {
+    if (numberedReadOnly && effectiveStage === 'parts' && asArray(project.drafts).length === 0) {
       addAwait('drafts');
-      moves.push({
-        role: 'agent',
-        field: 'drafts',
-        awaits: 'drafts',
-        command: null,
-        act: `Run rig-parts assemble, then rig-parts propose --write-config, then rig-parts assemble again with the written config. ${BASELINES_AFTER_FINAL_ASSEMBLE} Register the second output and its config with draft-rig before job open --draft.`,
-      });
+      moves.push(numberedAuthoringUnavailable('drafts', 'Numbered drafts are read-only.'));
     }
 
     if (effectiveStage === 'parts' && openPartsSteps.length > 0) {
@@ -2903,8 +2619,8 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
         }
       }
     } else {
-      const { draftId, hasApprovedPartsVerdict, structure, retouching, moves: draftMoves } =
-        partsDraftEvidenceMoves(dir, project, effectiveStage, jobId, now);
+      const { draftId, hasApprovedPartsVerdict, retouching, moves: draftMoves } =
+        partsDraftEvidenceMoves(dir, project, effectiveStage, now);
       if (retouching) {
         return { schema: NEXT_SCHEMA, project_id: String(project.name ?? ''), stage, effective_stage: effectiveStage,
           accepted: false, refusals, ...warningFields, awaits: [...new Set(draftMoves.map(move => move.awaits))], moves: draftMoves };
@@ -3016,23 +2732,14 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
       }
     }
 
-    const needsDraftVerdict = legacyWrites && rigN === null && compiledDraftId !== undefined && compiledVerdict?.value.verdict !== 'approved';
+    const needsDraftVerdict = numberedReadOnly && rigN === null && compiledDraftId !== undefined && compiledVerdict?.value.verdict !== 'approved';
     if (needsDraftVerdict) {
       const field = `drafts[${compiledDraftId}]`;
       addAwait(field);
       moves.push(numberedVerdictUnavailable(field, field, `Rigging draft ${compiledDraftId} has no accepted numbered draft verdict.`));
     }
-    // A checked build can still be registered. A reopened project with a history rig
-    // can also register a plain rig without carrying a draft verdict (#773).
-    if (checkedRegistration) {
-      addAwait(checkedRegistration.awaits);
-      moves.push(checkedRegistration);
-    } else if (legacyWrites && !checked && rigN === null && pendingCarryCorrection) {
-      const move = rigRegistrationMove(dir, nextRigN, undefined, '', pendingCarryCorrection);
-      addAwait(move.awaits);
-      moves.push(move);
-    } else if (!checked && !hasOpenRigSteps && (!needsDraftVerdict || hasHistoryRig)) {
-      if (effectiveStage === 'rigging' && (!legacyWrites || rigN !== null)) {
+    if (!hasOpenRigSteps && (!needsDraftVerdict || hasHistoryRig)) {
+      if (effectiveStage === 'rigging' && (!numberedReadOnly || rigN !== null)) {
         const advCmd = candidateAdvance(dir, project, 'rig-review', now);
         if (advCmd !== null) {
           addAwait('project.stage');
@@ -3052,16 +2759,11 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
 
       if (currentPath) {
         if (effectiveStage === 'rig-review') pushCurrentStageProgression('rig-review');
-      } else if (!legacyWrites) {
+      } else if (!numberedReadOnly) {
         if (effectiveStage === 'rig-review') addCurrentReviewSignoff('rig-review');
-      } else if (rigN === null && compiledDraftId !== undefined && compiledVerdict?.value.verdict === 'approved') {
-        const move = rigRegistrationMove(dir, nextRigN);
-        addAwait(move.awaits);
-        moves.push({ ...move, act: `Register the frozen rig from draft ${compiledDraftId}. Byte-identical inputs carry review act ${compiledVerdict.actId}.` });
-      } else if (rigN === null && hasHistoryRig) {
-        const move = rigRegistrationMove(dir, nextRigN);
-        addAwait(move.awaits);
-        moves.push(move);
+      } else if (rigN === null && (compiledVerdict?.value.verdict === 'approved' || hasHistoryRig)) {
+        addAwait('versions');
+        moves.push(numberedAuthoringUnavailable('versions', 'Numbered rig registrations are read-only.'));
       } else if (rigN === null) {
         const verdictAwait = 'versions[kind=rig].verdicts[review=rig-review]';
         addAwait(verdictAwait);
@@ -3076,7 +2778,7 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
       }
 
       const signoffAwait = 'signoffs[stage=rig-review]';
-      if (!currentPath && legacyWrites && !hasLiveStageSignoff('rig-review') && !recordedLapseTargets.has(signoffAwait)
+      if (numberedReadOnly && !hasLiveStageSignoff('rig-review') && !recordedLapseTargets.has(signoffAwait)
         && !((effectiveStage === 'rig-review' || hasHistoryRig) && (rigN === null || reviewVerdictSignable(project, rigN, 'rig-review')))) {
         addAwait(signoffAwait);
         moves.push(numberedVerdictUnavailable('signoffs', signoffAwait, `Rig${rigN !== null ? ` v${rigN}` : ''} needs a numbered rig-review signoff.`));
@@ -3102,46 +2804,12 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
       s => (s.phase === 'rig' || s.phase === 'post') && stageOfStep(s.phase, String(s.id)) === 'post',
     );
     const openPostSteps = postSteps.filter(s => s.status !== 'done');
-    const postState = legacyWrites ? directionReviewPostState(dir, project, now) : undefined;
-    const addPostAuthoringMove = (): void => {
-      if (!postState || postState.ready) return;
-      const { nextPostN, composed, currentScene } = postState;
-      if (!isObject(project.direction_contract)) {
-        addAwait('direction_contract');
-        moves.push({ role: 'agent', field: 'direction_contract', awaits: 'direction_contract',
-          command: `rig-create direction --adopt ${shellWord(dir)}`, act: 'adopt direction before authoring the post' });
-        return;
-      }
-      const acceptedRig = latestAccepted(parsedVersions);
-      const rig = acceptedRig ?? parsedVersions.rigs.filter(r => r.live).at(-1);
-      const rigN = typeof rig?.n === 'number' ? String(rig.n) : '<rig-version>';
-      if (composed) {
-        addAwait(`versions[n=${nextPostN}]`);
-        moves.push({ role: 'agent', field: 'versions', awaits: `versions[n=${nextPostN}]`,
-          command: `rig-create direction write ${nextPostN} ${shellWord(dir)} --file '<direction@3.json>' --rig ${shellWord(rigN)} --compose-out '<compose-out>' --compose-scene '<compose-scene.json>'`,
-          act: 'compose the cited owner values with Parts, then freeze the green idle as direction@3' });
-      } else if (currentScene === undefined) {
-        const postComp = allItems.find(item => item.id === 'post_composition');
-        const repairMoves = postCompositionSceneRepairMoves(dir, project, postComp, effectiveStage, now);
-        if (repairMoves.length > 0) {
-          for (const move of repairMoves) addAwait(move.awaits);
-          moves.push(...repairMoves);
-        } else {
-          addAwait('scenes[n=1]');
-          moves.push({ role: 'agent', field: 'scenes', awaits: 'scenes[n=1]',
-            command: sceneWriteCommand(dir, project, rigN),
-            act: 'author scene inputs matching the current post_composition Review choice, then write the scene' });
-        }
-      } else {
-        addAwait(`versions[n=${nextPostN}]`);
-        moves.push({ role: 'agent', field: 'versions', awaits: `versions[n=${nextPostN}]`,
-          command: `rig-create direction write ${nextPostN} ${shellWord(dir)} --file '<direction.json>' --rig ${shellWord(rigN)}`,
-          act: 'author a direction document binding the current scene, then record the post version' });
-      }
-    };
+    if (numberedReadOnly && (effectiveStage === 'post' || !hasLiveStageSignoff('direction-review'))) {
+      addAwait('versions');
+      moves.push(numberedAuthoringUnavailable('versions', 'Numbered scenes and posts are read-only.'));
+    }
 
     if (effectiveStage === 'post' && openPostSteps.length > 0) {
-      addPostAuthoringMove();
       for (const step of openPostSteps) {
         const stepId = String(step.id);
         const currentStatus = String(step.status ?? 'pending');
@@ -3170,7 +2838,7 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
         }
       }
     } else {
-      if (effectiveStage === 'post' && (!postState || postState.ready)) {
+      if (effectiveStage === 'post' && !numberedReadOnly) {
         const advCmd = candidateAdvance(dir, project, 'direction-review', now);
         if (advCmd !== null) {
           moves.push({
@@ -3189,41 +2857,12 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
 
       if (currentPath) {
         if (effectiveStage === 'direction-review') pushCurrentStageProgression('direction-review');
-      } else if (!postState) {
+      } else if (!numberedReadOnly) {
         if (effectiveStage === 'direction-review') addCurrentReviewSignoff('direction-review');
-      } else {
-        const { latestPost, postN, nextPostN, missingScene } = postState;
-        addPostAuthoringMove();
-        if (missingScene) addAwait('scenes[n=1]');
-        let hasLiveAcceptedPostVerdict = false;
-        if (postN === null) {
-          addAwait(`versions[n=${nextPostN}]`);
-          const verdictAwait = `versions[n=${nextPostN}].verdicts[review=direction-review]`;
-          addAwait(verdictAwait);
-          moves.push(numberedVerdictUnavailable('versions', verdictAwait, `Post v${nextPostN} and its accepted direction-review verdict are missing.`));
-        } else {
-          const acceptedIdx = latestPost !== undefined ? acceptedReviewVerdict(latestPost, 'direction-review') : -1;
-          const acceptedEntry = acceptedIdx >= 0 ? asArray(latestPost?.verdicts)[acceptedIdx] : undefined;
-          hasLiveAcceptedPostVerdict =
-            isObject(acceptedEntry) &&
-            liveSignoff(reopens, 'post', Date.parse(String(acceptedEntry.at)));
-          const verdictAwait = `versions[n=${postN}].verdicts[review=direction-review]`;
-          if (!hasLiveAcceptedPostVerdict && !recordedLapseTargets.has(verdictAwait)) {
-            addAwait(verdictAwait);
-            moves.push(numberedVerdictUnavailable(`versions[v${postN}].verdicts`, verdictAwait, `Post v${postN} needs an accepted live direction-review verdict.`));
-          }
-        }
-
-        const signoffAwait = 'signoffs[stage=direction-review]';
-        const needsSignoff = !hasLiveStageSignoff('direction-review') && !recordedLapseTargets.has(signoffAwait);
-        if (needsSignoff) addAwait(signoffAwait);
-        if (needsSignoff && postN !== null && hasLiveAcceptedPostVerdict) {
-          moves.push(numberedVerdictUnavailable('signoffs', signoffAwait, `Post v${postN} needs a numbered direction-review signoff.`));
-        }
       }
 
       if (effectiveStage === 'post') {
-        if (legacyWrites || moves.some(move => move.field === 'stage')) addAwait('project.stage');
+        if (moves.some(move => move.field === 'stage')) addAwait('project.stage');
       } else if (!currentPath && hasLiveStageSignoff('direction-review')) {
         const nextStage = nextStageInOrder(project, stage);
         if (nextStage !== null) {

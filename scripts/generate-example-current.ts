@@ -43,7 +43,7 @@ function files(dir: string, root = dir): Map<string, Buffer> {
   return result;
 }
 
-export function generateExampleCurrent(destination: string): string {
+export function generateExampleCurrent(destination: string, stopAfterOptions?: 'camera_depth'): string {
   const scratch = resolve(destination);
   if (existsSync(scratch)) throw new Error('current example needs a fresh directory');
   const dir = join(scratch, 'example-current');
@@ -194,6 +194,7 @@ export function generateExampleCurrent(destination: string): string {
     put(path, set);
     // The first per-question set starts the relay route; next initially proposes a direction plan instead.
     write(['interview-options', id, dir, '--file', path], ['interview-options', id], id === 'camera_depth');
+    if (id === stopAfterOptions) return dir;
     write(['interview-answer', id, dir, '--set', path, '--sha256', sha256(Buffer.from(set)), '--pick', `${id}=keep`, ...relay,
       '--owner-chat', put('scratch/owner-words.txt', words), '--said-at', new Date(now).toISOString()], ['interview-answer', id]);
   }

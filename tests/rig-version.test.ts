@@ -1303,11 +1303,7 @@ describe('#454 feedback rebuild reader and next', () => {
     const before = readFileSync(join(f.dir, 'project.json'));
     const nextBefore = nextProject(f.dir, testClock.now());
     expect(nextBefore.refusals).toEqual([]);
-    expect(nextBefore.moves[0]).toMatchObject({ role: 'agent', field: 'versions' });
-    expect(nextBefore.moves[0]!.command).toContain('rig-version 2');
-    expect(nextBefore.moves[0]!.command).toContain('--answers 1:0 --answers 1:1');
-    expect(nextBefore.moves).toHaveLength(1);
-    expect(nextBefore.awaits).toEqual(['versions[n=2]']);
+    expect(nextBefore.moves.some(move => /^rig-create (?:rig-version|record rig)\b/.test(move.command ?? ''))).toBe(false);
     expect(readFileSync(join(f.dir, 'project.json'))).toEqual(before);
 
     const args = ['2', ...f.args.slice(1)];

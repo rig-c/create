@@ -28,7 +28,7 @@ import { draftVersionFindings } from './drafts.ts';
 import { assembleOnlyDraftTarget, assertDraftHasRig, readAssembleOnlyDraftTarget } from './draft-layout.ts';
 import { checkPreInterview } from './pre-interview.ts';
 import { refuse, USAGE_EXIT } from './refusal.ts';
-import { collectReopens, liveSignoff, reopenIndex, reopenTime, type Reopen } from './reopen.ts';
+import { collectReopens, liveSignoff, reopenIndex, type Reopen } from './reopen.ts';
 import { RIG_REVIEW, stageIndex } from './stages.ts';
 import type { Json, JsonObject } from './templates.ts';
 
@@ -149,9 +149,8 @@ export function readVersions(project: JsonObject): Versions {
     if (v.rig_version !== null && v.rig_version !== undefined) {
       malformed.push({ path: `${path}.rig_version`, why: 'a rig version has rig_version null; only a post version names the rig it is built on' });
     }
-    // The LAST human rig-review verdict decides: a later bounce withdraws an
-    // earlier acceptance. An acceptance must be dated, or the post-before-
-    // acceptance order cannot be checked.
+    // The last human rig-review verdict decides. A later bounce withdraws an
+    // earlier acceptance, and only a dated acceptance can authorize handoff.
     let accepted: Acceptance | null = null;
     for (const { index: verdict, record: d } of humanReviewVerdicts(v.verdicts, RIG_REVIEW)) {
       if (d.verdict !== 'accepted') {
@@ -215,33 +214,9 @@ function lapsedAcceptance(project: JsonObject, versions: Versions): string | nul
   return `${rig.path}.verdicts[${rig.accepted.verdict}]: rig v${rig.n} was accepted at ${rig.accepted.at}, but ${by} made it history, so no live rig version is accepted; numbered rig versions and verdicts are read-only — adopt or record current outputs with rig-create record rig --from <producer out> --config <rig config> and rig-create record motion --from <render out>`;
 }
 
-/** Why a post version's `rig_version` is not an accepted rig, or `null` when it is. */
-function postBasisProblem(post: PostVersion, versions: Versions): string | null {
-  const rv = post.rigVersion;
-  if (typeof rv !== 'number' || !Number.isInteger(rv)) {
-    return `${post.path}.rig_version is ${JSON.stringify(rv ?? null)}; a post version names the n of the accepted rig version it is built on`;
-  }
-  const rig = versions.rigs.find((r) => r.n === rv);
-  if (rig === undefined) return `${post.path}.rig_version=v${rv} names no rig version`;
-  if (rig.configLost !== undefined) return `${post.path}.rig_version=v${rv}: ${rig.path}.config_lost records a lost config; build and accept a new rig with its retained config before post work`;
-  if (rig.outputsLost !== undefined) return `${post.path}.rig_version=v${rv}: ${rig.path}.outputs_lost records lost outputs; build and accept a new rig with surviving frozen outputs before post work`;
-  if (rig.accepted === null) {
-    return `${post.path}.rig_version=v${rv}: rig v${rv} has no accepted rig-review verdict; post work runs only on a rig version the user accepted at rig-review`;
-  }
-  const builtAt = post.at === null ? Number.NaN : Date.parse(post.at);
-  const acceptedAt = Date.parse(rig.accepted.at);
-  if (!Number.isFinite(builtAt)) {
-    return `${post.path}.at is ${JSON.stringify(post.at)}; a post version is dated, or it cannot be shown to follow rig v${rv}'s acceptance`;
-  }
-  if (builtAt < acceptedAt) {
-    return `${post.path}.rig_version=v${rv}: v${post.n} was built at ${post.at}, before rig v${rv} was accepted at ${rig.accepted.at}`;
-  }
-  return null;
-}
-
 // ------------------------------------------------------- interview --check
 
-/** The review-order refusals, appended to `ctx.refusals` (codes in docs/CHECKS.md § Refusals). */
+/** Append structural findings for version records and historical still evidence. */
 export function checkReviews(ctx: ReviewCtx): void {
   const versions = readVersions(ctx.project);
   const push = (code: string, path: string, message: string): void => {
@@ -254,27 +229,6 @@ export function checkReviews(ctx: ReviewCtx): void {
       const path = `${rig.path}.evidence[${m.index}]`;
       push('STILL_MALFORMED', path, `${path}: a still-frame record is { kind: "still", path, sha256, camera: "fixed", frame }; ${m.why}`);
     }
-  }
-
-  for (const post of versions.posts) {
-    const problem = postBasisProblem(post, versions);
-    const since = reopenTime(collectReopens(ctx.project, []), RIG_REVIEW);
-    const basis = versions.rigs.find(r => r.n === post.rigVersion);
-    if (post.live && since !== -Infinity && basis !== undefined && !basis.live) {
-      push('POST_ON_SUPERSEDED_RIG', `${post.path}.rig_version`, `${post.path}: historical rig cannot authorise new post work; build and accept a new rig version`);
-    }
-    if (problem !== null) push('POST_ON_UNACCEPTED_RIG', `${post.path}.rig_version`, problem);
-  }
-
-  // The current post version is on the current accepted rig; older post versions are history.
-  const accepted = latestAccepted(versions);
-  const currentPost = versions.posts.filter(p => p.live).reduce<PostVersion | null>((a, p) => (a === null || p.n > a.n ? p : a), null);
-  if (accepted !== null && currentPost !== null && postBasisProblem(currentPost, versions) === null && currentPost.rigVersion !== accepted.n) {
-    push(
-      'POST_ON_SUPERSEDED_RIG',
-      `${currentPost.path}.rig_version`,
-      `${currentPost.path}.rig_version=v${String(currentPost.rigVersion)}: rig v${accepted.n} was accepted since; the post work built on the old rig is redone on v${accepted.n}`,
-    );
   }
 }
 

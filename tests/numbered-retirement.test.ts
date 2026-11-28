@@ -271,3 +271,31 @@ test('removed build and seal commands and numbered flags refuse before reading o
     rmSync(numberedClone, { recursive: true, force: true });
   }
 });
+
+test.each(['example-numbered', 'example-chain', 'example-remesh'])(
+  'next --json omits retired numbered commands for %s',
+  fixture => {
+    const clone = mkdtempSync(join(tmpdir(), 'create-next-numbered-'));
+    try {
+      cpSync(join(import.meta.dir, '../templates', fixture), clone, { recursive: true });
+      if (fixture === 'example-numbered') {
+        renameSync(join(clone, 'example-project.json'), join(clone, 'project.json'));
+      }
+      repinNumberedCopy(clone);
+
+      const { exit, stdout, stderr } = runMainCaptured(['next', clone, '--json']);
+      expect(exit, stderr).toBe(0);
+      const { moves } = JSON.parse(stdout) as { moves: { command: string | null }[] };
+      expect(Array.isArray(moves)).toBe(true);
+      const retiredCommands = Object.keys(RETIRED_NUMBERED_COMMANDS);
+      for (const { command } of moves) {
+        if (command === null) continue;
+        const [firstToken, secondToken] = command.trim().split(/\s+/);
+        if (firstToken !== 'rig-create') continue;
+        expect(retiredCommands, command).not.toContain(secondToken);
+      }
+    } finally {
+      rmSync(clone, { recursive: true, force: true });
+    }
+  },
+);

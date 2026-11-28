@@ -1,8 +1,8 @@
-import { lstatSync, realpathSync } from 'node:fs';
+import { lstatSync, realpathSync } from './check-reads.ts';
 import { join } from 'node:path';
 import { candidateBatchPaths, candidateOptionPaths, CANDIDATE_STORAGE_PATH, readCandidateBatchIdentity } from './candidate-storage.ts';
-import { invalidCandidate, readCandidateProof } from './candidate-package.ts';
-import { composableOptions } from './candidate.ts';
+import { invalidCandidate, readCandidateProof } from './candidate-proof.ts';
+import { composableOptions } from './compose-value.ts';
 import { isObject, type Ctx } from './check.ts';
 import { optionFile } from './choices.ts';
 import { currentRigFileBinding } from './current.ts';

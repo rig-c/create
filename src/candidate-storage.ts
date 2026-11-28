@@ -1,4 +1,5 @@
-import { lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, statfsSync } from 'node:fs';
+import { mkdirSync, statfsSync } from 'node:fs';
+import { lstatSync, readFileSync, readdirSync, realpathSync } from './check-reads.ts';
 import { createHash } from 'node:crypto';
 import { join } from 'node:path';
 import { refuse } from './refusal.ts';

@@ -5,7 +5,8 @@ import { candidateBatchPath, candidateBatchPaths, candidateStorage, candidateSto
   CANDIDATE_STORAGE_PATH, CANDIDATE_OPTION_RESERVATION_BYTES, CANDIDATE_COMPOSE_DISK_RESERVE_BYTES,
   CANDIDATE_JOB_STATE_RESERVATION_BYTES, candidateOptionPaths, readCandidateBatchIdentity, type CandidateBatchIdentity } from './candidate-storage.ts';
 import { attachCandidateHost, candidateHostBinding, closeCandidateHost, openCandidateHost, awaitCandidateListenerStop } from './candidate-host.ts';
-import { invalidCandidate, readCandidateProof, writeCandidatePackage, type CandidateSelector } from './candidate-package.ts';
+import { writeCandidatePackage } from './candidate-package.ts';
+import { invalidCandidate, readCandidateProof, type CandidateSelector } from './candidate-proof.ts';
 import { composeCandidate, prepareCandidateScene, resolveCandidateSet } from './candidate.ts';
 import { ingestReviewComment } from './comment-act.ts';
 import { candidateCommentSubject, type CommentOnlyAct } from './comment-record.ts';

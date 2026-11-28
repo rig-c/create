@@ -1,5 +1,5 @@
 import { pendingCandidateComments } from './candidate-command.ts';
-import { composableOptions } from './candidate.ts';
+import { composableOptions } from './compose-value.ts';
 import { isDeepStrictEqual as equal } from 'node:util';
 import { LAST_NUMBERED_CREATE_RELEASE } from './numbered-retirement.ts';
 import { missingPickSignoffSteps, pickSignoffEvidence, requiredInterviewSteps } from './pick-signoff.ts';

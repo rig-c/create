@@ -5,7 +5,7 @@ import { ADOPTED_COMPOSE_BUILD, adoptedComposeBuildMatches, stageAdoptedCompose 
 import { hasKeyedCamera, validateCameraOptions } from './camera-choice.ts';
 import { collectItems, isObject, loadCollection, type Item } from './check.ts';
 import { optionFile, pendingInterviewOptions, validateContext, validateSet } from './choices.ts';
-import { readComposeValue } from './compose-value.ts';
+import { composableOptions, readComposeValue } from './compose-value.ts';
 import { currentFileBinding, outputRoot, sha256, treeFiles } from './current.ts';
 import { matchesComposeValue, readComposedTake, readComposeSceneInputs } from './current-direction.ts';
 import { COMPOSE_CAMERA_REPORT_SPEC } from './direction-compose.ts';
@@ -17,14 +17,6 @@ import type { JsonObject } from './templates.ts';
 const CANDIDATE_OPTION_SET_STALE = 'CANDIDATE_OPTION_SET_STALE';
 
 type Binding = { path: string; sha256: string };
-
-export function composableOptions(set: JsonObject) {
-  return objects(set.asks).flatMap(ask => objects(ask.options).flatMap(option => {
-    const fragment = option.fragment;
-    if (option.kind !== 'value' || !isObject(fragment) || fragment.compose === undefined) return [];
-    return [{ askId: String(ask.id), optionId: String(option.id), label: String(option.label), compose: fragment.compose }];
-  }));
-}
 
 export function resolveCandidateSet(root: string, project: JsonObject, question: string, setId: string, now: number) {
   const stale = (): never => refuse(CANDIDATE_OPTION_SET_STALE,

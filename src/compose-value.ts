@@ -15,11 +15,19 @@
  * seconds and any track end. Timing and composition can be revised sequentially.
  */
 import { asArray, isObject, itemFor, type Ctx, type Finding } from './check.ts';
-import { closed } from './direction.ts';
+import { closed, objects } from './direction.ts';
 import { sceneBinding } from './scene.ts';
 import type { Json, JsonObject } from './templates.ts';
 
 export const COMPOSE_VALUE_INVALID = 'COMPOSE_VALUE_INVALID';
+
+export function composableOptions(set: JsonObject) {
+  return objects(set.asks).flatMap(ask => objects(ask.options).flatMap(option => {
+    const fragment = option.fragment;
+    if (option.kind !== 'value' || !isObject(fragment) || fragment.compose === undefined) return [];
+    return [{ askId: String(ask.id), optionId: String(option.id), label: String(option.label), compose: fragment.compose }];
+  }));
+}
 
 const COMPOSE_VALUE_REMEDY =
   'register a fresh option set with rig-create interview-options post_composition and relay a post_composition choice with rig-create interview-answer post_composition --owner-chat (or complete a historical delegated agent_decision) whose value.compose binds closed {canvas,plates,order,character,idle_tracks} with empty idle_tracks or a common positive track end';

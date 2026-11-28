@@ -1300,19 +1300,13 @@ test('#389 parts-review drafts publish without unready approval and recover thro
     const base = mockedOwnerHost(jobId, origin, reused, expected ?? null);
     base.ports.handleJobApi = async req => {
       const body = JSON.parse(await req.text()) as { schema: string; verb: string; subject?: unknown };
-      if (body.verb === 'publish' || body.verb === 'ask') {
+      if (body.verb !== 'progress') {
         apiCalls.push({ schema: body.schema, verb: body.verb, ...(body.subject !== undefined ? { subject: body.subject } : {}) });
       }
       if (body.verb === 'next') {
         return Response.json({
           schema: JOB_API_V3_SCHEMA, verb: 'next', jobId, requestId: 'synthetic-next', generation: 1,
           ok: true, value: { status: 'timeout', events: [], cursor: null },
-        });
-      }
-      if (body.verb === 'ask') {
-        return Response.json({
-          schema: JOB_API_V3_SCHEMA, verb: 'ask', jobId, requestId: 'synthetic-ask', generation: 2,
-          ok: true, value: { askId: 'ask-1', generation: 2 },
         });
       }
       return Response.json({

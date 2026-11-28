@@ -7,7 +7,7 @@ import { pathToFileURL } from 'node:url';
 import { JOB_RECORD_ACT_SCHEMA, parseRecordAct, startJobHost } from '@rig-c/review/job-host';
 import { checkProject as rawCheckProject } from '../src/check.ts';
 import { agentCall } from '../src/job-acts.ts';
-import { askDeclaredSubjects, openCreateJob, reconcileCreateJob } from '../src/job-host.ts';
+import { openCreateJob, reconcileCreateJob } from '../src/job-host.ts';
 import { acknowledgePublication, enqueuePublication, jobHash, jobHostStateRoot, jobPrivateRoot, pendingPublications, readAcknowledgedPublication, readWriterBinding, reconcilePublication, type AcknowledgedPublication } from '../src/job-outbox.ts';
 import { prepareDraftManifest, prepareLiveManifest, publicationSelector, readPublished, readRecordPublished, type RecordPublicationRequest } from '../src/job-publication.ts';
 import { jobRuntimeExecArgv } from '../src/job-writer.ts';
@@ -22,7 +22,7 @@ import { generateExampleParts } from '../scripts/generate-example-parts.ts';
 import { EXAMPLE_REOPEN_AT } from '../scripts/example-time.ts';
 import { reviewActFindings, decodeReviewAct, reviewActVerdict } from '../src/review-act.ts';
 import { USAGE_EXIT } from '../src/refusal.ts';
-import { foldHistoricalRigSignoff, seedStoredPartsSignoff, seedStoredPartsVerdictAct, seedStoredReviewVerdictAct, seedStoredSignoffAct } from './historical-review-fixture.ts';
+import { foldHistoricalRigSignoff, seedHistoricalPendingAsk, seedStoredPartsSignoff, seedStoredPartsVerdictAct, seedStoredReviewVerdictAct, seedStoredSignoffAct } from './historical-review-fixture.ts';
 import { plantLegacyReopen } from './fixtures.ts';
 import { seedRetainedDraft } from './numbered-seed.ts';
 
@@ -119,7 +119,7 @@ async function openLegacyDraftVerdict(
       ? { sourceHash: publication.source.sourceHash, projectHash: pending.recordHash }
       : undefined;
     acknowledgePublication(pending, publication.publicationId, publication.generation, requestId, [subject], draftSource);
-    expect(await askDeclaredSubjects(host, publication.publicationId, [subject], false)).toEqual([{ status: 'asked', subject }]);
+    seedHistoricalPendingAsk(host, publication.publicationId, subject);
   });
   return { host, url: new URL(host.ownerUrl) };
 }
@@ -148,7 +148,7 @@ async function openLegacyNumberedVerdict(root: string, version: number, stage: '
     expect(reply.ok).toBe(true);
     const publication = host.session.status().publication!;
     acknowledgePublication(pending, publication.publicationId, publication.generation, requestId, [subject]);
-    expect(await askDeclaredSubjects(host, publication.publicationId, [subject], false)).toEqual([{ status: 'asked', subject }]);
+    seedHistoricalPendingAsk(host, publication.publicationId, subject);
   });
   declareLegacySubject = false;
   return { host, url: new URL(host.ownerUrl) };

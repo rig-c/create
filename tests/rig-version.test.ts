@@ -12,7 +12,7 @@ import { plateReceiptSpec } from '../src/config-inputs.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { arr, fixture, obj, waypoint } from './fixtures.ts';
 import { clockedCli, run } from './helpers.ts';
-import { seedStoredReviewVerdictAct, seedStoredVerdict } from './historical-review-fixture.ts';
+import { seedHistoricalPendingAsk, seedStoredReviewVerdictAct, seedStoredVerdict } from './historical-review-fixture.ts';
 import { framedRigPin } from './comment-anchor-shapes.ts';
 import { openCreateJob, reconcileCreateJob } from '../src/job-host.ts';
 import { acknowledgePublication, enqueuePublication, jobHash, jobHostStateRoot, jobPrivateRoot, pendingPublications, readWriterBinding, reconcilePublication } from '../src/job-outbox.ts';
@@ -1165,18 +1165,7 @@ describe('#812/#929 historical live rig feedback and citation check', () => {
           })
         : undefined;
       const general = mode === 'pinned comment' ? [] : [words];
-      const response = await host.ports.handleJobApi(new Request(`${host.origin}/jobs/${host.session.jobId}/api`, {
-        method: 'POST',
-        headers: { authorization: `Bearer ${host.session.hostCredentials().agent}`, 'content-type': 'application/json' },
-        body: JSON.stringify({
-          schema: 'rig-review/job-api@2', verb: 'ask', jobId: host.session.jobId, requestId: crypto.randomUUID(),
-          expectedGeneration: host.session.status().generation, idempotencyKey: crypto.randomUUID(),
-          publicationId: publication.publicationId, subject: { kind: 'review-verdict', stage: 'rig-review' },
-        }),
-      }));
-      const ask = await response.json();
-      expect(ask.ok).toBe(true);
-      if (!ask.ok) throw Error(ask.error.code);
+      const ask = seedHistoricalPendingAsk(host, publication.publicationId, { kind: 'review-verdict', stage: 'rig-review' });
       const pageId = 'synthetic-page';
       const ui = (route: string, body: object) => new Request(`${host.origin}/jobs/${host.session.jobId}/ui/${route}`, {
         method: 'POST',
@@ -1186,7 +1175,7 @@ describe('#812/#929 historical live rig feedback and citation check', () => {
       if (!displayed.ok) throw Error(displayed.error.code);
       const act = await host.ports.commitUIAct(host.session.jobId, ui('acts', {
         publicationId: publication.publicationId,
-        askId: ask.value.askId, pageId, displayedNonce: displayed.value.displayedNonce, expectedGeneration: host.session.status().generation,
+        askId: ask.askId, pageId, displayedNonce: displayed.value.displayedNonce, expectedGeneration: host.session.status().generation,
         submissionId: 'synthetic-submission', kind: 'review-verdict', value: {
           stage: 'rig-review',
           verdict: 'changes-requested', words: '',
@@ -1197,7 +1186,7 @@ describe('#812/#929 historical live rig feedback and citation check', () => {
           camera: 'fixed', framing: 'default', view: 'whole-rig', frame: 'setup', playing: false,
           binding: {
             publicationId: publication.publicationId, instanceKey: publication.instanceKey, sourceHash: publication.source.sourceHash,
-            pageId, askId: ask.value.askId, drawGeneration: 1, playerGeneration: 0,
+            pageId, askId: ask.askId, drawGeneration: 1, playerGeneration: 0,
           },
         },
       }));

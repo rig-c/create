@@ -326,6 +326,8 @@ test('rendered guide names both painting declarations and the current Review rou
   expect(guide).toContain('project.json.painting');
   expect(guide).toContain('job open --reviewer <id> --role owner --current <parts|rig|direction>');
   expect(guide).toContain('job acts --json');
+  expect(guide).toContain('`rig-create pause --by <who>`');
+  expect(guide).toContain('Current-path pauses need no\nsignature.');
   expect(Buffer.byteLength(guide)).toBeLessThan(GUIDE_MAX_BYTES);
 });
 

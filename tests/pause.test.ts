@@ -269,8 +269,7 @@ describe('next --json on a paused project', () => {
     const currentPauseWords = words(current);
     const signoffs = read(current).signoffs;
     const next = nextProject(current, now);
-    expect(next.moves).toContainEqual(expect.objectContaining({ role: 'human', field: 'pauses',
-      command: expect.stringContaining('rig-create pause ') }));
+    expect(next.moves.some(move => move.command?.startsWith('rig-create pause '))).toBe(false);
     expect(next.awaits).not.toContain('pauses');
     testClock.set(now += 1000);
     expect(pauseCommand([current, '--by', 'owner', '--verbatim-file', currentPauseWords]).exit).toBe(0);

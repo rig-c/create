@@ -97,10 +97,6 @@ function replaceRig(dir: string, run: string, rebuild: JsonObject): void {
 }
 
 const next = (dir: string) => nextProject(dir, testClock.now());
-const optionalPause = (dir: string) => expect.objectContaining({
-  role: 'human', field: 'pauses',
-  command: `rig-create pause --by '<who>' --verbatim-file '<file>' ${dir}`,
-});
 
 test('next offers the stale cascade after parts is replaced, while check still warns and the stage stays accepted', () => {
   const dir = staleFixture();
@@ -395,7 +391,7 @@ test('stale rig leads with rebuilds while independent post step statuses stay ru
   }));
   expect(fresh).toMatchObject({ effective_stage: 'post', refusals: [] });
   // A recorded current.motion is replaced only through its rebuild move; staged bytes alone offer no record (#1030).
-  expect(fresh.moves).toEqual([...plan, optionalPause(dir)]);
+  expect(fresh.moves).toEqual(plan);
   expect(fresh.awaits).toEqual(plan.map(move => move.awaits));
 
   put(dir, 'project.json', staleRecord);
@@ -403,7 +399,7 @@ test('stale rig leads with rebuilds while independent post step statuses stay ru
   expect(stale).toMatchObject({ effective_stage: 'post', refusals: [] });
   expect(stale.moves.slice(0, 3).map(({ field, awaits, command }) => ({ field, awaits, command })))
     .toEqual(rebuildTargets.map(field => ({ field, awaits: field, command: null })));
-  expect(stale.moves.slice(3)).toEqual([...plan, optionalPause(dir)]);
+  expect(stale.moves.slice(3)).toEqual(plan);
   expect(stale.awaits).toEqual([...rebuildTargets, ...plan.map(move => move.awaits)]);
 });
 
@@ -424,7 +420,7 @@ test('stale direction suppresses the advance to direction-review and its stage a
   put(dir, 'project.json', staleRecord);
   const stale = next(dir);
   expect(stale).toMatchObject({ effective_stage: 'post', refusals: [] });
-  expect(stale.moves.map(move => move.field)).toEqual([...rebuildTargets, 'pauses']);
+  expect(stale.moves.map(move => move.field)).toEqual(rebuildTargets);
   expect(stale.awaits).not.toContain('project.stage');
 
   put(dir, 'project.json', freshRecord);
@@ -503,7 +499,7 @@ test('a bound current direction advances, signs in owner chat and reaches accept
 
   put(dir, 'project.json', staleRecord);
   const stale = next(dir);
-  expect(stale.moves.map(move => move.field)).toEqual([...rebuildTargets, 'pauses']);
+  expect(stale.moves.map(move => move.field)).toEqual(rebuildTargets);
   expect(stale.awaits).not.toContain('project.stage');
 
   put(dir, 'project.json', freshRecord);

@@ -48,7 +48,7 @@ import { beginJobProgress } from './job-writer.ts';
 import { isPartsCheckMove, PARTS_CHECK_FILE, partsCheckFindings, partsCheckRecord } from './parts-check.ts';
 import { isPartsReviewReceipt, latestPartsVerdictStatus, latestRiggingDraftFeedback, recordedPartsVerdict } from './parts-verdict-record.ts';
 import { assertPartsActSource } from './parts-act.ts';
-import { pausable, pausedFrom } from './pause.ts';
+import { pausedFrom } from './pause.ts';
 import { collectionDirOf, inspectCollection } from './pins-check.ts';
 import { carriedRefusals, findingKey, newFindings } from './refusal-baseline.ts';
 import { Refusal, refuse, USAGE_EXIT } from './refusal.ts';
@@ -101,7 +101,6 @@ import { postCompositionSetOffersScene } from './scene-authority.ts';
 import { DirectionError, directionJson, directionPath, missingDirectionStepApprovals, missingPostPlanRows, POST_PLAN_ROWS } from './direction.ts';
 import { type NextComment, withCurrentComments } from './comment-closures.ts';
 import { adoptedRigInventoryMatches, currentOutputMove, withStaleOutputs } from './next-stale.ts';
-import { CURRENT_PAUSE_SINCE } from './stage-progress.ts';
 
 export const NEXT_SCHEMA = 'rig-create/next@1';
 
@@ -1859,13 +1858,6 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
         act: 'Read the handed-off rig files and their sha256 hashes.',
       }] };
     }
-    if (currentPath && result.refusals.length === 0 && now >= Date.parse(CURRENT_PAUSE_SINCE) && pausable(result.stage)) {
-      return { ...result, moves: [...result.moves, {
-        role: 'human', field: 'pauses', awaits: 'project.stage',
-        command: `rig-create pause --by '<who>' --verbatim-file '<file>' ${shellWord(dir)}`,
-        act: 'Optional: record a pause and the stage it left.',
-      }] };
-    }
     return result;
   }
   const code = 'NEXT_NO_FORWARD_MOVE';
@@ -2998,7 +2990,7 @@ export function formatNext(report: NextReport | NextCollectionReport): string {
     if (move.command !== null && (ROUTED_ANSWER_COMMENT_PATH.test(move.field) || move.field.startsWith('comments[')
       || move.field.startsWith('current.') || move.field === CURRENT_SCENE_PATH || move.field === CURRENT_DIRECTION_PATH
       || move.act === SCENE_OPTIONS_REPAIR_ACT
-      || move.act.startsWith(OPTIONAL_SIGNOFF_PREFIX) || move.field === 'pauses' && move.act.startsWith('Optional:'))) {
+      || move.act.startsWith(OPTIONAL_SIGNOFF_PREFIX))) {
       lines.push(`    ${move.act}`);
     }
     if (move.unanswered_by_record) {

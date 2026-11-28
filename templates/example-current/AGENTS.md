@@ -1,12 +1,15 @@
 # Agent guide
 
-One painting, one current rig and its takes.
-
 ## Start here
 
 Use `rig-create init <dir> --painting <file> --origin <words> --owner-language <tag>`. In an existing project, `rig-create input add <path> --painting --origin <words>`. Keep the source bytes bound in `project.json.painting` unchanged.
 
-Read `project.json`, then run `rig-create next` from the project folder. Read next again after each writer or producer, before advancing. [Resume](https://github.com/rig-c/create/blob/main/docs/PROJECT.md#how-an-agent-resumes-a-project).
+Read `project.json` and run `rig-create next` in the project folder. Run it again after each writer or producer. [Resume](https://github.com/rig-c/create/blob/main/docs/PROJECT.md#how-an-agent-resumes-a-project).
+
+### Pause
+
+To stop work, use `rig-create pause --by <who>`. Current-path pauses need no
+signature. While paused, follow the resume move from next.
 
 ## The order, and what you may not do
 
@@ -65,9 +68,8 @@ Feedback and approval never gate writes. For machine-read parts and rigging valu
 **Live Review loop**
 
 Start `rig-create job open --reviewer <id> --role owner --current <parts|rig|direction>`
-to show a recorded result for looking and comments (Review refuses verdicts,
-signoffs, checkpoints and picks). Share its private URL once; rerun it to
-update. Reused opens exit. The page updates in place.
+to show a recorded result. Review accepts comments only. Share its private URL
+once and rerun the command to update the page.
 
 `rig-create job acts --json` lists finalized acts; wait with
 `rig-create job acts --wait`, then record comment acts with

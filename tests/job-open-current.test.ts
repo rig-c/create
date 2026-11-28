@@ -574,7 +574,7 @@ test('next offers optional job open --current moves beside advance after record 
   const partsReport = nextProject(root, NOW);
   expect(partsReport.refusals).toEqual([]);
   expect(partsReport.awaits).toEqual(['project.stage']);
-  expect(partsReport.moves).toHaveLength(3);
+  expect(partsReport.moves).toHaveLength(2);
   expect(partsReport.moves[0]).toMatchObject({ role: 'agent', field: 'stage', awaits: 'project.stage' });
   expect(partsReport.moves[1]).toEqual({
     role: 'agent',
@@ -600,7 +600,7 @@ test('next offers optional job open --current moves beside advance after record 
   const riggingReport = nextProject(root, NOW);
   expect(riggingReport.refusals).toEqual([]);
   expect(riggingReport.awaits).toEqual(['project.stage']);
-  expect(riggingReport.moves).toHaveLength(3);
+  expect(riggingReport.moves).toHaveLength(2);
   expect(riggingReport.moves[0]).toMatchObject({
     role: 'agent',
     field: 'stage',
@@ -624,7 +624,7 @@ test('next offers optional job open --current moves beside advance after record 
   const postReport = nextProject(root, NOW);
   expect(postReport.refusals).toEqual([]);
   expect(postReport.awaits).toEqual(['project.stage']);
-  expect(postReport.moves).toHaveLength(3);
+  expect(postReport.moves).toHaveLength(2);
   expect(postReport.moves[0]).toMatchObject({
     role: 'agent',
     field: 'stage',
@@ -637,11 +637,6 @@ test('next offers optional job open --current moves beside advance after record 
     command: `rig-create job open ${root} --current direction --reviewer '<reviewer>' --role owner`,
     act: expect.stringMatching(/^optional: publish the recorded direction output to Review to look together and comment;/),
   });
-  for (const report of [partsReport, riggingReport, postReport]) {
-    expect(report.moves[2]).toMatchObject({
-      role: 'human', field: 'pauses', command: expect.stringContaining('rig-create pause '),
-    });
-  }
 
   // 4. Numbered project offers zero `--current` moves.
   const numberedContainer = realpathSync(mkdtempSync(join(tmpdir(), 'create-job-open-current-numbered-')));
@@ -650,7 +645,6 @@ test('next offers optional job open --current moves beside advance after record 
   cpSync(join(import.meta.dir, '../templates/example-chain/checkpoints/3-rig-review'), numberedRoot, { recursive: true });
   const numberedReport = nextProject(numberedRoot, NOW);
   expect(numberedReport.moves.some(move => move.command?.includes('--current'))).toBe(false);
-  expect(numberedReport.moves.some(move => move.field === 'pauses')).toBe(false);
 });
 
 test('numbered direction publication stays byte-unchanged', async () => {

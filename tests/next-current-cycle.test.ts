@@ -273,7 +273,6 @@ if (process.argv[2] === '--replay-current-example') {
     expect(beforeSign.moves.map(move => [move.role, move.field])).toEqual([
       ['agent', 'stage'],
       ['human', 'signoffs'],
-      ['human', 'pauses'],
     ]);
 
     const emptyWords = join(dir, 'scratch/empty.txt');
@@ -301,7 +300,7 @@ if (process.argv[2] === '--replay-current-example') {
     });
 
     const afterSign = nextProject(dir, now + 1000);
-    expect(afterSign.moves.map(move => [move.role, move.field])).toEqual([['agent', 'stage'], ['human', 'pauses']]);
+    expect(afterSign.moves.map(move => [move.role, move.field])).toEqual([['agent', 'stage']]);
     expect(advanceCommand(['post-interview', dir], now + 2000).exit).toBe(0);
     const advanced = JSON.parse(readFileSync(recordPath, 'utf8')) as JsonObject;
     expect(asArray(advanced.advances).at(-1)).toMatchObject({

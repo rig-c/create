@@ -2,11 +2,13 @@ import { afterEach, expect, test } from 'bun:test';
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { generateCurrentDirectionCorrectionFixture } from '../scripts/generate-current-direction-correction-fixture.ts';
-import type { Finding } from '../src/check.ts';
+import { collectItems, type Finding } from '../src/check.ts';
+import { CAMERA_SCENE_BINDING_SINCE, validateCameraOptions } from '../src/camera-choice.ts';
 import { correctionApprovalFindings, currentDirectionIdentity } from '../src/corrections.ts';
 import { COMPOSE_CHECK_PATH, COMPOSE_RUN_PATH, CURRENT_DIRECTION_PATH } from '../src/current-direction.ts';
 import { outputSetHash, sha256, treeFiles } from '../src/current.ts';
 import { DIRECTION_CORRECTION_SPEC, directionPostIdentity } from '../src/direction.ts';
+import { objects } from '../src/direction.ts';
 import { inspectCurrentPublication, prepareCurrentManifest } from '../src/job-publication.ts';
 import { recordCommand } from '../src/record.ts';
 import { sceneCommand } from '../src/scene-writers.ts';
@@ -113,11 +115,70 @@ function stageCameraReport({ modelMatches = true, track = 'idle', duration = 4, 
     camera: { backdrop, model_sha256: modelMatches ? modelSha : '0'.repeat(64),
       tracks: { [track]: { duration, compiled_duration: 4, loop, keys } } } });
   const record = () => recordCommand(['direction', f.dir, '--from', from, '--direction', CURRENT_DIRECTION_PATH], Date.parse('2026-11-26T09:12:00Z'));
-  return { f, record, bindings: {
+  return { f, record, source, sourcePath, sourceSha, read, put, bindings: {
     report: { path: 'outputs/direction/scene.json', sha256: reportSha },
     model: { path: `outputs/direction/${modelPath}`, sha256: modelSha },
   } };
 }
+
+test('camera options bind distinct retained scene files and can include an unkeyed choice', () => {
+  const { f, source, sourcePath, sourceSha, put, read } = stageCameraReport();
+  const project = f.load();
+  const answer = collectItems(project, { collection: null }).find(item => item.id === 'post_composition')!.raw as JsonObject;
+  const choice = answer.choice as JsonObject;
+  const setBinding = choice.set as JsonObject;
+  const setPath = String(setBinding.path);
+  const set = read(setPath);
+  const ask = objects(set.asks)[0]!;
+  const options = objects(ask.options).filter(option => option.kind === 'value');
+  const keep = options.find(option => option.id === objects(choice.picks)[0]!.option_id)!;
+  const other = options.find(option => option !== keep)!;
+  const first = { path: sourcePath, sha256: sourceSha };
+  const secondPath = 'specs/direction/compose-other-camera.json';
+  const second = { path: secondPath, sha256: put(secondPath, { ...source, camera: {
+    backdrop: 'backdrop', tracks: { idle: [{ t: 0, pan: [2, 0], zoom: 1 }] },
+  } }) };
+  const plain = structuredClone(other);
+  plain.id = 'plain';
+  plain.recommended = false;
+  (keep.fragment as JsonObject).compose = { ...((keep.fragment as JsonObject).compose as JsonObject), camera_scene: first };
+  (other.fragment as JsonObject).compose = { ...((other.fragment as JsonObject).compose as JsonObject), camera_scene: second };
+  ask.options = [...objects(ask.options), plain];
+  validateCameraOptions(f.dir, set);
+  put(secondPath, { ...source, camera: undefined } as unknown as JsonObject);
+  expect(() => validateCameraOptions(f.dir, set)).toThrow(expect.objectContaining({ code: 'INTERVIEW_CAMERA_SCENE_INVALID' }));
+  put(secondPath, { ...source, camera: { backdrop: 'backdrop', tracks: { idle: [{ t: 0, pan: [2, 0], zoom: 1 }] } } });
+  choice.set = { path: setPath, sha256: put(setPath, set) };
+  answer.value = keep.fragment!;
+  f.save(project);
+
+  const now = Date.parse(CAMERA_SCENE_BINDING_SINCE);
+  const write = (path: string) => sceneCommand(['write', f.dir, '--compose-scene', path], now);
+  const before = readFileSync(join(f.dir, 'specs/direction/scene.json'));
+  refusesByteIdentical(f.dir, 'SCENE_CAMERA_CHOICE_MISMATCH', 1, () => write(secondPath));
+  expect(readFileSync(join(f.dir, 'specs/direction/scene.json'))).toEqual(before);
+  expect(write(sourcePath).exit).toBe(0);
+  expect(read('specs/direction/scene.json').compose).toEqual(first);
+  expect(write('specs/direction/compose-scene.json').exit).toBe(0);
+  for (const value of [readFileSync(join(f.dir, setPath), 'utf8'), JSON.stringify(answer)]) {
+    expect(value).not.toMatch(/"(pan|zoom|t)"\s*:/);
+  }
+});
+
+test('scene and direction writes date the missing keyed camera choice', () => {
+  const { f, sourcePath } = stageCameraReport();
+  const cutoff = Date.parse(CAMERA_SCENE_BINDING_SINCE);
+  const args = ['write', f.dir, '--compose-scene', sourcePath];
+  const sceneFile = join(f.dir, 'specs/direction/scene.json');
+  const before = readFileSync(sceneFile);
+  expect(sceneCommand(args, cutoff - 1).stderr).toContain('WARN SCENE_CAMERA_CHOICE_MISSING');
+  expect(readFileSync(sceneFile)).toEqual(before);
+  refusesByteIdentical(f.dir, 'SCENE_CAMERA_CHOICE_MISSING', 1, () => sceneCommand(args, cutoff));
+  testClock.set(cutoff);
+  refusesByteIdentical(f.dir, 'SCENE_CAMERA_CHOICE_MISSING', 1,
+    () => directionCommand(['write', f.dir, '--file', 'evidence/intent-revised.json']));
+  expect(readFileSync(sceneFile)).toEqual(before);
+});
 
 test.each([
   { binding: 'matching', modelMatches: true },

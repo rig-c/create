@@ -5,8 +5,8 @@
   "version": "2.63.1"
  },
  "command": "check",
- "started_at": "2026-11-27T00:00:00.000Z",
- "finished_at": "2026-11-27T00:00:00.000Z",
+ "started_at": "2026-11-28T00:00:00.000Z",
+ "finished_at": "2026-11-28T00:00:00.000Z",
  "outputs": [
   {
    "path": "build-report.json",

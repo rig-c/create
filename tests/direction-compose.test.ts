@@ -530,6 +530,23 @@ test('direction@3 does not reopen the producer scene or build paths', () => {
   expect(f.publish().exit).toBe(0);
   expect(() => readDirection(f.dir, f.load(), 2, true)).not.toThrow();
 });
+test('direction@3 resolves a nested Parts scene plate without reopening the source', () => {
+  const f = fixture();
+  const source = 'specs/direction/compose-scene.json';
+  for (const plate of objects(f.scene.plates)) plate.image = `../../${String(plate.image)}`;
+  const binding = f.put(source, f.scene);
+  f.run.scene = binding;
+  for (const plate of objects(f.run.plates)) plate.path = `../../${String(plate.path)}`;
+  f.report.scene = join(f.dir, source);
+  for (const plate of objects(f.report.plates)) plate.image = `../../${String(plate.image)}`;
+  f.put('compose-out/scene.json', f.report);
+  saveRun(f);
+  f.put('evidence/compose-direction.json', f.doc);
+  expect(seedRetainedDirectionPost(['write', '2', f.dir, '--file', 'evidence/compose-direction.json', '--rig', '1',
+    '--compose-out', 'compose-out', '--compose-scene', source], testClock.now()).exit).toBe(0);
+  rmSync(join(f.dir, source));
+  expect(directionCommand(['check', '2', f.dir]).exit).toBe(0);
+});
 for (const target of ['name', 'path', 'hash', 'missing', 'extra', 'legacy']) test(`DIRECTION_COMPOSE_RUN_PLATE refuses ${target} plate binding`, () => {
   const f = fixture();
   if (target === 'name') objects(f.run.plates)[0]!.name = 'different';

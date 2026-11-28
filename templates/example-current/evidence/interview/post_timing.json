@@ -4,18 +4,18 @@
   "question": "post_timing",
   "stage": "post-interview",
   "drafted_by": "agent",
-  "drafted_at": "2026-11-27T00:00:44.000Z",
+  "drafted_at": "2026-11-28T00:00:44.000Z",
   "context": {
     "kind": "current-rig",
     "target": {
       "subject": "current.rig",
-      "record_sha256": "ba43b1dfed19a429eb1e50c172d470cbe9cde2d5f05b52a4d0cf9ce4439ed3e5",
+      "record_sha256": "7a6d4254a172037173b5890ab2c212263941e4db6a2492a12a139e3003d8ec21",
       "files_sha256": "58cf4dc9dcbe9126788c8ee4c588ba3927d4f2cc9984647032a701ce5c5fcde9"
     },
-    "signoff_at": "2026-11-27T00:00:40.000Z",
+    "signoff_at": "2026-11-28T00:00:40.000Z",
     "run": {
       "path": "outputs/rig/run.json",
-      "sha256": "bfa76645af882d4773e5d09990bc96421382c02f7e6ab1a30cbd1a42eb0faca6"
+      "sha256": "a44398a958e7af22847245cb3c0238ab0451ea813436b1d283f8cc5e9abc652d"
     },
     "config": {
       "path": "specs/rig/config.json",

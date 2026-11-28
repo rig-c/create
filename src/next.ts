@@ -1,3 +1,4 @@
+import { isDeepStrictEqual as equal } from 'node:util';
 import { LAST_NUMBERED_CREATE_RELEASE } from './numbered-retirement.ts';
 import { missingPickSignoffSteps, pickSignoffEvidence, requiredInterviewSteps } from './pick-signoff.ts';
 import { ChoiceError, hasPendingOther, isUndecidedDelegation, literalFile, optionFile, pendingInterviewOptions, pendingInterviewOptionsPath, selection } from './choices.ts';
@@ -91,6 +92,7 @@ import {
 } from './stages.ts';
 import type { Json, JsonObject } from './templates.ts';
 import { SECTIONLESS_POST_ITEMS } from './waypoints.ts';
+import { currentComposition } from './camera-choice.ts';
 import { CURRENT_SCENE_PATH, currentScene, currentSceneRig, plateRegistration, sceneBinding, sceneBytes, SceneError, validateCurrentScene } from './scene.ts';
 import { depthPlanMoves, turnExtraGroupMoves } from './rig-version.ts';
 import { checkRigReport, parseRigCheckReport, RIG_CHECK_REPORT_FILE } from './rig-check-report.ts';
@@ -1380,13 +1382,19 @@ function currentPostOutputMove(dir: string, project: JsonObject, kind: 'motion' 
       act: 'Render the recorded rig at the requested sample rate, then record the staged motion.' };
   }
   if (!isObject(project.current) || !isObject(project.current.motion)) return;
+  let pickedScene: JsonObject | undefined;
   try {
+    const value = currentComposition(dir, project)?.value;
+    if (isObject(value) && isObject(value.compose) && sceneBinding(value.compose.camera_scene)) pickedScene = value.compose.camera_scene;
     const scene = directionJson(sceneBytes(dir, CURRENT_SCENE_PATH, 'SCENE_FILE_CHANGED'), CURRENT_SCENE_PATH);
     validateCurrentScene(dir, project, scene);
     if (!sceneBinding(scene.compose)) throw new SceneError('SCENE_MALFORMED', CURRENT_SCENE_PATH, 'expected a Parts compose scene');
+    const path = String(scene.compose.path);
+    const source = directionJson(sceneBytes(dir, path, 'SCENE_FILE_CHANGED'), path);
+    if (pickedScene && !equal(scene.compose, pickedScene)) {
+      throw new SceneError('SCENE_CAMERA_CHOICE_MISMATCH', path, 'scene write must bind the current camera choice');
+    }
     if (adoptedBuild) {
-      const path = String(scene.compose.path);
-      const source = directionJson(sceneBytes(dir, path, 'SCENE_FILE_CHANGED'), path);
       const character = asArray(source.characters)[0];
       const build = isObject(character) && typeof character.build === 'string' && !posix.isAbsolute(character.build)
         ? posix.join(posix.dirname(path), character.build) : '';
@@ -1400,11 +1408,13 @@ function currentPostOutputMove(dir: string, project: JsonObject, kind: 'motion' 
       return { role: 'agent', field, awaits: field, command: `rig-create scene stage-adopted ${shellWord(dir)}`,
         act: `Reuse the verified adopted rig and motion. Stage the retained Parts build at ${ADOPTED_COMPOSE_BUILD}, then run next for scene write.` };
     }
+    if (pickedScene) return { role: 'agent', field: CURRENT_SCENE_PATH, awaits: CURRENT_SCENE_PATH,
+      command: `rig-create scene write ${shellWord(dir)} --compose-scene ${shellWord(String(pickedScene.path))}`,
+      act: 'Seal the retained Parts scene shown with the selected camera.' };
     const buildHint = adoptedBuild ? ` Set characters[0].build to ${posix.relative(posix.dirname(PARTS_SCENE_PATH), ADOPTED_COMPOSE_BUILD)} to use the staged adopted build.` : '';
     return { role: 'agent', field: CURRENT_SCENE_PATH, awaits: CURRENT_SCENE_PATH,
       command: `rig-create scene write ${shellWord(dir)} --compose-scene ${PARTS_SCENE_PATH}`,
-      act: adoptedBuild ? `Author the Parts scene from the owner's composition choice and registered plate.${buildHint} Then seal it against the recorded rig and motion.`
-        : "Author the Parts scene from the owner's composition choice and registered plate, then seal it against the recorded rig and motion." };
+      act: `Author the Parts scene from the owner's composition choice. Resolve build and plate image paths relative to the Parts scene file.${buildHint} Then seal it against the recorded rig and motion.` };
   }
 
   let input: ReturnType<typeof currentDirectionSource>;

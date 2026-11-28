@@ -56,7 +56,7 @@ export function directionCommand(args: string[], now: number, hooks: DirectionWr
       if (hasNumberedFlag || /^[0-9]+$/.test(args[1] ?? '')) {
         refuseNumberedWriter('direction write <n> --rig', { path: 'project.json.versions', replacement: DIRECTION_REPLACEMENT });
       }
-      return writeCurrentDirection(args.slice(1), hooks);
+      return writeCurrentDirection(args.slice(1), now, hooks);
     }
     if (args[0] === 'check') return checkDirectionCommand(args.slice(1), now);
     if (args[0] === '--adopt') return adoptDirectionCommand(args.slice(1), now, hooks);
@@ -68,7 +68,7 @@ export function directionCommand(args: string[], now: number, hooks: DirectionWr
   }
 }
 
-function writeCurrentDirection(args: string[], hooks: DirectionWriteHooks): CommandResult {
+function writeCurrentDirection(args: string[], now: number, hooks: DirectionWriteHooks): CommandResult {
   let input: string | undefined;
   let root: string | undefined;
   for (let i = 0; i < args.length; i++) {
@@ -86,7 +86,7 @@ function writeCurrentDirection(args: string[], hooks: DirectionWriteHooks): Comm
     if (project.schema !== 'rig-create/project@0') directionFail('DIRECTION_SCHEMA', 'project.json.schema', 'expected rig-create/project@0');
     const bytes = directionBytes(dir, input);
     snapshots.set(input, bytes);
-    return prepareCurrentDirection(dir, project, directionJson(bytes, input), snapshots);
+    return prepareCurrentDirection(dir, project, directionJson(bytes, input), snapshots, now);
   }, hooks.beforeCommit);
   const stderr = commitProjectStep(dir, 'direction', ['direction', 'write', ...args].join(' '), CURRENT_DIRECTION_PATH);
   return { stdout: `direction: ${CURRENT_DIRECTION_PATH} written`, exit: 0, ...(stderr ? { stderr } : {}) };

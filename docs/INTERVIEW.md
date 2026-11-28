@@ -1011,3 +1011,20 @@ live recorded output by the owner's relayed words. Numbered verdict writers
 (`review`, `parts-review`), numbered review-stage signoffs, and `--from-review`
 pick/signoff/checkpoint ingestion are retired; `check` continues to validate
 already stored receipts in `project.json`.
+
+
+### Composition options with a keyed camera
+
+Put `camera_scene: {path, sha256}` inside `value.compose` (the option's
+`fragment.compose` for a single-ask set). Use each option's own retained,
+project-relative Parts `spine-parts-scene/1` input. A set may include options
+with and without a keyed camera. Keep the camera keys in the scene file.
+
+The scene can live at the project root or under a retained folder such as
+`specs/direction/`. In the Parts scene, write `characters[].build` and
+`plates[].image` relative to that file. Option plate paths stay relative to the
+project root. For example, a registered `inputs/backdrop.png` becomes
+`../../inputs/backdrop.png` inside `specs/direction/compose-scene.json`.
+
+Make the preview from a compose run using the exact scene bytes the option
+binds. After relaying the pick, pass that file to `scene write --compose-scene`.

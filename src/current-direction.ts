@@ -2,9 +2,11 @@ import { PAINTING_IN_RIG_FILE } from '@rig-c/parts/src/parts.ts';
 import { resolve, posix } from 'node:path';
 import { isDeepStrictEqual as equal } from 'node:util';
 import { isObject } from './check.ts';
+import { CAMERA_SCENE_BINDING_SINCE, cameraBindingFinding, cameraChoiceId, currentCameraBindingFinding, hasKeyedCamera } from './camera-choice.ts';
+import type { Finding } from './check.ts';
 import { ComposeValueError, readComposeValue } from './compose-value.ts';
 import { currentFileBinding, currentRigFileBinding, outputRoot, sha256 } from './current.ts';
-import { citedValues, COMPOSE_CAMERA_REPORT_SPEC, readComposeRun, validateComposeCameraModel, validateComposeCitations, validateComposeRunInputs } from './direction-compose.ts';
+import { citedAnswerValues, citedValues, COMPOSE_CAMERA_REPORT_SPEC, readComposeRun, validateComposeCameraModel, validateComposeCitations, validateComposeRunInputs } from './direction-compose.ts';
 import { COMPOSE_CHECK_PATH, COMPOSE_MODEL_PATH } from './direction-loop-seam.ts';
 import { closed, directionBytes, directionFail, directionJson, objects, validateDirectionCitations } from './direction.ts';
 import { adoptedOutputBindings } from './record-adopt.ts';
@@ -54,7 +56,7 @@ function adoptedComposeBindings(project: JsonObject, version: number): Map<strin
 }
 
 /** Validate the spec and producer input against current bindings and the existing owner answers. */
-export function currentDirectionSource(dir: string, project: JsonObject, doc: JsonObject, snapshots: Map<string, Buffer>) {
+export function currentDirectionSource(dir: string, project: JsonObject, doc: JsonObject, snapshots: Map<string, Buffer>, now = Date.now()) {
   const bad = (why: string): never => directionFail('DIRECTION_CURRENT_SPEC_INVALID', CURRENT_DIRECTION_PATH, why);
   if (!closed(doc, ['schema', 'rig', 'scene', 'take', 'citations']) || doc.schema !== CURRENT_DIRECTION_SPEC
     || !closed(doc.rig, ['model']) || !sceneBinding(doc.rig.model) || !sceneBinding(doc.scene) || doc.scene.path !== CURRENT_SCENE_PATH
@@ -75,6 +77,10 @@ export function currentDirectionSource(dir: string, project: JsonObject, doc: Js
   if (sha256(sourceBytes) !== source.sha256) bad('the Parts scene changed; run scene write and direction write again');
   snapshots.set(source.path, sourceBytes);
   const scene = directionJson(sourceBytes, source.path);
+  if (hasKeyedCamera(scene) && now >= Date.parse(CAMERA_SCENE_BINDING_SINCE)) {
+    const finding = currentCameraBindingFinding(dir, project, source, snapshots);
+    if (finding) throw finding;
+  }
   const characters = objects(scene.characters);
   const plates = objects(scene.plates);
   const idle = isObject(scene.animations) ? scene.animations.idle : undefined;
@@ -121,7 +127,7 @@ export function currentDirectionSource(dir: string, project: JsonObject, doc: Js
   return { authoredScene, source, scene, character, build, registered, chosen, takeDuration };
 }
 
-export function prepareCurrentDirection(dir: string, project: JsonObject, intent: JsonObject, snapshots: Map<string, Buffer>): JsonObject {
+export function prepareCurrentDirection(dir: string, project: JsonObject, intent: JsonObject, snapshots: Map<string, Buffer>, now: number): JsonObject {
   try {
     if (!closed(intent, ['take', 'citations'])) directionFail('DIRECTION_CURRENT_SPEC_INVALID', 'direction --file', 'supply a JSON object containing the take and citations');
     const raw = sceneBytes(dir, CURRENT_SCENE_PATH, 'DIRECTION_CURRENT_SPEC_INVALID', snapshots);
@@ -129,17 +135,17 @@ export function prepareCurrentDirection(dir: string, project: JsonObject, intent
     if (!binding) directionFail('SCENE_CURRENT_RIG_REQUIRED', 'current.rig.files', 'record the rig before direction write');
     const doc: JsonObject = { schema: CURRENT_DIRECTION_SPEC, rig: { model: binding }, scene: { path: CURRENT_SCENE_PATH, sha256: sha256(raw) },
       take: intent.take!, citations: intent.citations! };
-    currentDirectionSource(dir, project, doc, snapshots);
+    currentDirectionSource(dir, project, doc, snapshots, now);
     return doc;
   } catch (error) { return transitionError(error); }
 }
 
-export function readDirectionOutput(dir: string, project: JsonObject, from: string, spec: string, inventory: Map<string, string>, snapshots: Map<string, Buffer>) {
+export function readDirectionOutput(dir: string, project: JsonObject, from: string, spec: string, inventory: Map<string, string>, snapshots: Map<string, Buffer>, now: number) {
   try {
     if (spec !== CURRENT_DIRECTION_PATH) directionFail('DIRECTION_CURRENT_SPEC_INVALID', spec, `pass --direction ${CURRENT_DIRECTION_PATH} after direction write`);
     const bytes = sceneBytes(dir, spec, 'DIRECTION_CURRENT_SPEC_INVALID', snapshots);
     const doc = directionJson(bytes, spec);
-    const input = currentDirectionSource(dir, project, doc, snapshots);
+    const input = currentDirectionSource(dir, project, doc, snapshots, now);
     const rig = doc.rig as { model: Binding };
     const output = (rel: string, code: string): { bytes: Buffer; binding: Binding } => {
       const path = `${outputRoot('direction')}/${rel}`;
@@ -245,4 +251,39 @@ export function readDirectionOutput(dir: string, project: JsonObject, from: stri
     return { built_with: {}, built_from: [...new Map(bindings.map(binding => [binding.path, binding])).values()], run: run.binding,
       report: check.binding, takeDuration: input.takeDuration };
   } catch (error) { return transitionError(error); }
+}
+
+/** Replay only the intact, recorded direction inputs. Changed inputs are already OUTPUT_STALE. */
+export function checkCurrentDirectionCamera(dir: string, project: JsonObject, refusals: Finding[], warnings?: Finding[]): void {
+  const node = isObject(project.current) ? project.current.direction : undefined;
+  if (!isObject(node) || node.adopted !== undefined) return;
+  const inputs = objects(node.built_from);
+  function retained(binding: unknown): JsonObject | undefined {
+    if (!sceneBinding(binding) || !inputs.some(row => row.path === binding.path && row.sha256 === binding.sha256)) return;
+    try {
+      const bytes = sceneBytes(dir, String(binding.path), 'DIRECTION_COMPOSE_FILE');
+      if (sha256(bytes) === binding.sha256) return directionJson(bytes, String(binding.path));
+    } catch {
+      // The current output checker handles stale input bytes.
+    }
+  }
+  const spec = retained(inputs.find(row => row.path === CURRENT_DIRECTION_PATH));
+  if (spec?.schema !== CURRENT_DIRECTION_SPEC || !isObject(spec.citations) || !isObject(spec.citations.composition)) return;
+  const authored = retained(spec.scene);
+  const source = authored?.compose;
+  if (!sceneBinding(source)) return;
+  const scene = retained(source);
+  if (!scene || !hasKeyedCamera(scene)) return;
+  const at = Date.parse(String(node.at));
+  let findings: (SceneError | undefined)[];
+  try {
+    findings = citedAnswerValues(dir, project, spec, 'post_composition', false, undefined, at)
+      .map(({ value, answer }) => cameraBindingFinding(source, cameraChoiceId(answer), isObject(value.compose) ? value.compose.camera_scene : undefined));
+  } catch {
+    findings = [cameraBindingFinding(source, '(missing)', undefined)];
+  }
+  const first = findings[0];
+  if (!first || !findings.every(Boolean)) return;
+  const target = at >= Date.parse(CAMERA_SCENE_BINDING_SINCE) ? refusals : warnings;
+  target?.push({ code: first.code, path: first.path, message: first.message });
 }

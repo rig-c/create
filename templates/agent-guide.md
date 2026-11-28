@@ -53,7 +53,8 @@ Feedback and approval never gate writes. For machine-read parts and rigging valu
    remaining work before advancing. Register any background with
    `rig-create input add <path> --origin <words>`. Render with the producer
    command from next, then use `rig-create record motion --from <dir>`.
-   Put the selected composition into the Parts scene. Use
+   Put the selected composition into the Parts scene. For keyed options bind
+   the shown scene as `value.compose.camera_scene: {path,sha256}`. Use
    `rig-create scene write --compose-scene <file>` and
    `rig-create direction write --file <json>` with the take and citations
    to the recorded choices. Run the compose command from next and

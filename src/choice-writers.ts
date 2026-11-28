@@ -1,4 +1,5 @@
 import { OWNER_CHAT_FLAGS, readOwnerChat } from './owner-chat.ts';
+import { validateCameraOptions } from './camera-choice.ts';
 import { overrideFindings } from './overrides.ts';
 import { intakeItem, intakeWarnings, INTAKE_QUESTION } from './intake.ts';
 import { prepareInterviewCommentClosure } from './interview-comment-closures.ts';
@@ -152,6 +153,7 @@ export function interviewOptionsCommand(args: string[], now: number): string { r
     let binding: JsonObject;
     try { binding = {path,sha256:sha256(readFileSync(literalFile(dir,path)))}; } catch (e) { throw new ChoiceError('INTERVIEW_OPTIONS_FILE',String(e)); }
     const {set} = optionFile(dir,binding); validateSet(next,item,set,loadCollection(dir)); validateContext(dir,next,set,now,true);
+    validateCameraOptions(dir, set);
     if (choiceAdoption(next, item) === null) refuse('INTERVIEW_CHOICE_REQUIRED',`${item.path}: adopt choices before drafting a new question`);
     // A retained path/id may never be reused with a different hash, even after answer replacement.
     for (const other of [...collectItems(next,{collection:loadCollection(dir)}), ...(item.path === 'intake.choice.answer' ? [item] : [])]) {
@@ -183,6 +185,7 @@ function prepareInterviewAnswer(
   if (isObject(registered) && binding.sha256 !== registered.sha256) refuse('INTERVIEW_OPTIONS_STALE',`${item.path}: displayed set sha differs from the registered set; refresh the questionnaire`);
   if (!equal(registered,binding)) refuse('INTERVIEW_CHOICE_INVALID',`${item.path}: displayed set is not the registered pending set; register/refresh the shown options`);
   const {set} = optionFile(dir,binding); validateSet(project,item,set,loadCollection(dir)); validateContext(dir,project,set,now,true);
+  validateCameraOptions(dir, set);
   const offered = asArray(set.asks).filter(isObject);
   const selected = opts.many['--pick'] ?? new Map<string,string>();
   if (selected.size !== offered.length || [...selected.keys()].some(k => !offered.some(a => a.id === k))) throw new ChoiceError('INTERVIEW_CHOICE_INVALID','pick exactly once per applicable ask in questionnaire order');

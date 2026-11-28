@@ -2,7 +2,7 @@
   "schema": "rig-create/project@0",
   "corrections_contract": {
     "schema": "rig-create/corrections@1",
-    "adopted_at": "2026-11-27T00:00:01.000Z"
+    "adopted_at": "2026-11-28T00:00:01.000Z"
   },
   "corrections": [],
   "name": "example-current",
@@ -27,67 +27,67 @@
       "stage": "interview",
       "checkpoint": null,
       "by": "owner",
-      "at": "2026-11-27T00:00:07.000Z",
+      "at": "2026-11-28T00:00:07.000Z",
       "verbatim": "I approve the synthetic interview work as presented.\n",
       "source": "owner chat, relayed",
-      "said_at": "2026-11-27T00:00:06.000Z",
+      "said_at": "2026-11-28T00:00:06.000Z",
       "relayed_by": "example-agent",
       "answer_hashes": {
-        "rig_type": "2976a9b744db3d0d58528730ed5718adb3b63db54e719130374beddd3d9d111d",
+        "rig_type": "b4b152ade9c8a9be3b7b2c601b3d7cabedb36acde6b0279035d6e9a0d14e409e",
         "reference": "46f25257a8d9a08fc12d209024740fa723b3027dfb0fd0e3c5e5ba51c799e148",
         "seethrough": "46f25257a8d9a08fc12d209024740fa723b3027dfb0fd0e3c5e5ba51c799e148",
-        "assemble": "ac6cdc8a1409ce54dda485eca645ae203d0d4f7250da6021945be601e0b25785"
+        "assemble": "6f85e9876f7a9720b91802c09791e632cb63decc6eed198b29788b6e823599be"
       }
     },
     {
       "stage": "plan-approved",
       "checkpoint": null,
       "by": "owner",
-      "at": "2026-11-27T00:00:09.000Z",
+      "at": "2026-11-28T00:00:09.000Z",
       "verbatim": "I approve the synthetic plan-approved work as presented.\n",
       "source": "owner chat, relayed",
-      "said_at": "2026-11-27T00:00:08.000Z",
+      "said_at": "2026-11-28T00:00:08.000Z",
       "relayed_by": "example-agent",
       "steps": [
         "seethrough",
         "assemble"
       ],
       "step_hashes": {
-        "seethrough": "e375283c67e559d611f26685b201e388693e44bbf2c521415877f7449231ddfb",
-        "assemble": "532f1ab88baf5b46d793e6449359fe4abbb5fb5e315165c8114758d038e6e325"
+        "seethrough": "c8fe79a88965b9ba1522cbbdabd5c558072f08d1e2fc491f2639f8dad875a31f",
+        "assemble": "7748acbaf9ce274fdb5ea34ad7eccb8aca49a3cdd1cd72f4574ccbdb70f33884"
       },
       "answer_hashes": {
         "seethrough": "46f25257a8d9a08fc12d209024740fa723b3027dfb0fd0e3c5e5ba51c799e148",
-        "assemble": "90955f530ec5b075aa1dc4c856fcac6eeec6ef5699d09bea2377064b05380100"
+        "assemble": "b5279b3e0f8bb821a5c86e79a6b5cbab6a5a1560af8e428039ab3776d1fca40b"
       }
     },
     {
       "stage": "parts-review",
       "checkpoint": null,
       "by": "owner",
-      "at": "2026-11-27T00:00:18.000Z",
+      "at": "2026-11-28T00:00:18.000Z",
       "verbatim": "I approve the synthetic parts-review work as presented.\n",
       "source": "owner chat, relayed",
-      "said_at": "2026-11-27T00:00:17.000Z",
+      "said_at": "2026-11-28T00:00:17.000Z",
       "relayed_by": "example-agent",
       "target": {
         "subject": "current.parts",
-        "record_sha256": "e8c88f81f1595e97c663d59e46d607d90c29731c67bb18b988d95406b7efea8c",
+        "record_sha256": "905ae7cfee00e5c4d6fb07daa73264024618fd2190d5e04e6aa65c627b827222",
         "files_sha256": "8086da1cca9944f02b9a2b838c3430e1f8069519661c0df6f33c692c5611ae74"
       },
       "structure": {
-        "path": "evidence/structure/current-parts/e8c88f81f1595e97c663d59e46d607d90c29731c67bb18b988d95406b7efea8c.json",
-        "sha256": "e7734d803bf7a27b5ed147993f7254dfb2be42a6ffd1b9a2579cd87c866c4e88"
+        "path": "evidence/structure/current-parts/905ae7cfee00e5c4d6fb07daa73264024618fd2190d5e04e6aa65c627b827222.json",
+        "sha256": "ca209f707fadc715bc1d55ed80ffa84fb3e0c9b8db683d82b18ff545747b539c"
       }
     },
     {
       "stage": "rigging-interview",
       "checkpoint": null,
       "by": "owner",
-      "at": "2026-11-27T00:00:28.000Z",
+      "at": "2026-11-28T00:00:28.000Z",
       "verbatim": "I approve the synthetic rigging-interview work as presented.\n",
       "source": "owner chat, relayed",
-      "said_at": "2026-11-27T00:00:27.000Z",
+      "said_at": "2026-11-28T00:00:27.000Z",
       "relayed_by": "example-agent",
       "steps": [
         "bones",
@@ -96,42 +96,42 @@
         "motion"
       ],
       "step_hashes": {
-        "bones": "7a43f25161330bc7e098aa04b50aac8747e5f07f19a832d43e0c5fdc25840bf4",
-        "meshes": "972f512ef1aea894ac8368e76ed2e3a8728d916fd265a628b974083a5771a2a7",
-        "constraints": "b7d804c47fd0f9796e0575de6e5cf57c40c829d41efc63f631c67a7ac0b9c8b3",
-        "motion": "01709ee3809faa732bea20dad0f0b40b65fb65d956c58578424a2fc4b253014d"
+        "bones": "59b4577c2eb3db4bc94bc96be7a7772b7065d3cb57e5927826e3299531b8e94d",
+        "meshes": "1bb1b2f2eda13573a2911f1aa3eafdc82c2c2891a5a255651b22281efdfde9b2",
+        "constraints": "69e1e39ff036c7300bf1e60af76ee9d70dc98a99e59d4a295f4868a3d8fb4fd3",
+        "motion": "1eb759be73f06fe900a9293115a901946799813c5973e31075bfea6c31d71433"
       },
       "answer_hashes": {
         "bones": "ec381b505f54dfcb1ab012936d82c8278ca942a7ca00cef959e68fae702841a9",
-        "meshes": "ee4e90ba202c948a5409897f6ef09f3143f0fb2b1a23f5cdf9cf7bb5b938b077",
+        "meshes": "5b3acb961d22d29a7b6fd2c13610f5594b19415831ec1c776429f45ca8f06911",
         "constraints": "ec381b505f54dfcb1ab012936d82c8278ca942a7ca00cef959e68fae702841a9",
         "motion": "09d56968ea05186997f4960eb95adc1439fc98ac580c3fa90c666b07146a839a"
       },
       "accepted_parts": {
-        "signoff_at": "2026-11-27T00:00:18.000Z",
+        "signoff_at": "2026-11-28T00:00:18.000Z",
         "target": {
           "subject": "current.parts",
-          "record_sha256": "e8c88f81f1595e97c663d59e46d607d90c29731c67bb18b988d95406b7efea8c",
+          "record_sha256": "905ae7cfee00e5c4d6fb07daa73264024618fd2190d5e04e6aa65c627b827222",
           "files_sha256": "8086da1cca9944f02b9a2b838c3430e1f8069519661c0df6f33c692c5611ae74"
         }
       },
       "structure": {
-        "path": "evidence/structure/current-parts/e8c88f81f1595e97c663d59e46d607d90c29731c67bb18b988d95406b7efea8c.json",
-        "sha256": "e7734d803bf7a27b5ed147993f7254dfb2be42a6ffd1b9a2579cd87c866c4e88"
+        "path": "evidence/structure/current-parts/905ae7cfee00e5c4d6fb07daa73264024618fd2190d5e04e6aa65c627b827222.json",
+        "sha256": "ca209f707fadc715bc1d55ed80ffa84fb3e0c9b8db683d82b18ff545747b539c"
       }
     },
     {
       "stage": "rig-review",
       "checkpoint": null,
       "by": "owner",
-      "at": "2026-11-27T00:00:40.000Z",
+      "at": "2026-11-28T00:00:40.000Z",
       "verbatim": "I approve the synthetic rig-review work as presented.\n",
       "source": "owner chat, relayed",
-      "said_at": "2026-11-27T00:00:39.000Z",
+      "said_at": "2026-11-28T00:00:39.000Z",
       "relayed_by": "example-agent",
       "target": {
         "subject": "current.rig",
-        "record_sha256": "ba43b1dfed19a429eb1e50c172d470cbe9cde2d5f05b52a4d0cf9ce4439ed3e5",
+        "record_sha256": "7a6d4254a172037173b5890ab2c212263941e4db6a2492a12a139e3003d8ec21",
         "files_sha256": "58cf4dc9dcbe9126788c8ee4c588ba3927d4f2cc9984647032a701ce5c5fcde9"
       }
     },
@@ -139,10 +139,10 @@
       "stage": "post-interview",
       "checkpoint": null,
       "by": "owner",
-      "at": "2026-11-27T00:00:52.000Z",
+      "at": "2026-11-28T00:00:52.000Z",
       "verbatim": "I approve the synthetic post-interview work as presented.\n",
       "source": "owner chat, relayed",
-      "said_at": "2026-11-27T00:00:51.000Z",
+      "said_at": "2026-11-28T00:00:51.000Z",
       "relayed_by": "example-agent",
       "steps": [
         "camera",
@@ -150,28 +150,28 @@
         "composition"
       ],
       "step_hashes": {
-        "camera": "46eab6d1d4e82d736f3bfb66fcfde2c527de2bb8cbee34310e11e3195fc45432",
-        "timing": "98bdc479a76c540509aafe3d60bb6d8429be9fa00428804dc1e45cd7c5acf447",
-        "composition": "f51d04b9305f31b6694e7277f9b385aa15c08f3b6c850311e6fcebbd6f18f5ad"
+        "camera": "0386c6675b6ef2f20af8d648ab9c382937793e9a9bfc14bec82dc7d2479bc1f0",
+        "timing": "1a02fabb3e9f6576261ad8e0aa5ce4e4ffececd99c4140ee5f99b3d28ef5ba31",
+        "composition": "2aba08e8fa969a570df96499b4cc36125113325c28b766363fa2609e61d8d55e"
       },
       "answer_hashes": {
-        "camera_depth": "4e7f43f980c624d396e1221b67e001c8d691e5a16c52735f0bfa590d3875b190",
-        "post_timing": "8c403bba6be0f9776252fd5f9f1bb11817bdf10e1f574dc62e02386f1b07eba8",
-        "post_composition": "0335fb6ba5c1d99b41abaf0201939c790f1b9dafda5340ed676a918ed30610b1"
+        "camera_depth": "20a97bc38653eef1e8a0714b3945a0b442ff47f12ed12f80b03203373cb92582",
+        "post_timing": "afd723663f6530931fb73892c9771e66928ccf44be0a9fb8b8e2e55fb020a1e3",
+        "post_composition": "4e75624e1295bae329fcc8b65d59e2cef753f7d2271cdb5fec89fa9ef2305bda"
       }
     },
     {
       "stage": "direction-review",
       "checkpoint": null,
       "by": "owner",
-      "at": "2026-11-27T00:01:05.000Z",
+      "at": "2026-11-28T00:01:05.000Z",
       "verbatim": "I approve the synthetic direction-review work as presented.\n",
       "source": "owner chat, relayed",
-      "said_at": "2026-11-27T00:01:04.000Z",
+      "said_at": "2026-11-28T00:01:04.000Z",
       "relayed_by": "example-agent",
       "target": {
         "subject": "current.direction",
-        "record_sha256": "707395d1530ffb0b2d24985268329e8303ba0c823a86c680185977f5c0e06331",
+        "record_sha256": "2dd1cac9c0b627496e1f444d5bdabb474e2cd91a7360acb2b3a8ca08f519b551",
         "files_sha256": "f1e9436668c87296027439904f5cceec0ccc556e197db7357f960b48e5b1e55c"
       }
     }
@@ -194,7 +194,7 @@
         "answer": {
           "delegated": true,
           "by": "agent",
-          "at": "2026-11-27T00:00:03.000Z",
+          "at": "2026-11-28T00:00:03.000Z",
           "source": "step plan",
           "step_plan": {
             "step": "parts",
@@ -203,7 +203,7 @@
           "plan_quote": "Build a standing idle character.",
           "agent_decision": {
             "by": "agent",
-            "at": "2026-11-27T00:00:03.000Z",
+            "at": "2026-11-28T00:00:03.000Z",
             "reasoning": "Follow the proposed synthetic plan.\n",
             "value": "character.idle"
           }
@@ -269,7 +269,7 @@
         "guide": {
           "delegated": true,
           "by": "agent",
-          "at": "2026-11-27T00:00:04.000Z",
+          "at": "2026-11-28T00:00:04.000Z",
           "source": "step plan",
           "step_plan": {
             "step": "parts",
@@ -308,7 +308,7 @@
           ],
           "agent_decision": {
             "by": "agent",
-            "at": "2026-11-27T00:00:04.000Z",
+            "at": "2026-11-28T00:00:04.000Z",
             "reasoning": "Follow the proposed synthetic plan.\n",
             "value": {
               "project": "core"
@@ -354,7 +354,7 @@
         "guide": {
           "delegated": true,
           "by": "agent",
-          "at": "2026-11-27T00:00:23.000Z",
+          "at": "2026-11-28T00:00:23.000Z",
           "source": "step plan",
           "step_plan": {
             "step": "rigging",
@@ -377,7 +377,7 @@
           ],
           "agent_decision": {
             "by": "agent",
-            "at": "2026-11-27T00:00:23.000Z",
+            "at": "2026-11-28T00:00:23.000Z",
             "reasoning": "Follow the proposed synthetic plan.\n",
             "value": {}
           }
@@ -423,7 +423,7 @@
         "guide": {
           "delegated": true,
           "by": "agent",
-          "at": "2026-11-27T00:00:22.000Z",
+          "at": "2026-11-28T00:00:22.000Z",
           "source": "step plan",
           "step_plan": {
             "step": "rigging",
@@ -438,7 +438,7 @@
           ],
           "agent_decision": {
             "by": "agent",
-            "at": "2026-11-27T00:00:22.000Z",
+            "at": "2026-11-28T00:00:22.000Z",
             "reasoning": "Follow the proposed synthetic plan.\n",
             "value": {
               "mode": "fixed"
@@ -489,14 +489,14 @@
           "guide": {
             "delegated": false,
             "by": "owner",
-            "at": "2026-11-27T00:00:44.000Z",
+            "at": "2026-11-28T00:00:44.000Z",
             "verbatim": "Keep the proposed camera_depth\nUse the proposed value.",
             "source": "owner chat, relayed",
             "choice": {
               "spec": "rig-create/interview-choice@1",
               "set": {
                 "path": "evidence/interview/camera_depth.json",
-                "sha256": "0713779974a91bc0090cee5613d854bcaa88c73f18cfcf5934518834acb13b6e"
+                "sha256": "e904e4c2845d3c96fde61d2ed44578d606c267ef281e61ae0676e17ff79e3754"
               },
               "picks": [
                 {
@@ -516,7 +516,7 @@
               }
             ],
             "owner_words": "Choose the proposed camera_depth for the synthetic scene.",
-            "said_at": "2026-11-27T00:00:43.000Z",
+            "said_at": "2026-11-28T00:00:43.000Z",
             "relayed_by": "example-agent",
             "value": {
               "camera": "fixed",
@@ -533,14 +533,14 @@
           "guide": {
             "delegated": false,
             "by": "owner",
-            "at": "2026-11-27T00:00:46.000Z",
+            "at": "2026-11-28T00:00:46.000Z",
             "verbatim": "Keep the proposed post_timing\nUse the proposed value.",
             "source": "owner chat, relayed",
             "choice": {
               "spec": "rig-create/interview-choice@1",
               "set": {
                 "path": "evidence/interview/post_timing.json",
-                "sha256": "e07ca6c7cb811592424da6c2dfc2b60640851edaecdadcaab24fd624584e92d7"
+                "sha256": "85f496de6a97f0e50940c0952b10d83792c6d542e78582a29ea288a2b8112014"
               },
               "picks": [
                 {
@@ -560,7 +560,7 @@
               }
             ],
             "owner_words": "Choose the proposed post_timing for the synthetic scene.",
-            "said_at": "2026-11-27T00:00:45.000Z",
+            "said_at": "2026-11-28T00:00:45.000Z",
             "relayed_by": "example-agent",
             "value": {
               "seconds": 4,
@@ -577,14 +577,14 @@
           "guide": {
             "delegated": false,
             "by": "owner",
-            "at": "2026-11-27T00:00:48.000Z",
+            "at": "2026-11-28T00:00:48.000Z",
             "verbatim": "Keep the proposed post_composition\nUse the proposed value.",
             "source": "owner chat, relayed",
             "choice": {
               "spec": "rig-create/interview-choice@1",
               "set": {
                 "path": "evidence/interview/post_composition.json",
-                "sha256": "6facd842b18a9b9254a113737749b37469cb66c00b0f37ac9a91bbca7328d6e7"
+                "sha256": "6362ed25d6171fedd20c99eb9579b395c34919a4edcd87ae6ae47abf16e57f29"
               },
               "picks": [
                 {
@@ -604,7 +604,7 @@
               }
             ],
             "owner_words": "Choose the proposed post_composition for the synthetic scene.",
-            "said_at": "2026-11-27T00:00:47.000Z",
+            "said_at": "2026-11-28T00:00:47.000Z",
             "relayed_by": "example-agent",
             "value": {
               "compose": {
@@ -643,8 +643,8 @@
     },
     "order": {
       "spec": "rig-create/stage-order@2",
-      "adopted_at": "2026-11-27T00:00:01.000Z",
-      "choices_adopted_at": "2026-11-27T00:00:01.000Z"
+      "adopted_at": "2026-11-28T00:00:01.000Z",
+      "choices_adopted_at": "2026-11-28T00:00:01.000Z"
     },
     "step_plans": [
       {
@@ -660,7 +660,7 @@
           }
         ],
         "by": "agent",
-        "at": "2026-11-27T00:00:02.000Z",
+        "at": "2026-11-28T00:00:02.000Z",
         "feedback": []
       },
       {
@@ -676,7 +676,7 @@
           }
         ],
         "by": "agent",
-        "at": "2026-11-27T00:00:20.000Z",
+        "at": "2026-11-28T00:00:20.000Z",
         "feedback": []
       },
       {
@@ -692,28 +692,28 @@
           }
         ],
         "by": "agent",
-        "at": "2026-11-27T00:00:21.000Z",
+        "at": "2026-11-28T00:00:21.000Z",
         "feedback": []
       }
     ],
     "rigging_context": {
       "accepted_parts": {
-        "signoff_at": "2026-11-27T00:00:18.000Z",
+        "signoff_at": "2026-11-28T00:00:18.000Z",
         "target": {
           "subject": "current.parts",
-          "record_sha256": "e8c88f81f1595e97c663d59e46d607d90c29731c67bb18b988d95406b7efea8c",
+          "record_sha256": "905ae7cfee00e5c4d6fb07daa73264024618fd2190d5e04e6aa65c627b827222",
           "files_sha256": "8086da1cca9944f02b9a2b838c3430e1f8069519661c0df6f33c692c5611ae74"
         }
       },
       "structure": {
-        "path": "evidence/structure/current-parts/e8c88f81f1595e97c663d59e46d607d90c29731c67bb18b988d95406b7efea8c.json",
-        "sha256": "e7734d803bf7a27b5ed147993f7254dfb2be42a6ffd1b9a2579cd87c866c4e88"
+        "path": "evidence/structure/current-parts/905ae7cfee00e5c4d6fb07daa73264024618fd2190d5e04e6aa65c627b827222.json",
+        "sha256": "ca209f707fadc715bc1d55ed80ffa84fb3e0c9b8db683d82b18ff545747b539c"
       }
     }
   },
   "plan": {
     "drafted_by": "agent",
-    "drafted_at": "2026-11-27T00:00:06.000Z",
+    "drafted_at": "2026-11-28T00:00:06.000Z",
     "steps": [
       {
         "id": "seethrough",
@@ -729,18 +729,18 @@
         "checkpoint": {
           "delegated": false,
           "by": "owner",
-          "at": "2026-11-27T00:00:09.000Z",
+          "at": "2026-11-28T00:00:09.000Z",
           "verbatim": "I approve the synthetic plan-approved work as presented.\n",
           "value": false
         },
         "status": "done",
-        "drafted_at": "2026-11-27T00:00:05.000Z",
+        "drafted_at": "2026-11-28T00:00:05.000Z",
         "status_history": [
           {
             "from_status": "pending",
             "status": "in-progress",
             "by": "agent",
-            "at": "2026-11-27T00:00:11.000Z",
+            "at": "2026-11-28T00:00:11.000Z",
             "checkpoint_required": false,
             "signoff": null
           },
@@ -748,7 +748,7 @@
             "from_status": "in-progress",
             "status": "done",
             "by": "agent",
-            "at": "2026-11-27T00:00:13.000Z",
+            "at": "2026-11-28T00:00:13.000Z",
             "checkpoint_required": false,
             "signoff": null
           }
@@ -768,18 +768,18 @@
         "checkpoint": {
           "delegated": false,
           "by": "owner",
-          "at": "2026-11-27T00:00:09.000Z",
+          "at": "2026-11-28T00:00:09.000Z",
           "verbatim": "I approve the synthetic plan-approved work as presented.\n",
           "value": false
         },
         "status": "done",
-        "drafted_at": "2026-11-27T00:00:06.000Z",
+        "drafted_at": "2026-11-28T00:00:06.000Z",
         "status_history": [
           {
             "from_status": "pending",
             "status": "in-progress",
             "by": "agent",
-            "at": "2026-11-27T00:00:12.000Z",
+            "at": "2026-11-28T00:00:12.000Z",
             "checkpoint_required": false,
             "signoff": null
           },
@@ -787,7 +787,7 @@
             "from_status": "in-progress",
             "status": "done",
             "by": "agent",
-            "at": "2026-11-27T00:00:14.000Z",
+            "at": "2026-11-28T00:00:14.000Z",
             "checkpoint_required": false,
             "signoff": null
           }
@@ -807,18 +807,18 @@
         "checkpoint": {
           "delegated": false,
           "by": "owner",
-          "at": "2026-11-27T00:00:28.000Z",
+          "at": "2026-11-28T00:00:28.000Z",
           "verbatim": "I approve the synthetic rigging-interview work as presented.\n",
           "value": false
         },
         "status": "done",
-        "drafted_at": "2026-11-27T00:00:24.000Z",
+        "drafted_at": "2026-11-28T00:00:24.000Z",
         "status_history": [
           {
             "from_status": "pending",
             "status": "in-progress",
             "by": "agent",
-            "at": "2026-11-27T00:00:30.000Z",
+            "at": "2026-11-28T00:00:30.000Z",
             "checkpoint_required": false,
             "signoff": null
           },
@@ -826,7 +826,7 @@
             "from_status": "in-progress",
             "status": "done",
             "by": "agent",
-            "at": "2026-11-27T00:00:35.000Z",
+            "at": "2026-11-28T00:00:35.000Z",
             "checkpoint_required": false,
             "signoff": null
           }
@@ -846,18 +846,18 @@
         "checkpoint": {
           "delegated": false,
           "by": "owner",
-          "at": "2026-11-27T00:00:28.000Z",
+          "at": "2026-11-28T00:00:28.000Z",
           "verbatim": "I approve the synthetic rigging-interview work as presented.\n",
           "value": false
         },
         "status": "done",
-        "drafted_at": "2026-11-27T00:00:25.000Z",
+        "drafted_at": "2026-11-28T00:00:25.000Z",
         "status_history": [
           {
             "from_status": "pending",
             "status": "in-progress",
             "by": "agent",
-            "at": "2026-11-27T00:00:31.000Z",
+            "at": "2026-11-28T00:00:31.000Z",
             "checkpoint_required": false,
             "signoff": null
           },
@@ -865,7 +865,7 @@
             "from_status": "in-progress",
             "status": "done",
             "by": "agent",
-            "at": "2026-11-27T00:00:36.000Z",
+            "at": "2026-11-28T00:00:36.000Z",
             "checkpoint_required": false,
             "signoff": null
           }
@@ -885,18 +885,18 @@
         "checkpoint": {
           "delegated": false,
           "by": "owner",
-          "at": "2026-11-27T00:00:28.000Z",
+          "at": "2026-11-28T00:00:28.000Z",
           "verbatim": "I approve the synthetic rigging-interview work as presented.\n",
           "value": false
         },
         "status": "done",
-        "drafted_at": "2026-11-27T00:00:26.000Z",
+        "drafted_at": "2026-11-28T00:00:26.000Z",
         "status_history": [
           {
             "from_status": "pending",
             "status": "in-progress",
             "by": "agent",
-            "at": "2026-11-27T00:00:32.000Z",
+            "at": "2026-11-28T00:00:32.000Z",
             "checkpoint_required": false,
             "signoff": null
           },
@@ -904,7 +904,7 @@
             "from_status": "in-progress",
             "status": "done",
             "by": "agent",
-            "at": "2026-11-27T00:00:37.000Z",
+            "at": "2026-11-28T00:00:37.000Z",
             "checkpoint_required": false,
             "signoff": null
           }
@@ -924,18 +924,18 @@
         "checkpoint": {
           "delegated": false,
           "by": "owner",
-          "at": "2026-11-27T00:00:28.000Z",
+          "at": "2026-11-28T00:00:28.000Z",
           "verbatim": "I approve the synthetic rigging-interview work as presented.\n",
           "value": false
         },
         "status": "done",
-        "drafted_at": "2026-11-27T00:00:27.000Z",
+        "drafted_at": "2026-11-28T00:00:27.000Z",
         "status_history": [
           {
             "from_status": "pending",
             "status": "in-progress",
             "by": "agent",
-            "at": "2026-11-27T00:00:33.000Z",
+            "at": "2026-11-28T00:00:33.000Z",
             "checkpoint_required": false,
             "signoff": null
           },
@@ -943,7 +943,7 @@
             "from_status": "in-progress",
             "status": "done",
             "by": "agent",
-            "at": "2026-11-27T00:00:38.000Z",
+            "at": "2026-11-28T00:00:38.000Z",
             "checkpoint_required": false,
             "signoff": null
           }
@@ -963,18 +963,18 @@
         "checkpoint": {
           "delegated": false,
           "by": "owner",
-          "at": "2026-11-27T00:00:52.000Z",
+          "at": "2026-11-28T00:00:52.000Z",
           "verbatim": "I approve the synthetic post-interview work as presented.\n",
           "value": false
         },
         "status": "done",
-        "drafted_at": "2026-11-27T00:00:49.000Z",
+        "drafted_at": "2026-11-28T00:00:49.000Z",
         "status_history": [
           {
             "from_status": "pending",
             "status": "in-progress",
             "by": "agent",
-            "at": "2026-11-27T00:00:54.000Z",
+            "at": "2026-11-28T00:00:54.000Z",
             "checkpoint_required": false,
             "signoff": null
           },
@@ -982,7 +982,7 @@
             "from_status": "in-progress",
             "status": "done",
             "by": "agent",
-            "at": "2026-11-27T00:01:01.000Z",
+            "at": "2026-11-28T00:01:01.000Z",
             "checkpoint_required": false,
             "signoff": null
           }
@@ -1002,18 +1002,18 @@
         "checkpoint": {
           "delegated": false,
           "by": "owner",
-          "at": "2026-11-27T00:00:52.000Z",
+          "at": "2026-11-28T00:00:52.000Z",
           "verbatim": "I approve the synthetic post-interview work as presented.\n",
           "value": false
         },
         "status": "done",
-        "drafted_at": "2026-11-27T00:00:50.000Z",
+        "drafted_at": "2026-11-28T00:00:50.000Z",
         "status_history": [
           {
             "from_status": "pending",
             "status": "in-progress",
             "by": "agent",
-            "at": "2026-11-27T00:00:55.000Z",
+            "at": "2026-11-28T00:00:55.000Z",
             "checkpoint_required": false,
             "signoff": null
           },
@@ -1021,7 +1021,7 @@
             "from_status": "in-progress",
             "status": "done",
             "by": "agent",
-            "at": "2026-11-27T00:01:02.000Z",
+            "at": "2026-11-28T00:01:02.000Z",
             "checkpoint_required": false,
             "signoff": null
           }
@@ -1041,18 +1041,18 @@
         "checkpoint": {
           "delegated": false,
           "by": "owner",
-          "at": "2026-11-27T00:00:52.000Z",
+          "at": "2026-11-28T00:00:52.000Z",
           "verbatim": "I approve the synthetic post-interview work as presented.\n",
           "value": false
         },
         "status": "done",
-        "drafted_at": "2026-11-27T00:00:51.000Z",
+        "drafted_at": "2026-11-28T00:00:51.000Z",
         "status_history": [
           {
             "from_status": "pending",
             "status": "in-progress",
             "by": "agent",
-            "at": "2026-11-27T00:00:56.000Z",
+            "at": "2026-11-28T00:00:56.000Z",
             "checkpoint_required": false,
             "signoff": null
           },
@@ -1060,14 +1060,14 @@
             "from_status": "in-progress",
             "status": "done",
             "by": "agent",
-            "at": "2026-11-27T00:01:03.000Z",
+            "at": "2026-11-28T00:01:03.000Z",
             "checkpoint_required": false,
             "signoff": null
           }
         ]
       }
     ],
-    "rigging_drafted_at": "2026-11-27T00:00:27.000Z"
+    "rigging_drafted_at": "2026-11-28T00:00:27.000Z"
   },
   "split": {
     "label_values": [
@@ -1088,14 +1088,14 @@
       "sha256": "02e6ea41dfec89a7eced0f66b98e0fea048846c6f4174fa1cc7631fe360e614f",
       "bytes": 421,
       "origin": "Synthetic geometric painting.",
-      "at": "2026-11-27T00:00:01.000Z"
+      "at": "2026-11-28T00:00:01.000Z"
     },
     {
       "path": "inputs/background.png",
       "sha256": "c180182b6666fb4d90d4f91e210bda103a4081f1ad7c45006db392fa6c4eaf36",
       "bytes": 300,
       "origin": "Synthetic backdrop from Parts assemble.",
-      "at": "2026-11-27T00:00:42.000Z"
+      "at": "2026-11-28T00:00:42.000Z"
     }
   ],
   "fix_ledger": [],
@@ -1111,20 +1111,20 @@
     {
       "stage": "plan-approved",
       "from_stage": "interview",
-      "at": "2026-11-27T00:00:08.000Z",
+      "at": "2026-11-28T00:00:08.000Z",
       "post_not_passed": false,
       "order": "split",
       "signoffs_before": [
         {
           "stage": "interview",
           "checkpoint": null,
-          "at": "2026-11-27T00:00:07.000Z"
+          "at": "2026-11-28T00:00:07.000Z"
         }
       ],
       "signoff": {
         "stage": "interview",
         "checkpoint": null,
-        "at": "2026-11-27T00:00:07.000Z"
+        "at": "2026-11-28T00:00:07.000Z"
       },
       "steps_before": [
         {
@@ -1142,25 +1142,25 @@
     {
       "stage": "parts",
       "from_stage": "plan-approved",
-      "at": "2026-11-27T00:00:10.000Z",
+      "at": "2026-11-28T00:00:10.000Z",
       "post_not_passed": false,
       "order": "split",
       "signoffs_before": [
         {
           "stage": "interview",
           "checkpoint": null,
-          "at": "2026-11-27T00:00:07.000Z"
+          "at": "2026-11-28T00:00:07.000Z"
         },
         {
           "stage": "plan-approved",
           "checkpoint": null,
-          "at": "2026-11-27T00:00:09.000Z"
+          "at": "2026-11-28T00:00:09.000Z"
         }
       ],
       "signoff": {
         "stage": "plan-approved",
         "checkpoint": null,
-        "at": "2026-11-27T00:00:09.000Z"
+        "at": "2026-11-28T00:00:09.000Z"
       },
       "steps_before": [
         {
@@ -1178,25 +1178,25 @@
     {
       "stage": "parts-review",
       "from_stage": "parts",
-      "at": "2026-11-27T00:00:16.000Z",
+      "at": "2026-11-28T00:00:16.000Z",
       "post_not_passed": false,
       "order": "split",
       "signoffs_before": [
         {
           "stage": "interview",
           "checkpoint": null,
-          "at": "2026-11-27T00:00:07.000Z"
+          "at": "2026-11-28T00:00:07.000Z"
         },
         {
           "stage": "plan-approved",
           "checkpoint": null,
-          "at": "2026-11-27T00:00:09.000Z"
+          "at": "2026-11-28T00:00:09.000Z"
         }
       ],
       "signoff": {
         "stage": "plan-approved",
         "checkpoint": null,
-        "at": "2026-11-27T00:00:09.000Z"
+        "at": "2026-11-28T00:00:09.000Z"
       },
       "steps_before": [
         {
@@ -1266,30 +1266,30 @@
     {
       "stage": "rigging-interview",
       "from_stage": "parts-review",
-      "at": "2026-11-27T00:00:19.000Z",
+      "at": "2026-11-28T00:00:19.000Z",
       "post_not_passed": false,
       "order": "split",
       "signoffs_before": [
         {
           "stage": "interview",
           "checkpoint": null,
-          "at": "2026-11-27T00:00:07.000Z"
+          "at": "2026-11-28T00:00:07.000Z"
         },
         {
           "stage": "plan-approved",
           "checkpoint": null,
-          "at": "2026-11-27T00:00:09.000Z"
+          "at": "2026-11-28T00:00:09.000Z"
         },
         {
           "stage": "parts-review",
           "checkpoint": null,
-          "at": "2026-11-27T00:00:18.000Z"
+          "at": "2026-11-28T00:00:18.000Z"
         }
       ],
       "signoff": {
         "stage": "parts-review",
         "checkpoint": null,
-        "at": "2026-11-27T00:00:18.000Z"
+        "at": "2026-11-28T00:00:18.000Z"
       },
       "steps_before": [
         {
@@ -1307,35 +1307,35 @@
     {
       "stage": "rigging",
       "from_stage": "rigging-interview",
-      "at": "2026-11-27T00:00:29.000Z",
+      "at": "2026-11-28T00:00:29.000Z",
       "post_not_passed": false,
       "order": "split",
       "signoffs_before": [
         {
           "stage": "interview",
           "checkpoint": null,
-          "at": "2026-11-27T00:00:07.000Z"
+          "at": "2026-11-28T00:00:07.000Z"
         },
         {
           "stage": "plan-approved",
           "checkpoint": null,
-          "at": "2026-11-27T00:00:09.000Z"
+          "at": "2026-11-28T00:00:09.000Z"
         },
         {
           "stage": "parts-review",
           "checkpoint": null,
-          "at": "2026-11-27T00:00:18.000Z"
+          "at": "2026-11-28T00:00:18.000Z"
         },
         {
           "stage": "rigging-interview",
           "checkpoint": null,
-          "at": "2026-11-27T00:00:28.000Z"
+          "at": "2026-11-28T00:00:28.000Z"
         }
       ],
       "signoff": {
         "stage": "rigging-interview",
         "checkpoint": null,
-        "at": "2026-11-27T00:00:28.000Z"
+        "at": "2026-11-28T00:00:28.000Z"
       },
       "steps_before": [
         {
@@ -1373,35 +1373,35 @@
     {
       "stage": "rig-review",
       "from_stage": "rigging",
-      "at": "2026-11-27T00:00:39.000Z",
+      "at": "2026-11-28T00:00:39.000Z",
       "post_not_passed": false,
       "order": "split",
       "signoffs_before": [
         {
           "stage": "interview",
           "checkpoint": null,
-          "at": "2026-11-27T00:00:07.000Z"
+          "at": "2026-11-28T00:00:07.000Z"
         },
         {
           "stage": "plan-approved",
           "checkpoint": null,
-          "at": "2026-11-27T00:00:09.000Z"
+          "at": "2026-11-28T00:00:09.000Z"
         },
         {
           "stage": "parts-review",
           "checkpoint": null,
-          "at": "2026-11-27T00:00:18.000Z"
+          "at": "2026-11-28T00:00:18.000Z"
         },
         {
           "stage": "rigging-interview",
           "checkpoint": null,
-          "at": "2026-11-27T00:00:28.000Z"
+          "at": "2026-11-28T00:00:28.000Z"
         }
       ],
       "signoff": {
         "stage": "rigging-interview",
         "checkpoint": null,
-        "at": "2026-11-27T00:00:28.000Z"
+        "at": "2026-11-28T00:00:28.000Z"
       },
       "steps_before": [
         {
@@ -1439,40 +1439,40 @@
     {
       "stage": "post-interview",
       "from_stage": "rig-review",
-      "at": "2026-11-27T00:00:41.000Z",
+      "at": "2026-11-28T00:00:41.000Z",
       "post_not_passed": false,
       "order": "split",
       "signoffs_before": [
         {
           "stage": "interview",
           "checkpoint": null,
-          "at": "2026-11-27T00:00:07.000Z"
+          "at": "2026-11-28T00:00:07.000Z"
         },
         {
           "stage": "plan-approved",
           "checkpoint": null,
-          "at": "2026-11-27T00:00:09.000Z"
+          "at": "2026-11-28T00:00:09.000Z"
         },
         {
           "stage": "parts-review",
           "checkpoint": null,
-          "at": "2026-11-27T00:00:18.000Z"
+          "at": "2026-11-28T00:00:18.000Z"
         },
         {
           "stage": "rigging-interview",
           "checkpoint": null,
-          "at": "2026-11-27T00:00:28.000Z"
+          "at": "2026-11-28T00:00:28.000Z"
         },
         {
           "stage": "rig-review",
           "checkpoint": null,
-          "at": "2026-11-27T00:00:40.000Z"
+          "at": "2026-11-28T00:00:40.000Z"
         }
       ],
       "signoff": {
         "stage": "rig-review",
         "checkpoint": null,
-        "at": "2026-11-27T00:00:40.000Z"
+        "at": "2026-11-28T00:00:40.000Z"
       },
       "steps_before": [
         {
@@ -1510,45 +1510,45 @@
     {
       "stage": "post",
       "from_stage": "post-interview",
-      "at": "2026-11-27T00:00:53.000Z",
+      "at": "2026-11-28T00:00:53.000Z",
       "post_not_passed": false,
       "order": "split",
       "signoffs_before": [
         {
           "stage": "interview",
           "checkpoint": null,
-          "at": "2026-11-27T00:00:07.000Z"
+          "at": "2026-11-28T00:00:07.000Z"
         },
         {
           "stage": "plan-approved",
           "checkpoint": null,
-          "at": "2026-11-27T00:00:09.000Z"
+          "at": "2026-11-28T00:00:09.000Z"
         },
         {
           "stage": "parts-review",
           "checkpoint": null,
-          "at": "2026-11-27T00:00:18.000Z"
+          "at": "2026-11-28T00:00:18.000Z"
         },
         {
           "stage": "rigging-interview",
           "checkpoint": null,
-          "at": "2026-11-27T00:00:28.000Z"
+          "at": "2026-11-28T00:00:28.000Z"
         },
         {
           "stage": "rig-review",
           "checkpoint": null,
-          "at": "2026-11-27T00:00:40.000Z"
+          "at": "2026-11-28T00:00:40.000Z"
         },
         {
           "stage": "post-interview",
           "checkpoint": null,
-          "at": "2026-11-27T00:00:52.000Z"
+          "at": "2026-11-28T00:00:52.000Z"
         }
       ],
       "signoff": {
         "stage": "post-interview",
         "checkpoint": null,
-        "at": "2026-11-27T00:00:52.000Z"
+        "at": "2026-11-28T00:00:52.000Z"
       },
       "steps_before": [
         {
@@ -1601,45 +1601,45 @@
     {
       "stage": "direction-review",
       "from_stage": "post",
-      "at": "2026-11-27T00:01:04.000Z",
+      "at": "2026-11-28T00:01:04.000Z",
       "post_not_passed": false,
       "order": "split",
       "signoffs_before": [
         {
           "stage": "interview",
           "checkpoint": null,
-          "at": "2026-11-27T00:00:07.000Z"
+          "at": "2026-11-28T00:00:07.000Z"
         },
         {
           "stage": "plan-approved",
           "checkpoint": null,
-          "at": "2026-11-27T00:00:09.000Z"
+          "at": "2026-11-28T00:00:09.000Z"
         },
         {
           "stage": "parts-review",
           "checkpoint": null,
-          "at": "2026-11-27T00:00:18.000Z"
+          "at": "2026-11-28T00:00:18.000Z"
         },
         {
           "stage": "rigging-interview",
           "checkpoint": null,
-          "at": "2026-11-27T00:00:28.000Z"
+          "at": "2026-11-28T00:00:28.000Z"
         },
         {
           "stage": "rig-review",
           "checkpoint": null,
-          "at": "2026-11-27T00:00:40.000Z"
+          "at": "2026-11-28T00:00:40.000Z"
         },
         {
           "stage": "post-interview",
           "checkpoint": null,
-          "at": "2026-11-27T00:00:52.000Z"
+          "at": "2026-11-28T00:00:52.000Z"
         }
       ],
       "signoff": {
         "stage": "post-interview",
         "checkpoint": null,
-        "at": "2026-11-27T00:00:52.000Z"
+        "at": "2026-11-28T00:00:52.000Z"
       },
       "steps_before": [
         {
@@ -1692,50 +1692,50 @@
     {
       "stage": "accepted",
       "from_stage": "direction-review",
-      "at": "2026-11-27T00:01:06.000Z",
+      "at": "2026-11-28T00:01:06.000Z",
       "post_not_passed": false,
       "order": "split",
       "signoffs_before": [
         {
           "stage": "interview",
           "checkpoint": null,
-          "at": "2026-11-27T00:00:07.000Z"
+          "at": "2026-11-28T00:00:07.000Z"
         },
         {
           "stage": "plan-approved",
           "checkpoint": null,
-          "at": "2026-11-27T00:00:09.000Z"
+          "at": "2026-11-28T00:00:09.000Z"
         },
         {
           "stage": "parts-review",
           "checkpoint": null,
-          "at": "2026-11-27T00:00:18.000Z"
+          "at": "2026-11-28T00:00:18.000Z"
         },
         {
           "stage": "rigging-interview",
           "checkpoint": null,
-          "at": "2026-11-27T00:00:28.000Z"
+          "at": "2026-11-28T00:00:28.000Z"
         },
         {
           "stage": "rig-review",
           "checkpoint": null,
-          "at": "2026-11-27T00:00:40.000Z"
+          "at": "2026-11-28T00:00:40.000Z"
         },
         {
           "stage": "post-interview",
           "checkpoint": null,
-          "at": "2026-11-27T00:00:52.000Z"
+          "at": "2026-11-28T00:00:52.000Z"
         },
         {
           "stage": "direction-review",
           "checkpoint": null,
-          "at": "2026-11-27T00:01:05.000Z"
+          "at": "2026-11-28T00:01:05.000Z"
         }
       ],
       "signoff": {
         "stage": "direction-review",
         "checkpoint": null,
-        "at": "2026-11-27T00:01:05.000Z"
+        "at": "2026-11-28T00:01:05.000Z"
       },
       "steps_before": [
         {
@@ -1788,7 +1788,7 @@
   ],
   "current": {
     "parts": {
-      "at": "2026-11-27T00:00:15.000Z",
+      "at": "2026-11-28T00:00:15.000Z",
       "built_by": "agent",
       "built_with": {
         "@rig-c/parts": "2.63.1"
@@ -1861,7 +1861,7 @@
         },
         {
           "path": "outputs/parts/run.json",
-          "sha256": "87703f82316d68e462f3d4adf21e4c99d9ae52d9a099b28995edde0c09d6c88b",
+          "sha256": "ff045d69a3706ffb2db1a1988c1becb4a00aa0f8f5c32262e0fed5822a27337e",
           "bytes": 2192
         }
       ],
@@ -1882,7 +1882,7 @@
       ],
       "run": {
         "path": "outputs/parts/run.json",
-        "sha256": "87703f82316d68e462f3d4adf21e4c99d9ae52d9a099b28995edde0c09d6c88b"
+        "sha256": "ff045d69a3706ffb2db1a1988c1becb4a00aa0f8f5c32262e0fed5822a27337e"
       },
       "report": {
         "path": "outputs/parts/check/parts-check.json",
@@ -1890,7 +1890,7 @@
       }
     },
     "rig": {
-      "at": "2026-11-27T00:00:34.000Z",
+      "at": "2026-11-28T00:00:34.000Z",
       "built_by": "agent",
       "built_with": {
         "@rig-c/parts": "2.63.1",
@@ -1904,7 +1904,7 @@
         },
         {
           "path": "outputs/rig/check/build/run.json",
-          "sha256": "8940a9c08113458e3f1bb11f12ee33132a9e41018f569aae0547c5a9fc68945f",
+          "sha256": "03adbc87693f975b7b837fe8bf9f21ae830b08c40e15cd81ee5a2e16dba54601",
           "bytes": 1198
         },
         {
@@ -1929,7 +1929,7 @@
         },
         {
           "path": "outputs/rig/check/check-run.json",
-          "sha256": "86431e011eabb92ad1924986627038c1888a0e5f2d4a0424a3bf5affd4745cb7",
+          "sha256": "8c308c184ac1b6400d32e17c291b5329937d11b958d9556100866f8f0d7b8e99",
           "bytes": 8363
         },
         {
@@ -2209,7 +2209,7 @@
         },
         {
           "path": "outputs/rig/check/idle_frames/render-run.json",
-          "sha256": "5f1a49b86c58559bfab7d2895e930d79b5de03d7eac0889d6aacea4e9c1562cc",
+          "sha256": "d620028e8eecdcd8875cebfca644bb6b838bc5f6180cf56b4324ce172cf911d5",
           "bytes": 7562
         },
         {
@@ -2264,7 +2264,7 @@
         },
         {
           "path": "outputs/rig/run.json",
-          "sha256": "bfa76645af882d4773e5d09990bc96421382c02f7e6ab1a30cbd1a42eb0faca6",
+          "sha256": "a44398a958e7af22847245cb3c0238ab0451ea813436b1d283f8cc5e9abc652d",
           "bytes": 1424
         }
       ],
@@ -2277,7 +2277,7 @@
       ],
       "run": {
         "path": "outputs/rig/run.json",
-        "sha256": "bfa76645af882d4773e5d09990bc96421382c02f7e6ab1a30cbd1a42eb0faca6"
+        "sha256": "a44398a958e7af22847245cb3c0238ab0451ea813436b1d283f8cc5e9abc652d"
       },
       "report": {
         "path": "outputs/rig/check/check.json",
@@ -2288,7 +2288,7 @@
         "runs": [
           {
             "path": "outputs/rig/check/check-run.json",
-            "sha256": "86431e011eabb92ad1924986627038c1888a0e5f2d4a0424a3bf5affd4745cb7",
+            "sha256": "8c308c184ac1b6400d32e17c291b5329937d11b958d9556100866f8f0d7b8e99",
             "spec": "rig-run/2",
             "argv": [
               "check",
@@ -2313,7 +2313,7 @@
       }
     },
     "motion": {
-      "at": "2026-11-27T00:00:57.000Z",
+      "at": "2026-11-28T00:00:57.000Z",
       "built_by": "agent",
       "built_with": {
         "@rig-c/core": "3.11.0"
@@ -2366,7 +2366,7 @@
         },
         {
           "path": "outputs/motion/render-run.json",
-          "sha256": "fe858c66c04eefc841f5e65e8938dbf130b485c6246567627ff838351033c880",
+          "sha256": "98861cf8913f975291bf89db99fadda2e7aad80e60f8da48b2e72130d520c61d",
           "bytes": 2217
         }
       ],
@@ -2387,14 +2387,14 @@
       ],
       "run": {
         "path": "outputs/motion/render-run.json",
-        "sha256": "fe858c66c04eefc841f5e65e8938dbf130b485c6246567627ff838351033c880"
+        "sha256": "98861cf8913f975291bf89db99fadda2e7aad80e60f8da48b2e72130d520c61d"
       },
       "rebuild": {
         "recorded": true,
         "runs": [
           {
             "path": "outputs/motion/render-run.json",
-            "sha256": "fe858c66c04eefc841f5e65e8938dbf130b485c6246567627ff838351033c880",
+            "sha256": "98861cf8913f975291bf89db99fadda2e7aad80e60f8da48b2e72130d520c61d",
             "spec": "rigc-run/2",
             "argv": [
               "--candidate",
@@ -2419,7 +2419,7 @@
       }
     },
     "direction": {
-      "at": "2026-11-27T00:01:00.000Z",
+      "at": "2026-11-28T00:01:00.000Z",
       "built_by": "agent",
       "built_with": {},
       "files": [
@@ -2430,7 +2430,7 @@
         },
         {
           "path": "outputs/direction/check/build/run.json",
-          "sha256": "19bb5b002164cc85b715af32633886eecb6902162b0e7408a8543cbc232ea8b2",
+          "sha256": "58cc95dbcb4142c4a40662ed3de8b1ab961835ff7346d1cca96cff1f1d45703b",
           "bytes": 1206
         },
         {
@@ -2750,7 +2750,7 @@
         },
         {
           "path": "outputs/direction/check/idle_frames/render-run.json",
-          "sha256": "7af2654ef0eaeec473f6f6c214e292af381b502391723d159041bc4b2d5276ab",
+          "sha256": "94228e5eac5f5c9dd541ac094e6b15e5cd67c4073e11cd418b1f3a857c869682",
           "bytes": 7894
         },
         {

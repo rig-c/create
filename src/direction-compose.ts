@@ -1,8 +1,9 @@
 /** Composed direction reads sealed producer output; it never repeats producer checks. */
 import { isDeepStrictEqual as equal } from 'node:util';
 import { lstatSync, readdirSync } from './check-reads.ts';
-import { join } from 'node:path';
-import { collectItems, isObject, loadCollection } from './check.ts';
+import { join, posix, relative } from 'node:path';
+import { CAMERA_SCENE_BINDING_SINCE, cameraBindingFinding, cameraChoiceId, hasKeyedCamera } from './camera-choice.ts';
+import { collectItems, isObject, loadCollection, type Finding } from './check.ts';
 import { ComposeValueError, readComposeValue } from './compose-value.ts';
 import { closed, directionFail, directionHash, directionJson, hex, objects } from './direction.ts';
 import { answersOf } from './provenance.ts';
@@ -142,25 +143,30 @@ function bound(dir: string, binding: JsonObject, snapshots?: Map<string, Buffer>
 }
 
 /** Resolve one cited answer, preserving scene@1's Review choice/delegation authority. */
-export function citedValues(dir: string, project: JsonObject, doc: JsonObject, question: string, current: boolean, snapshots?: Map<string, Buffer>): JsonObject[] {
+export function citedAnswerValues(dir: string, project: JsonObject, doc: JsonObject, question: string, current: boolean, snapshots?: Map<string, Buffer>, at = Infinity) {
   const collection = loadCollection(dir);
   const item = collectItems(project, { collection }).find(i => i.id === question);
   const citation = (doc.citations as JsonObject)[question === 'post_composition' ? 'composition' : 'timing'] as JsonObject;
   if (!item) directionFail('DIRECTION_COMPOSE_CITATION', `direction.citations.${question}`, 'record the cited answer before direction write');
   const all = answersOf(item, { collection });
   const pool = current ? item.state.state === 'user' || item.state.state === 'delegated' ? [item.state.answer] : [] : all;
-  const values: JsonObject[] = [];
+  const values: { value: JsonObject; answer: JsonObject }[] = [];
   for (const answer of pool.filter(a => matchesCitationSurface(a, citation))) {
+    if (Date.parse(String(answer.at)) > at) continue;
     if (question === 'post_composition') {
       const resolved = resolveAnswerValue(dir, item.path, answer, citation, snapshots);
-      if (isObject(resolved.value)) values.push(resolved.value);
+      if (isObject(resolved.value)) values.push({ value: resolved.value, answer });
     } else {
       const value = citation.delegated === true && isObject(answer.agent_decision) ? answer.agent_decision.value : answer.value;
-      if (isObject(value)) values.push(value);
+      if (isObject(value)) values.push({ value, answer });
     }
   }
   if (!values.length) directionFail('DIRECTION_COMPOSE_CITATION', `direction.citations.${question}`, 'cite a recorded resolved answer (the current answer for new authoring)');
   return values;
+}
+
+export function citedValues(dir: string, project: JsonObject, doc: JsonObject, question: string, current: boolean, snapshots?: Map<string, Buffer>): JsonObject[] {
+  return citedAnswerValues(dir, project, doc, question, current, snapshots).map(({ value }) => value);
 }
 
 export function composeInventory(project: JsonObject, doc: JsonObject): JsonObject[] {
@@ -173,8 +179,8 @@ export function composeInventory(project: JsonObject, doc: JsonObject): JsonObje
 }
 
 export function validateComposeDirection(dir: string, project: JsonObject, doc: JsonObject, {
-  current = false, currentCitations = current, snapshots, pendingInventory,
-}: { current?: boolean; currentCitations?: boolean; snapshots?: Map<string, Buffer>; pendingInventory?: JsonObject[] } = {}): void {
+  current = false, currentCitations = current, snapshots, pendingInventory, warnings,
+}: { current?: boolean; currentCitations?: boolean; snapshots?: Map<string, Buffer>; pendingInventory?: JsonObject[]; warnings?: Finding[] } = {}): void {
   try {
     validateComposeDirectionShape(doc);
     const rig = doc.rig as JsonObject;
@@ -218,6 +224,9 @@ export function validateComposeDirection(dir: string, project: JsonObject, doc: 
       directionFail('DIRECTION_COMPOSE_SCHEMA', `${paths.scene}.characters[0].canvas_clip`, 'canvas_clip must be true when present');
     }
     const run = readComposeRun(bound(dir, compose.run as JsonObject, snapshots), paths.run, scene);
+    const version = objects(project.versions).find(row => row.n === n && row.kind === 'post');
+    const at = version ? Date.parse(String(version.at)) : Infinity;
+    const historical = at < Date.parse(CAMERA_SCENE_BINDING_SINCE);
     const rc = objects(report.characters);
     const placed = rc[0];
     const expectedClipped = run.characters[0]!.placement?.clipped_bounds;
@@ -229,34 +238,45 @@ export function validateComposeDirection(dir: string, project: JsonObject, doc: 
       || !equal(compose.clipped_bounds, expectedClipped)) directionFail('DIRECTION_COMPOSE_PLACEMENT', paths.report, 'retain matching character placement and compose-run bounds');
     const plates = objects(scene.plates); const reported = objects(report.plates);
     if (plates.length !== scene.plates.length || reported.length !== plates.length) directionFail('DIRECTION_COMPOSE_PLACEMENT', paths.report, 'retain one producer report row per named plate');
+    const sourcePath = posix.isAbsolute(run.scene.path) ? relative(dir, run.scene.path) : posix.normalize(run.scene.path);
+    // Historic runs treated plate paths as project-relative. Only use an original scene
+    // directory when the producer report corroborates the run's scene path.
+    const paired = relativePath(sourcePath) && typeof report.scene === 'string'
+      && (report.scene === run.scene.path || posix.isAbsolute(report.scene) && report.scene.endsWith(`/${sourcePath}`));
     const registered: JsonObject[] = [];
+    const producerPlates: JsonObject[] = [];
     for (const [i, plate] of plates.entries()) {
-      if (typeof plate.image !== 'string') directionFail('DIRECTION_COMPOSE_SCHEMA', paths.scene, 'plate image must name the registered project path');
-      const bytes = sceneBytes(dir, plate.image, 'DIRECTION_COMPOSE_FILE', snapshots);
-      const binding = { path: plate.image, sha256: directionHash(bytes) };
-      const registration = plateRegistration(project, binding);
-      if (!registration) directionFail('DIRECTION_COMPOSE_PLATE_UNREGISTERED', plate.image, 'register the plate with input add or a complete prepared-input receipt chain');
-      registered.push({ ...binding, registered: registration });
+      if (typeof plate.image !== 'string' || posix.isAbsolute(plate.image)) directionFail('DIRECTION_COMPOSE_SCHEMA', paths.scene, 'name each plate image relative to the Parts scene');
       const rp = reported[i]!;
+      const oldPath = { path: plate.image, sha256: rp.sha256 };
+      const keepHistorical = historical && sceneBinding(oldPath) && plateRegistration(project, oldPath);
+      const path = paired && !keepHistorical ? posix.normalize(posix.join(posix.dirname(sourcePath), plate.image)) : plate.image;
+      const bytes = sceneBytes(dir, path, 'DIRECTION_COMPOSE_FILE', snapshots);
+      const binding = { path, sha256: directionHash(bytes) };
+      const registration = plateRegistration(project, binding);
+      if (!registration) directionFail('DIRECTION_COMPOSE_PLATE_UNREGISTERED', path, 'register the plate with input add or a complete prepared-input receipt chain');
+      registered.push({ ...binding, registered: registration });
+      producerPlates.push({ ...binding, path: plate.image });
       if (rp.name !== plate.name || rp.image !== plate.image || !equal(rp.at, plate.at) || (rp.opaque_backdrop ?? false) !== (plate.opaque_backdrop ?? false) || rp.sha256 !== binding.sha256) directionFail('DIRECTION_COMPOSE_PLACEMENT', paths.report, 'plate report must bind the declared image bytes and placement');
     }
     validateAgentPlateRegistration(dir, project, registered, snapshots);
-    const compositionAnswers = citedValues(dir, project, doc, 'post_composition', currentCitations, snapshots);
+    const compositionAnswers = citedAnswerValues(dir, project, doc, 'post_composition', currentCitations, snapshots);
     // The same words can also match an older scene-only choice.
-    const composeAnswers = compositionAnswers.filter(value => value.compose !== undefined);
+    const composeAnswers = compositionAnswers.filter(({ value }) => value.compose !== undefined);
     const compositions = (composeAnswers.length ? composeAnswers : compositionAnswers)
-      .map(value => readComposeValue(value.compose, 'direction.citations.composition.value.compose'));
+      .map(({ value, answer }) => ({ answer, compose: readComposeValue(value.compose, 'direction.citations.composition.value.compose') }));
     const take = doc.take as JsonObject;
     const idle = isObject(scene.animations) ? scene.animations.idle : undefined;
     if (!isObject(idle)) {
       directionFail('DIRECTION_COMPOSE_CHOICE_MISMATCH', `${paths.scene}.animations.idle`,
         `declare the scene idle with the take duration and cited idle tracks, then compose again. For an empty-track take, write "animations": {"idle": {"duration": ${take.duration}, "tracks": []}}`);
     }
-    const matching = compositions.filter(v => equal(v.canvas, scene.canvas) && equal(v.plates, plates.map(p => ({ name: p.name!, image: p.image!, at: p.at!, ...(p.opaque_backdrop === undefined ? {} : { opaque_backdrop: p.opaque_backdrop }) })))
+    const matching = compositions.filter(({ compose: v }) => equal(v.canvas, scene.canvas) && equal(v.plates, plates.map((p, i) => ({ name: p.name!, image: registered[i]!.path!, at: p.at!, ...(p.opaque_backdrop === undefined ? {} : { opaque_backdrop: p.opaque_backdrop }) })))
       && equal(v.order, scene.order) && equal(v.idle_tracks, idle.tracks));
-    const value = matching.find(v => equal(v.character, { offset: character.offset!, ...(character.scale === undefined ? {} : { scale: character.scale }) }));
+    const exact = matching.filter(({ compose: v }) => equal(v.character, { offset: character.offset!, ...(character.scale === undefined ? {} : { scale: character.scale }) }));
+    const value = exact[0]?.compose;
     // A unique citation with the rest of the scene intact still identifies the intended shift.
-    const cited = value ?? (matching.length === 1 ? matching[0] : undefined);
+    const cited = value ?? (matching.length === 1 ? matching[0]?.compose : undefined);
     const reportCharacterPath = `${paths.report}.characters[0]`;
     if (cited) {
       const size = placed.rig_size;
@@ -286,7 +306,16 @@ export function validateComposeDirection(dir: string, project: JsonObject, doc: 
       directionFail('DIRECTION_COMPOSE_DURATION', 'direction.take.duration', 'match the scene idle duration, compiled idle duration, cited timing seconds and, when tracks are present, the compose track end');
     }
     composeRunMatchesAcceptedRig(dir, run, [{ id: String(character.id), build: String(character.build), rig: acceptedRig }], paths.run, snapshots);
-    validateComposeRunInputs(run, scene, String((compose.scene as JsonObject).sha256), registered, paths.run);
+    validateComposeRunInputs(run, scene, String((compose.scene as JsonObject).sha256), producerPlates, paths.run);
+    if (hasKeyedCamera(scene)) {
+      const source = { path: sourcePath, sha256: run.scene.sha256 };
+      const findings = exact.map(({ answer, compose: chosen }) => cameraBindingFinding(source, cameraChoiceId(answer), chosen.camera_scene));
+      const first = findings[0];
+      if (first && findings.every(Boolean)) {
+        if (!historical) throw first;
+        warnings?.push({ code: first.code, path: first.path, message: first.message });
+      }
+    }
   } catch (e) {
     if (e instanceof SceneError || e instanceof ComposeValueError) directionFail(e.code, e.path, e.message);
     throw e;

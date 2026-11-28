@@ -18,6 +18,7 @@ import { checkSignoffTarget, isCurrentPartsSignoff, signoffTargetFormat } from '
 import { checkOverrides } from './overrides.ts';
 import { intakeWarnings } from './intake.ts';
 import { checkDirections } from './direction.ts';
+import { checkCurrentDirectionCamera } from './current-direction.ts';
 import { checkScenes } from './scene.ts';
 import { checkCorrections } from './corrections.ts';
 import { partEditHoles } from './part-edit-coverage.ts';
@@ -1110,6 +1111,7 @@ function checkProjectOnce(projectDirArg: string, candidate: JsonObject | undefin
   }
   if (!options.recordPublication) checkScenes(ctx);
   if (!options.recordPublication) checkDirections(ctx, options.now);
+  if (!options.recordPublication) checkCurrentDirectionCamera(dir, project, refusals, warnings);
   if (!options.recordPublication) warnings.push(...intakeWarnings(dir, project));
   warnings.push(...reopenLapseWarnings(project));
   const language = ownerLanguageFinding(project);

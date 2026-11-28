@@ -1,9 +1,14 @@
 import { beforeEach, expect, test } from 'bun:test';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+import { JOB_COMMENT_ONLY_ACT_SCHEMA } from '@rig-c/review/job-host';
 import { OPTIONS_SPEC, optionContext, sha256 } from '../src/choices.ts';
+import { commentCommand } from '../src/comment-act.ts';
 import { freshProjectRecord, GITIGNORE } from '../src/init.ts';
+import { JOB_BINDING_FILE, jobHash, writePrivateJson } from '../src/job-outbox.ts';
+import { currentJobIdentity } from '../src/job-publication.ts';
 import { jobRuntimeExecArgv } from '../src/job-writer.ts';
+import { Refusal } from '../src/refusal.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { TEST_NOW } from './clock.ts';
 import { gitEnv, run, tempDir, type Run } from './helpers.ts';
@@ -392,5 +397,93 @@ test('#1168 group 3: plan feedback and all plan step writers commit project.json
   const beforeWithdrawReplay = fullState(cpRepo);
   success(cli(cpRepo, ...withdrawArgs));
   expect(fullState(cpRepo)).toEqual(beforeWithdrawReplay);
+});
+
+test('#1168 group 4: comment ingest and comment close commit exact paths, list in history, and leave unrelated/refused/replay states intact', () => {
+  const repo = makeRepo();
+  repo.dir = realpathSync(repo.dir);
+  const jobId = 'synthetic-comment-history-job';
+  const origin = 'http://127.0.0.1:43199';
+  const project = JSON.parse(bytes(repo, PROJECT).toString('utf8')) as JsonObject;
+  project.review_job = { jobId, origin };
+  putJson(repo, PROJECT, project);
+  const modelPath = 'specs/rig/config.json';
+  put(repo, modelPath, '{"bones":[]}\n');
+  git(repo, 'add', '--', PROJECT, modelPath);
+  git(repo, 'commit', '-qm', 'Seed job binding and config');
+
+  const identity = currentJobIdentity({
+    root: repo.dir, stateDir: 'unused-private-state', fingerprint: 'synthetic',
+    reviewer: { id: 'synthetic-owner', role: 'owner' },
+  }, repo.dir);
+  writePrivateJson(join(repo.dir, JOB_BINDING_FILE), {
+    schema: 'rig-create/job-binding@1', identity, jobId, origin, fetchCapability: 'synthetic-grant',
+  }, true);
+
+  const unrelated = plantUnrelated(repo);
+  let parent = head(repo);
+  const recordHash = jobHash(bytes(repo, PROJECT));
+  const initialConfigSha = sha256(bytes(repo, modelPath));
+  const act: JsonObject = {
+    schema: JOB_COMMENT_ONLY_ACT_SCHEMA,
+    actId: 'act-comment-1',
+    jobId,
+    publicationId: 'pub-1',
+    kind: 'comments',
+    at: new Date(tick()).toISOString(),
+    authority: { actor: 'human', channel: 'review-ui', reviewer: { id: 'synthetic-owner', role: 'owner' } },
+    source: {
+      sourceHash: '1'.repeat(64), projectHash: recordHash,
+      package: { id: 'pkg', revision: '1' }, selector: null,
+      model: { path: modelPath, sha256: initialConfigSha },
+      direction: null, optionSet: null, appliedResult: null, plan: null, parts: null, commit: parent,
+    },
+    value: { comments: [{ text: 'Tighten the synthetic config.' }] },
+  };
+  const actBytes = JSON.stringify(act);
+  const actSha = jobHash(actBytes);
+
+  // Refused comment ingest (empty comments) leaves HEAD, index and tree unchanged.
+  const badAct = { ...act, value: { comments: [] } };
+  const beforeBadIngest = fullState(repo);
+  expect(() => commentCommand(['--from-review', 'act-comment-1', repo.dir], tick(), { fetch: () => ({ bytes: JSON.stringify(badAct) }) }))
+    .toThrow(Refusal);
+  expect(fullState(repo)).toEqual(beforeBadIngest);
+
+  // Dirty project.json refuses before writing.
+  const cleanProject = bytes(repo, PROJECT);
+  put(repo, PROJECT, `${cleanProject.toString().trimEnd()}\n\n`);
+  const beforeDirtyIngest = fullState(repo);
+  expect(() => commentCommand(['--from-review', 'act-comment-1', repo.dir], tick(), { fetch: () => ({ bytes: actBytes }) }))
+    .toThrow(expect.objectContaining({ code: 'PROJECT_COMMIT_DIRTY' }));
+  expect(fullState(repo)).toEqual(beforeDirtyIngest);
+  put(repo, PROJECT, cleanProject);
+
+  // Valid comment ingest commits project.json with prefix `comment ingest:` and replay makes no commit.
+  const ingested = commentCommand(['--from-review', 'act-comment-1', repo.dir, '--json'], tick(), { fetch: () => ({ bytes: actBytes }) });
+  expect({ exit: ingested.exit, stderr: ingested.stderr }).toEqual({ exit: 0, stderr: undefined });
+  parent = assertCommittedStep(repo, parent, 'comment ingest', [PROJECT], unrelated);
+
+  const beforeReplayIngest = fullState(repo);
+  const replayedIngest = commentCommand(['--from-review', 'act-comment-1', repo.dir, '--json'], tick(), { fetch: () => ({ bytes: actBytes }) });
+  expect(replayedIngest.exit).toBe(0);
+  expect(fullState(repo)).toEqual(beforeReplayIngest);
+
+  // Refused comment close (unchanged saw sha256) leaves HEAD, index and tree unchanged.
+  assertRefusedUnchanged(repo, [
+    'comment', '--close', '0', repo.dir, '--act-sha256', actSha, '--after', `${modelPath}=${initialConfigSha}`,
+  ], 'COMMENT_CLOSURE_INVALID');
+
+  // Edit the bound config file and run comment --close: commits both project.json and the bound file.
+  put(repo, modelPath, '{"bones":[{"name":"root"}]}\n');
+  const afterConfigSha = sha256(bytes(repo, modelPath));
+  const closeArgs = ['comment', '--close', '0', repo.dir, '--act-sha256', actSha, '--after', `${modelPath}=${afterConfigSha}`];
+  success(cli(repo, ...closeArgs));
+  parent = assertCommittedStep(repo, parent, 'comment close', [PROJECT, modelPath], unrelated);
+
+  // Unchanged replay of comment --close makes no commit.
+  const beforeReplayClose = fullState(repo);
+  success(cli(repo, ...closeArgs));
+  expect(fullState(repo)).toEqual(beforeReplayClose);
 });
 

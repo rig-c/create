@@ -37,6 +37,8 @@ function bound(git = false): { dir: string; commit?: string; recordHash: string 
     return child.stdout.toString().trim();
   };
   run('init', '-q');
+  run('config', 'user.name', 'Synthetic');
+  run('config', 'user.email', 'synthetic@example.invalid');
   run('add', '--', 'project.json');
   run('commit', '-q', '-m', 'record', '--', 'project.json');
   return { dir, commit: run('rev-parse', 'HEAD'), recordHash };

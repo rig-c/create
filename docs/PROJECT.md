@@ -180,14 +180,13 @@ writes leave `project.json` byte-identical. Neither writer runs a producer.
 ### Pausing and resuming
 
 ```sh
-rig-create signoff paused --by <who> --verbatim-file words.txt [<project dir>]
 rig-create pause --by <who> [--verbatim-file <file>] [--source <text>] [<project dir>] [--json]
 rig-create resume <stage> --by <who> [--verbatim-file <file>] [--source <text>] [<project dir>] [--json]
 ```
 
-A person stops the work by signing `paused`; `pause` then sets `stage` to
-`paused`. It needs a human `{ "stage": "paused" }` sign-off dated at or after
-the latest recorded move, so a second pause needs a new signature. `resume`
+On the current path, a person uses `pause` to record the stop and set `stage`
+to `paused`. Numbered projects still require a human `signoff paused` dated at
+or after the latest recorded move. `resume`
 sets `stage` back to the stage the project was paused from, and refuses any
 other target (`RESUME_STAGE_MISMATCH`). A project paused by hand before the
 writer existed resumes at the stage its latest recorded move reached. Pausing
@@ -195,8 +194,9 @@ a paused project, resuming one that is not paused, and pausing at `accepted`
 are refused by name. A historical reopen can also account for leaving `paused`.
 
 Both append to `pauses[]`: `{ from_stage, stage: "paused", by, at, verbatim,
-source?, signoff }` for a pause, with `signoff` the stable `{ stage,
-checkpoint, at }` identity of the paused sign-off, and `{ from_stage:
+source?, signoff }` for a pause, with `signoff: null` for current-path pauses
+from `CURRENT_PAUSE_SINCE` and a stable `{ stage, checkpoint, at }` identity
+for signed pauses. A resume records `{ from_stage:
 "paused", stage, by, at, verbatim, source? }` for a resume. The clock
 supplies `at`. The history is kept apart from `advances[]` and `reopens[]`,
 so their linkage (`STAGE_MOVE_UNLINKED`) and the rule that `stage` equals the
@@ -559,11 +559,14 @@ replaced would accept something that no longer matches the rig.
 
 ### The hand-off to post-production
 
-Historical numbered handoff. Current direction builds from the recorded current rig and motion.
-
 ```
 rig-create handoff [<project dir>] [--rig <n>] [--json]
 ```
+
+After the current project advances past rig-review, `handoff` reads
+`current.rig` and verifies the recorded files. JSON includes `record`, `at`
+and `files`, with each project-relative path and its sha256. Omit `--rig` on
+the current path. `next` offers handoff at acceptance.
 
 Numbered post-production tooling uses this reader to find the latest accepted
 rig version. It exits `0` and prints that version and its acceptance. The

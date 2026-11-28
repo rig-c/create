@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { EXAMPLE_ANCHOR } from '../scripts/example-time.ts';
 import { checkProject as checkCandidate } from '../src/check.ts';
 import { isCurrentProject } from '../src/current.ts';
-import type { NextReport } from '../src/next.ts';
+import { nextProject, type NextReport } from '../src/next.ts';
 import { Refusal } from '../src/refusal.ts';
 import { selectSignoffTarget } from '../src/signoff-target.ts';
 import type { JsonObject } from '../src/templates.ts';
@@ -267,10 +267,22 @@ describe('next --json on a paused project', () => {
     testClock.set(now += 1000);
     expect(advanceCommand(['post-interview', current]).exit).toBe(0);
     const currentPauseWords = words(current);
-    testClock.set(now += 1000);
-    expect(signoffCommand(['paused', current, '--by', 'owner', '--verbatim-file', currentPauseWords]).exit).toBe(0);
+    const signoffs = read(current).signoffs;
+    const next = nextProject(current, now);
+    expect(next.moves).toContainEqual(expect.objectContaining({ role: 'human', field: 'pauses',
+      command: expect.stringContaining('rig-create pause ') }));
+    expect(next.awaits).not.toContain('pauses');
     testClock.set(now += 1000);
     expect(pauseCommand([current, '--by', 'owner', '--verbatim-file', currentPauseWords]).exit).toBe(0);
+    const paused = read(current);
+    expect(paused.signoffs).toEqual(signoffs!);
+    const entry = obj(arr(paused.pauses)[0]);
+    expect(entry.signoff).toBeNull();
+    entry.at = new Date(EXAMPLE_ANCHOR - 1000).toISOString();
+    expect(checkCandidate(current, paused, { now, readOnly: true }).refusals.map(f => f.code)).toContain('PAUSE_MALFORMED');
+    entry.at = new Date(now).toISOString();
+    delete entry.signoff;
+    expect(checkCandidate(current, paused, { now, readOnly: true }).refusals.map(f => f.code)).toContain('PAUSE_MALFORMED');
 
     for (const [kind, srcDir, resumeTarget] of [
       ['numbered', numbered, 'rig-review'],

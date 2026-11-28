@@ -24,6 +24,9 @@ import { assertFigureMaskApproval } from './figure-mask.ts';
 import { existsSync, readFileSync } from './check-reads.ts';
 import { join, resolve } from 'node:path';
 
+import { checkProject, collectItems, isCurrentPathProject, loadCollection } from './check.ts';
+import { literalFile } from './choices.ts';
+import { currentShapeFindings, sha256 } from './current.ts';
 import { draftVersionFindings } from './drafts.ts';
 import { assembleOnlyDraftTarget, assertDraftHasRig, readAssembleOnlyDraftTarget } from './draft-layout.ts';
 import { checkPreInterview } from './pre-interview.ts';
@@ -234,7 +237,7 @@ export function checkReviews(ctx: ReviewCtx): void {
 
 // ------------------------------------------------------------------ handoff
 
-export interface Handoff {
+interface NumberedHandoff {
   readonly ok: true;
   readonly project_dir: string;
   readonly rig_version: number;
@@ -242,6 +245,41 @@ export interface Handoff {
   readonly accepted: Acceptance;
   readonly still?: Still;
   readonly outputs_lost?: readonly { readonly version: number; readonly note: string; readonly source: string }[];
+}
+
+interface CurrentHandoff {
+  readonly ok: true;
+  readonly project_dir: string;
+  readonly record: 'current.rig';
+  readonly at: string;
+  readonly files: readonly { readonly path: string; readonly sha256: string }[];
+}
+
+export type Handoff = (NumberedHandoff & { readonly record?: undefined }) |
+  (CurrentHandoff & { readonly rig_version?: undefined });
+
+function currentHandoff(dir: string, project: JsonObject, rig: number | null, now: number): CurrentHandoff {
+  if (rig !== null) refuse('HANDOFF_RIG_INVALID', 'current.rig: omit --rig to hand off the current rig', USAGE_EXIT);
+  const node = isObject(project.current) ? project.current.rig : undefined;
+  if (!isObject(node)) refuse('RIG_VERSION_UNACCEPTED', 'current.rig: record the rig with rig-create record rig and advance past rig-review before handoff');
+  const checked = checkProject(dir, project, { now, readOnly: true });
+  if (stageIndex(String(project.stage)) <= stageIndex(RIG_REVIEW)
+    || stageIndex(checked.effective_stage ?? '') <= stageIndex(RIG_REVIEW)) {
+    refuse('RIG_VERSION_UNACCEPTED', 'current.rig: advance past rig-review before handoff');
+  }
+  const invalid = currentShapeFindings('rig', node, project)[0];
+  if (invalid) refuse(invalid.code, invalid.message);
+  const files = (node.files as JsonObject[]).map(file => {
+    const path = file.path as string;
+    let matches = false;
+    try {
+      const bytes = readFileSync(literalFile(dir, path));
+      matches = bytes.length === file.bytes && sha256(bytes) === file.sha256;
+    } catch { /* The same remedy applies to missing, unreadable and changed files. */ }
+    if (!matches) refuse('RIG_VERSION_UNACCEPTED', `current.rig.files: ${path} is missing or differs from the record; restore it or rebuild and record the current rig`);
+    return { path, sha256: file.sha256 as string };
+  });
+  return { ok: true, project_dir: dir, record: 'current.rig', at: node.at as string, files };
 }
 
 /**
@@ -260,6 +298,9 @@ export function handoff(projectDirArg: string, rig: number | null, now: number):
   }
   if (!isObject(project as Json)) refuse('PROJECT_JSON_INVALID', `${file}: not a JSON object`);
   const record = project as JsonObject;
+  if (isCurrentPathProject(record, collectItems(record, { collection: loadCollection(dir, record) }))) {
+    return currentHandoff(dir, record, rig, now);
+  }
   assertDraftHasRig(assembleOnlyDraftTarget(record, rig), 'project.json.versions');
   assertCorrectionApproval(dir, record, RIG_REVIEW, now);
   const historyRefusals: ReviewCtx['refusals'] = draftVersionFindings(dir, record);
@@ -306,9 +347,10 @@ export function handoff(projectDirArg: string, rig: number | null, now: number):
 
 export const HANDOFF_HELP = `handoff:
   [<project dir>]  the project folder (default: the current directory)
-  --rig <n>        refuse unless rig version <n> is the one post work may run on
-  --json           print the hand-off as JSON (rig_version, accepted, optional historical still)
-  Post-production tooling runs this first. Exit 0 prints the accepted rig version; exit 1 is a named refusal
+  --rig <n>        on numbered projects, require rig version <n>
+  --json           print the handoff as JSON
+  Current projects hand off the recorded current.rig files after rig-review.
+  Numbered projects hand off the accepted rig version. Exit 1 is a named refusal
   (RIG_VERSION_UNACCEPTED, POST_ON_UNACCEPTED_RIG, POST_ON_SUPERSEDED_RIG).`;
 
 export function handoffCommand(args: string[], now: number): { stdout: string; exit: number } {
@@ -334,6 +376,11 @@ export function handoffCommand(args: string[], now: number): { stdout: string; e
   }
   const h = handoff(dir, rig, now);
   if (json) return { stdout: JSON.stringify(h, null, 2), exit: 0 };
+  if (h.record) return {
+    stdout: [`handoff: post work is on ${h.record} recorded at ${h.at}`,
+      ...h.files.map(file => `  ${file.path} (sha256 ${file.sha256})`)].join('\n'),
+    exit: 0,
+  };
   const still = h.still;
   return {
     stdout: [

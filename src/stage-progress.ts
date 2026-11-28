@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { join } from 'node:path';
 import { readFileSync } from './check-reads.ts';
-import { asArray, asString, collectItems, collectSignoffs, isObject, loadCollection, postNotPassed, type Ctx, type Finding } from './check.ts';
+import { asArray, asString, collectItems, collectSignoffs, isCurrentPathProject, isObject, loadCollection, postNotPassed, type Ctx, type Finding } from './check.ts';
 import { currentShapeFindings, isCurrentProject } from './current.ts';
 import { DIRECTION_SCENE_SINCE } from './direction.ts';
 import { DIRECTION_COMPOSE_SPEC } from './direction-compose.ts';
@@ -124,12 +124,21 @@ export function checkPauses(ctx: Ctx): void {
     const signature = resolveSignoff(ctx.project, entry.signoff);
     if (entry.stage === PAUSED_STAGE) {
       if (stageIndex(from) < 0 || from === 'accepted') push(path, `pauses from ${from}, which is not a stage in the order before accepted`);
+      else if (isUnsignedCurrentPause(ctx, entry)) continue;
       else if (!isObject(signature) || signature.stage !== PAUSED_STAGE || signature.checkpoint !== null
         || typeof signature.by !== 'string' || signature.by.toLowerCase() === 'agent' || !(Date.parse(String(signature.at)) <= at)) {
         push(path, 'signoff must be the { stage, checkpoint, at } identity of a human paused sign-off dated at or before it');
       }
     } else if (from !== PAUSED_STAGE || stageIndex(String(entry.stage)) < 0) push(path, 'must enter paused from a stage, or leave paused for a stage in the order');
   }
+}
+
+export const CURRENT_PAUSE_SINCE = '2026-11-28T00:00:00Z';
+
+export function isUnsignedCurrentPause(ctx: Pick<Ctx, 'project' | 'items'>, entry: JsonObject): boolean {
+  return entry.stage === PAUSED_STAGE && entry.signoff === null
+    && Date.parse(String(entry.at)) >= Date.parse(CURRENT_PAUSE_SINCE)
+    && isCurrentPathProject({ ...ctx.project, stage: entry.from_stage }, ctx.items);
 }
 
 /** Read only the document kind here; checkProject already validates its seal. */

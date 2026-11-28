@@ -10,7 +10,7 @@ import { isDiscardReceipt, reviewActFindings, type VerifiedInterviewPick } from 
 import { checkCommentClosures, projectCommentViews, type NextComment } from './comment-closures.ts';
 import { checkInterviewCommentClosures } from './interview-comment-closures.ts';
 import { checkCheckpointEvidence } from './checkpoint-evidence.ts';
-import { checkAdvances, checkDirectionReviewAdvances, checkPauses, checkProgressLinkage, checkRiggingInterviewPainting, checkStepStatusHistory } from './stage-progress.ts';
+import { checkAdvances, checkDirectionReviewAdvances, checkPauses, checkProgressLinkage, checkRiggingInterviewPainting, checkStepStatusHistory, isUnsignedCurrentPause } from './stage-progress.ts';
 import { checkPartsChecks } from './parts-check.ts';
 import { pendingPublicationHoles } from './job-outbox.ts';
 import { checkSignoffAnswers } from './signoff-answers.ts';
@@ -779,8 +779,10 @@ function checkStages(ctx: Ctx): void {
       }
     }
   }
-  if (ctx.stage === PAUSED_STAGE && !ctx.signoffs.some((s) => s.stage === PAUSED_STAGE)) {
-    ctx.refusals.push({ code: 'PAUSED_UNSIGNED', path: 'stage', message: `stage is paused, but no { "stage": "paused" } sign-off stopped it` });
+  const pause = asArray(ctx.project.pauses).at(-1);
+  if (ctx.stage === PAUSED_STAGE && !(isObject(pause) && isUnsignedCurrentPause(ctx, pause))
+    && !ctx.signoffs.some((s) => s.stage === PAUSED_STAGE)) {
+    ctx.refusals.push({ code: 'PAUSED_UNSIGNED', path: 'stage', message: 'stage is paused without a current pause entry or a paused sign-off; restore the pause history' });
   }
   checkPartsStages(ctx);
 }

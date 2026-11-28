@@ -48,7 +48,7 @@ import { beginJobProgress } from './job-writer.ts';
 import { isPartsCheckMove, PARTS_CHECK_FILE, partsCheckFindings, partsCheckRecord } from './parts-check.ts';
 import { isPartsReviewReceipt, latestPartsVerdictStatus, latestRiggingDraftFeedback, recordedPartsVerdict } from './parts-verdict-record.ts';
 import { assertPartsActSource } from './parts-act.ts';
-import { pausedFrom } from './pause.ts';
+import { pausable, pausedFrom } from './pause.ts';
 import { collectionDirOf, inspectCollection } from './pins-check.ts';
 import { carriedRefusals, findingKey, newFindings } from './refusal-baseline.ts';
 import { Refusal, refuse, USAGE_EXIT } from './refusal.ts';
@@ -101,6 +101,7 @@ import { postCompositionSetOffersScene } from './scene-authority.ts';
 import { DirectionError, directionJson, directionPath, missingDirectionStepApprovals, missingPostPlanRows, POST_PLAN_ROWS } from './direction.ts';
 import { type NextComment, withCurrentComments } from './comment-closures.ts';
 import { adoptedRigInventoryMatches, currentOutputMove, withStaleOutputs } from './next-stale.ts';
+import { CURRENT_PAUSE_SINCE } from './stage-progress.ts';
 
 export const NEXT_SCHEMA = 'rig-create/next@1';
 
@@ -1848,7 +1849,23 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
   if (recovery) {
     result = { ...result, moves: [recovery, ...result.moves], awaits: [...new Set([recovery.awaits, ...result.awaits])] };
   }
-  if (result.accepted || result.moves.length || result.awaits.length || result.refusals.length) return result;
+  if (result.accepted || result.moves.length || result.awaits.length || result.refusals.length) {
+    if (currentPath && result.accepted && result.refusals.length === 0) {
+      return { ...result, moves: [...result.moves, {
+        role: 'agent', field: 'current.rig', awaits: 'current.rig',
+        command: `rig-create handoff ${shellWord(dir)} --json`,
+        act: 'Read the handed-off rig files and their sha256 hashes.',
+      }] };
+    }
+    if (currentPath && now >= Date.parse(CURRENT_PAUSE_SINCE) && pausable(result.stage)) {
+      return { ...result, moves: [...result.moves, {
+        role: 'human', field: 'pauses', awaits: 'project.stage',
+        command: `rig-create pause --by '<who>' --verbatim-file '<file>' ${shellWord(dir)}`,
+        act: 'Optional: record a pause and the stage it left.',
+      }] };
+    }
+    return result;
+  }
   const code = 'NEXT_NO_FORWARD_MOVE';
   const message = `project.json.stage: no move was derived at effective stage ${result.effective_stage}; inspect the checked record and report the missing workflow route`;
   return { ...result, refusals: [{ code, field: 'project.json.stage', message, fix: remedyForFinding(code, message) }] };
@@ -2979,7 +2996,7 @@ export function formatNext(report: NextReport | NextCollectionReport): string {
     if (move.command !== null && (ROUTED_ANSWER_COMMENT_PATH.test(move.field) || move.field.startsWith('comments[')
       || move.field.startsWith('current.') || move.field === CURRENT_SCENE_PATH || move.field === CURRENT_DIRECTION_PATH
       || move.act === SCENE_OPTIONS_REPAIR_ACT
-      || move.act.startsWith(OPTIONAL_SIGNOFF_PREFIX))) {
+      || move.act.startsWith(OPTIONAL_SIGNOFF_PREFIX) || move.field === 'pauses' && move.act.startsWith('Optional:'))) {
       lines.push(`    ${move.act}`);
     }
     if (move.unanswered_by_record) {

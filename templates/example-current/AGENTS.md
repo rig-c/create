@@ -44,7 +44,7 @@ refusing [`PARTS_CHECK_MISSING`, `PARTS_CHECK_UNREAD`, `PARTS_CHECK_INVALID`, `P
 In `parts`, record an `intake-report` preflight and offer its choice, both advisory: [PROJECT.md § Advisory intake reports](https://github.com/rig-c/create/blob/main/docs/PROJECT.md#advisory-intake-reports).
 
 Keep drafts in `derived/drafts/<id>/`, outside versions/handoff.
-An owner-accepted retouch enters through parts' `assemble.edited_parts` block and is recorded by `draft-rig` ([SOURCE.md § Handing a retouch to an image editor](https://github.com/rig-c/create/blob/main/docs/SOURCE.md#handing-a-retouch-to-an-image-editor)).
+An owner-accepted retouch enters through parts' `assemble.edited_parts` block and is recorded by `record parts --from <dir> --config <file>` or `record rig --from <dir> --config <file>` ([SOURCE.md § Handing a retouch to an image editor](https://github.com/rig-c/create/blob/main/docs/SOURCE.md#handing-a-retouch-to-an-image-editor)).
 Preserve history/dates; adopt choices explicitly.
 
 **Live Review loop**

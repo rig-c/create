@@ -5,7 +5,8 @@ import { type Finding } from '../src/check.ts';
 import { directionPostIdentity } from '../src/direction.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { tempDir } from './helpers.ts';
-import { checkProject, correctionCommand, checkCorrections, directionCommand, testClock } from './clock.ts';
+import { checkProject, correctionCommand, checkCorrections, testClock } from './clock.ts';
+import { seedRetainedDirectionPost } from './numbered-seed.ts';
 
 afterEach(() => testClock.reset());
 function setup(at = '2026-11-06T10:00:00Z') {
@@ -77,7 +78,7 @@ test('described direction resolves to a later authored direction on the same com
   capture(f.dir, 3);
   testClock.set(new Date('2026-11-06T10:10:00Z'));
   // The retained input is a different direction than post v3, on the same rig.
-  directionCommand(['write', '4', f.dir, '--file', 'evidence/input.json', '--rig', '1']);
+  seedRetainedDirectionPost(['write', '4', f.dir, '--file', 'evidence/input.json', '--rig', '1'], testClock.now());
   testClock.set(new Date('2026-11-06T10:20:00Z'));
   const args = ['resolve', 'described-frame', f.dir, '--version', '4', '--by', 'agent', '--reasoning-file', join(f.dir, 'reasoning.txt')];
   refusal(f.dir, 'CORRECTION_SOURCE', () => correctionCommand([...args, '--model-file', 'evidence/direction/v4.json']));
@@ -101,7 +102,7 @@ test('a later post with unchanged direction cannot close a described request', (
   const f = setup();
   capture(f.dir, 2);
   testClock.set(new Date('2026-11-06T10:10:00Z'));
-  directionCommand(['write', '4', f.dir, '--file', 'evidence/input.json', '--rig', '1']);
+  seedRetainedDirectionPost(['write', '4', f.dir, '--file', 'evidence/input.json', '--rig', '1'], testClock.now());
   testClock.set(new Date('2026-11-06T10:20:00Z'));
   refusal(f.dir, 'CORRECTION_OUTCOME', () => correctionCommand(['resolve', 'described-frame', f.dir,
     '--version', '4', '--by', 'agent', '--reasoning-file', join(f.dir, 'reasoning.txt')]));
@@ -150,7 +151,7 @@ test('legacy @1 description cannot resolve using an authored direction document 
   writeFileSync(join(f.dir, 'project.json'), JSON.stringify(p));
   expect(findings(f.dir, p).refusals).toEqual([]);
   testClock.set(new Date('2026-11-06T10:10:00Z'));
-  directionCommand(['write', '4', f.dir, '--file', 'evidence/input.json', '--rig', '1']);
+  seedRetainedDirectionPost(['write', '4', f.dir, '--file', 'evidence/input.json', '--rig', '1'], testClock.now());
   testClock.set(new Date('2026-11-06T10:20:00Z'));
   refusal(f.dir, 'CORRECTION_SOURCE', () => correctionCommand(['resolve', 'described-frame', f.dir,
     '--version', '4', '--model-file', 'evidence/direction/v4.json', '--by', 'agent',

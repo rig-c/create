@@ -14,13 +14,13 @@ import { agentCall, pendingJobActs, pendingJobAsksForTarget, jobActsText, shellW
 import { amendCommand } from './clock.ts';
 import type { PendingAskV3 } from '@rig-c/review/job-host';
 import { acknowledgePublication, enqueuePublication, JOB_BINDING_FILE, writePrivateJson, jobHash, jobHostStateRoot, jobPrivateRoot, pendingPublications, readWriterBinding, type AcknowledgedPublication } from '../src/job-outbox.ts';
-import { jobRuntimeExecArgv } from '../src/job-writer.ts';
+import { jobRuntimeExecArgv, prepareDraftIntent } from '../src/job-writer.ts';
 import { listCreateJobActs, openCreateJob, openDraftPublication, reconcileCreateJob } from '../src/job-host.ts';
 import { assertNoPendingJobAsk } from '../src/job-close.ts';
 import { currentJobIdentity, readRecordPublished, type RecordPublicationRequest } from '../src/job-publication.ts';
 import { JOB_COMMENTS_ACT_SCHEMA, JOB_RECORD_ACT_SCHEMA, parseCommentsAct, parseRecordAct, startJobHost, type ActV3, type JobOwnerHost, type JobHostOptions, type RecordPlanSubject } from '@rig-c/review/job-host';
 import { interviewAnswerCommand } from '../src/choice-writers.ts';
-import { reviewActFindings, reviewActTransport } from '../src/review-act.ts';
+import { decodeReviewAct, reviewActFindings, reviewActTransport } from '../src/review-act.ts';
 import { sorted, stepHash } from '../src/step-hash.ts';
 import { seedStoredInterviewPicks, seedStoredInterviewPicksAnswer, seedStoredVersionSignoff } from './historical-review-fixture.ts';
 import type { Json, JsonObject } from '../src/templates.ts';
@@ -28,6 +28,7 @@ import { testClock } from './clock.ts';
 import { EXAMPLE_NOW } from '../scripts/example-time.ts';
 import { clockedCli } from './helpers.ts';
 import { directionPin, TIME_ONLY_BASIS } from './comment-anchor-shapes.ts';
+import { seedRetainedDraft, seedRetainedScene } from './numbered-seed.ts';
 const receipt = (row: object) => { if (process.env.JOB_ACTS_RECEIPT) appendFileSync(process.env.JOB_ACTS_RECEIPT, JSON.stringify(row) + '\n'); };
 const scrub = (text: string, root: string) => text.replaceAll(root, '<synthetic>').replaceAll(join(import.meta.dir, '..'), '<create-checkout>').replace(/http:\/\/127\.0\.0\.1:\d+[^\s]*/g, '<owner-url>');
 const WORDS = '  Synthetic owner review words.\r\n';
@@ -572,6 +573,19 @@ test('missing and stopped hosts refuse without bootstrapping or changing produce
 
 test('routing preserves exact replay identities, retires numbered acts and keeps other writer routes', () => {
   const act = (actId: string, kind: string, source: object, value: object) => ({ jobId: 'job', actId, kind, source, value, at: '2026-11-01T00:00:00Z' } as unknown as ActV3);
+  const rawStoredImageAct = '{"schema":"rig-review/act@2","jobId":"job","actId":"image","askId":"ask-image","publicationId":"pub-image","at":"2026-11-01T00:00:00Z","authority":{"actor":"human","channel":"review-ui","reviewer":{"id":"synthetic-owner","role":"owner"}},"kind":"review-verdict","source":{"sourceHash":"' + 'a'.repeat(64) + '","projectHash":"' + 'b'.repeat(64) + '","package":{"id":"pkg","revision":"1"},"subject":"image-set","parts":{"enumeratorVersion":"2.45.0","manifest":{"path":"parts.json","sha256":"' + 'c'.repeat(64) + '"},"images":[]}},"value":{"stage":"image-review","verdict":"approved","words":"Synthetic stored image act."}}';
+  expect(() => decodeReviewAct(rawStoredImageAct)).toThrow(expect.objectContaining({
+    code: 'REVIEW_ACT_KIND_MISMATCH',
+    message: expect.stringContaining('has no rig/post writer mapping'),
+  }));
+  const stageOnlyImageAct = JSON.stringify({
+    ...JSON.parse(rawStoredImageAct),
+    source: { ...JSON.parse(rawStoredImageAct).source, subject: undefined },
+  });
+  expect(() => decodeReviewAct(stageOnlyImageAct)).toThrow(expect.objectContaining({
+    code: 'REVIEW_ACT_KIND_MISMATCH',
+    message: expect.stringContaining('has no rig/post writer mapping'),
+  }));
   const root = "synthetic project's root";
   const actors = [
     act('rig', 'review-verdict', { selector: { kind: 'rig', version: 15 } }, { stage: 'rig-review' }),
@@ -580,7 +594,7 @@ test('routing preserves exact replay identities, retires numbered acts and keeps
     act('pick', 'interview-picks', {}, { questionId: 'motion' }),
     act('checkpoint', 'checkpoint', {}, { planStepId: 'assemble' }),
     act('sign', 'signoff', {}, { stage: 'rig-review' }),
-    act('image', 'review-verdict', { subject: 'image-set' }, { stage: 'image-review' }),
+    JSON.parse(rawStoredImageAct) as ActV3,
     act('draft-rig', 'review-verdict', { selector: { kind: 'draft', id: 'draft' } }, { stage: 'rig-review' }),
     act('draft-sign', 'signoff', { selector: { kind: 'draft', id: 'draft' } }, { stage: 'parts-review' }),
     act('unbound-parts-sign', 'signoff', {}, { stage: 'parts-review' }),
@@ -1422,15 +1436,14 @@ test('#833 draft and owner-language writers refuse until the finalized Review an
   });
   const base = 'derived/drafts/pending-ask';
   cpSync(join(import.meta.dir, '../templates/example-chain/checkpoints/1-parts-verdict/derived/drafts/chain'), join(root, base), { recursive: true });
-  const draft = ['draft-rig', 'pending-ask', root, '--config', `${base}/config.json`,
-    '--from', `${base}/out`, '--parts', `${base}/input`];
+  const inputAdd = ['input', 'add', `${base}/config.json`, root, '--origin', 'synthetic pending-ask input'];
   const language = ['owner-language', 'set', 'ko', root];
   const projectFile = join(root, 'project.json');
   const before = readFileSync(projectFile);
   const beforeJob = snapshot(jobPrivateRoot(root));
   const refuses = async () => {
     const beforeHost = snapshot(jobHostStateRoot(root));
-    for (const args of [draft, language]) {
+    for (const args of [inputAdd, language]) {
       const result = await cli(root, args);
       expect(result.exit, result.stderr).toBe(1);
       expect(result.stdout).toBe('');
@@ -1447,10 +1460,10 @@ test('#833 draft and owner-language writers refuse until the finalized Review an
   await refuses();
   seedStoredInterviewPicksAnswer(root, act, { now: testClock.now() });
   expectExit0(await cli(root, language));
-  expectExit0(await cli(root, draft));
+  expectExit0(await cli(root, inputAdd));
   const project = read(root);
   expect(obj(project.owner).language).toBe('ko');
-  expect(arr(project.drafts)).toContainEqual(expect.objectContaining({ id: 'pending-ask' }));
+  expect(arr(project.inputs)).toContainEqual(expect.objectContaining({ path: `${base}/config.json` }));
   expect(arr(project.review_acts).at(-1)).toMatchObject({ kind: 'interview-picks', actId: act.actId });
 }, 60_000);
 
@@ -1691,16 +1704,16 @@ test('#633 post composition Other leads to a cited scene through two Review pick
   const composition = () => collectItems(read(root), { collection: null }).find(i => i.id === question)!;
   const otherAnswer = obj(composition().raw);
   expect(obj(arr(obj(otherAnswer.choice).picks)[0]).other_text).toBe(otherText);
-  const sceneArgs = ['scene', 'write', '--rig', '1', '--background', 'background.png', '--foreground', 'foreground.png', '--citations-file', 'citations.json', root];
+  const sceneArgs = ['write', '--rig', '1', '--background', 'background.png', '--foreground', 'foreground.png', '--citations-file', 'citations.json', root];
   const writeCitations = (quote: unknown) => {
     const citation = { guide: question, asks: [question], quote };
     writeFileSync(join(root, 'citations.json'), JSON.stringify({ background: citation, foreground: citation }));
   };
   writeCitations(otherAnswer.verbatim);
   const before = readFileSync(join(root, 'project.json'));
-  const refused = await cli(root, sceneArgs);
-  expect(refused.exit).toBe(1);
-  expect(refused.stderr).toContain('SCENE_CHOICE_MISSING');
+  let sceneRefusal: unknown;
+  try { seedRetainedScene(sceneArgs, testClock.now()); } catch (error) { sceneRefusal = error; }
+  expect(sceneRefusal).toMatchObject({ code: 'SCENE_CHOICE_MISSING' });
   expect(readFileSync(join(root, 'project.json'))).toEqual(before);
 
   const report = nextProject(root, testClock.now());
@@ -1753,7 +1766,7 @@ test('#633 post composition Other leads to a cited scene through two Review pick
   expect(replacement).toMatchObject({ does, status: 'pending', checkpoint: null, drafted_at: testClock.iso() });
   expect(replacement.status_history).toBeUndefined();
   writeCitations(ingested.verbatim);
-  expectExit0(await cli(root, sceneArgs));
+  expect(seedRetainedScene(sceneArgs, testClock.now()).exit).toBe(0);
   expect(obj((read(root).scenes as JsonObject[]).at(-1)).by).toBe('agent');
   expectExit0(await cli(root, ['interview', '--check', root]));
 }, 30_000);
@@ -1893,13 +1906,14 @@ test('#711 relayed rigging-interview signoff unblocks draft publication on the s
   expectExit0(await cli(root, ['advance', 'rigging', root]));
   const base = 'derived/drafts/next';
   cpSync(join(root, 'derived/drafts/chain'), join(root, base), { recursive: true });
-  const recorded = await cli(root, ['draft-rig', 'next', root, '--config', `${base}/config.json`,
+  const recorded = seedRetainedDraft(['next', root, '--config', `${base}/config.json`,
     '--from', `${base}/out`, '--parts', `${base}/input`, '--json']);
-  expectExit0(recorded);
-  const draftResult = JSON.parse(recorded.stdout) as { id: string; publication: { status: string; lines: string[] } };
+  expect(recorded.exit).toBe(0);
+  const draftResult = JSON.parse(recorded.stdout) as { id: string };
   expect(draftResult.id).toBe('next');
-  expect(draftResult.publication, draftResult.publication.lines.join('\n')).toMatchObject({ status: 'deferred' });
-  expect(draftResult.publication.lines.join('\n')).toContain('no owner ask is ready');
+  const intent = prepareDraftIntent(root, readFileSync(join(root, 'project.json')), 'next');
+  expect(intent.intent).toBeNull();
+  expect(intent.deferred).toContain('no owner ask is ready');
   expect(arr(read(root).drafts).map(obj)).toContainEqual(expect.objectContaining({ id: 'next' }));
   const openedDraft = await cli(root, ['job', 'open', root, '--draft', 'next', '--reviewer', 'synthetic-owner', '--role', 'owner']);
   expectExit0(openedDraft);

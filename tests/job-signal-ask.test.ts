@@ -10,8 +10,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { askOutcomeLines, closeCreateJob } from '../src/job-host.ts';
 import { jobHostStateRoot, jobPrivateRoot, pendingPublications, readAcknowledgedPublication, readWriterBinding } from '../src/job-outbox.ts';
-import { jobRuntimeExecArgv } from '../src/job-writer.ts';
+import { jobRuntimeExecArgv, prepareDraftIntent } from '../src/job-writer.ts';
 import type { JsonObject } from '../src/templates.ts';
+import { seedRetainedDraft } from './numbered-seed.ts';
 
 const CLI = join(import.meta.dir, '../src/cli.ts');
 const roots: string[] = [];
@@ -121,7 +122,7 @@ test('bound writers print concise asked/already subject lines in text mode and p
     'job: already asked checkpoint assemble',
   ]);
 
-  // --json stdout stays one JSON document; a bound draft-rig carries its deferred view-only notice inside it.
+  // --json stdout stays one JSON document on bound writers; view-only draft preparation defers without an ask.
   const draftRoot = await preparedParts();
   const args = copyDraft(draftRoot, 'chain-2');
   const snapshot = JSON.parse(readFileSync(join(draftRoot, 'evidence/structure-chain.json'), 'utf8')) as JsonObject;
@@ -129,11 +130,13 @@ test('bound writers print concise asked/already subject lines in text mode and p
   (snapshot.config as JsonObject).path = 'derived/drafts/chain-2/config.json';
   writeFileSync(join(draftRoot, 'evidence/structure-chain-2.json'), JSON.stringify(snapshot));
   await openPartsWithoutAsk(draftRoot);
-  const draftedJson = await cli(draftRoot, [...args, '--json']);
-  expect({ exit: draftedJson.exit, stderr: draftedJson.stderr }).toEqual({ exit: 0, stderr: '' });
-  const printed = JSON.parse(draftedJson.stdout) as JsonObject;
-  expect(printed).toMatchObject({ id: 'chain-2', publication: { status: 'deferred' } });
-  expect((printed.publication as { lines: string[] }).lines[0]).toContain('no owner ask is ready');
+  expect(seedRetainedDraft(args).exit).toBe(0);
+  const intent = prepareDraftIntent(draftRoot, readFileSync(join(draftRoot, 'project.json')), 'chain-2');
+  expect(intent.intent).toBeNull();
+  expect(intent.deferred).toContain('no owner ask is ready');
+  const diffJson = await cli(draftRoot, ['diff-classes', draftRoot, '--diff-report', 'evidence/diff-components.json', '--json']);
+  expect({ exit: diffJson.exit, stderr: diffJson.stderr }).toEqual({ exit: 0, stderr: '' });
+  expect(() => JSON.parse(diffJson.stdout)).not.toThrow();
 }, 30_000);
 
 function publicationId(root: string): string {
@@ -149,7 +152,7 @@ function publicationId(root: string): string {
 function copyDraft(root: string, id: string): string[] {
   const base = `derived/drafts/${id}`;
   cpSync(join(root, 'derived/drafts/chain'), join(root, base), { recursive: true });
-  return ['draft-rig', id, root, '--config', `${base}/config.json`, '--from', `${base}/out`, '--parts', `${base}/input`];
+  return [id, root, '--config', `${base}/config.json`, '--from', `${base}/out`, '--parts', `${base}/input`];
 }
 
 async function preparedParts(): Promise<string> {
@@ -206,16 +209,15 @@ function seedHistoricalPendingDraftAsk(root: string, publicationId: string, draf
 test.each([
   { mode: 'plain', flags: [] },
   { mode: '--json', flags: ['--json'] },
-])('#833 draft-rig ($mode) refuses JOB_ASK_PENDING before writing project.json', async ({ flags }) => {
+])('#833 bound record ($mode) refuses JOB_ASK_PENDING before writing project.json', async ({ flags }) => {
   const root = await preparedParts();
-  const args = copyDraft(root, 'chain-2');
   const opening = await open(root);
   const head = publicationId(root);
   expect(opening.lines).toEqual([`job: draft chain published (publication ${head})`]);
   seedHistoricalPendingDraftAsk(root, head, 'chain');
   const projectFile = join(root, 'project.json');
   const before = readFileSync(projectFile);
-  const refused = await cli(root, [...args, ...flags]);
+  const refused = await cli(root, ['record', 'parts', root, '--adopt', ...flags]);
   expect(refused).toMatchObject({
     exit: 1,
     stdout: '',
@@ -226,17 +228,17 @@ test.each([
   expect(pendingPublications(root)).toEqual([]);
 }, 30_000);
 
-test('#690 draft-rig --json defers an unready draft with no owner ask and preparation makes it publishable', async () => {
+test('#690 prepareDraftIntent defers an unready draft with no owner ask and preparation makes it publishable', async () => {
   const root = await preparedParts();
   const args = copyDraft(root, 'chain-2');
   const before = await openPartsWithoutAsk(root);
-  const recorded = await cli(root, [...args, '--json']);
-  expect({ exit: recorded.exit, stderr: recorded.stderr }).toEqual({ exit: 0, stderr: '' });
+  const recorded = seedRetainedDraft([...args, '--json']);
+  expect(recorded.exit).toBe(0);
   const printed = JSON.parse(recorded.stdout) as JsonObject;
   expect(printed.id).toBe('chain-2');
-  const notice = printed.publication as { status: string; lines: string[] };
-  expect(notice.status).toBe('deferred');
-  const guidance = notice.lines.join('\n');
+  const intent = prepareDraftIntent(root, readFileSync(join(root, 'project.json')), 'chain-2');
+  expect(intent.intent).toBeNull();
+  const guidance = intent.deferred ?? '';
   expect(guidance).toContain('open page not updated: structure snapshot missing or invalid at evidence/structure-chain-2.json');
   expect(guidance).toContain(`rig-create structure-snapshot ${root} --draft chain-2 --out evidence/structure-chain-2.json`);
   expect(guidance).toContain(`Then run rig-create job open ${root} --draft chain-2`);
@@ -267,7 +269,7 @@ test('#690 draft-rig --json defers an unready draft with no owner ask and prepar
 test('#690 explicit job open --draft replaces a publication with an unanswered earlier-draft ask', async () => {
   const root = await preparedParts();
   const args = copyDraft(root, 'chain-2');
-  expect(await cli(root, args)).toMatchObject({ exit: 0, stderr: '' });
+  expect(seedRetainedDraft(args).exit).toBe(0);
   expect(await cli(root, ['structure-snapshot', root, '--draft', 'chain-2'])).toMatchObject({ exit: 0, stderr: '' });
   const opening = await open(root, ['--draft', 'chain']);
   const binding = readWriterBinding(root)!;

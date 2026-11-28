@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { EXAMPLE_NOW } from '../scripts/example-time.ts';
 import { amendCommand } from '../src/amend.ts';
 import { checkProject } from '../src/check.ts';
-import { draftRigCommand } from '../src/drafts.ts';
+import { seedRetainedDraft } from './numbered-seed.ts';
 import { assertRequestedDraft } from '../src/job-host.ts';
 import { acknowledgePublication, JOB_BINDING_FILE, jobHash, publicationVersionHash, writePrivateJson, type WriterBinding } from '../src/job-outbox.ts';
 import { currentJobIdentity, draftPackageIdentity, inspectDraftPublication, prepareDraftManifest, readPublished, riggingDraftPartsChange } from '../src/job-publication.ts';
@@ -42,7 +42,7 @@ function fixture(change: boolean, withModel = false, stage = 'rigging'): string 
   cpSync(join(root, 'derived/drafts/chain'), join(root, preview), { recursive: true });
   if (!withModel) rmSync(join(root, preview, 'out/check'), { recursive: true });
   if (change) appendFileSync(join(root, preview, 'input/parts.json'), '\n');
-  expect(draftRigCommand([id, root, '--config', `${preview}/config.json`, '--from', `${preview}/out`,
+  expect(seedRetainedDraft([id, root, '--config', `${preview}/config.json`, '--from', `${preview}/out`,
     '--parts', `${preview}/input`], EXAMPLE_NOW).exit).toBe(0);
   return root;
 }

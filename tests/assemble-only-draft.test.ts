@@ -1,25 +1,23 @@
 import { expect, test } from 'bun:test';
 import { createHash } from 'node:crypto';
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { generateExampleParts } from '../scripts/generate-example-parts.ts';
 import { nextProject } from '../src/next.ts';
 import { checkProject, type Finding } from '../src/check.ts';
 import { validateCorrectionIdentity } from '../src/corrections.ts';
 import { directionCommand } from '../src/direction-writers.ts';
 import { validateDirectionRig } from '../src/direction.ts';
 import { assembleOnlyVersionFinding } from '../src/draft-layout.ts';
-import { checkDrafts, draftRigCommand } from '../src/drafts.ts';
+import { checkDrafts } from '../src/drafts.ts';
 import { checkFixLedger, FIX_LEDGER_REPORT_SPEC } from '../src/fix-ledger.ts';
 import { assertRequestedRig } from '../src/job-host.ts';
 import { recordedPartsVerdict } from '../src/parts-verdict-record.ts';
 import { handoffCommand } from '../src/review.ts';
-import { reviewPackageCommand } from '../src/review-package.ts';
-import { rigVersionCommand } from '../src/rig-version.ts';
 import { checkSignoffTarget } from '../src/signoff-target.ts';
 import { structureSnapshotCommand } from '../src/structure-snapshot.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { arr, fixture, obj, retimeFixture } from './fixtures.ts';
+import { seedRetainedDraft } from './numbered-seed.ts';
 import { seedPartsCliReceipt } from './parts-receipt-fixture.ts';
 
 const now = Date.parse('2026-11-20T12:00:00Z');
@@ -76,12 +74,12 @@ function refuses(dir: string, code: string, action: () => unknown): void {
   expect(readFileSync(file)).toEqual(before);
 }
 
-test('records stamped assemble output and binds a parts-review CLI receipt without a rig', () => {
+test('checks stamped assemble output and binds a parts-review CLI receipt without a rig', () => {
   const dir = fixture();
   const before = read(dir);
   const baseline = checkProject(dir, before, { now, readOnly: true }).refusals;
   const input = stage(dir, 'assemble');
-  const result = draftRigCommand(input.args, now);
+  const result = seedRetainedDraft(input.args, now);
   expect(result.exit).toBe(0);
   const draft = read(dir).drafts;
   expect(draft).toEqual([JSON.parse(result.stdout)]);
@@ -113,34 +111,6 @@ test('records stamped assemble output and binds a parts-review CLI receipt witho
   expect(read(dir).stage).toBe(before.stage);
 });
 
-test('requires the second assemble after propose changes turn', () => {
-  const dir = fixture();
-  const id = 'turn-draft';
-  const root = `derived/drafts/${id}`;
-  mkdirSync(join(dir, root), { recursive: true });
-  const first = generateExampleParts(join(dir, root), true);
-  const run = (...args: string[]) => {
-    const result = Bun.spawnSync([process.execPath, join(import.meta.dir, '../node_modules/@rig-c/parts/bin/rig-parts.cjs'), ...args],
-      { cwd: join(dir, root), stdout: 'pipe', stderr: 'pipe' });
-    expect(result.exitCode, String(result.stderr)).toBe(0);
-    return String(result.stdout);
-  };
-  expect(run('propose', '--parts', 'assembled/rig', '--source', 'painting.png', '--full', 'layers', '--out', 'proposal',
-    '--write-config', 'config.json')).toContain('config.turn');
-  const args = [id, dir, '--config', `${root}/config.json`, '--from'];
-  refuses(dir, 'ASSEMBLY_CONFIG_STALE', () => draftRigCommand([...args, `${root}/assembled`], now));
-
-  const assemble = (out: string) => run('assemble', '--source', 'painting.png', '--full', 'layers', '--config', 'config.json', '--out', out);
-  assemble('fresh');
-  const recorded = JSON.parse(draftRigCommand([...args, `${root}/fresh`, '--json'], now).stdout);
-  expect(recorded.config.sha256).toBe(sha(readFileSync(join(dir, root, 'config.json'))));
-  assemble('replay');
-  expect(readFileSync(join(dir, root, 'fresh/rig/parts.json'))).not.toEqual(first['parts.json']!);
-  for (const file of Object.keys(first)) {
-    expect(readFileSync(join(dir, root, 'fresh/rig', file))).toEqual(readFileSync(join(dir, root, 'replay/rig', file)));
-  }
-});
-
 test('next on a numbered project names reassembly before draft registration and publication', () => {
   const dir = fixture(project => {
     project.stage = 'parts';
@@ -150,30 +120,8 @@ test('next on a numbered project names reassembly before draft registration and 
     for (const raw of arr(obj(project.plan).steps)) obj(raw).status = 'pending';
   });
   const move = nextProject(dir, now).moves.find(move => move.field === 'drafts');
-  expect(move?.act).toMatch(/assemble.*propose --write-config.*assemble again.*draft-rig.*job open --draft/);
+  expect(move?.act).toMatch(/assemble.*propose --write-config.*assemble again.*job open --draft/);
   expect(move?.act).toMatch(/assemble again with the written config\. Finalize the assembly inputs.*only then take edited-part baselines/);
-});
-
-test.each(['rig.json', 'motion.json', 'mesh_report.json', 'skeleton.model.json'])('partial output with %s cannot silently become assemble-only', name => {
-  const dir = fixture();
-  const input = stage(dir, 'partial');
-  write(dir, `${input.out}/rig/${name}`, '{}');
-  refuses(dir, 'DRAFT_RIG_MALFORMED', () => draftRigCommand(input.args, now));
-});
-
-test('ambiguous and incomplete assemble inventories refuse without altering the record', () => {
-  const dir = fixture();
-  const ambiguous = stage(dir, 'ambiguous');
-  write(dir, `${ambiguous.out}/parts.json`, '{}');
-  write(dir, `${ambiguous.out}/parts/sample.png`, 'flat part');
-  refuses(dir, 'DRAFT_RIG_MALFORMED', () => draftRigCommand(ambiguous.args, now));
-  const incomplete = stage(dir, 'incomplete');
-  rmSync(join(dir, incomplete.image));
-  write(dir, `${incomplete.parts}/parts/readme.txt`, 'an image is required');
-  refuses(dir, 'DRAFT_RIG_MALFORMED', () => draftRigCommand(incomplete.args, now));
-  const noStack = stage(dir, 'no-stack');
-  rmSync(join(dir, noStack.stack));
-  refuses(dir, 'DRAFT_RIG_STACK', () => draftRigCommand(noStack.args, now));
 });
 
 test('checks the explicit layout, bound stamp and retained output bytes', () => {
@@ -184,11 +132,7 @@ test('checks the explicit layout, bound stamp and retained output bytes', () => 
     checkDrafts(dir, project, errors);
     expect(errors.map(f => f.code)).toContain(code);
   };
-  const stamp = readFileSync(join(dir, input.stamp), 'utf8');
-  write(dir, input.stamp, stamp.replace('"role":"full"', '"role":"head"'));
-  refuses(dir, 'RUN_RECORD_MALFORMED', () => draftRigCommand(input.args, now));
-  write(dir, input.stamp, stamp);
-  draftRigCommand(input.args, now);
+  seedRetainedDraft(input.args, now);
   const noLayout = read(dir);
   delete obj(arr(noLayout.drafts)[0]).layout;
   bad(noLayout, 'DRAFT_RIG_MALFORMED');
@@ -203,7 +147,7 @@ test('checks the explicit layout, bound stamp and retained output bytes', () => 
 test.each(['flat', 'standalone', 'build'] as const)('recognizes %s and leaves full draft records in their existing format', layout => {
   const dir = fixture();
   const input = stage(dir, 'sample', layout);
-  const result = draftRigCommand(input.args, now);
+  const result = seedRetainedDraft(input.args, now);
   expect(result.exit).toBe(0);
   const record = obj(arr(read(dir).drafts)[0]);
   if (layout === 'flat') expect(record.layout).toBe('assemble-only');
@@ -216,17 +160,12 @@ test.each(['flat', 'standalone', 'build'] as const)('recognizes %s and leaves fu
 test('rig consumers refuse explicit assemble sources or targets, with byte-identical project.json', () => {
   const dir = fixture();
   const input = stage(dir, 'assemble');
-  draftRigCommand(input.args, now);
+  seedRetainedDraft(input.args, now);
   const code = 'DRAFT_RIG_REQUIRED';
   refuses(dir, code, () => assertRequestedRig(dir, 'assemble'));
-  refuses(dir, code, () => directionCommand(['write', '9', dir, '--rig', 'assemble', '--file', 'unneeded.json'], now));
   refuses(dir, code, () => directionCommand(['check', 'assemble', dir], now));
   refuses(dir, code, () => handoffCommand([dir, '--rig', 'assemble'], now));
   refuses(dir, code, () => validateDirectionRig(dir, read(dir), { rig: { version: 99, model: { path: input.manifest, sha256: sha('') } } }, true));
-  refuses(dir, code, () => reviewPackageCommand(['99', dir, '--config', input.config, '--from', input.out]));
-  refuses(dir, code, () => rigVersionCommand(['99', dir, '--rig', input.parts, '--parts', input.parts, '--config', input.config,
-    '--build', 'unneeded', '--idle', 'unneeded', '--path-adapter', 'unneeded', '--compile-report', 'unneeded', '--toolchain-lock', 'unneeded',
-    '--at-source', 'unneeded', '--at-pointer', 'unneeded', '--by', 'agent'], now));
   const errors: Finding[] = [];
   checkSignoffTarget(dir, read(dir), { stage: 'rig-review', draft_id: 'assemble' }, 'signoffs[0]', errors, []);
   expect(errors.map(f => f.code)).toEqual([code]);
@@ -236,7 +175,7 @@ test('rig consumers refuse explicit assemble sources or targets, with byte-ident
 test('correction identity admits a part-only edit and refuses the same draft when a model is required', () => {
   const dir = fixture();
   const input = stage(dir, 'assemble');
-  draftRigCommand(input.args, now);
+  seedRetainedDraft(input.args, now);
   const project = read(dir);
   const draft = obj(arr(project.drafts)[0]);
   const files = arr(obj(draft.parts).files).map(obj).sort((a, b) => String(a.path) < String(b.path) ? -1 : 1);
@@ -256,13 +195,15 @@ test('assemble-only drafts neither claim ledger results nor reset the last rig l
     return path;
   };
   const first = stage(dir, 'first', 'build');
-  draftRigCommand([...first.args, '--ledger-report', report(first.manifest, 'pass')], now);
+  seedRetainedDraft([...first.args, '--ledger-report', report(first.manifest, 'pass')], now);
   const assemble = stage(dir, 'assemble');
-  refuses(dir, 'DRAFT_RIG_REQUIRED', () => draftRigCommand([...assemble.args, '--ledger-report', 'unneeded.json'], now));
-  draftRigCommand(assemble.args, now);
+  seedRetainedDraft(assemble.args, now);
   const next = stage(dir, 'next', 'build');
-  refuses(dir, 'DRAFT_LEDGER_REGRESSION', () => draftRigCommand([...next.args, '--ledger-report', report(next.manifest, 'fail')], now));
-  const accepted = JSON.parse(draftRigCommand([...next.args, '--ledger-report', report(next.manifest, 'pass')], now).stdout);
+  const beforeFailed = readFileSync(join(dir, 'project.json'));
+  expect(() => seedRetainedDraft([...next.args, '--ledger-report', report(next.manifest, 'fail')], now))
+    .toThrow(expect.objectContaining({ code: 'DRAFT_LEDGER_REGRESSION' }));
+  writeFileSync(join(dir, 'project.json'), beforeFailed);
+  const accepted = JSON.parse(seedRetainedDraft([...next.args, '--ledger-report', report(next.manifest, 'pass')], now).stdout);
   expect(accepted).toMatchObject({ fixes: [], fixes_against: 'first' });
   const forged = read(dir);
   obj(arr(forged.drafts)[1]).fixes = [];

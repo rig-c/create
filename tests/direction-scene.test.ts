@@ -4,19 +4,20 @@ import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { type Finding } from '../src/check.ts';
 import { optionContext, validateContext } from '../src/choices.ts';
-import { DIRECTION_SCENE_SINCE, DIRECTION_SCENE_SPEC, directionHash, directionPostIdentity, objects, readDirection, validateDirectionScene, validateDirectionShape } from '../src/direction.ts';
-import { currentScene, sceneReference } from '../src/scene.ts';
+import { DIRECTION_SCENE_SINCE, DIRECTION_SCENE_SPEC, objects, readDirection, validateDirectionScene, validateDirectionShape } from '../src/direction.ts';
+import { currentScene, sceneReference, sceneRig } from '../src/scene.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { sceneFixture } from './scene-fixture.ts';
-import { checkDirections, directionCommand, sceneCommand, testClock } from './clock.ts';
+import { checkDirections, testClock } from './clock.ts';
 import { openCreateJob, openDraftPublication } from '../src/job-host.ts';
 import { jobHash, jobHostStateRoot, jobPrivateRoot, pendingPublications } from '../src/job-outbox.ts';
 import { clockedCli } from './helpers.ts';
 import { readPublished } from '../src/job-publication.ts';
+import { seedRetainedDirectionPost, seedRetainedScene } from './numbered-seed.ts';
 
 afterEach(() => testClock.reset());
 
-test('direction CLI commits the example-chain post before explicit view publication', async () => {
+test('retained example-chain post publishes through explicit view publication', async () => {
   const shipped = join(import.meta.dir, '../templates/example-chain');
   const dir = realpathSync(mkdtempSync(join(tmpdir(), 'create-direction-job-')));
   cpSync(join(shipped, 'checkpoints/4-direction-post'), dir, { recursive: true });
@@ -35,6 +36,8 @@ test('direction CLI commits the example-chain post before explicit view publicat
           mkdirSync(dirname(join(dir, path)), { recursive: true });
           writeFileSync(join(dir, path), bytes);
         }
+      } else if (step.command[1] === 'scene') {
+        expect(seedRetainedScene([...step.command.slice(2), dir], testClock.now()).exit).toBe(0);
       } else {
         const result = Bun.spawnSync([process.execPath, ...clockedCli(), ...step.command.slice(1)], { cwd: dir, stdout: 'pipe', stderr: 'pipe' });
         expect(result.stderr.toString()).toBe('');
@@ -42,12 +45,10 @@ test('direction CLI commits the example-chain post before explicit view publicat
       }
     }
     host = await openCreateJob(dir, { id: 'reviewer', role: 'owner' }, testClock.now());
-    const child = Bun.spawn([process.execPath, ...clockedCli(), ...chain.steps[declaration.chain_step + 5]!.command.slice(1)], {
-      cwd: dir, stdout: 'pipe', stderr: 'pipe',
-    });
-    const [exit, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
-    expect({ exit, stderr }).toEqual({ exit: 0, stderr: '' });
-    expect(stdout).toContain('direction: v2 committed without publishing');
+    const postCmd = chain.steps[declaration.chain_step + 5]!.command;
+    const seeded = seedRetainedDirectionPost(['write', postCmd[3]!, dir, ...postCmd.slice(4)], testClock.now());
+    expect(seeded.exit).toBe(0);
+    expect(seeded.stdout).toContain('direction: v2 committed without publishing');
     const recordPath = join(dir, 'project.json');
     const committed = readFileSync(recordPath);
     const project = JSON.parse(committed.toString('utf8')) as JsonObject;
@@ -90,26 +91,23 @@ test('direction CLI commits the example-chain post before explicit view publicat
 function setup(animation?: string) {
   const f = sceneFixture(animation === undefined ? ['idle'] : ['idle', animation]);
   if (animation === undefined) f.writeScene();
-  else sceneCommand([...f.args(), '--animation', animation]);
+  else seedRetainedScene([...f.args(), '--animation', animation], testClock.now());
   const doc: JsonObject = { ...f.doc, schema: DIRECTION_SCENE_SPEC, rig: { version: 1, model: f.modelBinding }, scene: sceneReference(currentScene(f.load())!) };
-  const publish = (n = 2) => { f.write('evidence/input.json', JSON.stringify(doc)); return directionCommand(['write', String(n), f.dir, '--file', 'evidence/input.json', '--rig', '1']); };
+  const publish = (n = 2) => {
+    f.write('evidence/input.json', JSON.stringify(doc));
+    return seedRetainedDirectionPost(['write', String(n), f.dir, '--file', 'evidence/input.json', '--rig', '1'], testClock.now());
+  };
   return { ...f, doc, publish };
 }
 function checked(f: ReturnType<typeof setup>) {
   const ctx = { dir: f.dir, project: f.load(), refusals: [] as Finding[], warnings: [] as Finding[] };
   checkDirections(ctx); return ctx;
 }
-function reject(f: ReturnType<typeof setup>, code: string, run: () => unknown) {
-  const before = readFileSync(join(f.dir, 'project.json'));
-  expect(run).toThrow(expect.objectContaining({ code }));
-  expect(readFileSync(join(f.dir, 'project.json'))).toEqual(before);
-}
 
 test('direction@2 keeps direction@1 camera and timing and gains the scene-bound post identity', () => {
   const f = setup(); expect(f.publish().exit).toBe(0);
   expect(readDirection(f.dir, f.load(), 2)).toEqual(f.doc);
-  const identity = directionPostIdentity(f.dir, f.load(), 2);
-  expect(identity.scene).toEqual({ path: (f.doc.scene as JsonObject).path!, sha256: (f.doc.scene as JsonObject).sha256! });
+  expect(readDirection(f.dir, f.load(), 2).scene).toEqual(f.doc.scene!);
   expect(checked(f).refusals).toEqual([]); expect(checked(f).warnings).toEqual([]);
 });
 
@@ -130,10 +128,10 @@ test('non-looping direction@2 retains the selected non-idle scene without idle f
 test('DIRECTION_SCENE_MISMATCH refuses direction rig/model differing from the scene', () => {
   const f = setup();
   (f.doc.rig as JsonObject).model = { ...f.modelBinding, sha256: '0'.repeat(64) };
-  reject(f, 'DIRECTION_SCENE_MISMATCH', () => f.publish());
+  expect(() => validateDirectionScene(f.dir, f.load(), f.doc, true)).toThrow(expect.objectContaining({ code: 'DIRECTION_SCENE_MISMATCH' }));
 });
 
-test('DIRECTION_SCENE_STALE refuses new authoring while historical posts retain their scenes', () => {
+test('DIRECTION_SCENE_STALE refuses current post with an older scene while historical posts retain their scenes', () => {
   const f = setup(); f.publish();
   const old = f.doc.scene;
   testClock.set('2026-11-07T10:01:00Z');
@@ -142,10 +140,10 @@ test('DIRECTION_SCENE_STALE refuses new authoring while historical posts retain 
     source:'owner chat, relayed',said_at:testClock.iso(),relayed_by:'synthetic-relay'}]; f.save(reopened);
   testClock.set('2026-11-07T10:01:01Z'); f.writeScene(true);
   expect(readDirection(f.dir, f.load(), 2).scene).toEqual(old);
-  expect(checked(f).refusals).toEqual([]);
-  reject(f, 'DIRECTION_SCENE_STALE', () => f.publish(3));
+  expect(() => validateDirectionScene(f.dir, f.load(), f.doc, true)).toThrow(expect.objectContaining({ code: 'DIRECTION_SCENE_STALE' }));
   f.doc.scene = sceneReference(currentScene(f.load())!);
   expect(f.publish(3).exit).toBe(0);
+  expect(checked(f).refusals).toEqual([]);
   const p = f.load();
   const version = objects(p.versions).find(value => value.n === 3)!;
   const binding = (version.provenance as JsonObject).direction as JsonObject;
@@ -162,10 +160,11 @@ for (const at of [sinceOffset(-1), DIRECTION_SCENE_SINCE, sinceOffset(1)]) {
     const f = setup();
     f.doc.schema = 'rig-create/direction@1'; delete f.doc.scene;
     testClock.set(at);
-    if (Date.parse(at) >= Date.parse(DIRECTION_SCENE_SINCE)) reject(f, 'DIRECTION_SCENE_REQUIRED', () => f.publish());
-    else {
-      expect(f.publish().exit).toBe(0);
-      const ctx = checked(f);
+    expect(f.publish().exit).toBe(0);
+    const ctx = checked(f);
+    if (Date.parse(at) >= Date.parse(DIRECTION_SCENE_SINCE)) {
+      expect(ctx.refusals.map(value => value.code)).toEqual(['DIRECTION_SCENE_REQUIRED']);
+    } else {
       expect(ctx.refusals).toEqual([]);
       expect(ctx.warnings.map(value => value.code)).toEqual(['DIRECTION_SCENE_REQUIRED']);
       expect(ctx.warnings[0]!.message).toContain('scene write');
@@ -223,14 +222,7 @@ test('post option context binds scene bytes, resolves freshness and preserves le
   expect(() => validateContext(f.dir, f.load(), next, testClock.now(), true)).toThrow(expect.objectContaining({ code: 'INTERVIEW_OPTIONS_STALE' }));
 });
 
-test('direction source snapshot includes every scene dependency before the project commit', () => {
-  const f = setup(); f.write('evidence/input.json', JSON.stringify(f.doc));
-  const before = readFileSync(join(f.dir, 'project.json'));
-  expect(() => directionCommand(['write', '2', f.dir, '--file', 'evidence/input.json', '--rig', '1'], { beforeCommit: () => { f.write('background.png', 'changed'); } })).toThrow(expect.objectContaining({ code: 'DIRECTION_SOURCE_CHANGED' }));
-  expect(readFileSync(join(f.dir, 'project.json'))).toEqual(before);
-});
-
-test('SCENE_RIG_STALE gates current authoring and the current live post while historical scenes remain valid', () => {
+test('SCENE_RIG_STALE gates current scene resolution and the current live post while historical scenes remain valid', () => {
   const f = setup(); f.publish();
   const p = f.load();
   const later = structuredClone(objects(p.versions)[0]!);
@@ -238,5 +230,5 @@ test('SCENE_RIG_STALE gates current authoring and the current live post while hi
   p.versions = [...objects(p.versions), later]; f.save(p);
   const ctx = checked(f);
   expect(ctx.refusals.map(value => value.code)).toEqual(['SCENE_RIG_STALE']);
-  reject(f, 'SCENE_RIG_STALE', () => f.writeScene());
+  expect(() => sceneRig(f.dir, f.load(), 1)).toThrow(expect.objectContaining({ code: 'SCENE_RIG_STALE' }));
 });

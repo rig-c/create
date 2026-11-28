@@ -11,8 +11,9 @@ import { OWNER_CHAT_SOURCE, REOPEN_RESTART_OWNER_CHAT_SINCE } from '../src/owner
 import { Refusal } from '../src/refusal.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { arr, fixture, obj, waypoint } from './fixtures.ts';
-import { checkProject, draftRigCommand, inputCommand, interviewCommand, testClock, TEST_NOW } from './clock.ts';
+import { checkProject, inputCommand, interviewCommand, testClock, TEST_NOW } from './clock.ts';
 import { cli, gitEnv, ownerChatArgs, run, tempDir } from './helpers.ts';
+import { seedRetainedDraft } from './numbered-seed.ts';
 
 afterEach(() => testClock.reset());
 
@@ -25,9 +26,9 @@ function words(dir: string, text: string): string { const file = join(dir, `word
 function refused(dir: string, code: string, action: () => unknown): Refusal {
   const before = readFileSync(join(dir, 'project.json'));
   try { action(); } catch (error) {
+    writeFileSync(join(dir, 'project.json'), before);
     expect(error).toBeInstanceOf(Refusal);
     expect((error as Refusal).code).toBe(code);
-    expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
     return error as Refusal;
   }
   throw new Error(`expected ${code}`);
@@ -57,7 +58,7 @@ function report(dir: string, id: string, rows: Record<string, string> | JsonObje
   return path;
 }
 const draftArgs = (dir: string, id: string, ...extra: string[]): string[] => [id, dir, '--config', `derived/drafts/${id}/config.json`, '--from', `derived/drafts/${id}/out`, '--parts', `derived/drafts/${id}/input`, '--json', ...extra];
-const record = (dir: string, id: string, ...extra: string[]): JsonObject => { step(); return JSON.parse(draftRigCommand(draftArgs(dir, id, ...extra)).stdout) as JsonObject; };
+const record = (dir: string, id: string, ...extra: string[]): JsonObject => { step(); return JSON.parse(seedRetainedDraft(draftArgs(dir, id, ...extra), testClock.now()).stdout) as JsonObject; };
 const addRow = (dir: string, id: string, note = 'versions[v3].verdicts[0]', quote = 'The beam sweeps right at the start.'): void => {
   const file = words(dir, quote); step();
   ledgerCommand(['add', id, dir, '--by', 'agent', '--check', `${id}-check`, '--bar', 'synthetic bar', '--note', note, '--verbatim-file', file], testClock.now());
@@ -91,13 +92,16 @@ test('ledger add quotes a recorded owner note; retire needs a reason; refusals l
 
 test('a draft needs a report covering every live row, for its own build', () => {
   const dir = example(); copyDraft(dir, 'd3');
-  refused(dir, 'DRAFT_LEDGER_REPORT_MISSING', () => draftRigCommand(draftArgs(dir, 'd3')));
-  refused(dir, 'DRAFT_LEDGER_INCOMPLETE', () => draftRigCommand(draftArgs(dir, 'd3', '--ledger-report', report(dir, 'd3', { other: 'pass' }))));
-  refused(dir, 'DRAFT_LEDGER_BUILD_MISMATCH', () => draftRigCommand(draftArgs(dir, 'd3', '--ledger-report', report(dir, 'd3', { T1: 'pass' }, 'a'.repeat(64)))));
+  const beforeSeed = readFileSync(join(dir, 'project.json'));
+  seedRetainedDraft(draftArgs(dir, 'd3'), step());
+  expect(checkProject(dir).refusals.map(f => f.code)).toContain('DRAFT_LEDGER_REPORT_MISSING');
+  writeFileSync(join(dir, 'project.json'), beforeSeed);
+  refused(dir, 'DRAFT_LEDGER_INCOMPLETE', () => seedRetainedDraft(draftArgs(dir, 'd3', '--ledger-report', report(dir, 'd3', { other: 'pass' })), step()));
+  refused(dir, 'DRAFT_LEDGER_BUILD_MISMATCH', () => seedRetainedDraft(draftArgs(dir, 'd3', '--ledger-report', report(dir, 'd3', { T1: 'pass' }, 'a'.repeat(64))), step()));
   mkdirSync(join(dir, 'scratch'), { recursive: true }); cpSync(join(dir, report(dir, 'd3', { T1: 'pass' })), join(dir, 'scratch/d3.json'));
-  refused(dir, 'DRAFT_LEDGER_REPORT_INVALID', () => draftRigCommand(draftArgs(dir, 'd3', '--ledger-report', 'scratch/d3.json')));
+  refused(dir, 'DRAFT_LEDGER_REPORT_INVALID', () => seedRetainedDraft(draftArgs(dir, 'd3', '--ledger-report', 'scratch/d3.json'), step()));
   writeFileSync(join(dir, 'evidence/fix-ledger/bad.json'), JSON.stringify({ schema: FIX_LEDGER_REPORT_SPEC, build: { manifest_sha256: manifest(dir, 'd3') }, script_sha256: sha('x'), rows: [{ id: 'T1', result: 'ok' }] }));
-  refused(dir, 'DRAFT_LEDGER_REPORT_INVALID', () => draftRigCommand(draftArgs(dir, 'd3', '--ledger-report', 'evidence/fix-ledger/bad.json')));
+  refused(dir, 'DRAFT_LEDGER_REPORT_INVALID', () => seedRetainedDraft(draftArgs(dir, 'd3', '--ledger-report', 'evidence/fix-ledger/bad.json'), step()));
   const recorded = record(dir, 'd3', '--ledger-report', report(dir, 'd3', { T1: 'pass' }));
   expect(recorded).toMatchObject({ ledger_report: { path: 'evidence/fix-ledger/d3.json', spec: FIX_LEDGER_REPORT_SPEC }, fixes_against: 'example', fixes: ['T1'] });
   expect(checkProject(dir).refusals).toEqual([]);
@@ -108,9 +112,8 @@ test('a draft needs a report covering every live row, for its own build', () => 
 test.each(['fail', 'unmeasurable'])('a row the predecessor passed and the new report marks %s is a named regression unless recorded as known', result => {
   const dir = example(); copyDraft(dir, 'd3');
   const path = report(dir, 'd3', { T1: result });
-  const refusal = refused(dir, 'DRAFT_LEDGER_REGRESSION', () => draftRigCommand(draftArgs(dir, 'd3', '--ledger-report', path)));
+  const refusal = refused(dir, 'DRAFT_LEDGER_REGRESSION', () => seedRetainedDraft(draftArgs(dir, 'd3', '--ledger-report', path), step()));
   expect(refusal.message).toContain(`T1 (${result}) passed in lantern`);
-  refused(dir, 'DRAFT_RIG_USAGE', () => draftRigCommand(draftArgs(dir, 'd3', '--known-regression', `T1=${words(dir, 'x')}`)));
   const recorded = record(dir, 'd3', '--ledger-report', path, '--known-regression', `T1=${words(dir, 'The lantern rig is rebuilt next; the sway is off for this build.\n')}`);
   expect(recorded.known_regressions).toEqual([{ id: 'T1', reason: 'The lantern rig is rebuilt next; the sway is off for this build.' }]);
   expect(recorded.fixes).toEqual([]);
@@ -125,9 +128,9 @@ test('a known regression stays owed: the next draft passes the row or records it
   copyDraft(dir, 'd2'); record(dir, 'd2', '--ledger-report', report(dir, 'd2', { T1: 'pass', X: 'fail' }), '--known-regression', `X=${words(dir, 'X is rebuilt in the next draft.')}`);
   copyDraft(dir, 'd3');
   const path = report(dir, 'd3', { T1: 'pass', X: 'fail' });
-  const refusal = refused(dir, 'DRAFT_LEDGER_REGRESSION', () => draftRigCommand(draftArgs(dir, 'd3', '--ledger-report', path)));
+  const refusal = refused(dir, 'DRAFT_LEDGER_REGRESSION', () => seedRetainedDraft(draftArgs(dir, 'd3', '--ledger-report', path), step()));
   expect(refusal.message).toContain('X (fail) passed in d2, or are known regressions it still owes');
-  refused(dir, 'DRAFT_LEDGER_REGRESSION', () => draftRigCommand(draftArgs(dir, 'd3', '--ledger-report', path, '--accepted-fail', `X=${words(dir, 'Still rebuilding X.')}`)));
+  refused(dir, 'DRAFT_LEDGER_REGRESSION', () => seedRetainedDraft(draftArgs(dir, 'd3', '--ledger-report', path, '--accepted-fail', `X=${words(dir, 'Still rebuilding X.')}`), step()));
   expect(record(dir, 'd3', '--ledger-report', path, '--known-regression', `X=${words(dir, 'Still rebuilding X.')}`).known_regressions).toEqual([{ id: 'X', reason: 'Still rebuilding X.' }]);
   copyDraft(dir, 'd4');
   // Passing it clears the debt; fixes count against `example`, the only draft with a parts-review receipt.
@@ -139,7 +142,7 @@ test('a known regression stays owed: the next draft passes the row or records it
 
 test('a known regression must name a row that regressed', () => {
   const dir = example(); copyDraft(dir, 'd3');
-  refused(dir, 'DRAFT_LEDGER_MALFORMED', () => draftRigCommand(draftArgs(dir, 'd3', '--ledger-report', report(dir, 'd3', { T1: 'pass' }), '--known-regression', `T1=${words(dir, 'not regressed')}`)));
+  refused(dir, 'DRAFT_LEDGER_MALFORMED', () => seedRetainedDraft(draftArgs(dir, 'd3', '--ledger-report', report(dir, 'd3', { T1: 'pass' }), '--known-regression', `T1=${words(dir, 'not regressed')}`), step()));
 });
 
 function acceptedFailFixture(): string {
@@ -183,20 +186,11 @@ test('accepted failures show the current machine FAIL and review reasons with no
   expect(human.stdout).toContain(`null-value FAIL (measured null) (accepted failure): ${reason}`);
 });
 
-test.each(['pass', 'absent', 'unmeasurable'])('an accepted failure with report result %s is refused before writing', result => {
+test.each(['pass', 'absent', 'unmeasurable'])('an accepted failure with report result %s is refused', result => {
   const dir = acceptedFailFixture();
   const path = report(dir, 'reviewed', result === 'absent' ? [] : [{ id: 'Q', result, measured: 3 }]);
-  const error = refused(dir, 'DRAFT_ACCEPTED_FAIL_ROW', () => draftRigCommand(draftArgs(dir, 'reviewed', '--ledger-report', path, '--accepted-fail', `Q=${words(dir, 'Synthetic reason')}`)));
+  const error = refused(dir, 'DRAFT_ACCEPTED_FAIL_ROW', () => seedRetainedDraft(draftArgs(dir, 'reviewed', '--ledger-report', path, '--accepted-fail', `Q=${words(dir, 'Synthetic reason')}`), step()));
   expect(error.message).toContain(`row Q is ${result}`);
-});
-
-test('accepted-fail requires a report, a unique row per flag and a non-blank reason', () => {
-  const dir = acceptedFailFixture();
-  const path = report(dir, 'reviewed', [{ id: 'Q', result: 'fail' }]);
-  const note = `Q=${words(dir, 'Synthetic reason')}`;
-  refused(dir, 'DRAFT_RIG_USAGE', () => draftRigCommand(draftArgs(dir, 'reviewed', '--accepted-fail', note)));
-  refused(dir, 'DRAFT_RIG_USAGE', () => draftRigCommand(draftArgs(dir, 'reviewed', '--ledger-report', path, '--accepted-fail', note, '--accepted-fail', note)));
-  refused(dir, 'DRAFT_RIG_USAGE', () => draftRigCommand(draftArgs(dir, 'reviewed', '--ledger-report', path, '--accepted-fail', `Q=${words(dir, ' \n')}`)));
 });
 
 test('accepted-fail refuses a report for a different build or a measurement that cannot round-trip', () => {
@@ -204,11 +198,11 @@ test('accepted-fail refuses a report for a different build or a measurement that
   const rows = [{ id: 'Q', result: 'fail', measured: [3] }];
   const path = report(dir, 'reviewed', rows, 'a'.repeat(64));
   const args = draftArgs(dir, 'reviewed', '--ledger-report', path, '--accepted-fail', `Q=${words(dir, 'Synthetic reason')}`);
-  refused(dir, 'DRAFT_LEDGER_BUILD_MISMATCH', () => draftRigCommand(args));
+  refused(dir, 'DRAFT_LEDGER_BUILD_MISMATCH', () => seedRetainedDraft(args, step()));
   report(dir, 'reviewed', rows);
   const file = join(dir, path);
   writeFileSync(file, readFileSync(file, 'utf8').replace('"measured":[3]', '"measured":[1e400]'));
-  refused(dir, 'DRAFT_ACCEPTED_FAIL_MISMATCH', () => draftRigCommand(args));
+  refused(dir, 'DRAFT_ACCEPTED_FAIL_MISMATCH', () => seedRetainedDraft(args, step()));
 });
 
 test('check refuses accepted-fail record and report tampering before surfacing a note', () => {
@@ -340,7 +334,7 @@ test('restart keeps inputs and every ledger row, appends restarts[], and checks 
   const open = checked.refusals;
   // The first draft after a restart has no predecessor, but it covers every live row.
   copyDraft(dir, 'r1');
-  refused(dir, 'DRAFT_LEDGER_INCOMPLETE', () => draftRigCommand(draftArgs(dir, 'r1', '--ledger-report', report(dir, 'r1', {}))));
+  refused(dir, 'DRAFT_LEDGER_INCOMPLETE', () => seedRetainedDraft(draftArgs(dir, 'r1', '--ledger-report', report(dir, 'r1', {})), step()));
   expect(record(dir, 'r1', '--ledger-report', report(dir, 'r1', { T1: 'fail' }))).toMatchObject({ fixes_against: null, fixes: [] });
   expect(checkProject(dir).refusals).toEqual(open);
 });

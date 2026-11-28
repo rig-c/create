@@ -1,4 +1,4 @@
-import { dirname, posix, relative, resolve } from 'node:path';
+import { dirname, posix } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import { asArray, isObject } from './check.ts';
 import { draftRigDirectory } from './draft-layout.ts';
@@ -113,30 +113,6 @@ function retainedDraftEvidence(root: string, receipt: JsonObject, act: DraftRevi
     if (evidence && isDeepStrictEqual(receipt.evidence, evidence)
       && jobHash(publicationFile(root, evidence.path)) === evidence.sha256) return { evidence };
   } catch { /* Missing evidence cannot authorize a carried approval. */ }
-}
-
-/** Registration checks the exact byte copies it made, using each input's role or relative name. */
-export function carryRigDraftVerdict(
-  root: string, project: JsonObject, version: JsonObject, configPath: string, copiedInputs: ReadonlyMap<string, string>, now: number,
-): { verdict: JsonObject; evidence?: JsonObject } | undefined {
-  const bySource = [...copiedInputs].map(([target, source]) => ({ target, relativePath: relative(dirname(configPath), source) }));
-  for (const { receipt, act } of draftVerdicts(project, now)) {
-    const draft = records(project.drafts).find(row => row.id === receipt.draft_id);
-    if (!draft || !isObject(draft.config)) continue;
-    const configured = records(draft.config_inputs);
-    const configDir = dirname(resolve(root, String(draft.config.path)));
-    const relativeInput = (path: unknown): string => relative(configDir, resolve(root, String(path)));
-    const named = new Set(configured.map(input => relativeInput(input.path)));
-    const directories = configured.filter(input => typeof input.directory === 'string').map(input => relativeInput(input.directory));
-    if (bySource.some(({ relativePath }) => !named.has(relativePath) && !directories.some(dir => relativePath.startsWith(`${dir}/`)))) continue;
-    const mapped = configured.map(input => bySource.find(row => row.relativePath === relativeInput(input.path))?.target);
-    if (mapped.some(path => path === undefined)) continue;
-    const inputs = mapped as string[];
-    if (!sameRegisteredBytes(root, project, version, receipt, act, inputs)) continue;
-    if (act.value.verdict !== 'approved' || !matchingDraftReceipt(project, receipt, act)) return undefined;
-    const retained = retainedDraftEvidence(root, receipt, act);
-    return retained && { verdict: carriedVerdict(act, inputs, receiptBy(receipt, act)), ...retained };
-  }
 }
 
 export function validCarriedRigDraftVerdict(root: string, project: JsonObject, version: JsonObject, verdict: JsonObject): boolean {

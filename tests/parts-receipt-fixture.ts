@@ -1,8 +1,8 @@
 import { jobHash } from '../src/job-outbox.ts';
-import { draftRigCommand } from '../src/drafts.ts';
 import { PARTS_CLI_RECEIPT, decodePartsRead, partsVerdictNames, recordedPartsVerdict } from '../src/parts-verdict-record.ts';
 import { storeReviewRead } from '../src/review-read.ts';
 import { structureSnapshotCommand } from '../src/structure-snapshot.ts';
+import { seedRetainedDraft } from './numbered-seed.ts';
 /** Synthetic stored CLI receipts for check-time receipt consumers. Review-owned paths are opaque. */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -71,7 +71,7 @@ export function preparePartsApproval(root: string, now: number, partsDir = 'deri
   const direct = join(root, partsDir, 'recomposite_rig.png');
   const stack = existsSync(direct) ? direct : join(root, 'derived/parts/rig/recomposite_rig.png');
   if (existsSync(stack)) put(`${draftRoot}/input/rig/recomposite_rig.png`, readFileSync(stack));
-  draftRigCommand([id, root, '--config', `${draftRoot}/config.json`, '--parts', `${draftRoot}/input/rig`, '--from', `${draftRoot}/out`], now);
+  seedRetainedDraft([id, root, '--config', `${draftRoot}/config.json`, '--parts', `${draftRoot}/input/rig`, '--from', `${draftRoot}/out`], now);
   recordPartsReceipt(root, id, now);
   const snapshot = `evidence/structure-${id}.json`;
   structureSnapshotCommand([root, '--draft', id, '--out', snapshot]);

@@ -12,7 +12,8 @@ import { directionFixture } from './direction-fixture.ts';
 import { plantLegacyReopen, arr, fixture, obj, withdrawSignature } from './fixtures.ts';
 import { tempDir } from './helpers.ts';
 import { selectHistoricalSignoffTarget } from './historical-review-fixture.ts';
-import { checkProject, directionCommand, advanceCommand, signoffCommand, testClock } from './clock.ts';
+import { checkProject, advanceCommand, signoffCommand, testClock } from './clock.ts';
+import { seedRetainedDirectionPost } from './numbered-seed.ts';
 
 const hash = (bytes: string | Uint8Array): string => createHash('sha256').update(bytes).digest('hex');
 const load = (dir: string): JsonObject => JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8'));
@@ -178,7 +179,7 @@ test.each([undefined, '4'])('unadopted post writer binds recorded take config, v
 
 test.each([undefined, '2'])('adopted post writer binds document bytes, version %s', version => {
   const dir = join(tempDir(), 'authored'); const f = directionFixture(dir);
-  directionCommand(['write', '2', dir, '--file', 'evidence/input.json', '--rig', '1']);
+  seedRetainedDirectionPost(['write', '2', dir, '--file', 'evidence/input.json', '--rig', '1'], testClock.now());
   const p = f.load(); obj(arr(p.versions)[1]).verdicts = [{ review: 'direction-review', verdict: 'accepted', by: 'user', at: SIGNOFF_TARGET_SINCE, verbatim: 'Accept' }]; f.save(p);
   testClock.set(new Date(SIGNOFF_TARGET_SINCE));
   const result = sign(dir, 'direction-review', version);
@@ -200,7 +201,7 @@ test.each(['missing', 'changed'])('writer refuses %s package bytes atomically', 
 
 test.each(['missing', 'changed'])('writer refuses %s authored document atomically', state => {
   const dir = join(tempDir(), 'authored'); const f = directionFixture(dir);
-  directionCommand(['write', '2', dir, '--file', 'evidence/input.json', '--rig', '1']);
+  seedRetainedDirectionPost(['write', '2', dir, '--file', 'evidence/input.json', '--rig', '1'], testClock.now());
   const p = f.load(); obj(arr(p.versions)[1]).verdicts = [{ review: 'direction-review', verdict: 'accepted' }]; f.save(p);
   const path = join(dir, 'evidence/direction/v2.json');
   if (state === 'missing') rmSync(path); else writeFileSync(path, '{"distinct":"planted direction drift"}\n');

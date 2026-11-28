@@ -13,7 +13,8 @@ import { currentScene, sceneReference } from '../src/scene.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { tempDir } from './helpers.ts';
 import { seedStoredVerdict, seedStoredVersionSignoff } from './historical-review-fixture.ts';
-import { advanceCommand, checkProject, interviewAnswerCommand, interviewOptionsCommand, main, sceneCommand, testClock } from './clock.ts';
+import { advanceCommand, checkProject, interviewAnswerCommand, interviewOptionsCommand, testClock } from './clock.ts';
+import { seedRetainedReviewPackage, seedRetainedScene } from './numbered-seed.ts';
 
 afterEach(() => testClock.reset());
 const load = (dir: string): JsonObject => JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')) as JsonObject;
@@ -63,7 +64,7 @@ function acceptNewRig(dir: string, start = 0, configBytes = false): void {
   }
   p.versions = [...asArray(p.versions), { ...declaration, n: 3, at: testClock.iso(), verdicts: [] }];
   writeFileSync(join(dir, 'project.json'), `${JSON.stringify(p, null, 2)}\n`);
-  tick(2); expect(main(['review-package', '3', dir, '--config', 'evidence/v1/config.json', '--from', 'outputs/v1/out'])).toBe(0);
+  tick(2); expect(seedRetainedReviewPackage(['3', dir, '--config', 'evidence/v1/config.json', '--from', 'outputs/v1/out']).exit).toBe(0);
   tick(3); seedStoredVerdict(dir, 3, { review: 'rig-review', verdict: 'accepted', by: 'user', at: testClock.now(), verbatim: readFileSync(words(dir), 'utf8'), source: 'synthetic example' });
   tick(4); seedStoredVersionSignoff(dir, 'rig-review', 3, { by: 'user', at: testClock.now(), verbatim: readFileSync(words(dir), 'utf8') });
   tick(5); advanceCommand(['post-interview', dir]);
@@ -104,8 +105,8 @@ test('(b) a scene current on the live accepted rig anchors post sets after a pos
   const path = draft(dir, 'post-composition-scene', context);
   register(dir, path);
   expect(checkProject(dir).refusals).toEqual([]);
-  // A later scene write makes the set stale; so does a changed scene file.
-  tick(2); sceneCommand(['write', '--rig', '1', '--background', 'inputs/background.png', '--citations-file', 'evidence/scene-citations.json', dir]);
+  // A later scene record makes the set stale; so does a changed scene file.
+  tick(2); seedRetainedScene(['write', '--rig', '1', '--background', 'inputs/background.png', '--citations-file', 'evidence/scene-citations.json', dir], testClock.now());
   refused('INTERVIEW_OPTIONS_STALE', answer(dir, path), dir);
   tick(3);
   const fresh = draft(dir, 'post-composition-s2', optionContext(load(dir), 'post-interview', at(), dir));

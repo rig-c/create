@@ -14,6 +14,7 @@ import { currentJobIdentity, partsEnumerator, prepareLiveManifest, readPublished
 import { USAGE_EXIT } from '../src/refusal.ts';
 import { seedStoredPartsSignoff, seedStoredReviewVerdictAct, seedStoredVersionSignoff } from './historical-review-fixture.ts';
 import type { JsonObject } from '../src/templates.ts';
+import { seedRetainedDraft, seedRetainedRigVersion } from './numbered-seed.ts';
 
 // Initial interview/plan approvals are fixture inputs. Every record from the
 // draft through the post-interview boundary below is written by main(argv, now).
@@ -52,7 +53,7 @@ test('writer-only draft, parts approval, new producer build and verdict ingestio
   let host: Awaited<ReturnType<typeof startJobHost>> | undefined;
   try {
     put('approval.txt', 'Approve this synthetic geometric example.\n');
-    command(['draft-rig', 'example', dir, '--config', `${EXAMPLE_DRAFT}/config.json`, '--from', `${EXAMPLE_DRAFT}/out`, '--parts', `${EXAMPLE_DRAFT}/input`], draftAt);
+    seedRetainedDraft(['example', dir, '--config', `${EXAMPLE_DRAFT}/config.json`, '--from', `${EXAMPLE_DRAFT}/out`, '--parts', `${EXAMPLE_DRAFT}/input`], draftAt);
     command(['diff-classes', dir, '--diff-report', EXAMPLE_DIFF_REPORT, '--component', 'p10-n3=in-painting:the synthetic painting deliberately differs here',
       '--component', 'p1000-n3=in-painting:the synthetic painting deliberately differs here', '--by', 'agent'], partsAt);
     seedStoredPartsSignoff(dir, 'example', {
@@ -73,7 +74,7 @@ test('writer-only draft, parts approval, new producer build and verdict ingestio
     put('adapter.json', '[]\n');
     put('citations.json', JSON.stringify(citations));
     put('toolchain.json', JSON.stringify({ lockfileVersion: 3, packages: Object.fromEntries(['@rig-c/parts', '@rig-c/core'].map(name => [`node_modules/${name}`, { version: JSON.parse(readFileSync(join(import.meta.dir, '../node_modules', name, 'package.json'), 'utf8')).version }])) }));
-    command(['rig-version', '1', dir, '--parts', `${EXAMPLE_DRAFT}/input`, '--rig', `${EXAMPLE_DRAFT}/out`, '--build', 'new-build', '--idle', 'new-idle',
+    seedRetainedRigVersion(['1', dir, '--parts', `${EXAMPLE_DRAFT}/input`, '--rig', `${EXAMPLE_DRAFT}/out`, '--build', 'new-build', '--idle', 'new-idle',
       '--config', `${EXAMPLE_DRAFT}/config.json`, '--path-adapter', 'adapter.json', '--compile-report', 'new-compile.json', '--toolchain-lock', 'toolchain.json',
       '--citations', 'citations.json', '--run-record', 'new-build/run.json', '--at-source', 'new-build/run.json', '--at-pointer', '/finished_at', '--by', 'synthetic registrant'], now + 1000);
     command(['advance', 'rig-review', dir], now + 2000);

@@ -146,12 +146,12 @@
   },
   {
     "file": "tests/pins.test.ts",
-    "name": "CLI job open, draft-rig publish, reconcile, and close succeed on a synthetic project in linked source condition",
+    "name": "CLI job open, draft republish, reconcile, and close succeed on a synthetic project in linked source condition",
     "reason": "Exercises published Review behavior under sibling source resolution"
   },
   {
     "file": "tests/pins.test.ts",
-    "name": "CLI job open, draft-rig publish, reconcile, and close succeed on a synthetic project in default dist mode",
+    "name": "CLI job open, draft republish, reconcile, and close succeed on a synthetic project in default dist mode",
     "reason": "Exercises published Review behavior under sibling source resolution"
   },
   {

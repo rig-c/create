@@ -3,11 +3,12 @@ import { createHash } from 'node:crypto';
 import { cpSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { EXAMPLE_NOW } from '../scripts/example-time.ts';
+import { checkProject } from '../src/check.ts';
 import { nextProject } from '../src/next.ts';
-import { rigVersionCommand } from '../src/rig-version.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { tempDir } from './helpers.ts';
 import { seedStoredVerdict } from './historical-review-fixture.ts';
+import { seedRetainedRigVersion } from './numbered-seed.ts';
 
 const sha256 = (bytes: Uint8Array): string => createHash('sha256').update(bytes).digest('hex');
 
@@ -70,7 +71,7 @@ function registerRig(dir: string, n: number, revision: string, at: number, answe
     '--compile-report': 'compile-report.json', '--toolchain-lock': 'package-lock.json', '--run-record': 'run.json',
     '--at-source': 'at-source.json',
   };
-  return rigVersionCommand([String(n), dir, ...Object.entries(inputs).flatMap(([flag, rel]) => [flag, `${source}/${rel}`]),
+  return seedRetainedRigVersion([String(n), dir, ...Object.entries(inputs).flatMap(([flag, rel]) => [flag, `${source}/${rel}`]),
     '--rig', revision, '--at-pointer', '/finished_at', '--by', 'synthetic-agent', ...answers], at);
 }
 
@@ -130,9 +131,13 @@ test('next guides the final chained mesh revision until a later rig retains its 
     assertPending(EXAMPLE_NOW + 1000, false);
     writeFileSync(file, seeded);
 
-    expect(() => registerRig(dir, 2, first, EXAMPLE_NOW + 2000, ['--answers', '1:0']))
-      .toThrow(expect.objectContaining({ code: 'CORRECTION_MESH_DELTA_REVISION' }));
-    expect(readFileSync(file, 'utf8')).toBe(seeded);
+    registerRig(dir, 2, first, EXAMPLE_NOW + 2000, ['--answers', '1:0']);
+    expect(checkProject(dir, undefined, { now: EXAMPLE_NOW + 2000, readOnly: true }).refusals.map(f => f.code))
+      .toContain('CORRECTION_MESH_DELTA_REVISION');
+    rmSync(join(dir, 'outputs/v2'), { recursive: true, force: true });
+    rmSync(join(dir, 'evidence/v2'), { recursive: true, force: true });
+    rmSync(join(dir, 'derived/review/v2'), { recursive: true, force: true });
+    writeFileSync(file, seeded);
     assertPending(EXAMPLE_NOW + 2000, true);
 
     expect(registerRig(dir, 2, final, EXAMPLE_NOW + 3000, ['--answers', '1:0']).exit).toBe(0);

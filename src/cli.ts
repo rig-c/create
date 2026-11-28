@@ -11,7 +11,6 @@ import { runningCreateVersion } from './pins.ts';
 
 import { CHOICE_HELP, interviewOptionsCommand, interviewAnswerCommand, interviewDecisionCommand } from './choice-writers.ts';
 import { CORRECTION_HELP, correctionCommand } from './correction-writers.ts';
-import { DRAFT_RIG_HELP, draftRigCommand } from './drafts.ts';
 import { LEDGER_HELP, ledgerCommand } from './fix-ledger.ts';
 import { RESTART_HELP, restartCommand } from './restart.ts';
 import { STRUCTURE_SNAPSHOT_HELP, structureSnapshotCommand } from './structure-snapshot.ts';
@@ -29,8 +28,6 @@ import { SIGNOFF_HELP, signoffCommand } from './signoff.ts';
 import { COMMENT_HELP, commentCommand } from './comment-act.ts';
 import { PLAN_HELP, planCommand } from './plan-writers.ts';
 import { HANDOFF_HELP, handoffCommand } from './review.ts';
-import { REVIEW_PACKAGE_HELP, reviewPackageCommand } from './review-package.ts';
-import { RIG_VERSION_HELP, rigVersionCommand } from './rig-version.ts';
 import { RECORD_HELP, recordCommand } from './record.ts';
 import { DERIVED_HELP, derivedCommand } from './prepared-inputs.ts';
 import { SPLIT_CAPTIONS_HELP, splitCaptionsCommand } from './split-captions.ts';
@@ -75,7 +72,7 @@ ${INPUT_CLI}  rig-create init <dir> [--no-install]              create a project
   rig-create collection answer|pin|--check [<dir>]         pin member builds (--member name=version); refuse stale pins
   rig-create collection-binding [<member dir>] [--out <path>]
                                                     write and bind the member's collection interview snapshot
-  rig-create scene write --rig <R> --background <path> --citations-file <file> [<dir>]
+  rig-create scene write --background <path> --citations-file <file> [<dir>]
   rig-create scene write --compose-scene <Parts scene file> [<dir>]
                                                     bind the current rig and motion in specs/direction/scene.json
   rig-create direction write [<dir>] --file <retained intent JSON>
@@ -112,16 +109,8 @@ ${INPUT_CLI}  rig-create init <dir> [--no-install]              create a project
                                                     return a paused project to the stage it was paused from
   rig-create amend <stage> --kind <kind> --target <id> --change <file> --by <who> [<project dir>]
                                                     record a forward amendment and name lapsed approvals
-  rig-create draft-rig <id> [<dir>] --config <path> --from <dir> [--parts <dir>]
-                       [--reuse <draft-id> [--reuse-record <sha256>]]
-                       [--ledger-report <file> [--accepted-fail <row id>=<reason file>]...]
-                                                    record labelled draft artifacts without building or promoting
   rig-create structure-snapshot [<dir>] [--draft <id>] [--out <path>]
                                                     snapshot current.parts, or prepare the named draft's snapshot before the verdict
-  rig-create review-package <n> [<dir>] --config <path> --from <build out dir>
-                                                    copy producer inputs and record the review open command
-  rig-create rig-version <n> [<dir>] --parts <dir> --rig <dir> --build <dir> --idle <dir> …
-                                                    register frozen producer output with declared source bindings
   rig-create record parts [<dir>] --from <producer out> --config <rig config> [--ledger-report <file>]
                                                     record the current parts output and rename it into outputs/parts/
                                                     --ledger-report binds the project's producer fix-ledger check report for this build
@@ -199,8 +188,6 @@ ${PAUSE_HELP}
 
 ${AMEND_HELP}
 
-${DRAFT_RIG_HELP}
-
 ${STRUCTURE_SNAPSHOT_HELP}
 
 ${CORRECTION_HELP}
@@ -210,10 +197,6 @@ ${SCENE_HELP}
 ${DIRECTION_HELP}
 
 ${DERIVED_HELP}
-
-${REVIEW_PACKAGE_HELP}
-
-${RIG_VERSION_HELP}
 
 ${RECORD_HELP}
 
@@ -290,8 +273,6 @@ const COMMANDS: Record<string, Command> = {
   'interview-answer': interviewAnswerCommand,
   'interview-decision': interviewDecisionCommand,
   handoff: handoffCommand,
-  'review-package': reviewPackageCommand,
-  'rig-version': rigVersionCommand,
   record: recordCommand,
   collection: collectionCommand,
   'collection-binding': collectionBindingCommand,
@@ -306,7 +287,6 @@ const COMMANDS: Record<string, Command> = {
   advance: advanceCommand,
   'step-status': stepStatusCommand,
   amend: amendCommand,
-  'draft-rig': draftRigCommand,
   ledger: ledgerCommand,
   restart: restartCommand,
   'structure-snapshot': structureSnapshotCommand,
@@ -322,6 +302,18 @@ const COMMANDS: Record<string, Command> = {
 export const RETIRED_NUMBERED_COMMANDS: Record<string, string | NumberedWriterRetirement> = {
   review: 'use rig-create job open --current rig|direction to inspect in Review, rig-create comment --from-review <actId> to record comments, and rig-create record <kind> --adopt or rig-create correction --adopt to migrate existing numbered outputs',
   'parts-review': 'use rig-create record parts --from <producer out> --config <rig config> (or --adopt) and rig-create job open --current parts to inspect in Review',
+  'draft-rig': {
+    path: 'project.json.drafts',
+    replacement: 'use rig-create record parts --from <dir> --config <file> or rig-create record rig --from <dir> --config <file>',
+  },
+  'review-package': {
+    path: 'project.json.versions',
+    replacement: 'use rig-create record rig --from <dir> --config <file>',
+  },
+  'rig-version': {
+    path: 'project.json.versions',
+    replacement: 'use rig-create record rig --from <dir> --config <file> and rig-create record motion --from <dir>',
+  },
 };
 
 /**

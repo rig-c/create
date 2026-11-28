@@ -24,6 +24,7 @@ import { reviewActFindings, decodeReviewAct, reviewActVerdict } from '../src/rev
 import { USAGE_EXIT } from '../src/refusal.ts';
 import { foldHistoricalRigSignoff, seedStoredPartsSignoff, seedStoredPartsVerdictAct, seedStoredReviewVerdictAct, seedStoredSignoffAct } from './historical-review-fixture.ts';
 import { plantLegacyReopen } from './fixtures.ts';
+import { seedRetainedDraft } from './numbered-seed.ts';
 
 const WORDS = '  Synthetic owner review words.\r\n';
 // Measured 2.59s–3.67s per multi-spawn CLI + live host flow locally; 15_000ms tier avoids 5s default timeout flakes under load.
@@ -384,7 +385,7 @@ async function recordMeshPreview(root: string, id: string, model: boolean): Prom
   const path = `derived/drafts/${id}`;
   cpSync(join(root, 'derived/drafts/chain'), join(root, path), { recursive: true });
   if (!model) rmSync(join(root, path, 'out/check'), { recursive: true });
-  expectExit0(await cli(root, ['draft-rig', id, root, '--config', `${path}/config.json`, '--from', `${path}/out`, '--parts', `${path}/input`]));
+  expect(seedRetainedDraft([id, root, '--config', `${path}/config.json`, '--from', `${path}/out`, '--parts', `${path}/input`], testClock.now()).exit).toBe(0);
 }
 
 async function riggingPreview(model = false) {
@@ -669,7 +670,7 @@ async function produceRetouch(root: string, parts: string, id: string): Promise<
   const manifest = JSON.parse(readFileSync(join(target, 'build/rig/parts.json'), 'utf8')) as JsonObject;
   const torso = (manifest.parts as JsonObject[]).find(part => part.name === 'torso')!;
   expect((torso.provenance as JsonObject).edited_part).toMatchObject({ receipt, changed_px: 1 });
-  return { args: ['draft-rig', id, root, '--config', `${relative}/config.json`, '--parts', `${relative}/build/rig`, '--from', `${relative}/out`, '--json'],
+  return { args: [id, root, '--config', `${relative}/config.json`, '--parts', `${relative}/build/rig`, '--from', `${relative}/out`, '--json'],
     input: `${relative}/edits/torso.png`, sha256 };
 }
 
@@ -727,7 +728,7 @@ test('#557 parts-review retouch lifecycle rejects once, records a real edited dr
   expect((read(root).signoffs as JsonObject[]).length).toBe(signoffCount);
   const retouch = await produceRetouch(root, parts, id);
   trace('edited-pixels-and-receipt-produced');
-  await run(retouch.args, true);
+  expect(seedRetainedDraft(retouch.args, testClock.now()).exit).toBe(0);
   console.log('RETOUCH_PREFLIGHT', 'new edited_parts draft registered at parts-review without reopening');
   const registered = read(root);
   const fresh = (registered.drafts as JsonObject[]).find(draft => draft.id === id)!;

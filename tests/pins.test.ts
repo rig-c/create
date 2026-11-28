@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 
 import { jobHostStateRoot, jobPrivateRoot, readWriterBinding } from '../src/job-outbox.ts';
+import { seedRetainedDraft } from './numbered-seed.ts';
 import { SOURCE_CONDITION, SOURCE_CONDITION_FLAG, jobRuntimeCommand, jobRuntimeExecArgv } from '../src/job-writer.ts';
 import { CREATE_PACKAGE, PINNED_PACKAGES, initDependencies, runningCreateVersion } from '../src/pins.ts';
 import { readTemplate } from '../src/templates.ts';
@@ -686,7 +687,7 @@ test('surviving review-act-runtime and review-cli child launchers propagate only
 for (const [label, execFlags] of [
   ['linked source condition', [SOURCE_CONDITION_FLAG]],
   ['default dist mode', []],
-] as const) test(`CLI job open, draft-rig publish, reconcile, and close succeed on a synthetic project in ${label}`, async () => {
+] as const) test(`CLI job open, draft republish, reconcile, and close succeed on a synthetic project in ${label}`, async () => {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'create-job-cond-')));
   const ws = label === 'linked source condition' ? linkSourcePackages(root) : null;
   const activeCli = ws ? ws.cliPath : CLI;
@@ -735,31 +736,37 @@ for (const [label, execFlags] of [
     expect(lines.at(-1)).toMatch(/^job: draft chain published \(publication [A-Za-z0-9][A-Za-z0-9._-]{0,127}\)$/);
     writeFileSync(snapshotPath, originalSnapshot);
 
-    const drafted = Bun.spawnSync(
+    seedRetainedDraft([
+      'chain-2',
+      projectRoot,
+      '--config',
+      'derived/drafts/chain-2/config.json',
+      '--from',
+      'derived/drafts/chain-2/out',
+      '--parts',
+      'derived/drafts/chain-2/input',
+    ]);
+    const republished = Bun.spawnSync(
       [
         process.execPath,
         ...execFlags,
         activeCli,
-        'draft-rig',
-        'chain-2',
+        'job',
+        'open',
         projectRoot,
-        '--config',
-        'derived/drafts/chain-2/config.json',
-        '--from',
-        'derived/drafts/chain-2/out',
-        '--parts',
-        'derived/drafts/chain-2/input',
+        '--draft',
+        'chain-2',
+        '--reviewer',
+        'synthetic-owner',
+        '--role',
+        'owner',
       ],
       { cwd: projectRoot, stdout: 'pipe', stderr: 'pipe' },
     );
-    expect({ exit: drafted.exitCode, stderr: drafted.stderr.toString('utf8') }).toEqual({ exit: 0, stderr: '' });
-    const draftLines = drafted.stdout.toString('utf8').trim().split('\n');
-    expect(draftLines[0]).toBe('draft-rig: recorded chain-2; no production version created');
-    expect(draftLines.at(-1)).toStartWith('job: open page not updated: no owner ask is ready.');
-
-    const openedDraft = run(['job', 'open', projectRoot, '--draft', 'chain-2', '--reviewer', 'synthetic-owner', '--role', 'owner']);
-    expect({ exit: openedDraft.exitCode, stderr: openedDraft.stderr.toString('utf8') }).toEqual({ exit: 0, stderr: '' });
-    expect(openedDraft.stdout.toString('utf8').trim().split('\n').at(-1)).toMatch(/^job: draft chain-2 published \(publication [A-Za-z0-9][A-Za-z0-9._-]{0,127}\)$/);
+    expect({ exit: republished.exitCode, stderr: republished.stderr.toString('utf8') }).toEqual({ exit: 0, stderr: '' });
+    const draftLines = republished.stdout.toString('utf8').trim().split('\n');
+    expect(draftLines[0]).toStartWith('http://127.0.0.1:');
+    expect(draftLines.at(-1)).toMatch(/^job: draft chain-2 published \(publication [A-Za-z0-9][A-Za-z0-9._-]{0,127}\)$/);
 
     const reconciled = Bun.spawnSync([process.execPath, ...execFlags, activeCli, 'job', 'reconcile', projectRoot], {
       cwd: projectRoot,

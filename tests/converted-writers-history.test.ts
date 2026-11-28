@@ -1,6 +1,7 @@
 import { expect, test } from 'bun:test';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+import { OPTIONS_SPEC, optionContext, sha256 } from '../src/choices.ts';
 import { freshProjectRecord, GITIGNORE } from '../src/init.ts';
 import { jobRuntimeExecArgv } from '../src/job-writer.ts';
 import type { JsonObject } from '../src/templates.ts';
@@ -155,3 +156,98 @@ test('#1168 group 1: input add, input painting, and owner-language set commit ex
   success(cli(repo, 'owner-language', 'set', 'ko', repo.dir));
   expect(fullState(repo)).toEqual(beforeRetry);
 });
+
+test('#1168 group 2: interview-answer and interview-decision commit exact paths and leave unrelated/refused states untouched', () => {
+  const repo = makeRepo();
+  const unrelated = plantUnrelated(repo);
+  let parent = head(repo);
+
+  const source = 'inputs/painting.png';
+  put(repo, source, readFileSync(join(import.meta.dir, '..', 'templates', 'example-current', source)));
+  success(cli(repo, 'input', 'add', source, repo.dir, '--origin', 'synthetic source', '--painting'));
+  parent = assertCommittedStep(repo, parent, 'input add', [PROJECT, source], unrelated);
+
+  // Register an option set for rig_type with value + auto options, then answer with auto and record a fragment decision.
+  const project = JSON.parse(bytes(repo, PROJECT).toString('utf8')) as JsonObject;
+  const setPath = 'evidence/interview/rig-type.json';
+  const setDoc: JsonObject = {
+    schema: OPTIONS_SPEC,
+    id: 'set-rig-type',
+    question: 'rig_type',
+    stage: 'interview',
+    drafted_by: 'agent',
+    drafted_at: new Date(TEST_NOW).toISOString(),
+    context: optionContext(project, 'interview', TEST_NOW, repo.dir),
+    assembly: { rule: 'single' },
+    asks: [{
+      id: 'rig_type',
+      prompt: 'Choose the synthetic rig type.',
+      options: [
+        { id: 'idle', kind: 'value', label: 'Standing idle', effect: 'Use character.idle.', fragment: 'character.idle', recommended: true, reason: 'Synthetic.' },
+        { id: 'game', kind: 'value', label: 'Game logic', effect: 'Use fullscreen.game_logic.', fragment: 'fullscreen.game_logic', recommended: false },
+        { id: 'other', kind: 'other', label: 'Other', effect: 'Supply other words.', recommended: false },
+        { id: 'auto', kind: 'auto', label: 'Delegate', effect: 'Let the agent choose.', recommended: false },
+      ],
+    }],
+  };
+  putJson(repo, setPath, setDoc);
+  const setSha = sha256(bytes(repo, setPath));
+  success(cli(repo, 'interview-options', 'rig_type', repo.dir, '--file', setPath));
+  parent = assertCommittedStep(repo, parent, 'interview-options', [PROJECT, setPath], unrelated);
+
+  // Refused interview-answer (wrong sha256) leaves HEAD, index and tree unchanged.
+  put(repo, 'scratch/words.txt', 'Delegate rig_type to the agent.\n');
+  assertRefusedUnchanged(repo, [
+    'interview-answer', 'rig_type', repo.dir, '--set', setPath, '--sha256', '0'.repeat(64),
+    '--pick', 'rig_type=auto', '--by', 'synthetic-owner', '--owner-chat', 'scratch/words.txt',
+    '--said-at', new Date(TEST_NOW).toISOString(), '--relayed-by', 'agent',
+  ], 'INTERVIEW_OPTIONS_STALE');
+
+  // Dirty project.json refuses before writing.
+  const cleanProject = bytes(repo, PROJECT);
+  put(repo, PROJECT, `${cleanProject.toString().trimEnd()}\n\n`);
+  assertRefusedUnchanged(repo, [
+    'interview-answer', 'rig_type', repo.dir, '--set', setPath, '--sha256', setSha,
+    '--pick', 'rig_type=auto', '--by', 'synthetic-owner', '--owner-chat', 'scratch/words.txt',
+    '--said-at', new Date(TEST_NOW).toISOString(), '--relayed-by', 'agent',
+  ], 'PROJECT_COMMIT_DIRTY');
+  put(repo, PROJECT, cleanProject);
+
+  success(cli(repo,
+    'interview-answer', 'rig_type', repo.dir, '--set', setPath, '--sha256', setSha,
+    '--pick', 'rig_type=auto', '--by', 'synthetic-owner', '--owner-chat', 'scratch/words.txt',
+    '--said-at', new Date(TEST_NOW).toISOString(), '--relayed-by', 'agent',
+  ));
+  parent = assertCommittedStep(repo, parent, 'interview-answer', [PROJECT], unrelated);
+
+  // Refused interview-decision (missing step plan for --value-file) leaves HEAD, index and tree unchanged.
+  put(repo, 'scratch/reason.txt', 'Synthetic decision.\n');
+  put(repo, 'scratch/value.json', '"character.idle"\n');
+  put(repo, 'scratch/quote.txt', 'Build a standing idle character.\n');
+  assertRefusedUnchanged(repo, [
+    'interview-decision', 'assemble', repo.dir, '--by', 'agent', '--reasoning-file', 'scratch/reason.txt',
+    '--value-file', 'scratch/value.json', '--plan-quote-file', 'scratch/quote.txt',
+  ], 'STEP_PLAN_MISSING');
+
+  // Valid fragment interview-decision commits only project.json.
+  success(cli(repo,
+    'interview-decision', 'rig_type', repo.dir, '--by', 'agent', '--reasoning-file', 'scratch/reason.txt',
+    '--fragment', 'rig_type=scratch/value.json',
+  ));
+  parent = assertCommittedStep(repo, parent, 'interview-decision', [PROJECT], unrelated);
+
+  // Also verify step-plan interview-decision commits only project.json.
+  const planPath = 'plans/parts.md';
+  put(repo, planPath, 'Use core projection on a plain ground.\n');
+  success(cli(repo, 'plan', 'propose', 'parts', repo.dir, '--file', planPath, '--by', 'agent'));
+  parent = assertCommittedStep(repo, parent, 'plan propose', [PROJECT, planPath], unrelated);
+
+  put(repo, 'scratch/assemble-val.json', '{"project":"core"}\n');
+  put(repo, 'scratch/assemble-quote.txt', 'Use core projection on a plain ground.\n');
+  success(cli(repo,
+    'interview-decision', 'assemble', repo.dir, '--by', 'agent', '--reasoning-file', 'scratch/reason.txt',
+    '--value-file', 'scratch/assemble-val.json', '--plan-quote-file', 'scratch/assemble-quote.txt',
+  ));
+  assertCommittedStep(repo, parent, 'interview-decision', [PROJECT], unrelated);
+});
+

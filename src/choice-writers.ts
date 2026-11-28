@@ -288,13 +288,15 @@ function closeInterviewComment(args: string[], now: number): string {
   const order = /^[1-9]\d*$/.test(orderText) ? Number(orderText) : NaN;
   const reason = readVerbatim(reasonFile);
   const dir = resolve(directory ?? process.cwd());
-  const release = acquireBoundJobWrite(dir, { kind: 'record-only', writer: 'interview' });
+  const release = acquireBoundJobWrite(dir, { kind: 'record-only', writer: 'interview' }, true);
   try {
     const { file, project, bytes } = readProject(dir);
     const { row, replay } = prepareInterviewCommentClosure(dir, project, now, { jobId, actId, question, order }, reason, one['--resolved-by-answer']);
     if (!replay) {
       const next = { ...project, interview_comment_closures: [...asArray(project.interview_comment_closures), row] };
-      save(file, dir, project, next, now, [], [], bytes);
+      save(file, dir, project, next, now, [], [], bytes, () => assertCleanProjectStep(dir, ['project.json']));
+      const warning = commitToolWrite(dir, 'interview-answer', ['project.json']);
+      if (warning !== undefined) process.stderr.write(`${warning}\n`);
     }
     return JSON.stringify(row);
   } finally { release(); }
@@ -321,7 +323,7 @@ export function interviewAnswerCommand(args: string[], now: number): string { re
   if (opts.one['--owner-chat'] !== undefined && opts.one['--by']?.toLowerCase() === 'agent') refuse('INTERVIEW_CHOICE_INVALID', 'project.json.interview: --by must name the owner; relay owner words without claiming agent authority');
   const chat = readOwnerChat(opts.one, opts.one['--by'], now, 'project.json.interview');
   const dir = resolve(opts.positional[1] ?? process.cwd());
-  const release = acquireBoundJobWrite(dir, { kind: 'record-only', writer: 'interview' });
+  const release = acquireBoundJobWrite(dir, { kind: 'record-only', writer: 'interview' }, true);
   try {
     const {file,project} = readProject(dir);
     const original = readFileSync(file);
@@ -334,7 +336,9 @@ export function interviewAnswerCommand(args: string[], now: number): string { re
     const next = structuredClone(project);
     assertTurnBody(draft.item.id, draft.answer, draft.item.path);
     applyInterviewAnswer(dir, next, draft);
-    save(file,dir,project,next,now,[],[{ id: draft.item.id, correction: draft.correction }],original);
+    save(file,dir,project,next,now,[],[{ id: draft.item.id, correction: draft.correction }],original,() => assertCleanProjectStep(dir, ['project.json']));
+    const warning = commitToolWrite(dir, 'interview-answer', ['project.json']);
+    if (warning !== undefined) process.stderr.write(`${warning}\n`);
     return JSON.stringify(draft.answer);
   } finally { release(); }
 }); }
@@ -356,9 +360,9 @@ function stepPlanAsks(dir: string, project: JsonObject, item: Item, value: Json)
 function stepPlanDecision(opts: Args, now: number): string {
   if (opts.many['--fragment'] || !opts.one['--plan-quote-file']) usage('a step plan value takes --value-file and --plan-quote-file, without --fragment');
   const dir = resolve(opts.positional[1] ?? process.cwd());
-  const release = acquireBoundJobWrite(dir, { kind: 'record-only', writer: 'interview' });
+  const release = acquireBoundJobWrite(dir, { kind: 'record-only', writer: 'interview' }, true);
   try {
-    const {file,project} = readProject(dir); const next = structuredClone(project);
+    const {file,project,bytes} = readProject(dir); const next = structuredClone(project);
     const item = itemAt(next,dir,opts.positional[0]);
     if (!VALUE_QUESTIONS.includes(item.id)) usage(`${item.id}: no code reads its value; under a step plan it stays unanswered`);
     const step = planStepOfGuide(item.id, item.kind === 'post'); const plan = currentStepPlan(next, step);
@@ -374,7 +378,10 @@ function stepPlanDecision(opts: Args, now: number): string {
     if (prior) item.record.history = [...asArray(item.record.history), prior];
     item.record[item.kind === 'framing' ? 'answer' : 'guide'] = answer;
     // Like every other answer writer: steps resting on the new value are marked for revision, not refused.
-    save(file,dir,project,next,now,[],[{ id: item.id, correction: false }]); return JSON.stringify(answer);
+    save(file,dir,project,next,now,[],[{ id: item.id, correction: false }],bytes,() => assertCleanProjectStep(dir, ['project.json']));
+    const warning = commitToolWrite(dir, 'interview-decision', ['project.json']);
+    if (warning !== undefined) process.stderr.write(`${warning}\n`);
+    return JSON.stringify(answer);
   } finally { release(); }
 }
 
@@ -386,9 +393,9 @@ export function interviewDecisionCommand(args: string[], now: number): string { 
   if (opts.one['--value-file'] !== undefined) return stepPlanDecision(opts, now);
   if (opts.one['--plan-quote-file'] !== undefined) usage('--plan-quote-file goes with --value-file');
   const dir = resolve(opts.positional[1] ?? process.cwd());
-  const release = acquireBoundJobWrite(dir, { kind: 'record-only', writer: 'interview' });
+  const release = acquireBoundJobWrite(dir, { kind: 'record-only', writer: 'interview' }, true);
   try {
-    const {file,project} = readProject(dir); const next = structuredClone(project);
+    const {file,project,bytes} = readProject(dir); const next = structuredClone(project);
     const item = itemAt(next,dir,opts.positional[0]); checkNewAnswer(dir,next,item);
     if (!isObject(item.raw) || !isObject(item.raw.choice)) refuse('INTERVIEW_CHOICE_INVALID',`${item.path}: explicitly choose auto before writing a decision`);
     const {set} = optionFile(dir,item.raw.choice.set); validateContext(dir,next,set,now,true);
@@ -399,6 +406,10 @@ export function interviewDecisionCommand(args: string[], now: number): string { 
     const baseline = pending ? refusalBaseline(item.raw) : [];
     item.raw.agent_decision = {by:opts.one['--by'],at:new Date(now).toISOString(),reasoning:readText(opts.one['--reasoning-file']),covers:result.autos.join(','),fragments,value:assembleFragments(String((set.assembly as JsonObject).rule),fragments.map(f=>f.fragment))};
     assertTurnBody(item.id,{agent_decision:item.raw.agent_decision},item.path);
-    validateChoice(dir,next,item,item.raw); save(file,dir,project,next,now,baseline,[{id:item.id,correction:false}]); return JSON.stringify(item.raw.agent_decision);
+    validateChoice(dir,next,item,item.raw);
+    save(file,dir,project,next,now,baseline,[{id:item.id,correction:false}],bytes,() => assertCleanProjectStep(dir, ['project.json']));
+    const warning = commitToolWrite(dir, 'interview-decision', ['project.json']);
+    if (warning !== undefined) process.stderr.write(`${warning}\n`);
+    return JSON.stringify(item.raw.agent_decision);
   } finally { release(); }
 }); }

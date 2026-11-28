@@ -58,6 +58,8 @@ function changedPath(line: string): string | undefined {
 
 const PROJECT_WRITERS = new Set([
   'input painting',
+  'interview-answer',
+  'interview-decision',
   'job open',
   'owner-language set',
   ...CURRENT_KINDS.map(kind => `record ${kind} adopt`),

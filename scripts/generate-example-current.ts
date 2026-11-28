@@ -62,8 +62,12 @@ export function generateExampleCurrent(destination: string, stopAfterOptions?: '
     cpSync(source, file, { recursive: true });
   };
   const write = (command: string[], offer: string[] = [], expectedGap = false) => {
+    let baselinePending = false;
     if (offer.length) {
       const report = JSON.parse(nextCommand([dir, '--json'], now).stdout) as NextReport;
+      const commitsRecord = command[0] === 'record' || command[0] === 'interview-options'
+        || (command[0] === 'plan' && command[1] === 'propose');
+      baselinePending = commitsRecord && report.moves.some(move => move.field === 'git.baseline');
       const prefix = `rig-create ${offer.join(' ')} `;
       const offered = report.moves.some(move => move.command?.startsWith(prefix));
       if (!offered && !expectedGap) throw new Error(`next did not offer ${offer.join(' ')} at ${report.stage}`);
@@ -75,6 +79,10 @@ export function generateExampleCurrent(destination: string, stopAfterOptions?: '
     const stdout = process.stdout.write;
     process.stdout.write = (() => true) as typeof process.stdout.write;
     try {
+      // Until all writers commit, recover their pending records through the same route next offers to users.
+      if (baselinePending && main(['history', 'baseline', dir, '--by', 'synthetic-example'], now) !== 0) {
+        throw new Error('could not commit the synthetic project baseline');
+      }
       const exit = main(command, now);
       if (exit !== 0) throw new Error(`rig-create ${command.slice(0, offer.length || 1).join(' ')} exited ${exit}`);
     } finally {

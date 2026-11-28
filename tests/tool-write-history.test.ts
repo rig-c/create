@@ -250,11 +250,12 @@ test('#1165 a cloned 2.0.0 record with registration and job edits needs a baseli
   const manifest = json(source, 'package.json');
   obj(manifest.dependencies)['@rig-c/create'] = '2.0.0';
   putJson(source, 'package.json', manifest);
-  draftOptions(source);
   seed(source);
   const repo = clone(source);
   const initial = head(repo);
   const unrelated = plantUnrelatedChanges(repo);
+  draftOptions(repo);
+  const legacyOption = bytes(repo, OPTION);
   const changed = json(repo, PROJECT);
   const pending = { path: OPTION, sha256: sha256(bytes(repo, OPTION)) };
   composition(repo, changed).pending_options = pending;
@@ -279,6 +280,8 @@ test('#1165 a cloned 2.0.0 record with registration and job edits needs a baseli
   expect(historyEntries(repo)).toEqual([expect.objectContaining({ sha: saved, command: 'history baseline',
     attribution: 'unverified', operator: OPERATOR, files: [PROJECT] })]);
   expect(bytes(repo, PROJECT)).toEqual(oldBytes);
+  expect(bytes(repo, OPTION)).toEqual(legacyOption);
+  expect(git(repo, 'status', '--porcelain', '--', OPTION)).toBe(`?? ${OPTION}\n`);
   expect(composition(repo).pending_options).toEqual(pending);
   expect(json(repo, PROJECT).review_job).toEqual(changed.review_job!);
   expect(baselineMove(repo)).toBeUndefined();

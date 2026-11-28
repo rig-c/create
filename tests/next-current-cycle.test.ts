@@ -6,6 +6,7 @@ import { amendCommand } from '../src/amend.ts';
 import { asArray, checkProject, isObject } from '../src/check.ts';
 import { interviewDecisionCommand } from '../src/choice-writers.ts';
 import * as cli from '../src/cli.ts';
+import { historyCommand } from '../src/history.ts';
 import { nextCommand, nextProject, type NextReport } from '../src/next.ts';
 import { OWNER_CHAT_SOURCE } from '../src/owner-chat.ts';
 import { advanceCommand, stepStatusCommand } from '../src/progress-writers.ts';
@@ -41,6 +42,7 @@ function planMoves(report: NextReport) {
 async function replay(destination: string, skipSignoffs = false): Promise<void> {
   const dir = join(destination, 'example-current');
   let writers = 0;
+  let baselineWriters = 0;
   let humanWriters = 0;
   let skippedSignoffs = 0;
   let now = 0;
@@ -97,6 +99,12 @@ async function replay(destination: string, skipSignoffs = false): Promise<void> 
     ...cli,
     main(args: string[], at: number) {
       const writer = args[0];
+      if (writer === 'history' && args[1] === 'baseline') {
+        const report = nextProject(dir, now);
+        if (!commands(report, 'rig-create history baseline').length) throw new Error('next did not offer history baseline');
+        baselineWriters++;
+        return main(args, at);
+      }
       if (writer === 'signoff' && skipSignoffs) {
         const stage = args[1]!;
         const report = JSON.parse(nextCommand([dir, '--json'], now).stdout) as NextReport;
@@ -162,6 +170,7 @@ async function replay(destination: string, skipSignoffs = false): Promise<void> 
   });
   const { generateExampleCurrent } = await import('../scripts/generate-example-current.ts');
   generateExampleCurrent(destination);
+  if (!baselineWriters) throw new Error('replay did not save any pending record baselines');
   if (buildStep !== BUILD_STEPS.length) throw new Error(`replay finished after ${buildStep} of ${BUILD_STEPS.length} build steps`);
   if (directionStep !== DIRECTION_STEPS.length) throw new Error(`replay finished after ${directionStep} of ${DIRECTION_STEPS.length} direction steps`);
   if (skipSignoffs) {
@@ -408,6 +417,11 @@ if (process.argv[2] === '--replay-current-example') {
     expect(asArray(walkedRecord.signoffs)).toEqual([]);
 
     let t = EXAMPLE_ANCHOR + 5 * 60_000;
+    const baseline = (dir: string) => {
+      const move = nextProject(dir, t).moves[0];
+      expect(move).toMatchObject({ field: 'git.baseline', command: expect.stringContaining('rig-create history baseline ') });
+      expect(historyCommand(['baseline', dir, '--by', 'example-agent']).exit).toBe(0);
+    };
     const recordAmend = (dir: string, stage: string) => {
       mkdirSync(join(dir, 'evidence'), { recursive: true });
       mkdirSync(join(dir, 'scratch'), { recursive: true });
@@ -432,6 +446,7 @@ if (process.argv[2] === '--replay-current-example') {
     const rigDir = join(root, 'amend-rig-review');
     cpSync(walkedDir, rigDir, { recursive: true });
     recordAmend(rigDir, 'rig-review');
+    baseline(rigDir);
 
     const rigCheck = checkProject(rigDir, undefined, { now: t, readOnly: true });
     expect(rigCheck.refusals).toEqual([]);
@@ -462,6 +477,7 @@ if (process.argv[2] === '--replay-current-example') {
       expect(stepStatusCommand([id, 'done', rigDir, '--by', 'agent'], t += 1000).exit).toBe(0);
     }
 
+    baseline(rigDir);
     expect(nextProject(rigDir, t += 1000).moves[0]?.command).toBe(
       `(cd ${rigDir} && rig-parts compose --scene specs/direction/compose-scene.json --out outputs/direction.next --loop-seam-bar 8,0 --loop-seam-cap 12)`,
     );
@@ -473,8 +489,10 @@ if (process.argv[2] === '--replay-current-example') {
 
     expect(nextProject(rigDir, t += 1000).moves[0]?.command).toBe(`rig-create advance direction-review ${rigDir}`);
     expect(advanceCommand(['direction-review', rigDir], t += 1000).exit).toBe(0);
+    baseline(rigDir);
     expect(nextProject(rigDir, t += 1000).moves[0]?.command).toBe(`rig-create advance accepted ${rigDir}`);
     expect(advanceCommand(['accepted', rigDir], t += 1000).exit).toBe(0);
+    baseline(rigDir);
 
     expect(checkProject(rigDir, undefined, { now: t += 1000, readOnly: true })).toMatchObject({
       stage: 'accepted',
@@ -495,6 +513,7 @@ if (process.argv[2] === '--replay-current-example') {
     const postDir = join(root, 'amend-post');
     cpSync(walkedDir, postDir, { recursive: true });
     recordAmend(postDir, 'post');
+    baseline(postDir);
 
     const postCheck = checkProject(postDir, undefined, { now: t, readOnly: true });
     expect(postCheck.refusals).toEqual([]);
@@ -511,11 +530,13 @@ if (process.argv[2] === '--replay-current-example') {
       expect(stepStatusCommand([id, 'in-progress', postDir, '--by', 'agent'], t += 1000).exit).toBe(0);
       expect(stepStatusCommand([id, 'done', postDir, '--by', 'agent'], t += 1000).exit).toBe(0);
     }
+    baseline(postDir);
     cpSync(join(postDir, 'outputs/direction'), join(postDir, 'outputs/direction.next'), { recursive: true });
     expect(recordCommand(['direction', postDir, '--from', 'outputs/direction.next', '--direction', 'specs/direction/direction.json'], t += 1000).exit).toBe(0);
     expect(nextProject(postDir, t += 1000).moves[0]?.command).toBe(`rig-create advance direction-review ${postDir}`);
     expect(advanceCommand(['direction-review', postDir], t += 1000).exit).toBe(0);
     expect(advanceCommand(['accepted', postDir], t += 1000).exit).toBe(0);
+    baseline(postDir);
     expect(nextProject(postDir, t += 1000)).toMatchObject({
       stage: 'accepted',
       effective_stage: 'accepted',

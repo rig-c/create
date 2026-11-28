@@ -57,11 +57,10 @@ function changedPath(line: string): string | undefined {
 }
 
 const PROJECT_WRITERS = new Set([
-  'direction adopt', 'input painting', 'interview-answer', 'interview-decision',
-  'job open', 'job close', 'job withdraw-act', 'owner-language set',
+  'job open',
   ...CURRENT_KINDS.map(kind => `record ${kind} adopt`),
 ]);
-const BINDING_WRITERS = new Set(['derived add', 'input add', 'interview-options', 'plan propose']);
+const BINDING_WRITERS = new Set(['interview-options', 'plan propose']);
 const SHARED_PATHS = new Set<string>(BASELINE_PATHS);
 
 function commandScope(command: string, subject: string): ((path: string) => boolean) | undefined {

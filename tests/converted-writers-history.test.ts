@@ -7,17 +7,28 @@ import { asArray, isObject } from '../src/check.ts';
 import { OPTIONS_SPEC, optionContext, sha256 } from '../src/choices.ts';
 import { commentCommand } from '../src/comment-act.ts';
 import { freshProjectRecord, GITIGNORE } from '../src/init.ts';
+import { jobEvents } from '../src/job-acts.ts';
 import { closeCreateJob, withdrawCreateJobAct } from '../src/job-close.ts';
+import { openCreateJob, publishPending } from '../src/job-host.ts';
 import {
   acknowledgePublication,
   enqueuePublication,
   JOB_BINDING_FILE,
   jobHash,
   jobHostStateRoot,
+  jobPrivateRoot,
   readWriterBinding,
+  reconcilePublication,
   writePrivateJson,
 } from '../src/job-outbox.ts';
-import { currentJobIdentity, partsEnumerator, prepareLiveManifest, readPublished, readRecordPublished } from '../src/job-publication.ts';
+import {
+  currentJobIdentity,
+  partsEnumerator,
+  prepareCurrentManifest,
+  prepareLiveManifest,
+  readPublished,
+  readRecordPublished,
+} from '../src/job-publication.ts';
 import { jobRuntimeExecArgv } from '../src/job-writer.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { EXAMPLE_REOPEN_AT } from '../scripts/example-time.ts';
@@ -1274,6 +1285,100 @@ test('#1168 group 7: pause, resume, advance, step-status, direction --adopt, rec
   expect(closedDiscard).toEqual({ status: 'closed' });
   expect(job2.isClosed()).toBe(true);
   assertCommittedStep(jobRepo, jobParent, 'job close', [PROJECT], jobUnrelated);
+
+  // 3c) With a pending finalized comment act on the bound job, step-status ... done still exits 0 and commits.
+  const stepJobRoot = join(tempDir(), 'group7-pending-act-step-status');
+  cpSync(join(import.meta.dir, '../templates/example-current'), stepJobRoot, { recursive: true });
+  const stepJobDir = realpathSync(stepJobRoot);
+  symlinkSync(join(import.meta.dir, '../node_modules'), join(stepJobDir, 'node_modules'), 'dir');
+  const stepJobRepo: Repo = { dir: stepJobDir, env: repo.env };
+  const stepJobRec = JSON.parse(bytes(stepJobRepo, PROJECT).toString('utf8')) as JsonObject;
+  stepJobRec.stage = 'post';
+  stepJobRec.signoffs = (stepJobRec.signoffs as JsonObject[]).filter(s => s.stage !== 'direction-review');
+  stepJobRec.advances = (stepJobRec.advances as JsonObject[]).filter(a => !['direction-review', 'accepted'].includes(String(a.stage)));
+  const composeStep = ((stepJobRec.plan as JsonObject).steps as JsonObject[]).find(s => s.id === 'composition')!;
+  composeStep.status = 'in-progress';
+  composeStep.status_history = (composeStep.status_history as JsonObject[]).filter(h => h.status !== 'done');
+  putJson(stepJobRepo, PROJECT, stepJobRec);
+  put(stepJobRepo, UNRELATED, 'initial unrelated\n');
+  git(stepJobRepo, 'init', '-q');
+  git(stepJobRepo, 'config', '--local', 'user.name', 'Synthetic Writer');
+  git(stepJobRepo, 'config', '--local', 'user.email', 'writer@example.test');
+  git(stepJobRepo, 'add', '--', '.');
+  git(stepJobRepo, 'commit', '-qm', 'Seed current project with in-progress compose step');
+
+  const stepHost = await openCreateJob(stepJobDir, { id: 'synthetic-owner', role: 'owner' }, tick());
+  try {
+    const stepBoundRec = JSON.parse(bytes(stepJobRepo, PROJECT).toString('utf8')) as JsonObject;
+    const stepRecHash = jobHash(bytes(stepJobRepo, PROJECT));
+    const { path: curManifest } = prepareCurrentManifest(stepJobDir, stepBoundRec, 'parts', stepRecHash);
+    git(stepJobRepo, 'add', '--', curManifest);
+    git(stepJobRepo, 'commit', '-qm', 'Commit current live manifest');
+
+    const curSelector = { kind: 'current' as const, output: 'parts' as const, record: stepRecHash };
+    const curQueued = enqueuePublication(stepJobDir, readWriterBinding(stepJobDir)!, { path: curManifest, selector: curSelector });
+    await reconcilePublication(stepJobDir, curQueued, entry => publishPending(entry, undefined, undefined, undefined, undefined, tick()));
+    let curPub: JsonObject | undefined;
+    for await (const ev of jobEvents(stepHost, true)) {
+      if (ev.type === 'published') curPub = ev.publication as unknown as JsonObject;
+    }
+    expect(curPub).toBeDefined();
+
+    const curUiHeaders = { origin: stepHost.origin, 'X-Review-Capability': stepHost.session.hostCredentials().ui, 'content-type': 'application/json' };
+    const curPageId = 'pending-act-page';
+    const curDisplayed = await stepHost.ports.ackDisplayed(stepHost.session.jobId, new Request(`${stepHost.origin}/jobs/${stepHost.session.jobId}/ui/displayed`, {
+      method: 'POST',
+      headers: curUiHeaders,
+      body: JSON.stringify({ publicationId: curPub!.publicationId, pageId: curPageId, sourceHash: (curPub!.source as JsonObject).sourceHash }),
+    }));
+    if (!curDisplayed.ok) throw new Error(curDisplayed.error.code);
+
+    const pendingSubmitted = await stepHost.ports.commitUIAct(stepHost.session.jobId, new Request(`${stepHost.origin}/jobs/${stepHost.session.jobId}/ui/acts`, {
+      method: 'POST',
+      headers: curUiHeaders,
+      body: JSON.stringify({
+        publicationId: curPub!.publicationId,
+        pageId: curPageId,
+        displayedNonce: curDisplayed.value.displayedNonce,
+        expectedGeneration: stepHost.session.status().generation,
+        submissionId: curPageId,
+        kind: 'comments',
+        value: { comments: [{ text: 'Finalized comment act pending ingestion.' }] },
+      }),
+    }));
+    if (!pendingSubmitted.ok) throw new Error(pendingSubmitted.error.code);
+
+    const stepJobUnrelated = plantUnrelated(stepJobRepo);
+    const stepJobParent = head(stepJobRepo);
+    const spawnAsyncCli = async (cliArgs: string[]) => {
+      const child = Bun.spawn(
+        [process.execPath, ...jobRuntimeExecArgv(), CLOCKED_CLI, new Date(Math.max(tick(), Date.parse(pendingSubmitted.value.at) + 2_000)).toISOString(), ...cliArgs],
+        { cwd: stepJobDir, env: stepJobRepo.env, stdout: 'pipe', stderr: 'pipe' },
+      );
+      const [stdout, stderr, code] = await Promise.all([
+        new Response(child.stdout).text(),
+        new Response(child.stderr).text(),
+        child.exited,
+      ]);
+      return { stdout, stderr, code };
+    };
+
+    // Confirm the bound job genuinely holds an unresolved finalized act that gates record-only writers (input add).
+    put(stepJobRepo, 'inputs/gated-probe.png', 'probe');
+    const gatedInput = await spawnAsyncCli(['input', 'add', 'inputs/gated-probe.png', stepJobDir, '--origin', 'synthetic']);
+    expect(gatedInput.code).toBeGreaterThan(0);
+    expect(gatedInput.stderr).toContain('JOB_ASK_PENDING');
+    rmSync(join(stepJobDir, 'inputs/gated-probe.png'), { force: true });
+    expect(head(stepJobRepo)).toBe(stepJobParent);
+
+    // step-status ... done is ungated by pending asks, exits 0, and commits project.json.
+    const stepDone = await spawnAsyncCli(['step-status', 'composition', 'done', stepJobDir, '--by', 'agent']);
+    expect({ code: stepDone.code, stderr: stepDone.stderr }).toEqual({ code: 0, stderr: '' });
+    assertCommittedStep(stepJobRepo, stepJobParent, 'step-status', [PROJECT], stepJobUnrelated);
+  } finally {
+    stepHost.stop();
+    rmSync(jobHostStateRoot(stepJobDir), { recursive: true, force: true });
+  }
 });
 
 

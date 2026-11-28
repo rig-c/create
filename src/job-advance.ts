@@ -14,8 +14,8 @@ export function isPublishAdvanceStage(stage: string): stage is 'rig-review' | 'd
   return stage === 'rig-review' || stage === 'direction-review';
 }
 
-export function acquireAdvanceJobWrite(dir: string, stage: string): () => void {
-  return acquireBoundJobWrite(dir, isPublishAdvanceStage(stage) ? undefined : { kind: 'record-only' }, true);
+export function acquireAdvanceJobWrite(dir: string, _stage?: string): () => void {
+  return acquireBoundJobWrite(dir, undefined, true);
 }
 
 /** The bound current-output gate shared by advance and its command preview. */

@@ -152,7 +152,7 @@ export function stepStatusCommand(args: string[], now: number): { stdout: string
   if (positional.length < 2 || positional.length > 3) refuse('PROGRESS_OPTION_INVALID', 'plan.steps: step-status needs step, status and optional project directory; see help', USAGE_EXIT);
   const dir = resolve(positional[2] ?? process.cwd());
   readProject(dir);
-  const release = acquireBoundJobWrite(dir, { kind: 'record-only' }, true);
+  const release = acquireBoundJobWrite(dir, undefined, true);
   try {
     const { file, project } = readProject(dir);
     const original = readFileSync(file);

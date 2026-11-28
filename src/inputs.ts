@@ -168,7 +168,7 @@ export function inputCommand(args: string[], now: number): { stdout: string; exi
   const name = inputPath(dir, positional[0]!);
   assertNotScratchBinding(name, 'inputs[].path');
   const file = resolve(dir, 'project.json');
-  const releaseJob = acquireBoundJobWrite(dir, { kind: 'record-only' }, true);
+  const releaseJob = acquireBoundJobWrite(dir, mode === 'add' ? { kind: 'record-only' } : undefined, true);
   const lock = resolve(dir, '.input.lock');
   let fd: number;
   try { fd = openSync(lock, 'wx'); } catch { releaseJob(); refuse('INPUT_SOURCE_CHANGED', 'inputs: another input writer holds the project lock; wait for it to finish and retry against frozen source bytes'); }

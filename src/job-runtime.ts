@@ -1,6 +1,8 @@
+import { listCandidateActs } from './candidate-runtime.ts';
+import { CANDIDATE_STORAGE_PATH } from './candidate-storage.ts';
 /** Private stdin transport for synchronous writers. Capabilities never enter argv. */
-import { readFileSync, realpathSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { existsSync, readFileSync, realpathSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 import { startJobHost } from '@rig-c/review/job-host';
 import { assertNoPendingJobAsk, attachCreateJobForClose, closeCreateJob, withdrawCreateJobAct } from './job-close.ts';
 import { assertRequestedCurrent, assertRequestedDraft, assertRequestedRig, listCreateJobActs, openCreateJob, openCurrentPublication, openDraftPublication, openRecordPublication, requestedRecordResult, publishPending, reconcileCreateJob } from './job-host.ts';
@@ -72,7 +74,16 @@ async function run(): Promise<void> {
       process.on('SIGTERM', interrupt);
       try {
         const wait = input.timeoutMs === undefined ? undefined : { timeoutMs: input.timeoutMs, signal: controller.signal };
-        const result = await listCreateJobActs(root, undefined, wait);
+        const candidates = existsSync(join(root, CANDIDATE_STORAGE_PATH))
+          ? await listCandidateActs(realpathSync(root), JSON.parse(readFileSync(join(root, 'project.json'), 'utf8')) as JsonObject).catch(error => {
+            if (!readWriterBinding(root)) throw error;
+            console.error('WARN JOB_ACTS_READ_REFUSED: scratch/candidates: restore the candidate job before reading its comments');
+            return undefined;
+          }) : undefined;
+        const standing = !candidates?.jobId || readWriterBinding(root)
+          ? await listCreateJobActs(root, undefined, candidates?.acts.length ? undefined : wait)
+          : { jobId: candidates.jobId, acts: [], ingested: [], asked: 0 };
+        const result = { ...standing, acts: [...standing.acts, ...(candidates?.acts ?? [])] };
         console.log(input.json ? JSON.stringify(result) : jobActsText(result));
       } catch (error) {
         if (!controller.signal.aborted) throw error;

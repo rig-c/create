@@ -646,7 +646,7 @@ export function seedStoredSignoffAct(
   const signoff: JsonObject = reviewActSignoff(act, by);
   let extraReceipt: JsonObject = {};
   if (stage === 'parts-review') {
-    const draftId = options.draftId ?? (isObject(act.source.selector) && act.source.selector.kind === 'draft' ? String(act.source.selector.id) : '');
+    const draftId = options.draftId ?? (act.source.selector?.kind === 'draft' ? String(act.source.selector.id) : '');
     const latestProblem = latestPartsVerdictFinding(project, draftId, 'signoffs.parts-review.evidence');
     if (latestProblem) refuse(latestProblem.code, latestProblem.message);
     const verdict = recordedPartsVerdict(dir, project, draftId);

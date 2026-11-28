@@ -3,5 +3,10 @@
     "file": "tests/motion-seam-source.test.ts",
     "name": "#1073 records real Core loop seam evidence and refuses wrong endpoint identities and hashes",
     "reason": "Requires the sibling Core render loop seam bar and cap flags."
+  },
+  {
+    "file": "tests/candidate-publication.test.ts",
+    "name": "#1163 publishes a camera-free candidate and routes its attested comment to the ordinary writer",
+    "reason": "Requires the candidate selector in the sibling Review source until Review 5.1.0 is released."
   }
 ]

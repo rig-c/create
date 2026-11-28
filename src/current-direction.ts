@@ -4,7 +4,7 @@ import { isDeepStrictEqual as equal } from 'node:util';
 import { isObject } from './check.ts';
 import { CAMERA_SCENE_BINDING_SINCE, cameraBindingFinding, cameraChoiceId, currentCameraBindingFinding, hasKeyedCamera } from './camera-choice.ts';
 import type { Finding } from './check.ts';
-import { ComposeValueError, readComposeValue } from './compose-value.ts';
+import { ComposeValueError, readComposeValue, type ComposeValueSpec } from './compose-value.ts';
 import { currentFileBinding, currentRigFileBinding, outputRoot, sha256 } from './current.ts';
 import { citedAnswerValues, citedValues, COMPOSE_CAMERA_REPORT_SPEC, readComposeRun, validateComposeCameraModel, validateComposeCitations, validateComposeRunInputs } from './direction-compose.ts';
 import { COMPOSE_CHECK_PATH, COMPOSE_MODEL_PATH } from './direction-loop-seam.ts';
@@ -55,32 +55,8 @@ function adoptedComposeBindings(project: JsonObject, version: number): Map<strin
   return bindings;
 }
 
-/** Validate the spec and producer input against current bindings and the existing owner answers. */
-export function currentDirectionSource(dir: string, project: JsonObject, doc: JsonObject, snapshots: Map<string, Buffer>, now = Date.now()) {
-  const bad = (why: string): never => directionFail('DIRECTION_CURRENT_SPEC_INVALID', CURRENT_DIRECTION_PATH, why);
-  if (!closed(doc, ['schema', 'rig', 'scene', 'take', 'citations']) || doc.schema !== CURRENT_DIRECTION_SPEC
-    || !closed(doc.rig, ['model']) || !sceneBinding(doc.rig.model) || !sceneBinding(doc.scene) || doc.scene.path !== CURRENT_SCENE_PATH
-    || !closed(doc.take, ['duration', 'loop']) || typeof doc.take.duration !== 'number' || !Number.isFinite(doc.take.duration)
-    || doc.take.duration <= 0 || doc.take.loop !== true) return bad('write a direction spec with the current rig, scene and a positive looping take');
-  const takeDuration = doc.take.duration;
-  validateComposeCitations(doc, bad);
-  const sceneBytesRaw = sceneBytes(dir, CURRENT_SCENE_PATH, 'DIRECTION_CURRENT_SPEC_INVALID', snapshots);
-  if (sha256(sceneBytesRaw) !== doc.scene.sha256) bad('the scene changed; run direction write again');
-  const authoredScene = directionJson(sceneBytesRaw, CURRENT_SCENE_PATH);
-  validateCurrentScene(dir, project, authoredScene, snapshots);
-  const { model, animation } = authoredScene.rig as JsonObject;
-  if (!equal(doc.rig.model, model) || (animation as JsonObject).name !== 'idle' || !sceneBinding(authoredScene.compose)) {
-    return bad('run scene write --compose-scene with the current rig and idle frames, then run direction write');
-  }
-  const source = authoredScene.compose as Binding;
-  const sourceBytes = directionBytes(dir, source.path);
-  if (sha256(sourceBytes) !== source.sha256) bad('the Parts scene changed; run scene write and direction write again');
-  snapshots.set(source.path, sourceBytes);
-  const scene = directionJson(sourceBytes, source.path);
-  if (now >= Date.parse(CAMERA_SCENE_BINDING_SINCE)) {
-    const finding = currentCameraBindingFinding(dir, project, source, hasKeyedCamera(scene), snapshots);
-    if (finding) throw finding;
-  }
+/** Resolve the literal producer inputs for either a recorded direction or a candidate preview. */
+export function readComposeSceneInputs(dir: string, project: JsonObject, source: Binding, scene: JsonObject, snapshots: Map<string, Buffer>) {
   const characters = objects(scene.characters);
   const plates = objects(scene.plates);
   const idle = isObject(scene.animations) ? scene.animations.idle : undefined;
@@ -109,14 +85,51 @@ export function currentDirectionSource(dir: string, project: JsonObject, doc: Js
     return { ...binding, registered: registration };
   });
   validateAgentPlateRegistration(dir, project, registered, snapshots);
+  return { character, build, registered, idle };
+}
+
+export function matchesComposeValue(value: ComposeValueSpec, scene: JsonObject, character: JsonObject,
+  idle: JsonObject, registered: ReturnType<typeof readComposeSceneInputs>['registered']): boolean {
+  const plateValues = objects(scene.plates).map((plate, i) => ({
+    name: plate.name!, image: registered[i]!.path, at: plate.at!,
+    ...(plate.opaque_backdrop === undefined ? {} : { opaque_backdrop: plate.opaque_backdrop }),
+  }));
+  return equal(value.canvas, scene.canvas) && equal(value.plates, plateValues)
+    && equal(value.order, scene.order) && equal(value.idle_tracks, idle.tracks)
+    && equal(value.character, { offset: character.offset!, ...(character.scale === undefined ? {} : { scale: character.scale }) });
+}
+
+/** Validate the spec and producer input against current bindings and the existing owner answers. */
+export function currentDirectionSource(dir: string, project: JsonObject, doc: JsonObject, snapshots: Map<string, Buffer>, now = Date.now()) {
+  const bad = (why: string): never => directionFail('DIRECTION_CURRENT_SPEC_INVALID', CURRENT_DIRECTION_PATH, why);
+  if (!closed(doc, ['schema', 'rig', 'scene', 'take', 'citations']) || doc.schema !== CURRENT_DIRECTION_SPEC
+    || !closed(doc.rig, ['model']) || !sceneBinding(doc.rig.model) || !sceneBinding(doc.scene) || doc.scene.path !== CURRENT_SCENE_PATH
+    || !closed(doc.take, ['duration', 'loop']) || typeof doc.take.duration !== 'number' || !Number.isFinite(doc.take.duration)
+    || doc.take.duration <= 0 || doc.take.loop !== true) return bad('write a direction spec with the current rig, scene and a positive looping take');
+  const takeDuration = doc.take.duration;
+  validateComposeCitations(doc, bad);
+  const sceneBytesRaw = sceneBytes(dir, CURRENT_SCENE_PATH, 'DIRECTION_CURRENT_SPEC_INVALID', snapshots);
+  if (sha256(sceneBytesRaw) !== doc.scene.sha256) bad('the scene changed; run direction write again');
+  const authoredScene = directionJson(sceneBytesRaw, CURRENT_SCENE_PATH);
+  validateCurrentScene(dir, project, authoredScene, snapshots);
+  const { model, animation } = authoredScene.rig as JsonObject;
+  if (!equal(doc.rig.model, model) || (animation as JsonObject).name !== 'idle' || !sceneBinding(authoredScene.compose)) {
+    return bad('run scene write --compose-scene with the current rig and idle frames, then run direction write');
+  }
+  const source = authoredScene.compose as Binding;
+  const sourceBytes = directionBytes(dir, source.path);
+  if (sha256(sourceBytes) !== source.sha256) bad('the Parts scene changed; run scene write and direction write again');
+  snapshots.set(source.path, sourceBytes);
+  const scene = directionJson(sourceBytes, source.path);
+  if (now >= Date.parse(CAMERA_SCENE_BINDING_SINCE)) {
+    const finding = currentCameraBindingFinding(dir, project, source, hasKeyedCamera(scene), snapshots);
+    if (finding) throw finding;
+  }
+  const { character, build, registered, idle } = readComposeSceneInputs(dir, project, source, scene, snapshots);
   validateDirectionCitations(dir, project, doc, true);
   const composition = citedValues(dir, project, doc, 'post_composition', true, snapshots).filter(value => value.compose !== undefined)
     .map(value => readComposeValue(value.compose, 'direction.citations.composition.value.compose'));
-  const plateValues = plates.map((plate, i) => ({ name: plate.name!, image: registered[i]!.path, at: plate.at!,
-    ...(plate.opaque_backdrop === undefined ? {} : { opaque_backdrop: plate.opaque_backdrop }) }));
-  const chosen = composition.find(value => equal(value.canvas, scene.canvas) && equal(value.plates, plateValues)
-    && equal(value.order, scene.order) && equal(value.idle_tracks, idle.tracks)
-    && equal(value.character, { offset: character.offset!, ...(character.scale === undefined ? {} : { scale: character.scale }) }));
+  const chosen = composition.find(value => matchesComposeValue(value, scene, character, idle, registered));
   if (!chosen) return directionFail('DIRECTION_COMPOSE_CHOICE_MISMATCH', source.path, 'copy canvas, plates, order, placement and idle tracks from the current cited compose choice');
   const timing = citedValues(dir, project, doc, 'post_timing', true, snapshots);
   if (!timing.some(value => value.loop === true)) directionFail('DIRECTION_COMPOSE_LOOP', 'direction.take.loop', 'cite the current looping post_timing value');
@@ -140,6 +153,118 @@ export function prepareCurrentDirection(dir: string, project: JsonObject, intent
   } catch (error) { return transitionError(error); }
 }
 
+type ComposedTakeInput = Omit<ReturnType<typeof readComposeSceneInputs>, 'idle'> & {
+  source: Binding;
+  scene: JsonObject;
+  takeDuration: number;
+  canvas: { width: number; height: number };
+};
+
+/** Verify producer evidence against the bound scene, rig and take without consulting owner picks. */
+export function readComposedTake(dir: string, project: JsonObject, from: string, destination: string,
+  input: ComposedTakeInput, modelSha256: string, inventory: Map<string, string>, snapshots: Map<string, Buffer>) {
+  const output = (rel: string, code: string): { bytes: Buffer; binding: Binding } => {
+    const path = `${destination}/${rel}`;
+    const raw = sceneBytes(dir, `${from}/${rel}`, code, snapshots);
+    const sha = sha256(raw);
+    if (inventory.get(path) !== sha) directionFail(code, path, 'compose output changed during recording; run compose into a clean tree and record again');
+    return { bytes: raw, binding: { path, sha256: sha } };
+  };
+  const run = output(COMPOSE_RUN_PATH, 'DIRECTION_COMPOSE_RUN');
+  const consumed = readComposeRun(run.bytes, `${from}/${COMPOSE_RUN_PATH}`, input.scene);
+  if (resolve(dir, consumed.scene.path) !== resolve(dir, input.source.path)) {
+    directionFail('DIRECTION_COMPOSE_RUN_SCENE', `${from}/${COMPOSE_RUN_PATH}.scene`, 'run Parts compose from the project root with the scene named by scene write');
+  }
+  validateComposeRunInputs(consumed, input.scene, input.source.sha256,
+    input.registered.map((plate, i) => ({ ...plate, path: objects(input.scene.plates)[i]!.image! })), `${from}/${COMPOSE_RUN_PATH}`);
+  const entry = consumed.characters[0];
+  if (consumed.plate !== null || consumed.characters.length !== 1 || !entry || entry.id !== input.character.id || entry.build !== input.character.build
+    || !REQUIRED_CHARACTER_FILES.every(path => entry.files.some(file => file.path === path))) {
+    return directionFail('DIRECTION_COMPOSE_RUN_RIG', `${from}/${COMPOSE_RUN_PATH}.characters`, 'compose from the current rig build with its check, parts, rig and motion files');
+  }
+  const currentRig = isObject(project.current) && isObject(project.current.rig) ? project.current.rig : undefined;
+  const adopted = isObject(currentRig?.adopted) && typeof currentRig.adopted.version === 'number'
+    ? adoptedComposeBindings(project, currentRig.adopted.version) : undefined;
+  const rigFiles: Binding[] = [];
+  const consumedFile = (file: Binding) => {
+    const readPath = `${input.build}/${file.path}`;
+    const raw = sceneBytes(dir, readPath, 'DIRECTION_COMPOSE_RUN_RIG', snapshots);
+    if (sha256(raw) !== file.sha256) {
+      directionFail('DIRECTION_COMPOSE_RUN_RIG', readPath, 'restore the exact consumed bytes or recompose from the current rig');
+    }
+    const root = outputRoot('rig');
+    // A standalone rig does not own parts.json. Prefer the current parts manifest when recorded,
+    // otherwise retain the hash of the manifest the compose producer actually read.
+    const binding = adopted ? adopted.get(file.path) : currentFileBinding(project, 'rig', `${root}/${file.path}`)
+      ?? (file.path.startsWith('rig/') ? currentFileBinding(project, 'rig', `${root}/${file.path.slice('rig/'.length)}`) : undefined)
+      ?? (file.path === 'parts.json'
+        ? currentFileBinding(project, 'parts', 'outputs/parts/rig/parts.json') ?? { path: readPath, sha256: file.sha256 }
+        : undefined);
+    if (!binding || binding.sha256 !== file.sha256
+      || sha256(sceneBytes(dir, binding.path, 'DIRECTION_COMPOSE_RUN_RIG', snapshots)) !== file.sha256) {
+      directionFail('DIRECTION_COMPOSE_RUN_RIG', readPath, 'the consumed file differs from the recorded current build; stage the exact current producer files and recompose');
+    }
+    if (file.path !== COMPOSE_CHECK_PATH) rigFiles.push(binding);
+    return raw;
+  };
+  for (const file of entry.files) {
+    const raw = consumedFile(file);
+    if (!adopted) continue;
+    if (file.path === COMPOSE_CHECK_PATH) {
+      const report = directionJson(raw, `${input.build}/${file.path}`);
+      if (report.spec !== 'rig-parts-check/1' || !isObject(report.build) || report.build.model_sha256 !== modelSha256) {
+        directionFail('DIRECTION_COMPOSE_RUN_RIG', `${input.build}/${file.path}`, 'restore the numbered check report that binds the adopted compiled model before composing');
+      }
+    }
+    if (file.path === 'parts.json') {
+      // Parts reads the declared raster through readParts without a separate run row.
+      const painting = directionJson(raw, `${input.build}/${file.path}`).painting_in_rig;
+      if (painting !== undefined) {
+        const binding = isObject(painting) ? { path: painting.path, sha256: painting.sha256 } : undefined;
+        if (!sceneBinding(binding) || binding.path !== PAINTING_IN_RIG_FILE) {
+          directionFail('DIRECTION_COMPOSE_RUN_RIG', `${input.build}/parts.json.painting_in_rig`, 'restore the numbered parts manifest and its bound painting raster before composing');
+        }
+        consumedFile({ path: PAINTING_IN_RIG_FILE, sha256: String(binding.sha256) });
+      }
+    }
+  }
+  const sceneReportPath = 'scene.json';
+  const sceneReportFile = output(sceneReportPath, 'DIRECTION_COMPOSE_FILE');
+  const sceneReport = directionJson(sceneReportFile.bytes, `${from}/${sceneReportPath}`);
+  const placement = objects(sceneReport.characters);
+  const reportedPlates = objects(sceneReport.plates);
+  const sourcePlates = objects(input.scene.plates);
+  const placed = placement[0];
+  if ((sceneReport.spec !== 'spine-parts-scene-report/1' && sceneReport.spec !== COMPOSE_CAMERA_REPORT_SPEC) || typeof sceneReport.scene !== 'string'
+    || resolve(dir, sceneReport.scene) !== resolve(dir, input.source.path) || !equal(sceneReport.canvas, input.scene.canvas)
+    || placement.length !== 1 || !placed || placed.id !== entry.id || placed.build !== entry.build
+    || !equal(placed.offset, input.character.offset) || (placed.scale ?? 1) !== (input.character.scale ?? 1)
+    || !equal(placed.clipped_bounds, entry.placement?.clipped_bounds) || reportedPlates.length !== sourcePlates.length
+    || reportedPlates.some((plate, i) => plate.name !== sourcePlates[i]!.name || plate.image !== sourcePlates[i]!.image
+      || !equal(plate.at, sourcePlates[i]!.at) || (plate.opaque_backdrop ?? false) !== (sourcePlates[i]!.opaque_backdrop ?? false)
+      || plate.sha256 !== input.registered[i]!.sha256)) {
+    directionFail('DIRECTION_COMPOSE_PLACEMENT', `${from}/${sceneReportPath}`, 'retain the Parts scene report matching the source, placement, plates and run; compose again');
+  }
+  const check = output(COMPOSE_CHECK_PATH, 'DIRECTION_COMPOSE_GREEN');
+  const report = directionJson(check.bytes, check.binding.path);
+  const model = output(COMPOSE_MODEL_PATH, 'DIRECTION_COMPOSE_FILE');
+  validateComposeCameraModel(sceneReport, model.binding.sha256, `${from}/${sceneReportPath}`);
+  if (report.spec !== 'rig-parts-check/1' || report.PASS !== true || report.gate_spine_html_green !== true
+    || !isObject(report.build) || report.build.model_sha256 !== model.binding.sha256) {
+    directionFail('DIRECTION_COMPOSE_GREEN', check.binding.path, 'retain the green Parts compose check that binds this compiled model; compose again');
+  }
+  const composed = directionJson(model.bytes, model.binding.path);
+  const animations = objects(composed.animations).filter(value => value.name === 'idle');
+  if (animations.length !== 1 || animations[0]!.duration !== input.takeDuration) {
+    directionFail('DIRECTION_COMPOSE_DURATION', model.binding.path, 'composed model idle duration must match the cited take; compose again');
+  }
+  const { width, height } = input.canvas;
+  if (!equal(composed.stage, { x: -width / 2, y: 0, width, height })) {
+    directionFail('DIRECTION_COMPOSE_PLACEMENT', model.binding.path, 'composed model stage must match the cited canvas; compose again');
+  }
+  return { run, check, model, sceneReport, report: sceneReportFile, rigFiles };
+}
+
 export function readDirectionOutput(dir: string, project: JsonObject, from: string, spec: string, inventory: Map<string, string>, snapshots: Map<string, Buffer>, now: number) {
   try {
     if (spec !== CURRENT_DIRECTION_PATH) directionFail('DIRECTION_CURRENT_SPEC_INVALID', spec, `pass --direction ${CURRENT_DIRECTION_PATH} after direction write`);
@@ -147,104 +272,9 @@ export function readDirectionOutput(dir: string, project: JsonObject, from: stri
     const doc = directionJson(bytes, spec);
     const input = currentDirectionSource(dir, project, doc, snapshots, now);
     const rig = doc.rig as { model: Binding };
-    const output = (rel: string, code: string): { bytes: Buffer; binding: Binding } => {
-      const path = `${outputRoot('direction')}/${rel}`;
-      const raw = sceneBytes(dir, `${from}/${rel}`, code, snapshots);
-      const sha = sha256(raw);
-      if (inventory.get(path) !== sha) directionFail(code, path, 'compose output changed during recording; run compose into a clean tree and record again');
-      return { bytes: raw, binding: { path, sha256: sha } };
-    };
-    const run = output(COMPOSE_RUN_PATH, 'DIRECTION_COMPOSE_RUN');
-    const consumed = readComposeRun(run.bytes, `${from}/${COMPOSE_RUN_PATH}`, input.scene);
-    if (resolve(dir, consumed.scene.path) !== resolve(dir, input.source.path)) {
-      directionFail('DIRECTION_COMPOSE_RUN_SCENE', `${from}/${COMPOSE_RUN_PATH}.scene`, 'run Parts compose from the project root with the scene named by scene write');
-    }
-    validateComposeRunInputs(consumed, input.scene, input.source.sha256,
-      input.registered.map((plate, i) => ({ ...plate, path: objects(input.scene.plates)[i]!.image! })), `${from}/${COMPOSE_RUN_PATH}`);
-    const entry = consumed.characters[0];
-    if (consumed.plate !== null || consumed.characters.length !== 1 || !entry || entry.id !== input.character.id || entry.build !== input.character.build
-      || !REQUIRED_CHARACTER_FILES.every(path => entry.files.some(file => file.path === path))) {
-      return directionFail('DIRECTION_COMPOSE_RUN_RIG', `${from}/${COMPOSE_RUN_PATH}.characters`, 'compose from the current rig build with its check, parts, rig and motion files');
-    }
-    const currentRig = isObject(project.current) && isObject(project.current.rig) ? project.current.rig : undefined;
-    const adopted = isObject(currentRig?.adopted) && typeof currentRig.adopted.version === 'number'
-      ? adoptedComposeBindings(project, currentRig.adopted.version) : undefined;
-    const rigFiles: Binding[] = [];
-    const consumedFile = (file: Binding) => {
-      const readPath = `${input.build}/${file.path}`;
-      const raw = sceneBytes(dir, readPath, 'DIRECTION_COMPOSE_RUN_RIG', snapshots);
-      if (sha256(raw) !== file.sha256) {
-        directionFail('DIRECTION_COMPOSE_RUN_RIG', readPath, 'restore the exact consumed bytes or recompose from the current rig');
-      }
-      const root = outputRoot('rig');
-      // A standalone rig does not own parts.json. Prefer the current parts manifest when recorded,
-      // otherwise retain the hash of the manifest the compose producer actually read.
-      const binding = adopted ? adopted.get(file.path) : currentFileBinding(project, 'rig', `${root}/${file.path}`)
-        ?? (file.path.startsWith('rig/') ? currentFileBinding(project, 'rig', `${root}/${file.path.slice('rig/'.length)}`) : undefined)
-        ?? (file.path === 'parts.json'
-          ? currentFileBinding(project, 'parts', 'outputs/parts/rig/parts.json') ?? { path: readPath, sha256: file.sha256 }
-          : undefined);
-      if (!binding || binding.sha256 !== file.sha256
-        || sha256(sceneBytes(dir, binding.path, 'DIRECTION_COMPOSE_RUN_RIG', snapshots)) !== file.sha256) {
-        directionFail('DIRECTION_COMPOSE_RUN_RIG', readPath, 'the consumed file differs from the recorded current build; stage the exact current producer files and recompose');
-      }
-      if (file.path !== COMPOSE_CHECK_PATH) rigFiles.push(binding);
-      return raw;
-    };
-    for (const file of entry.files) {
-      const raw = consumedFile(file);
-      if (!adopted) continue;
-      if (file.path === COMPOSE_CHECK_PATH) {
-        const report = directionJson(raw, `${input.build}/${file.path}`);
-        if (report.spec !== 'rig-parts-check/1' || !isObject(report.build) || report.build.model_sha256 !== rig.model.sha256) {
-          directionFail('DIRECTION_COMPOSE_RUN_RIG', `${input.build}/${file.path}`, 'restore the numbered check report that binds the adopted compiled model before composing');
-        }
-      }
-      if (file.path === 'parts.json') {
-        // Parts reads the declared raster through readParts without a separate run row.
-        const painting = directionJson(raw, `${input.build}/${file.path}`).painting_in_rig;
-        if (painting !== undefined) {
-          const binding = isObject(painting) ? { path: painting.path, sha256: painting.sha256 } : undefined;
-          if (!sceneBinding(binding) || binding.path !== PAINTING_IN_RIG_FILE) {
-            directionFail('DIRECTION_COMPOSE_RUN_RIG', `${input.build}/parts.json.painting_in_rig`, 'restore the numbered parts manifest and its bound painting raster before composing');
-          }
-          consumedFile({ path: PAINTING_IN_RIG_FILE, sha256: String(binding.sha256) });
-        }
-      }
-    }
-    const sceneReportPath = 'scene.json';
-    const sceneReport = directionJson(output(sceneReportPath, 'DIRECTION_COMPOSE_FILE').bytes, `${from}/${sceneReportPath}`);
-    const placement = objects(sceneReport.characters);
-    const reportedPlates = objects(sceneReport.plates);
-    const sourcePlates = objects(input.scene.plates);
-    const placed = placement[0];
-    if ((sceneReport.spec !== 'spine-parts-scene-report/1' && sceneReport.spec !== COMPOSE_CAMERA_REPORT_SPEC) || typeof sceneReport.scene !== 'string'
-      || resolve(dir, sceneReport.scene) !== resolve(dir, input.source.path) || !equal(sceneReport.canvas, input.scene.canvas)
-      || placement.length !== 1 || !placed || placed.id !== entry.id || placed.build !== entry.build
-      || !equal(placed.offset, input.character.offset) || (placed.scale ?? 1) !== (input.character.scale ?? 1)
-      || !equal(placed.clipped_bounds, entry.placement?.clipped_bounds) || reportedPlates.length !== sourcePlates.length
-      || reportedPlates.some((plate, i) => plate.name !== sourcePlates[i]!.name || plate.image !== sourcePlates[i]!.image
-        || !equal(plate.at, sourcePlates[i]!.at) || (plate.opaque_backdrop ?? false) !== (sourcePlates[i]!.opaque_backdrop ?? false)
-        || plate.sha256 !== input.registered[i]!.sha256)) {
-      directionFail('DIRECTION_COMPOSE_PLACEMENT', `${from}/${sceneReportPath}`, 'retain the Parts scene report matching the source, placement, plates and run; compose again');
-    }
-    const check = output(COMPOSE_CHECK_PATH, 'DIRECTION_COMPOSE_GREEN');
-    const report = directionJson(check.bytes, check.binding.path);
-    const model = output(COMPOSE_MODEL_PATH, 'DIRECTION_COMPOSE_FILE');
-    validateComposeCameraModel(sceneReport, model.binding.sha256, `${from}/${sceneReportPath}`);
-    if (report.spec !== 'rig-parts-check/1' || report.PASS !== true || report.gate_spine_html_green !== true
-      || !isObject(report.build) || report.build.model_sha256 !== model.binding.sha256) {
-      directionFail('DIRECTION_COMPOSE_GREEN', check.binding.path, 'retain the green Parts compose check that binds this compiled model; compose again');
-    }
-    const composed = directionJson(model.bytes, model.binding.path);
-    const animations = objects(composed.animations).filter(value => value.name === 'idle');
-    if (animations.length !== 1 || animations[0]!.duration !== input.takeDuration) {
-      directionFail('DIRECTION_COMPOSE_DURATION', model.binding.path, 'composed model idle duration must match the cited take; compose again');
-    }
-    const { width, height } = input.chosen.canvas;
-    if (!equal(composed.stage, { x: -width / 2, y: 0, width, height })) {
-      directionFail('DIRECTION_COMPOSE_PLACEMENT', model.binding.path, 'composed model stage must match the cited canvas; compose again');
-    }
+    const { run, check, rigFiles } = readComposedTake(dir, project, from, outputRoot('direction'), {
+      ...input, canvas: input.chosen.canvas,
+    }, rig.model.sha256, inventory, snapshots);
     const animation = (input.authoredScene.rig as { animation: { frames: Binding; motion: Binding } }).animation;
     const bindings = [{ path: spec, sha256: sha256(bytes) }, doc.scene as Binding, input.source, rig.model, animation.frames, animation.motion,
       ...rigFiles, ...input.registered.map(({ path, sha256 }) => ({ path, sha256 }))];

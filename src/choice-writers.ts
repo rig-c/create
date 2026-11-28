@@ -1,3 +1,4 @@
+import { hasCandidateStorage, retireSupersededCandidates } from './candidate-command.ts';
 import { OWNER_CHAT_FLAGS, readOwnerChat } from './owner-chat.ts';
 import { validateCameraOptions } from './camera-choice.ts';
 import { overrideFindings } from './overrides.ts';
@@ -130,7 +131,8 @@ export function interviewOptionsCommand(args: string[], now: number): string { r
     if (opts.positional.length > 1 || Object.keys(opts.one).length) usage('--adopt takes only a project folder');
   } else if (opts.positional.length > 2 || !opts.one['--file']) usage('question and --file required');
   const dir = resolve(opts.positional[opts.adopt ? 0 : 1] ?? process.cwd());
-  const release = acquireBoundJobWrite(dir, { kind: 'record-only', writer: 'interview' });
+  const release = acquireBoundJobWrite(dir, { kind: 'record-only', writer: 'interview' }, hasCandidateStorage(dir));
+  let changedPostSet = false;
   try {
     const {file,project} = readProject(dir); const next = structuredClone(project);
     if (opts.adopt) {
@@ -164,8 +166,14 @@ export function interviewOptionsCommand(args: string[], now: number): string { r
         if (retained.id === set.id && !equal(old,binding)) refuse('INTERVIEW_OPTIONS_FILE',`${item.path}: option id is already retained; use a new id/path for a redraft`);
       }
     }
-    item.record.pending_options = binding; save(file,dir,project,next,now); return JSON.stringify(binding);
-  } finally { release(); }
+    item.record.pending_options = binding;
+    save(file,dir,project,next,now);
+    changedPostSet = item.kind === 'post';
+    return JSON.stringify(binding);
+  } finally {
+    release();
+    if (changedPostSet) retireSupersededCandidates(dir, now);
+  }
 }); }
 
 interface AnswerDraft {
@@ -299,7 +307,8 @@ export function interviewAnswerCommand(args: string[], now: number): string { re
   if (opts.one['--owner-chat'] !== undefined && opts.one['--by']?.toLowerCase() === 'agent') refuse('INTERVIEW_CHOICE_INVALID', 'project.json.interview: --by must name the owner; relay owner words without claiming agent authority');
   const chat = readOwnerChat(opts.one, opts.one['--by'], now, 'project.json.interview');
   const dir = resolve(opts.positional[1] ?? process.cwd());
-  const release = acquireBoundJobWrite(dir, { kind: 'record-only', writer: 'interview' });
+  const release = acquireBoundJobWrite(dir, { kind: 'record-only', writer: 'interview' }, hasCandidateStorage(dir));
+  let answeredPostSet = false;
   try {
     const {file,project} = readProject(dir);
     const original = readFileSync(file);
@@ -313,8 +322,12 @@ export function interviewAnswerCommand(args: string[], now: number): string { re
     assertTurnBody(draft.item.id, draft.answer, draft.item.path);
     applyInterviewAnswer(dir, next, draft);
     save(file,dir,project,next,now,[],[{ id: draft.item.id, correction: draft.correction }],original);
+    answeredPostSet = draft.item.kind === 'post';
     return JSON.stringify(draft.answer);
-  } finally { release(); }
+  } finally {
+    release();
+    if (answeredPostSet) retireSupersededCandidates(dir, now);
+  }
 }); }
 
 /** Asks a waypoint's step-plan value covers, filtered as ask coverage filters them. */

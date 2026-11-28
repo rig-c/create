@@ -1,3 +1,4 @@
+import { candidateCommentSubject } from './comment-record.ts';
 /** Writer routing for finalized acts. No event transport or automatic ingestion. */
 import { JOB_COMMENT_ONLY_ACT_SCHEMA, type ActV3, type JobEventV3, type JobOwnerHost, type JobSelector, type PendingAskV3, type SourceV3 } from '@rig-c/review/job-host';
 import { isDeepStrictEqual } from 'node:util';
@@ -147,6 +148,7 @@ export function pendingJobActs(project: JsonObject, acts: readonly ActV3[], root
         const carriers = act.schema === JOB_COMMENT_ONLY_ACT_SCHEMA ? (act.value.carriers ?? []).map(row => row.kind) : [];
         subject = `${comments} comment(s)${carriers.length ? ` with ${carriers.join(', ')}` : ''}`;
         args = ['comment', root];
+        if (act.schema === JOB_COMMENT_ONLY_ACT_SCHEMA && candidateCommentSubject(act)) args.push('--candidate-job', act.jobId);
         break;
       }
       case 'review-verdict': {

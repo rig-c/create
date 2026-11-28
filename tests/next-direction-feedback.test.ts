@@ -9,7 +9,7 @@ import { readWriterBinding } from '../src/job-outbox.ts';
 import { nextCommand, type NextReport } from '../src/next.ts';
 import { recordCommand } from '../src/record.ts';
 import type { JsonObject } from '../src/templates.ts';
-import { amendCommand, checkProject, correctionCommand, directionCommand, interviewAnswerCommand, interviewOptionsCommand,
+import { advanceCommand, amendCommand, checkProject, correctionCommand, directionCommand, interviewAnswerCommand, interviewOptionsCommand,
   planCommand, sceneCommand, signoffCommand, stepStatusCommand, TEST_NOW, testClock } from './clock.ts';
 import { seedRetainedDirectionPost, seedRetainedRigVersion } from './numbered-seed.ts';
 import { composeRunFixture } from './direction-compose-fixture.ts';
@@ -20,7 +20,7 @@ import { seedStoredVerdict, seedStoredVersionSignoff } from './historical-review
 const feedbackPath = 'versions[v3].verdicts[0]';
 
 function expectDirectionOnly(report: NextReport): void {
-  expect(report).toMatchObject({ stage: 'accepted', effective_stage: 'direction-review', accepted: false, refusals: [] });
+  expect(report).toMatchObject({ stage: 'direction-review', effective_stage: 'direction-review', accepted: false, refusals: [] });
   expect(report.moves.some(move => move.field === 'current.rig' || move.field === 'current.motion'
     || /rig-create (?:record (?:rig|motion)|advance accepted)\b/.test(move.command ?? ''))).toBe(false);
 }
@@ -270,6 +270,8 @@ test('#1111 next routes an adopted direction redo and its offered writer closes 
     }
     tick();
     expect(signoffCommand(['post-interview', dir, ...say('Use the three revised direction choices.')]).exit).toBe(0);
+    tick();
+    expect(advanceCommand(['post', dir]).exit).toBe(0);
 
     // Partial numbered adoption at post must preserve offers for whichever input is still missing.
     const recordPath = join(dir, 'project.json');
@@ -281,7 +283,7 @@ test('#1111 next routes an adopted direction redo and its offered writer closes 
     expect(missingMotion.open_direction_comments).toBeUndefined();
     expect(missingMotion.moves.filter(move => move.field === 'current.motion').map(move => move.command)).toEqual([
       `rig-create record motion --adopt ${dir}`,
-      `rig-create record motion ${dir} --from outputs/motion.next`,
+      `(cd ${dir} && rigc render --candidate outputs/v3/out/check/build --out outputs/motion.next --animation idle --fps '<frames-per-second>')`,
     ]);
     expect(missingMotion.moves.some(move => move.field === 'current.rig')).toBe(false);
     expect(recordCommand(['motion', dir, '--adopt'], testClock.now()).exit).toBe(0);
@@ -330,6 +332,8 @@ test('#1111 next routes an adopted direction redo and its offered writer closes 
     writeFileSync(words, bounceWords);
     seedStoredVerdict(dir, 4, { review: 'direction-review', verdict: 'bounced', by: 'user',
       at: bouncedAt, verbatim: bounceWords, source: 'synthetic review' });
+    tick();
+    expect(advanceCommand(['direction-review', dir]).exit).toBe(0);
 
     const host = await openCreateJob(dir, { id: 'user', role: 'owner' }, testClock.now());
     try {
@@ -353,7 +357,7 @@ test('#1111 next routes an adopted direction redo and its offered writer closes 
     const openComment: OpenDirectionComment = { field: 'current.direction', verdict: path, by: 'user', at: bouncedAt,
       source: 'synthetic review', verbatim: bounceWords, on_items: [] };
     const checked = checkProject(dir);
-    expect(checked).toMatchObject({ stage: 'accepted', effective_stage: 'direction-review', refusals: [] });
+    expect(checked).toMatchObject({ stage: 'direction-review', effective_stage: 'direction-review', refusals: [] });
     expect(checked.warnings).toContainEqual(expect.objectContaining({ code: 'FEEDBACK_OPEN', path }));
     expect(checked.feedback.flatMap(feedback => feedback.open_direction_comment ?? [])).toEqual([openComment]);
     // Proof remains optional in old rows. Derive it again from the accepted registration and its retained bytes.

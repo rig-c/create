@@ -463,8 +463,10 @@ function firstUnsignedStage(signoffs: Signoff[], steps: Step[], predatesPartsRev
 }
 
 export function isCurrentPathProject(project: JsonObject, items: readonly Item[]): boolean {
+  // Adoption starts the current walk while retaining numbered evidence.
+  if (isCurrentProject(project)) return true;
   if (hasNumberedOutputs(project)) return false;
-  if (isCurrentProject(project) || project.stage === 'parts') return true;
+  if (project.stage === 'parts') return true;
   const usesLegacyRigInterview = items.some(item => item.kind !== 'post'
     && (pendingInterviewOptions(item) !== undefined
       || ((item.state.state === 'user' || item.state.state === 'delegated') && !stepPlanValue(project, item, item.state.answer))));
@@ -1008,7 +1010,7 @@ function checkProjectOnce(projectDirArg: string, candidate: JsonObject | undefin
   const predatesPartsReview = planApprovedAt !== null && stageIndex(effectiveStage) > stageIndex(PARTS_REVIEW) ? planApprovedAt : null;
   const ctx: Ctx = { dir, project, refusals, warnings, items, signoffs, steps, stage, effectiveStage, collection, predatesPartsReview };
 
-  for (const s of signoffs) checkSignoffAnswers(ctx, s.record, `signoffs[${s.index}]`, currentPath);
+  for (const s of signoffs) checkSignoffAnswers(ctx, s.record, `signoffs[${s.index}]`, currentPath, replaced);
 
   let parts: PartsSections | null = null;
   let derived: DerivedSet | null = null;
@@ -1062,7 +1064,7 @@ function checkProjectOnce(projectDirArg: string, candidate: JsonObject | undefin
   const commentClosures = checkCommentClosures(dir, project, options.now, options.verifyingCommentClosure);
   refusals.push(...commentClosures.findings);
   const comments = options.recordPublication ? []
-    : projectCommentViews(dir, project, commentClosures.closed, isCurrentProject(project) || isCurrentPathProject(project, items));
+    : projectCommentViews(dir, project, commentClosures.closed, currentPath);
   const draftAmendments = amendments.filter(amendment => amendment.target.kind === 'draft');
   for (const [index, raw] of asArray(project.signoffs).entries()) {
     if (!isObject(raw) || raw.stage !== PARTS_REVIEW || isCurrentPartsSignoff(raw) || typeof raw.draft_id !== 'string') continue;

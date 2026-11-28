@@ -35,7 +35,7 @@ export function hasNumberedOutputs(project: JsonObject): boolean {
 /** Only a recorded, producer-backed replacement can make a current signature historical. */
 export function currentOutputSupersedesSignoff(project: JsonObject, kind: CurrentKind, signedAt: number): boolean {
   const node = isObject(project.current) ? project.current[kind] : undefined;
-  return Number.isFinite(signedAt) && !hasNumberedOutputs(project) && isObject(node) && node.adopted === undefined
+  return Number.isFinite(signedAt) && isObject(node) && node.adopted === undefined
     && Date.parse(String(node.at)) > signedAt && currentShapeFindings(kind, node, project).length === 0;
 }
 

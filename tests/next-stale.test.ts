@@ -437,10 +437,11 @@ function expectCurrentReview(dir: string, stage: 'rig-review' | 'direction-revie
   const report = next(dir);
   const awaits = `signoffs[stage=${stage}]`;
   expect(report).toMatchObject({ effective_stage: stage, refusals: [] });
-  expect(report.awaits).toContain(awaits);
+  expect(report.awaits).not.toContain(awaits);
   expect(report.awaits.some(field => field.startsWith('versions['))).toBe(false);
   expect(report.moves.some(move => move.review_act?.kind === 'review-verdict')).toBe(false);
   const approvals = report.moves.filter(move => move.awaits === awaits);
+  expect(approvals[0]?.act).toStartWith('optional: if the owner said something about');
   expect(approvals.map(move => [move.role, move.command, move.review_act?.kind ?? null])).toEqual([
     ['human', `rig-create signoff ${stage} ${dir} --by '<owner>' --owner-chat '<words file>' --said-at '<ISO date>' --relayed-by '<operator>'`, null],
   ]);
@@ -536,13 +537,12 @@ test('next gives numbered rig migration guidance for a project without current',
   expect(report.moves.some(move => move.review_act?.kind === 'review-verdict')).toBe(false);
 });
 
-test('a lapsed numbered direction verdict stays visible while next offers current owner chat re-signoff', () => {
+test('a lapsed numbered direction verdict stays visible without a re-signoff gate', () => {
   const dir = staleFixture();
   put(dir, 'project.json', freshPost(dir, readProject(dir)));
   plantLegacyReopen(dir, 'direction-review', { at: new Date(testClock.now() - 1_000).toISOString() });
-  expectCurrentReview(dir, 'direction-review');
   const report = next(dir);
+  expect(report).toMatchObject({ effective_stage: 'direction-review', refusals: [] });
   expect(report.warnings).toContainEqual(expect.objectContaining({ code: 'REOPEN_VERDICT_LAPSED' }));
-  expect(report.moves.find(move => move.awaits === 'signoffs[stage=direction-review]')?.lapse)
-    .toMatchObject({ code: 'REOPEN_SIGNOFF_LAPSED' });
+  expect(report.moves.some(move => move.field === 'signoffs')).toBe(false);
 });

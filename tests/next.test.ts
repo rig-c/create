@@ -3063,7 +3063,7 @@ test('#773 a reopened rigging reports retired draft review and registration with
   expect(withCurrent.moves.some(move => move.review_act?.kind === 'review-verdict')).toBe(false);
   expect(withCurrent.awaits).not.toContain(`drafts[${draftId}]`);
   expect(withCurrent.moves).toContainEqual(expect.objectContaining({
-    field: 'current.rig', command: `rig-create record rig ${dir} --from outputs/rig.next --config specs/rig/config.json`,
+    field: 'current.rig', role: 'producer', command: expect.stringContaining('rig-parts rig --config'),
   }));
   expect(withCurrent.moves.some(move => move.command?.startsWith('rig-create rig-version '))).toBe(false);
 });

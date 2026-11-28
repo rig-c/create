@@ -6,7 +6,7 @@ import { reviewVerdictSignable, rigVerdictIngestible } from './signable.ts';
 import { checkpointEnabled, checkpointRequired, completedPlanStepNeedsAmendment, planStepCompleted } from './plan-history.ts';
 import { createHash } from 'node:crypto';
 import { existsSync, lstatSync, readFileSync } from './check-reads.ts';
-import { CURRENT_KINDS, currentRigFileBinding, isCurrentProject, outputRoot, RUN_RECORD_NAME, sha256, verifiedLegacyMotionProvenance, type CurrentKind } from './current.ts';
+import { CURRENT_KINDS, currentRigFileBinding, hasNumberedOutputs, isCurrentProject, outputRoot, RUN_RECORD_NAME, sha256, verifiedLegacyMotionProvenance, type CurrentKind } from './current.ts';
 import { ADOPTED_COMPOSE_BUILD, adoptedComposeBuildMatches } from './adopted-compose.ts';
 import { motionLoopSeamFindings, readMotionLoopSeamPolicy } from './motion-loop-seam.ts';
 import { COMPOSE_CHECK_PATH, COMPOSE_RUN_PATH, CURRENT_DIRECTION_PATH, currentDirectionSource } from './current-direction.ts';
@@ -43,7 +43,7 @@ import {
   validateDiffMapRecord,
 } from './diff-map.ts';
 import { partsStructureSnapshot } from './job-acts.ts';
-import { JOB_BINDING_FILE, pendingPublications, readWriterBinding, type CurrentPublicationOutput, type WriterBinding } from './job-outbox.ts';
+import { JOB_BINDING_FILE, pendingPublications, type CurrentPublicationOutput, type WriterBinding } from './job-outbox.ts';
 import { beginJobProgress } from './job-writer.ts';
 import { isPartsCheckMove, PARTS_CHECK_FILE, partsCheckFindings, partsCheckRecord } from './parts-check.ts';
 import { isPartsReviewReceipt, latestPartsVerdictStatus, latestRiggingDraftFeedback, recordedPartsVerdict } from './parts-verdict-record.ts';
@@ -773,14 +773,8 @@ function candidateAdvance(
   }
   const checked = checkProject(dir, clone, { now, forwardWrite: true, readOnly: true });
   if (newFindings(allowed, checked.refusals).length > 0) return null;
-  if (isCurrentProject(clone)) {
-    if (isPublishAdvanceStage(targetStage)) {
-      if (readWriterBinding(dir) && currentAdvanceOutputFinding(dir, clone, targetStage, checked)) return null;
-      const path = `current.${currentReviewKind(targetStage)}`;
-      if (!currentReviewOutput(dir, clone, targetStage)
-        || checked.warnings.some(w => w.code === 'OUTPUT_STALE' && w.path === path)) return null;
-    }
-  }
+  if (isCurrentProject(clone) && isPublishAdvanceStage(targetStage)
+    && currentAdvanceOutputFinding(dir, clone, targetStage, checked)) return null;
   return partsCheck
     ? `rig-create advance ${targetStage} ${shellWord(dir)} --parts-check ${shellWord(partsCheck.report)} --parts ${shellWord(partsCheck.root)}`
     : `rig-create advance ${targetStage} ${shellWord(dir)}`;
@@ -1162,10 +1156,10 @@ function optionalCurrentSignoffMove(
   dir: string,
   project: JsonObject,
   targetStage: string,
-  hasLiveSignoff: boolean,
+  hasPriorSignoff: boolean,
   now: number,
 ): NextMove | undefined {
-  if (hasLiveSignoff) return;
+  if (hasPriorSignoff) return;
   let command: string | undefined;
   if (targetStage === 'parts-review') {
     let target: JsonObject | undefined;
@@ -1700,7 +1694,6 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
   const collection = loadCollection(dir);
   const allItems = collectItems(project, { collection });
   const currentPath = isCurrentPathProject(project, allItems);
-  const currentComments = currentPath || isCurrentProject(project);
   const openVerdicts = new Set(report.warnings.filter(warning => warning.code === 'FEEDBACK_OPEN').map(warning => warning.path));
   const openComments = (report.comments ?? []).filter(comment => comment.status === 'current' && !comment.closed);
   const { blocksOutputMoves, ...derived } = deriveNextProject(dir, project, report, now, steps, staleSteps, currentPath, collection, allItems);
@@ -1734,6 +1727,7 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
       const stale = (kind: CurrentKind) => report.warnings.some(warning => warning.code === 'OUTPUT_STALE' && warning.path === `current.${kind}`);
       const prepareDirection = reviseDirection || (canReviseDirection && adoptedInputs
         && (direction === undefined || preCutoffDirection || stale('direction')));
+      const hasAdoptionSources = hasNumberedOutputs(project);
       const missing = new Map(CURRENT_KINDS.flatMap<readonly [CurrentKind, { adoption?: NextMove; producer: NextMove; usesAdoptedInputs?: boolean }]>(kind => {
         const node = current[kind];
         if (prepareDirection && kind === 'direction') {
@@ -1749,8 +1743,6 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
         let producer: NextMove | undefined;
         if (reviseDirection && kind === 'motion') {
           producer = currentPostOutputMove(dir, project, kind);
-        } else if (!currentPath) {
-          producer = currentOutputMove(dir, kind, shellWord);
         } else if (kind === 'parts' || kind === 'rig') {
           if (derived.effective_stage === (kind === 'parts' ? 'parts' : 'rigging')) {
             producer = currentBuildMove(dir, project, kind, now);
@@ -1758,6 +1750,8 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
         } else if (derived.effective_stage === 'post') {
           producer = currentPostOutputMove(dir, project, kind);
         }
+        // Numbered inventory can supply an adoptable output even before its producer stage.
+        if (producer === undefined && hasAdoptionSources) producer = currentOutputMove(dir, kind, shellWord);
         return producer ? [[kind, { adoption: adoptionMove(dir, project, kind), producer }]] as const : [];
       }));
       const outputWarnings = prepareDirection
@@ -1780,7 +1774,7 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
       }
     }
   }
-  if ((currentPath || isCurrentProject(project)) && next.stage !== PAUSED_STAGE && !next.accepted
+  if (currentPath && next.stage !== PAUSED_STAGE && !next.accepted
     && stageIndex(next.effective_stage) >= stageIndex('post') && !postNotPassed({ items: allItems })) {
     const postItems = allItems.filter(item => item.kind === 'post' && answered(item.state));
     const plan = interviewPlanMoves(dir, project, postItems, next.effective_stage, steps, true);
@@ -1844,12 +1838,12 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
     awaits: [...revisionMoves.map(move => move.awaits), ...next.awaits, ...commentMoves.map(move => move.awaits)],
     moves: [...revisionMoves, ...next.moves, ...commentMoves],
   };
-  const finished = combined.accepted && (!currentComments || (openVerdicts.size === 0 && openComments.length === 0));
+  const finished = combined.accepted && (!currentPath || (openVerdicts.size === 0 && openComments.length === 0));
   const directionComments = report.feedback.flatMap(feedback => feedback.open_direction_comment ?? []);
   let result = withCurrentComments(dir, project, {
     ...combined, accepted: finished,
     ...(directionComments.length ? { open_direction_comments: directionComments } : {}),
-  }, shellWord, now, currentComments);
+  }, shellWord, now, currentPath);
   const recovery = publicationRecoveryMove(dir, report.holes ?? []);
   if (recovery) {
     result = { ...result, moves: [recovery, ...result.moves], awaits: [...new Set([recovery.awaits, ...result.awaits])] };
@@ -1878,8 +1872,8 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
   collection: ReturnType<typeof loadCollection>, allItems: Item[]): NextReport & { blocksOutputMoves?: true } {
   const stage = String(project.stage ?? '');
   const effectiveStage = String(report.effective_stage ?? stage);
-  // Older records still supply review history, but current writers require the current path or a current record.
-  const numberedReadOnly = !currentPath && !isCurrentProject(project);
+  // Numbered records still supply review history and adoption inputs.
+  const numberedReadOnly = !currentPath;
   const warnings = report.warnings.filter(w => w.code === 'STRUCTURE_DELTA_REVIEW' || w.code === 'REVIEW_ANSWER_COMMENT_ROUTED'
     || w.code === 'OUTPUT_STALE' || (!numberedReadOnly && ['FEEDBACK_OPEN', 'REOPEN_SIGNOFF_LAPSED', 'REOPEN_VERDICT_LAPSED'].includes(w.code)));
   const splitOrder = hasStageOrder(project);
@@ -2197,10 +2191,8 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
     return signoffs.some(s => s.stage === targetStage && s.checkpoint === null && liveSignoff(reopens, s.stage, s.at));
   };
   const pushCurrentStageProgression = (targetStage: string): void => {
-    const reviewReady = !isPublishAdvanceStage(effectiveStage) || (
-      currentReviewOutput(dir, project, effectiveStage)
-      && !report.warnings.some(w => w.code === 'OUTPUT_STALE' && w.path === `current.${currentReviewKind(effectiveStage)}`)
-    );
+    const reviewReady = !isPublishAdvanceStage(effectiveStage)
+      || currentAdvanceOutputFinding(dir, project, effectiveStage, report) === undefined;
     if (!reviewReady) return;
     const nextStage = nextStageInOrder(project, effectiveStage, postNotPassed({ items: allItems }));
     const advCmd = nextStage !== null ? candidateAdvance(dir, project, nextStage, now) : null;
@@ -2216,7 +2208,8 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
         act: `advance stage from ${effectiveStage} to ${nextStage}`,
       });
     }
-    const optionalSignoff = optionalCurrentSignoffMove(dir, project, targetStage, hasLiveStageSignoff(targetStage), now);
+    const hasPriorSignoff = signoffs.some(signature => signature.stage === targetStage && signature.checkpoint === null);
+    const optionalSignoff = optionalCurrentSignoffMove(dir, project, targetStage, hasPriorSignoff, now);
     if (optionalSignoff) moves.push(optionalSignoff);
   };
   const addCurrentReviewSignoff = (targetStage: string, field = 'signoffs', lapse?: NextLapse): void => {
@@ -2266,7 +2259,7 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
       const signoffEntry = signoffMatch ? rawSignoffs[Number(signoffMatch[1])] : undefined;
       const lapsedStage = typeof signoffEntry?.stage === 'string' ? signoffEntry.stage : effectiveStage;
       const checkpoint = typeof signoffEntry?.checkpoint === 'string' ? signoffEntry.checkpoint : null;
-      if (currentPath && checkpoint === null) continue;
+      if (currentPath) continue;
       if (hasStaleApprovalStep(lapsedStage, checkpoint)) continue;
       if (checkpoint !== null && withdrawnCheckpoint(checkpoint)) continue;
       if (checkpoint === null && lapsedStage === effectiveStage && stageHasPendingOptions) continue;
@@ -2358,7 +2351,7 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
     for (const lapsedApproval of amendment.lapsed) {
       const targetStage = lapsedApproval.stage;
       const checkpoint = lapsedApproval.checkpoint ?? null;
-      if (currentPath && checkpoint === null) continue;
+      if (currentPath) continue;
       if (hasStaleApprovalStep(targetStage, checkpoint)) continue;
       if (checkpoint !== null && withdrawnCheckpoint(checkpoint)) continue;
       if (checkpoint !== null ? hasLiveCheckpointSignoff(targetStage, checkpoint) : hasLiveStageSignoff(targetStage)) continue;

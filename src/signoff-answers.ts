@@ -1,6 +1,7 @@
 /** Approval bindings for local and inherited answer revisions. */
 import { createHash } from 'node:crypto';
 import { answered, asArray, classify, collectItems, isObject, itemFor, loadCollection, postNotPassed, type Ctx, type Finding, type Item } from './check.ts';
+import { retainedPlanStepAt } from './plan-history.ts';
 import { refuse } from './refusal.ts';
 import { approvalStageOfStep, currentStepPlan, hasStageOrder, planStepOfGuide, STEP_PLAN_SOURCE } from './stages.ts';
 import { sorted } from './step-hash.ts';
@@ -66,10 +67,18 @@ function historicalRevisionHash(ctx: Ctx, item: Item, stage: string, at: number)
 }
 
 /** Plan completeness follows the signature's own covered steps. */
-function requiredIds(project: JsonObject, signoff: JsonObject, items: Item[]): string[] {
+function requiredIds(project: JsonObject, signoff: JsonObject, items: Item[], replaced?: readonly JsonObject[]): string[] {
   if (signoff.stage === 'interview') return [];
   const phase = signoff.stage === 'post-interview' ? 'post' : 'rig';
-  const phaseSteps = asArray(isObject(project.plan) ? project.plan.steps : undefined).filter(isObject).filter(step => step.phase === phase);
+  const current = asArray(isObject(project.plan) ? project.plan.steps : undefined).filter(isObject);
+  const at = Date.parse(String(signoff.at));
+  const definitions = replaced === undefined ? current : [...new Set([...current.map(step => step.id),
+    ...replaced.map(entry => (entry.step as JsonObject).id)])].flatMap(id => {
+    const historical = retainedPlanStepAt(replaced, id, at);
+    if (historical) return [historical];
+    return current.filter(step => step.id === id && (Array.isArray(signoff.steps) || !(Date.parse(String(step.drafted_at)) > at)));
+  });
+  const phaseSteps = definitions.filter(step => step.phase === phase);
   if (phase === 'post' && phaseSteps.length === 0 && postNotPassed({ items })) return items.filter(item => item.kind === 'post').map(item => item.id);
   const steps = phaseSteps.filter(step => (Array.isArray(signoff.steps) ? signoff.steps.includes(step.id as Json)
       : approvalStageOfStep(phase, String(step.id), hasStageOrder(project) || signoff.stage === 'rigging-interview') === signoff.stage));
@@ -92,9 +101,9 @@ export function selectAnswerHashes(dir: string, project: JsonObject, signoff: Js
 }
 
 /** Called only for live signatures, sharing the writer's coverage resolver. */
-export function checkSignoffAnswers(ctx: Ctx, signoff: JsonObject, path: string, currentPath = false): void {
+export function checkSignoffAnswers(ctx: Ctx, signoff: JsonObject, path: string, currentPath = false, replaced: readonly JsonObject[] = []): void {
   if (!stages.includes(String(signoff.stage))) return;
-  const ids = requiredIds(ctx.project, signoff, ctx.items);
+  const ids = requiredIds(ctx.project, signoff, ctx.items, currentPath ? replaced : undefined);
   const hashes = isObject(signoff.answer_hashes) ? signoff.answer_hashes : null;
   const missing = hashes === null || ids.some(id => !Object.hasOwn(hashes, id));
   if (missing) {

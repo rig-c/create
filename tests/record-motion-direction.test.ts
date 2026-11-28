@@ -444,7 +444,7 @@ test('direction record refuses a staged rig copy even if its producer receipt ag
   expect(existsSync(join(f.dir, 'outputs/direction'))).toBe(false);
 });
 
-test('next offers preparation and recording for missing current direction before compose and without a numbered post', () => {
+test('next offers scene preparation for missing current direction before compose and without a numbered post', () => {
   const dir = fixture(project => {
     project.stage = 'post';
     project.advances = (project.advances as JsonObject[]).filter(move => !['direction-review', 'accepted'].includes(String(move.stage)));
@@ -457,9 +457,8 @@ test('next offers preparation and recording for missing current direction before
   const now = EXAMPLE_ANCHOR + 60 * 60_000;
   expect(nextProject(dir, now).moves).toContainEqual(expect.objectContaining({ field: 'current.motion' }));
   recordMotion(dir);
-  const directionMove = expect.objectContaining({ field: 'current.direction', awaits: 'current.direction',
-    command: `rig-create record direction ${dir} --from ${directionFrom} --direction ${CURRENT_DIRECTION_PATH}`,
-    act: expect.stringContaining(`Prepare ${directionFrom} before recording`) });
+  const directionMove = expect.objectContaining({ field: CURRENT_SCENE_PATH, awaits: CURRENT_SCENE_PATH,
+    command: `rig-create scene write ${dir} --compose-scene specs/direction/compose-scene.json` });
   expect(nextProject(dir, now).moves).toContainEqual(directionMove);
   write(dir, CURRENT_DIRECTION_PATH, {});
   write(dir, `${directionFrom}/${COMPOSE_RUN_PATH}`, {});

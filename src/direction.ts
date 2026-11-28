@@ -9,6 +9,7 @@ import { isAbsolute, join } from 'node:path';
 import { isDeepStrictEqual as equal } from 'node:util';
 import { asArray, collectItems, collectSignoffs, isDecision, isObject, loadCollection, type Ctx, type Finding, type Item } from './check.ts';
 import { optionFile, selection, validateChoice } from './choices.ts';
+import { collectPlanReplaced, retainedPlanStepAt } from './plan-history.ts';
 import { checkEntry } from './provenance.ts';
 import { collectReopens, liveSignoff } from './reopen.ts';
 import { refuse } from './refusal.ts';
@@ -170,7 +171,7 @@ export function validateDirectionCitations(dir: string, project: JsonObject, doc
   if (refusals[0]) directionFail('DIRECTION_CITATION',refusals[0].path,refusals[0].message);
   if (!current) return;
   if (doc.schema === CURRENT_DIRECTION_SCHEMA) {
-    const invalid = invalidCurrentDirectionStep(project, items);
+    const invalid = invalidCurrentDirectionStep(project);
     if (invalid) throw new DirectionError('DIRECTION_CITATION', `plan.steps[${invalid.id}]`, invalid.why, invalid.remedy);
     return;
   }
@@ -188,11 +189,12 @@ export function missingPostPlanRows(steps: readonly JsonObject[]) {
   return POST_PLAN_ROWS.filter(({ id }) => !steps.some(step => step.id === id && step.phase === 'post'));
 }
 
-function invalidCurrentDirectionStep(project: JsonObject, items: readonly Item[]): { id: string; why: string; remedy?: string } | undefined {
+function invalidCurrentDirectionStep(project: JsonObject): { id: string; why: string; remedy?: string } | undefined {
   const reopens = collectReopens(project, []);
   const steps = objects(isObject(project.plan) ? project.plan.steps : undefined);
   const approvals = collectSignoffs(project, []).filter(s => s.stage === 'post-interview'
     && s.checkpoint === null && liveSignoff(reopens, s.stage, s.at));
+  const revisions = collectPlanReplaced(project, []);
   for (const id of ['camera', 'timing'] as const) {
     const matches = steps.filter(step => step.id === id && step.phase === 'post');
     if (matches.length === 0) {
@@ -204,15 +206,13 @@ function invalidCurrentDirectionStep(project: JsonObject, items: readonly Item[]
     const covering = approvals.filter(s => s.steps === null || s.steps.includes(id));
     if (covering.length === 0) continue;
     const hash = stepHash(matches[0]!);
-    const state = items.find(item => item.id === (id === 'camera' ? 'camera_depth' : 'post_timing'))?.state;
-    const answer = state && (state.state === 'user' || state.state === 'delegated' || state.state === 'not_applicable')
-      ? state.answer : null;
-    const times = answer ? [answer.at, isObject(answer.agent_decision) ? answer.agent_decision.at : undefined,
-      ...objects(answer.additions).map(addition => addition.at)]
-      .filter((value): value is string => typeof value === 'string').map(Date.parse) : [];
-    if (!covering.some(s => isObject(s.record.step_hashes)
-      && s.record.step_hashes[id] === hash && times.every(at => Number.isFinite(at) && at <= s.at))) {
-      return { id, why: 'live post-interview approval and matching step hash required' };
+    // The direction cites the live answer. The optional signature still binds its own step revision.
+    if (!covering.some(s => {
+      const signedStep = retainedPlanStepAt(revisions, id, s.at);
+      return isObject(s.record.step_hashes) && s.record.step_hashes[id] === (signedStep ? stepHash(signedStep) : hash);
+    })) {
+      return { id, why: 'stored post-interview step hash does not match its recorded revision',
+        remedy: 'restore the signed step and its replacement history' };
     }
   }
 }

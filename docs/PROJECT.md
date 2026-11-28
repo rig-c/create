@@ -261,10 +261,15 @@ rig-create amend parts-review --kind draft --target d1 --change evidence/correct
 rig-create job open --draft d1 --reviewer owner --role owner
 ```
 
-The amendment lists the previous approval in `amendments[].lapsed`. Review
-asks for a fresh verdict on the registered draft. A new approval signs after
-the amendment, and a changes request leaves parts-review unsigned.
-For changed parts at `rigging`, see the
+The amendment lists the previous approval in `amendments[].lapsed`. `job open
+--draft d1` opens the retained draft view-only for inspection and comments;
+Review 5.x refuses new `parts-verdict` submissions, and numbered draft
+sign-offs are retired. To continue on the current path, record current parts
+with `rig-create record parts --from <producer out> --config <rig config>` (or
+adopt with `rig-create record parts --adopt`), prepare `structure-snapshot`,
+and relay any owner chat sign-off with `rig-create signoff parts-review
+--owner-chat`.
+For historical changed-parts signatures recorded at `rigging`, see the
 [recorded approval exception](#signing-amended-parts-at-rigging).
 
 An amendment invalidates every approval at its owning stage or later, using

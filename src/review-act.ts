@@ -269,8 +269,15 @@ export function matchesActProjectSource(act: { jobId: string; source: { projectH
 const sha = (value: unknown): value is string => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
 const id = (value: unknown): value is string => typeof value === 'string' && /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(value);
 const file = (value: unknown): value is JsonObject => object(value) && typeof value.path === 'string' && sha(value.sha256);
-function failure(code: string, detail: string): never {
-  refuse(code, `project.json.review_acts: ${detail}; restore the original act evidence, or submit a new comment in the live Review job`);
+function failure(code: string, detail: string, kind?: ReviewActKind): never {
+  const remedy = kind === 'comments'
+    ? 'restore the original act evidence, or submit a new comment in the live Review job'
+    : kind === 'interview-picks'
+      ? "restore the stored act, or relay the owner's words with rig-create interview-answer --owner-chat"
+      : kind === 'checkpoint' || kind === 'signoff'
+        ? "restore the stored act, or relay the owner's words with rig-create signoff --owner-chat"
+        : 'restore the stored act';
+  refuse(code, `project.json.review_acts: ${detail}; ${remedy}`);
 }
 
 const RETIRED_IMAGE_REVIEW_STAGE = 'image-review';
@@ -284,21 +291,21 @@ function decodeCommentsReviewAct(raw: JsonObject, kind: ReviewActKind): ReviewVe
       : raw.schema === JOB_MESH_EDITS_ACT_SCHEMA ? parseMeshEditsAct(raw)
       : raw.schema === JOB_COMMENT_CONTEXT_ACT_SCHEMA ? parseContextCommentsAct(raw) : parseCommentsAct(raw);
   }
-  catch { return failure('REVIEW_ACT_INVALID', 'comments act or its declared source binding is malformed'); }
-  if (act.kind !== kind) failure('REVIEW_ACT_KIND_MISMATCH', `kind ${act.kind} does not match ${kind}`);
+  catch { return failure('REVIEW_ACT_INVALID', 'comments act or its declared source binding is malformed', kind); }
+  if (act.kind !== kind) failure('REVIEW_ACT_KIND_MISMATCH', `kind ${act.kind} does not match ${kind}`, kind);
   if (act.schema === JOB_MESH_EDITS_ACT_SCHEMA
     && (act.kind !== 'review-verdict' || !act.value.meshEdits?.length)) {
-    failure('REVIEW_ACT_INVALID', 'Review emits act@8 for a rig verdict with mesh edits');
+    failure('REVIEW_ACT_INVALID', 'Review emits act@8 for a rig verdict with mesh edits', kind);
   }
   const source = act.source as unknown as JsonObject;
   if ('record' in source) {
     if (act.kind === 'interview-picks' && source.subject === 'option-set') return act;
-    if (act.kind !== 'checkpoint' || source.subject !== 'plan') failure('REVIEW_ACT_KIND_MISMATCH', 'this record-source kind has no Create writer mapping');
+    if (act.kind !== 'checkpoint' || source.subject !== 'plan') failure('REVIEW_ACT_KIND_MISMATCH', 'this record-source kind has no Create writer mapping', kind);
     return act as CheckpointAct;
   }
   const rawStage = object(raw.value) && typeof raw.value.stage === 'string' ? raw.value.stage : undefined;
   if (source.subject === 'image-set' || act.kind === 'review-verdict' && rawStage === RETIRED_IMAGE_REVIEW_STAGE) {
-    failure('REVIEW_ACT_KIND_MISMATCH', `${RETIRED_IMAGE_REVIEW_STAGE} has no rig/post writer mapping`);
+    failure('REVIEW_ACT_KIND_MISMATCH', `${RETIRED_IMAGE_REVIEW_STAGE} has no rig/post writer mapping`, kind);
   }
   const parts = source.parts;
   const selector = source.selector;
@@ -307,18 +314,18 @@ function decodeCommentsReviewAct(raw: JsonObject, kind: ReviewActKind): ReviewVe
     const version = object(parts) && typeof parts.enumeratorVersion === 'string' ? parts.enumeratorVersion : '';
     const match = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/.exec(version);
     if (!match || !match.slice(1).every(piece => Number.isSafeInteger(Number(piece))) || (Number(match[1]) === 2 ? Number(match[2]) < 25 : Number(match[1]) !== 3)) {
-      failure('REVIEW_PARTS_ENUMERATOR_UNSUPPORTED', `parts enumerator ${version || 'absent'} is outside >=2.25.0 <4.0.0`);
+      failure('REVIEW_PARTS_ENUMERATOR_UNSUPPORTED', `parts enumerator ${version || 'absent'} is outside >=2.25.0 <4.0.0`, kind);
     }
   }
   if (!sha(source.projectHash) || !object(source.package) || !id(source.package.id)
     || typeof source.package.revision !== 'string' || !/^\d{4}-\d\d-\d\dT.*(?:Z|[+-]\d\d:\d\d)$/.test(act.at)) {
-    failure('REVIEW_ACT_INVALID', 'comments act lacks the existing package/project identity');
+    failure('REVIEW_ACT_INVALID', 'comments act lacks the existing package/project identity', kind);
   }
   if (act.kind === 'checkpoint') {
     const plan = source.plan;
     if (!object(plan) || !Array.isArray(plan.steps) || !plan.steps.length
       || !plan.steps.some(step => object(step) && step.id === act.value.planStepId)) {
-      failure('REVIEW_ACT_INVALID', 'comments checkpoint has no displayed plan step');
+      failure('REVIEW_ACT_INVALID', 'comments checkpoint has no displayed plan step', kind);
     }
     return act as CheckpointAct;
   }
@@ -326,22 +333,22 @@ function decodeCommentsReviewAct(raw: JsonObject, kind: ReviewActKind): ReviewVe
   if (act.kind === 'interview-picks') return act;
   if (!composedPost && (!object(parts) || !file(parts.manifest) || !Array.isArray(parts.images)
     || parts.images.some(image => !file(image) || typeof image.role !== 'string'))) {
-    failure('REVIEW_ACT_INVALID', 'comments act has no admitted parts binding');
+    failure('REVIEW_ACT_INVALID', 'comments act has no admitted parts binding', kind);
   }
   if (act.kind === 'parts-verdict') {
-    if (!object(selector) || selector.kind !== 'draft' || !id(selector.id)) failure('REVIEW_ACT_KIND_MISMATCH', 'parts comments require the existing draft source');
+    if (!object(selector) || selector.kind !== 'draft' || !id(selector.id)) failure('REVIEW_ACT_KIND_MISMATCH', 'parts comments require the existing draft source', kind);
     const issues = partsActIssues(act as CommentsPartsVerdictAct)!;
     if (issues.some(issue => issue.parts.some(part => !((parts as JsonObject).images as Json[]).some(image => object(image)
       && image.role === 'part' && image.path === `parts/${part.name}.png` && image.sha256 === part.imageHash)))) {
-      failure('REVIEW_ACT_INVALID', 'comments issue part is outside the bound parts manifest');
+      failure('REVIEW_ACT_INVALID', 'comments issue part is outside the bound parts manifest', kind);
     }
     return act as CommentsPartsVerdictAct;
   }
   if (act.kind === 'review-verdict' && object(selector) && selector.kind === 'draft') {
-    if (act.schema === JOB_CHEST_LANDMARKS_ACT_SCHEMA) failure('REVIEW_ACT_KIND_MISMATCH', 'chest landmark edits require a live rig version');
+    if (act.schema === JOB_CHEST_LANDMARKS_ACT_SCHEMA) failure('REVIEW_ACT_KIND_MISMATCH', 'chest landmark edits require a live rig version', kind);
     if (act.value.stage !== 'rig-review' || typeof selector.id !== 'string' || !DRAFT_ID.test(selector.id)
       || !file(source.model) || source.direction !== null) {
-      failure('REVIEW_ACT_KIND_MISMATCH', 'draft comments verdict needs rig-review, one model and no direction');
+      failure('REVIEW_ACT_KIND_MISMATCH', 'draft comments verdict needs rig-review, one model and no direction', kind);
     }
     return act as unknown as DraftReviewVerdictAct;
   }
@@ -350,19 +357,19 @@ function decodeCommentsReviewAct(raw: JsonObject, kind: ReviewActKind): ReviewVe
     || act.value.stage !== (selector.kind === 'rig' ? 'rig-review' : 'direction-review')
     || selector.kind === 'rig' && source.direction !== null
     || selector.kind === 'post' && (!Number.isSafeInteger(selector.rigVersion) || Number(selector.rigVersion) < 1 || !file(source.direction))) {
-    failure('REVIEW_ACT_KIND_MISMATCH', 'comments verdict has no existing rig/post source mapping');
+    failure('REVIEW_ACT_KIND_MISMATCH', 'comments verdict has no existing rig/post source mapping', kind);
   }
   return act as CommentsReviewVerdictAct | MeshReviewVerdictAct | ChestReviewVerdictAct;
 }
 
 /** act@10 answers no ask: only the comments route reads it, and that route reads nothing else (#982). */
 function decodeCommentOnlyAct(raw: JsonObject, kind: ReviewActKind): CommentOnlyAct {
-  if (raw.schema !== JOB_COMMENT_ONLY_ACT_SCHEMA) failure('REVIEW_ACT_SCHEMA_UNSUPPORTED', `act schema ${String(raw.schema)} is not a comment-only act; comments are read from ${JOB_COMMENT_ONLY_ACT_SCHEMA} only`);
-  if (kind !== 'comments') failure('REVIEW_ACT_KIND_MISMATCH', `a ${JOB_COMMENT_ONLY_ACT_SCHEMA} act carries comments and answers no ${kind} ask; ingest it with rig-create comment --from-review`);
+  if (raw.schema !== JOB_COMMENT_ONLY_ACT_SCHEMA) failure('REVIEW_ACT_SCHEMA_UNSUPPORTED', `act schema ${String(raw.schema)} is not a comment-only act; comments are read from ${JOB_COMMENT_ONLY_ACT_SCHEMA} only`, 'comments');
+  if (kind !== 'comments') failure('REVIEW_ACT_KIND_MISMATCH', `a ${JOB_COMMENT_ONLY_ACT_SCHEMA} act carries comments and answers no ${kind} ask; ingest it with rig-create comment --from-review`, 'comments');
   let act: CommentOnlyAct;
   try { act = parseCommentOnlyAct(raw); }
-  catch { return failure('REVIEW_ACT_INVALID', 'comment-only act or its declared source binding is malformed, or it carries no comment and no carrier'); }
-  if (!/^\d{4}-\d\d-\d\dT.*(?:Z|[+-]\d\d:\d\d)$/.test(act.at)) failure('REVIEW_ACT_INVALID', 'comment-only act time is malformed');
+  catch { return failure('REVIEW_ACT_INVALID', 'comment-only act or its declared source binding is malformed, or it carries no comment and no carrier', 'comments'); }
+  if (!/^\d{4}-\d\d-\d\dT.*(?:Z|[+-]\d\d:\d\d)$/.test(act.at)) failure('REVIEW_ACT_INVALID', 'comment-only act time is malformed', 'comments');
   return act;
 }
 
@@ -378,10 +385,10 @@ export function decodeReviewAct(bytes: string, kind: ReviewActKind): DecodedRevi
 export function decodeReviewAct(bytes: string, kind: ReviewActKind = 'review-verdict'): DecodedReviewAct {
   let act: JsonObject;
   try { const parsed: unknown = JSON.parse(bytes); if (!object(parsed)) throw Error(); act = parsed; }
-  catch { return failure('REVIEW_ACT_INVALID', 'act is not a JSON object'); }
-  if (kind === 'reopen' && act.schema !== 'rig-review/act@4') failure('REVIEW_ACT_SCHEMA_UNSUPPORTED', 'reopen requires a record act@4');
+  catch { return failure('REVIEW_ACT_INVALID', 'act is not a JSON object', kind); }
+  if (kind === 'reopen' && act.schema !== 'rig-review/act@4') failure('REVIEW_ACT_SCHEMA_UNSUPPORTED', 'reopen requires a record act@4', kind);
   if (act.schema === 'rig-review/act@4' && act.kind === 'reopen' && kind !== 'reopen') {
-    failure('REVIEW_ACT_KIND_MISMATCH', 'record reopen acts are retained for historical ledger validation');
+    failure('REVIEW_ACT_KIND_MISMATCH', 'record reopen acts are retained for historical ledger validation', kind);
   }
   if (act.schema === JOB_COMMENT_ONLY_ACT_SCHEMA || kind === 'comments') return decodeCommentOnlyAct(act, kind);
   if (act.schema === JOB_COMMENTS_ACT_SCHEMA || act.schema === JOB_COMMENT_CONTEXT_ACT_SCHEMA
@@ -391,12 +398,12 @@ export function decodeReviewAct(bytes: string, kind: ReviewActKind = 'review-ver
   if (['checkpoint', 'interview-picks', 'signoff', 'reopen'].includes(kind) && act.schema === 'rig-review/act@4') {
     try {
       const recordAct = parseRecordAct(act);
-      if (recordAct.kind !== kind) return failure('REVIEW_ACT_KIND_MISMATCH', 'record act kind differs from requested kind');
+      if (recordAct.kind !== kind) return failure('REVIEW_ACT_KIND_MISMATCH', 'record act kind differs from requested kind', kind);
       return recordAct as CheckpointAct | InterviewPicksAct | SignoffAct | ReopenAct;
-    } catch { return failure('REVIEW_ACT_INVALID', 'record act or its sealed source is malformed'); }
+    } catch { return failure('REVIEW_ACT_INVALID', 'record act or its sealed source is malformed', kind); }
   }
   if (act.schema !== 'rig-review/act@2' && !(kind === 'review-verdict' && act.schema === 'rig-review/act@3')
-    && !(kind === 'parts-verdict' && act.schema === 'rig-review/act@5')) failure('REVIEW_ACT_SCHEMA_UNSUPPORTED', `act schema ${String(act.schema)} is unsupported, including legacy rig-review/act@1`);
+    && !(kind === 'parts-verdict' && act.schema === 'rig-review/act@5')) failure('REVIEW_ACT_SCHEMA_UNSUPPORTED', `act schema ${String(act.schema)} is unsupported, including legacy rig-review/act@1`, kind);
   const source = act.source;
   const parts = object(source) ? source.parts : null;
   const composedPost = kind === 'review-verdict' && act.kind === 'review-verdict'
@@ -404,8 +411,8 @@ export function decodeReviewAct(bytes: string, kind: ReviewActKind = 'review-ver
   const version = object(parts) && typeof parts.enumeratorVersion === 'string' ? parts.enumeratorVersion : '';
   // Only stable releases in the frozen range are accepted. Prereleases are outside it.
   const match = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/.exec(version);
-  if (!composedPost && (!match || !match.slice(1).every(piece => Number.isSafeInteger(Number(piece))) || (Number(match[1]) === 2 ? Number(match[2]) < 25 : Number(match[1]) !== 3))) failure('REVIEW_PARTS_ENUMERATOR_UNSUPPORTED', `parts enumerator ${version || 'absent'} is outside >=2.25.0 <4.0.0`);
-  if (act.kind !== kind) failure('REVIEW_ACT_KIND_MISMATCH', `kind ${String(act.kind)} does not match ${kind}`);
+  if (!composedPost && (!match || !match.slice(1).every(piece => Number.isSafeInteger(Number(piece))) || (Number(match[1]) === 2 ? Number(match[2]) < 25 : Number(match[1]) !== 3))) failure('REVIEW_PARTS_ENUMERATOR_UNSUPPORTED', `parts enumerator ${version || 'absent'} is outside >=2.25.0 <4.0.0`, kind);
+  if (act.kind !== kind) failure('REVIEW_ACT_KIND_MISMATCH', `kind ${String(act.kind)} does not match ${kind}`, kind);
   const authority = act.authority;
   const reviewer = object(authority) ? authority.reviewer : null;
   const value = act.value;
@@ -416,7 +423,7 @@ export function decodeReviewAct(bytes: string, kind: ReviewActKind = 'review-ver
     || !object(source) || !sha(source.sourceHash) || !sha(source.projectHash)
     || !object(source.package) || !id(source.package.id) || typeof source.package.revision !== 'string'
     || !object(value) || kind !== 'interview-picks' && kind !== 'checkpoint' && kind !== 'signoff' && (typeof value.words !== 'string' || !['pending', 'approved', 'changes-requested'].includes(String(value.verdict)))) {
-    failure('REVIEW_ACT_INVALID', 'act identity, authority, source or verdict is malformed');
+    failure('REVIEW_ACT_INVALID', 'act identity, authority, source or verdict is malformed', kind);
   }
   if (kind === 'interview-picks') {
     if (!object(source.optionSet) || !id(source.optionSet.id) || !sha(source.optionSet.sha256)
@@ -424,7 +431,7 @@ export function decodeReviewAct(bytes: string, kind: ReviewActKind = 'review-ver
       || !value.selections.length || value.selections.some(row => !object(row) || !id(row.itemId) || !id(row.optionId)
         || row.otherText !== null && typeof row.otherText !== 'string')
       || new Set(value.selections.map(row => (row as JsonObject).itemId)).size !== value.selections.length) {
-      failure('REVIEW_ACT_INVALID', 'interview question, option set or selections are malformed');
+      failure('REVIEW_ACT_INVALID', 'interview question, option set or selections are malformed', kind);
     }
     return act as unknown as InterviewPicksAct;
   }
@@ -434,7 +441,7 @@ export function decodeReviewAct(bytes: string, kind: ReviewActKind = 'review-ver
     if (!steps.length || steps.some(step => !object(step) || !id(step.id) || !sha(step.hash))
       || !id(value.checkpointId) || !id(value.planStepId) || !['pass', 'fail'].includes(String(value.outcome))
       || typeof value.words !== 'string' || !steps.some(step => (step as JsonObject).id === value.planStepId)) {
-      failure('REVIEW_ACT_INVALID', 'checkpoint plan, step identity, outcome or words are malformed');
+      failure('REVIEW_ACT_INVALID', 'checkpoint plan, step identity, outcome or words are malformed', kind);
     }
     return act as unknown as CheckpointAct;
   }
@@ -446,7 +453,7 @@ export function decodeReviewAct(bytes: string, kind: ReviewActKind = 'review-ver
       || plan !== null && plan !== undefined && (!object(plan) || !Array.isArray(plan.steps)
         || plan.steps.some(step => !object(step) || !id(step.id) || !sha(step.hash)))
       || PLAN_BOUND_SIGNOFF_STAGES.includes(value.stage) && (!object(plan) || !Array.isArray(plan.steps) || !plan.steps.length)) {
-      failure('REVIEW_ACT_INVALID', 'signoff stage, decision, words or displayed plan is malformed');
+      failure('REVIEW_ACT_INVALID', 'signoff stage, decision, words or displayed plan is malformed', kind);
     }
     return act as unknown as SignoffAct;
   }
@@ -456,10 +463,10 @@ export function decodeReviewAct(bytes: string, kind: ReviewActKind = 'review-ver
       || !Array.isArray(parts.images) || parts.images.some(row => !file(row) || typeof row.role !== 'string')
       || source.model !== null && !file(source.model) || source.direction !== null && !file(source.direction)
       || source.plan !== null && (!object(source.plan) || !Array.isArray(source.plan.steps)
-        || source.plan.steps.some(step => !object(step) || !id(step.id) || !sha(step.hash)))) failure('REVIEW_ACT_INVALID', 'parts verdict source or rows are malformed');
+        || source.plan.steps.some(step => !object(step) || !id(step.id) || !sha(step.hash)))) failure('REVIEW_ACT_INVALID', 'parts verdict source or rows are malformed', kind);
     if (act.schema === 'rig-review/act@5') {
       if (!['approved', 'changes-requested'].includes(String(value.verdict)) || !Array.isArray(value.issues)
-        || value.parts !== undefined) failure('REVIEW_ACT_INVALID', 'parts verdict source or issues are malformed');
+        || value.parts !== undefined) failure('REVIEW_ACT_INVALID', 'parts verdict source or issues are malformed', kind);
       const issueIds = new Set<string>();
       for (const issue of value.issues) {
         if (!object(issue) || !id(issue.id) || issueIds.has(issue.id)
@@ -469,40 +476,40 @@ export function decodeReviewAct(bytes: string, kind: ReviewActKind = 'review-ver
           || !('imageRegion' in issue) || (issue.imageRegion !== null && !object(issue.imageRegion))
           || !object(issue.view) || !object(issue.crop)
           || !('nativeCrop' in issue) || (issue.nativeCrop !== null && !object(issue.nativeCrop))) {
-          failure('REVIEW_ACT_INVALID', 'parts verdict issue is malformed');
+          failure('REVIEW_ACT_INVALID', 'parts verdict issue is malformed', kind);
         }
         issueIds.add(issue.id);
         const partNames = new Set<string>();
         for (const part of issue.parts) {
           if (!object(part) || !id(part.name) || !sha(part.imageHash) || partNames.has(part.name)
             || !parts.images.some(img => object(img) && img.role === 'part' && img.path === `parts/${part.name}.png` && img.sha256 === part.imageHash)) {
-            failure('REVIEW_ACT_INVALID', 'parts verdict issue part is invalid, duplicated or outside the bound parts manifest');
+            failure('REVIEW_ACT_INVALID', 'parts verdict issue part is invalid, duplicated or outside the bound parts manifest', kind);
           }
           partNames.add(part.name);
         }
       }
-      if ((value.verdict === 'approved') !== (value.issues.length === 0)) failure('REVIEW_ACT_INVALID', 'parts verdict contradicts its issues');
+      if ((value.verdict === 'approved') !== (value.issues.length === 0)) failure('REVIEW_ACT_INVALID', 'parts verdict contradicts its issues', kind);
       return act as unknown as PartsVerdictAct;
     }
-    if (!Array.isArray(value.parts) || !value.parts.length) failure('REVIEW_ACT_INVALID', 'parts verdict source or rows are malformed');
+    if (!Array.isArray(value.parts) || !value.parts.length) failure('REVIEW_ACT_INVALID', 'parts verdict source or rows are malformed', kind);
     const rows = value.parts as JsonObject[];
     const ids = new Set<string>();
     for (const row of rows) {
-      if (!object(row) || !id(row.partId) || ids.has(row.partId)) failure('REVIEW_ACT_INVALID', 'part identities are invalid or duplicated');
+      if (!object(row) || !id(row.partId) || ids.has(row.partId)) failure('REVIEW_ACT_INVALID', 'part identities are invalid or duplicated', kind);
       ids.add(row.partId);
       for (const outcome of [row.part, row.mesh]) {
         if (!object(outcome) || !['pending', 'clean', 'flagged'].includes(String(outcome.outcome)) || typeof outcome.note !== 'string'
-          || outcome.outcome === 'flagged' && !outcome.note.trim()) failure('REVIEW_ACT_INVALID', 'part or mesh outcome is malformed');
+          || outcome.outcome === 'flagged' && !outcome.note.trim()) failure('REVIEW_ACT_INVALID', 'part or mesh outcome is malformed', kind);
       }
     }
     const outcomes = rows.flatMap(row => [(row.part as JsonObject).outcome, (row.mesh as JsonObject).outcome]);
     if (value.verdict === 'approved' && outcomes.some(outcome => outcome !== 'clean')
-      || value.verdict === 'changes-requested' && !outcomes.includes('flagged')) failure('REVIEW_ACT_INVALID', 'parts verdict contradicts its outcomes');
+      || value.verdict === 'changes-requested' && !outcomes.includes('flagged')) failure('REVIEW_ACT_INVALID', 'parts verdict contradicts its outcomes', kind);
     return act as unknown as PartsVerdictAct;
   }
   const stage = typeof value.stage === 'string' ? value.stage : undefined;
   if (source.subject === 'image-set' || stage === RETIRED_IMAGE_REVIEW_STAGE) {
-    failure('REVIEW_ACT_KIND_MISMATCH', `${RETIRED_IMAGE_REVIEW_STAGE} has no rig/post writer mapping`);
+    failure('REVIEW_ACT_KIND_MISMATCH', `${RETIRED_IMAGE_REVIEW_STAGE} has no rig/post writer mapping`, kind);
   }
   const selector = source.selector;
   if (!object(selector) || !['rig', 'post'].includes(String(selector.kind)) || !Number.isSafeInteger(selector.version) || Number(selector.version) < 1
@@ -513,7 +520,7 @@ export function decodeReviewAct(bytes: string, kind: ReviewActKind = 'review-ver
       || parts.images.some(row => !file(row) || typeof row.role !== 'string'))
     || source.plan !== null && (!object(source.plan) || !Array.isArray(source.plan.steps)
       || source.plan.steps.some(step => !object(step) || !id(step.id) || !sha(step.hash)))) {
-    failure('REVIEW_ACT_INVALID', 'rig/post source binding is malformed or contradicts the review stage');
+    failure('REVIEW_ACT_INVALID', 'rig/post source binding is malformed or contradicts the review stage', kind);
   }
   if (act.schema === 'rig-review/act@3') {
     const still = act.still;
@@ -521,7 +528,7 @@ export function decodeReviewAct(bytes: string, kind: ReviewActKind = 'review-ver
       || still.camera !== 'fixed' || !(still.frame === 'setup' && still.animation === undefined
         || typeof still.frame === 'number' && Number.isFinite(still.frame) && still.frame >= 0
           && typeof still.animation === 'string' && still.animation.length > 0)) {
-      failure('REVIEW_ACT_INVALID', 'rig-review still identity, camera, frame or animation is malformed');
+      failure('REVIEW_ACT_INVALID', 'rig-review still identity, camera, frame or animation is malformed', kind);
     }
   }
   return act as unknown as ReviewVerdictAct;
@@ -530,15 +537,15 @@ export function decodeReviewAct(bytes: string, kind: ReviewActKind = 'review-ver
 export function decodeReviewResponse(text: string, jobId: string, actId: string, requestId: string, kind: ReviewActKind = 'review-verdict'): { act: DecodedReviewAct; bytes: string } {
   let response: JsonObject;
   try { const parsed: unknown = JSON.parse(text); if (!object(parsed)) throw Error(); response = parsed; }
-  catch { return failure('REVIEW_ACT_INVALID', 'Review response is not JSON'); }
-  if (response.schema !== 'rig-review/job-api@2') failure('REVIEW_API_SCHEMA_UNSUPPORTED', `API schema ${String(response.schema)} is unsupported`);
-  if (response.verb !== 'fetch-act' || response.jobId !== jobId || response.requestId !== requestId) failure('REVIEW_ACT_INVALID', 'fetch response identity differs from the request');
-  if (response.ok !== true) failure('REVIEW_ACT_FETCH_REFUSED', `Review refused fetch (${object(response.error) ? String(response.error.code) : 'invalid response'})`);
+  catch { return failure('REVIEW_ACT_INVALID', 'Review response is not JSON', kind); }
+  if (response.schema !== 'rig-review/job-api@2') failure('REVIEW_API_SCHEMA_UNSUPPORTED', `API schema ${String(response.schema)} is unsupported`, kind);
+  if (response.verb !== 'fetch-act' || response.jobId !== jobId || response.requestId !== requestId) failure('REVIEW_ACT_INVALID', 'fetch response identity differs from the request', kind);
+  if (response.ok !== true) failure('REVIEW_ACT_FETCH_REFUSED', `Review refused fetch (${object(response.error) ? String(response.error.code) : 'invalid response'})`, kind);
   // The API exposes a semantic value, not a producer storage file. Retain this
   // encoding once, and hash its exact UTF-8 bytes without reconstructing reports.
   const bytes = JSON.stringify(response.value);
   const act = decodeReviewAct(bytes, kind);
-  if (act.jobId !== jobId || act.actId !== actId) failure('REVIEW_ACT_INVALID', 'fetched act identity differs from the request');
+  if (act.jobId !== jobId || act.actId !== actId) failure('REVIEW_ACT_INVALID', 'fetched act identity differs from the request', kind);
   return { act, bytes };
 }
 
@@ -1003,29 +1010,32 @@ export function reviewActFindings(project: JsonObject, warnings?: Finding[], rou
         }
         return;
       }
+      const entryKind: ReviewActKind | undefined = object(entry) && ['review-verdict', 'parts-verdict', 'interview-picks', 'checkpoint', 'signoff', 'reopen', 'comments'].includes(String(entry.kind))
+        ? entry.kind as ReviewActKind
+        : undefined;
       if (!object(entry) || entry.schema !== 'rig-create/review-act@1' || typeof entry.bytes !== 'string'
-        || !sha(entry.sha256) || jobHash(entry.bytes) !== entry.sha256 || entry.kind !== 'comments' && !sha(entry.version_hash)) failure('REVIEW_ACT_LEDGER_INVALID', 'receipt shape or bytes hash is invalid');
+        || !sha(entry.sha256) || jobHash(entry.bytes) !== entry.sha256 || entry.kind !== 'comments' && !sha(entry.version_hash)) failure('REVIEW_ACT_LEDGER_INVALID', 'receipt shape or bytes hash is invalid', entryKind);
       if (entry.kind === 'comments') {
         const act = decodeReviewAct(entry.bytes, 'comments');
-        if (entry.jobId !== act.jobId || entry.actId !== act.actId) failure('REVIEW_ACT_LEDGER_INVALID', 'receipt identity differs from its act');
+        if (entry.jobId !== act.jobId || entry.actId !== act.actId) failure('REVIEW_ACT_LEDGER_INVALID', 'receipt identity differs from its act', 'comments');
         const key = JSON.stringify([act.jobId, act.actId]);
-        if (seen.has(key)) failure('REVIEW_ACT_REPLAY_CONFLICT', 'duplicate act receipt');
+        if (seen.has(key)) failure('REVIEW_ACT_REPLAY_CONFLICT', 'duplicate act receipt', 'comments');
         seen.add(key);
         const comments = asArray(project.comments);
         const at = Number.isSafeInteger(entry.comment) && Number(entry.comment) >= 0 ? comments[Number(entry.comment)] : undefined;
         if (Object.keys(entry).some(field => !['schema', 'kind', 'jobId', 'actId', 'bytes', 'sha256', 'comment', 'bust_config'].includes(field))
           || !object(at) || asArray(project.comments).filter(object).filter(row => row.source === commentSource(act)).length !== 1) {
-          failure('REVIEW_ACT_LEDGER_INVALID', 'comment receipt must name exactly one comments[] entry made from its act');
+          failure('REVIEW_ACT_LEDGER_INVALID', 'comment receipt must name exactly one comments[] entry made from its act', 'comments');
         }
         const problem = commentEntryFinding(at as JsonObject, act, reviewActBy(act));
-        if (problem) failure('REVIEW_ACT_LEDGER_INVALID', `comments[${String(entry.comment)}]: ${problem}`);
+        if (problem) failure('REVIEW_ACT_LEDGER_INVALID', `comments[${String(entry.comment)}]: ${problem}`, 'comments');
         if (Object.hasOwn(entry, 'bust_config')) {
           const chest = commentChestAct(act);
           const version = asArray(project.versions).filter(isObject)
             .find(row => row.kind === 'rig' && row.n === chest?.source.selector.version);
           if (!chest || !file(entry.bust_config) || !bustConfigPath(entry.bust_config.path)
             || !version || entry.bust_config.sha256 !== frozenBustConfigHash(version)) {
-            failure('REVIEW_ACT_LEDGER_INVALID', 'comment working bust config binding differs from the rig registration or does not name an editable path');
+            failure('REVIEW_ACT_LEDGER_INVALID', 'comment working bust config binding differs from the rig registration or does not name an editable path', 'comments');
           }
         }
         const mesh = commentMeshAct(act);
@@ -1033,37 +1043,37 @@ export function reviewActFindings(project: JsonObject, warnings?: Finding[], rou
         return;
       }
       const act = decodeReviewAct(entry.bytes, entry.kind === 'parts-verdict' ? 'parts-verdict' : entry.kind === 'interview-picks' ? 'interview-picks' : entry.kind === 'checkpoint' ? 'checkpoint' : entry.kind === 'signoff' ? 'signoff' : entry.kind === 'reopen' ? 'reopen' : 'review-verdict');
-      if (act.kind === 'comments') failure('REVIEW_ACT_LEDGER_INVALID', 'a comment act needs a receipt of kind comments');
-      if (entry.jobId !== act.jobId || entry.actId !== act.actId) failure('REVIEW_ACT_LEDGER_INVALID', 'receipt identity differs from its act');
+      if (act.kind === 'comments') failure('REVIEW_ACT_LEDGER_INVALID', 'a comment act needs a receipt of kind comments', 'comments');
+      if (entry.jobId !== act.jobId || entry.actId !== act.actId) failure('REVIEW_ACT_LEDGER_INVALID', 'receipt identity differs from its act', act.kind);
       if (act.kind !== 'interview-picks' && entry.feedback_route !== undefined) {
         const route = entry.feedback_route;
         const comment = act.kind === 'review-verdict' ? reviewFeedbackComment(act) : undefined;
         if (!object(route) || !comment || typeof route.item !== 'string' || !route.item || typeof route.at !== 'string'
           || !Number.isFinite(Date.parse(route.at)) || Date.parse(route.at) < Date.parse(act.at)
           || !isDeepStrictEqual(route, { by: 'agent', at: route.at, item: route.item, ...comment })) {
-          failure('REVIEW_FEEDBACK_ROUTE_INVALID', 'feedback_route must name the agent, waypoint, routing time and exact page-level comment from the retained owner act');
+          failure('REVIEW_FEEDBACK_ROUTE_INVALID', 'feedback_route must name the agent, waypoint, routing time and exact page-level comment from the retained owner act', act.kind);
         }
       }
       if (entry.bust_config !== undefined && act.schema !== JOB_CHEST_LANDMARKS_ACT_SCHEMA) {
-        failure('REVIEW_ACT_LEDGER_INVALID', 'only a chest landmark verdict carries a working bust config');
+        failure('REVIEW_ACT_LEDGER_INVALID', 'only a chest landmark verdict carries a working bust config', act.kind);
       }
       const key = JSON.stringify([act.jobId, act.actId]);
-      if (seen.has(key)) failure('REVIEW_ACT_REPLAY_CONFLICT', 'duplicate act receipt');
+      if (seen.has(key)) failure('REVIEW_ACT_REPLAY_CONFLICT', 'duplicate act receipt', act.kind);
       seen.add(key);
       if (act.kind === 'parts-verdict') {
-        if (entry.draft_id !== act.source.selector.id || !file(entry.evidence) || entry.evidence.sha256 !== entry.sha256) failure('REVIEW_ACT_LEDGER_INVALID', 'parts receipt target differs from its act');
+        if (entry.draft_id !== act.source.selector.id || !file(entry.evidence) || entry.evidence.sha256 !== entry.sha256) failure('REVIEW_ACT_LEDGER_INVALID', 'parts receipt target differs from its act', 'parts-verdict');
         // Older separate approvals have no folded mapping and keep their original route.
         const source = `review act ${act.jobId}/${act.actId}`;
         const named = asArray(project.signoffs).filter(object).filter(row => row.source === source);
         const amendment = entry.signoff_amendment;
         if (amendment !== undefined || entry.signoff !== undefined || named.length > 0) {
           if (act.source.package.id !== draftPackageIdentity(act.source.selector.id).id && !(amendment !== undefined && isRiggingDraftAct(act))) {
-            failure('REVIEW_ACT_LEDGER_INVALID', 'a parts signature must bind the parts-review package');
+            failure('REVIEW_ACT_LEDGER_INVALID', 'a parts signature must bind the parts-review package', 'parts-verdict');
           }
           const signoff = Number.isSafeInteger(entry.signoff) && Number(entry.signoff) >= 0 ? asArray(project.signoffs)[Number(entry.signoff)] : null;
           if (amendment !== undefined && (!object(amendment) || typeof amendment.signed_at !== 'string'
             || (amendment.draft_id !== undefined && !id(amendment.draft_id)))) {
-            failure('REVIEW_ACT_LEDGER_INVALID', 'carried parts signature has an invalid amendment, target draft or write clock');
+            failure('REVIEW_ACT_LEDGER_INVALID', 'carried parts signature has an invalid amendment, target draft or write clock', 'parts-verdict');
           }
           const at = amendment === undefined ? act.at : String(amendment.signed_at);
           const draftId = partsReceiptDraftId(entry)!;
@@ -1073,10 +1083,10 @@ export function reviewActFindings(project: JsonObject, warnings?: Finding[], rou
             || !object(signoff.evidence) || signoff.evidence.kind !== 'parts-verdict'
             || signoff.evidence.path !== entry.evidence.path || signoff.evidence.sha256 !== entry.sha256
             || signoff.evidence.spec !== act.schema) {
-            failure('REVIEW_ACT_LEDGER_INVALID', 'parts signature differs from its approved verdict');
+            failure('REVIEW_ACT_LEDGER_INVALID', 'parts signature differs from its approved verdict', 'parts-verdict');
           }
           if (amendment !== undefined && amendment.index !== partsCarryAmendment(project, draftId, act, entry, Date.parse(at))) {
-            failure('REVIEW_ACT_LEDGER_INVALID', 'carried parts signature differs from its owner amendment');
+            failure('REVIEW_ACT_LEDGER_INVALID', 'carried parts signature differs from its owner amendment', 'parts-verdict');
           }
         }
         return;
@@ -1085,7 +1095,7 @@ export function reviewActFindings(project: JsonObject, warnings?: Finding[], rou
         const route = interviewFeedbackRoute(act);
         const hasRoute = Object.hasOwn(entry, 'feedback_route');
         if (hasRoute && (route === undefined || !isDeepStrictEqual(entry.feedback_route, route))) {
-          failure('REVIEW_FEEDBACK_ROUTE_INVALID', 'feedback_route must match the question and all ordered comments, including their anchors, from the retained interview act and be absent for an answer without comments');
+          failure('REVIEW_FEEDBACK_ROUTE_INVALID', 'feedback_route must match the question and all ordered comments, including their anchors, from the retained interview act and be absent for an answer without comments', 'interview-picks');
         }
         const item = act.value.questionId === INTAKE_QUESTION ? intakeItem(project)
           : collectItems(project, { collection: null }).find(item => item.id === act.value.questionId);
@@ -1099,7 +1109,7 @@ export function reviewActFindings(project: JsonObject, warnings?: Finding[], rou
           || !choice || !object(choice.set) || choice.set.sha256 !== act.source.optionSet.sha256
           || (choice.note ?? '') !== act.value.note || !isDeepStrictEqual(picks.map(raw => object(raw)
             ? { itemId: raw.ask, optionId: raw.option_id, otherText: raw.other_text ?? null } : null), act.value.selections)) {
-          failure('REVIEW_ACT_LEDGER_INVALID', 'recorded interview answer differs from the immutable act');
+          failure('REVIEW_ACT_LEDGER_INVALID', 'recorded interview answer differs from the immutable act', 'interview-picks');
         }
         if (route && !hasRoute) {
           const count = route.comments.length;
@@ -1122,7 +1132,7 @@ export function reviewActFindings(project: JsonObject, warnings?: Finding[], rou
           || recorded.stage !== act.value.stage || recorded.by !== act.authority.reviewer.id
           || recorded.at !== act.at || recorded.verbatim !== act.value.words
           || recorded.source !== `review act ${act.jobId}/${act.actId}`) {
-          failure('REVIEW_ACT_LEDGER_INVALID', 'recorded reopen differs from the immutable act');
+          failure('REVIEW_ACT_LEDGER_INVALID', 'recorded reopen differs from the immutable act', 'reopen');
         }
         return;
       }
@@ -1134,7 +1144,7 @@ export function reviewActFindings(project: JsonObject, warnings?: Finding[], rou
         if (act.value.outcome !== 'pass' || act.value.checkpointId !== act.value.planStepId || entry.checkpoint !== act.value.planStepId
           || entry.version_hash !== displayed?.hash || !object(signoff) || signoff.checkpoint !== act.value.planStepId
           || signoff.by !== expected.by || signoff.at !== expected.at || signoff.verbatim !== expected.verbatim || signoff.source !== expected.source) {
-          failure('REVIEW_ACT_LEDGER_INVALID', 'recorded checkpoint sign-off differs from the immutable passed act');
+          failure('REVIEW_ACT_LEDGER_INVALID', 'recorded checkpoint sign-off differs from the immutable passed act', 'checkpoint');
         }
         // The sign-off's source names this act, so a second receipt cannot point at it.
         return;
@@ -1155,7 +1165,7 @@ export function reviewActFindings(project: JsonObject, warnings?: Finding[], rou
           || recordDirection && (typeof entry.verdict !== 'string' || target?.verdict !== entry.verdict)
           // A target stage's signature belongs to the version the person was shown.
           || act.value.stage in SIGNOFF_TARGET_KINDS && (target === null || shown === null || target.version !== shown)) {
-          failure('REVIEW_ACT_LEDGER_INVALID', 'recorded signoff differs from the immutable act');
+          failure('REVIEW_ACT_LEDGER_INVALID', 'recorded signoff differs from the immutable act', 'signoff');
         }
         return;
       }

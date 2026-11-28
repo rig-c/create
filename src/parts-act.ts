@@ -42,7 +42,7 @@ export function currentPartsAmendment(project: JsonObject, at: number) {
 export function partsCarryAmendment(project: JsonObject, draftId: string, act: PartsVerdictAct, receipt: JsonObject, signedAt: number): number {
   const path = 'project.json.signoffs.parts-review';
   if (act.value.verdict !== 'approved') {
-    refuse('PARTS_VERDICT_NOT_APPROVED', `${path}.evidence: act ${act.actId} requests changes or is pending; numbered parts verdicts are historical — restore the approved parts-verdict receipt on the historical signoff`);
+    refuse('PARTS_VERDICT_NOT_APPROVED', `${path}.evidence: act ${act.actId} requests changes or is pending; numbered parts verdicts are historical — restore the approved parts-verdict receipt on the historical signoff, or record current parts with rig-create record parts and relay any owner chat sign-off`);
   }
   const amendment = currentPartsAmendment(project, signedAt);
   if (!amendment || amendment.target.kind !== 'draft' || amendment.target.id !== draftId || amendment.at >= signedAt) {
@@ -168,6 +168,6 @@ export function checkPartsActEvidence(root: string, bytes: Buffer, evidenceHash:
   // Later plan approvals can fill checkpoints without changing the reviewed draft.
   assertPartsActSource(root, project, act, { comparePlan: false });
   if (partsActDraftHash(project, act) !== receipt.version_hash) fail('recorded draft entry changed');
-  if (options.requireApproval !== false && act.value.verdict !== 'approved') refuse('PARTS_VERDICT_NOT_APPROVED', 'signoffs.parts-review.evidence: semantic verdict is not approved; numbered parts verdicts are historical — restore the approved parts-verdict receipt on the historical signoff');
+  if (options.requireApproval !== false && act.value.verdict !== 'approved') refuse('PARTS_VERDICT_NOT_APPROVED', 'signoffs.parts-review.evidence: semantic verdict is not approved; numbered parts verdicts are historical — restore the approved parts-verdict receipt on the historical signoff, or record current parts with rig-create record parts and relay any owner chat sign-off');
   return join(root, act.source.parts.manifest.path);
 }

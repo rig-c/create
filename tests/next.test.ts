@@ -1827,7 +1827,7 @@ test.each([
   expect(report.refusals).toEqual([]);
   const signoff = report.moves.find(move => move.review_act?.kind === 'signoff' && move.review_act.stage === 'post-interview')!;
   expect(signoff).toMatchObject({ role: 'human', command: null, unanswered_by_record: 'plan.steps',
-    act: `review-tool act signoff for stage post-interview (unanswered by record: ${reason} in project.json)` });
+    act: `numbered stage post-interview signs only on Create 1.27.x (unanswered by record: ${reason} in project.json); use Create 1.27.x to keep writing, or adopt (docs/PROJECT.md#adopting-existing-numbered-outputs)` });
   expect(readFileSync(file)).toEqual(before);
   followupReceipt({ kind: 'post-reason', missing, act: signoff.act });
 });
@@ -1853,7 +1853,7 @@ test.each([
   expect(report.refusals).toEqual([]);
   const signoff = report.moves.find(move => move.review_act?.kind === 'signoff' && move.review_act.stage === 'rigging-interview')!;
   expect(signoff).toMatchObject({ role: 'human', command: null, unanswered_by_record: 'plan.steps',
-    act: `review-tool act signoff for stage rigging-interview (unanswered by record: ${reason})` });
+    act: `numbered stage rigging-interview signs only on Create 1.27.x (unanswered by record: ${reason}); use Create 1.27.x to keep writing, or adopt (docs/PROJECT.md#adopting-existing-numbered-outputs)` });
   expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
   followupReceipt({ kind: 'rig-reason', missing, act: signoff.act });
 });

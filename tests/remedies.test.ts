@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from 'bun:test';
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { EXAMPLE_ANCHOR, EXAMPLE_NOW } from '../scripts/example-time.ts';
@@ -20,7 +20,9 @@ import { requireRecordDirectionTarget } from '../src/record-direction-target.ts'
 import { readVerbatim } from '../src/record-input.ts';
 import { Refusal } from '../src/refusal.ts';
 import { reopenLapseWarnings } from '../src/reopen-lapses.ts';
-import { assertActSubjectDeclared, reviewActTransport, type InterviewPicksAct, type PartsVerdictAct } from '../src/review-act.ts';
+import { assertActSubjectDeclared, decodeReviewAct, reviewActTransport, type InterviewPicksAct, type PartsVerdictAct } from '../src/review-act.ts';
+import { nextProject } from '../src/next.ts';
+import { plantLegacyReopen } from './fixtures.ts';
 import { storeReviewRead } from '../src/review-read.ts';
 import { handoff } from '../src/review.ts';
 import { pngDimensions } from '../src/scene.ts';
@@ -331,8 +333,37 @@ test('#1157 PARTS_VERDICT_NOT_APPROVED, PARTS_REVIEW_CLI_INVALID, and STRUCTURE_
     carryErr = error as Refusal;
   }
   expect(carryErr?.code).toBe('PARTS_VERDICT_NOT_APPROVED');
-  expect(carryErr?.message).toContain('numbered parts verdicts are historical — restore the approved parts-verdict receipt on the historical signoff');
+  expect(carryErr?.message).toContain('numbered parts verdicts are historical — restore the approved parts-verdict receipt on the historical signoff, or record current parts with rig-create record parts and relay any owner chat sign-off');
   expectNoRetiredReview5Control(carryErr!.message);
+
+  let checkPartsUnapprovedErr: Refusal | undefined;
+  try {
+    checkPartsActEvidence(dir, Buffer.from('not-json'), jobHash('not-json'), cleanProject);
+  } catch (error) {
+    checkPartsUnapprovedErr = error as Refusal;
+  }
+  expect(checkPartsUnapprovedErr?.code).toBe('REVIEW_ACT_INVALID');
+  expect(checkPartsUnapprovedErr?.message).toContain('restore the stored act');
+  expect(checkPartsUnapprovedErr?.message).not.toContain('submit a new comment');
+  expectNoRetiredReview5Control(checkPartsUnapprovedErr!.message);
+
+  // Prove the current-parts alternative named by PARTS_VERDICT_NOT_APPROVED: record current.parts, snapshot, and relay owner chat signoff -> all exit 0.
+  const currentAltDir = realpathSync(root());
+  cpSync(join(import.meta.dir, '../templates/example-current'), currentAltDir, { recursive: true });
+  const altNow = EXAMPLE_ANCHOR + 20_000;
+  const altProj = JSON.parse(readFileSync(join(currentAltDir, 'project.json'), 'utf8')) as JsonObject;
+  const partsCfg = (((altProj.current as JsonObject).parts as JsonObject).built_from as JsonObject[])
+    .map(entry => String(entry.path))
+    .find(path => path.startsWith('specs/') && path.endsWith('.json'))!;
+  renameSync(join(currentAltDir, 'outputs/parts'), join(currentAltDir, 'outputs/parts.next'));
+  expect(main(['record', 'parts', currentAltDir, '--from', 'outputs/parts.next', '--config', partsCfg], altNow)).toBe(0);
+  expect(structureSnapshotCommand([currentAltDir]).exit).toBe(0);
+  const altWords = join(currentAltDir, 'parts-chat.txt');
+  writeFileSync(altWords, 'Parts look clean in chat.\n');
+  expect(main([
+    'signoff', 'parts-review', currentAltDir, '--by', 'owner', '--owner-chat', altWords,
+    '--said-at', new Date(altNow + 1000).toISOString(), '--relayed-by', 'example-agent',
+  ], altNow + 2000)).toBe(0);
 
   // Retained parts-verdict receipt with status=changes-requested raises PARTS_VERDICT_NOT_APPROVED; restoring approved receipt exits 0.
   const tamperedCliProj = JSON.parse(cleanBytes.toString('utf8')) as JsonObject;
@@ -384,7 +415,8 @@ test('#1157 PARTS_VERDICT_NOT_APPROVED, PARTS_REVIEW_CLI_INVALID, and STRUCTURE_
   try { checkPartsActEvidence(dir, Buffer.from(JSON.stringify(unapprovedAct)), jobHash(JSON.stringify(unapprovedAct)), cleanProject); }
   catch (error) { actInvalidErr = error as Refusal; }
   expect(actInvalidErr?.code).toBe('REVIEW_ACT_INVALID');
-  expect(actInvalidErr?.message).toContain('restore the original act evidence, or submit a new comment in the live Review job');
+  expect(actInvalidErr?.message).toContain('restore the stored act');
+  expect(actInvalidErr?.message).not.toContain('submit a new comment');
   expectNoRetiredReview5Control(actInvalidErr!.message);
 
   // Structure snapshot invalid on historical draft -> remedy points to restore or current.parts; restoring checks at exit 0.
@@ -693,4 +725,120 @@ test('#1157 scene, compose, and discarded/record-target remedies name current CL
   expect(discardErr?.code).toBe('REVIEW_ACT_DISCARDED');
   expect(discardErr?.message).toContain('submit a fresh comment in Review');
   expectNoRetiredReview5Control(discardErr!.message);
+});
+
+test('#1157 review-act failure() scopes comment vs pick/checkpoint/signoff suffixes and numbered next signoff/lapse moves resolve via adoption (exit 0)', () => {
+  // 1. Scope check on decodeReviewAct failure() for comments, interview-picks (line 427), checkpoint (line 437), and signoff (line 449).
+  const baseEnvelope = {
+    schema: 'rig-review/act@2',
+    actId: 'act-1',
+    jobId: 'job-1',
+    askId: 'ask-1',
+    publicationId: 'pub-1',
+    at: '2026-11-20T00:00:00Z',
+    authority: { actor: 'human', channel: 'review-ui', reviewer: { id: 'owner', role: 'owner' } },
+    source: {
+      sourceHash: '1'.repeat(64),
+      projectHash: '2'.repeat(64),
+      package: { id: 'pkg-1', revision: 'rev-1' },
+      parts: { enumeratorVersion: '2.34.0' },
+    },
+  };
+
+  let commentFail: Refusal | undefined;
+  try { decodeReviewAct('{"schema":"rig-review/act@10"}', 'comments'); }
+  catch (error) { commentFail = error as Refusal; }
+  expect(commentFail?.code).toBe('REVIEW_ACT_INVALID');
+  expect(commentFail?.message).toContain('restore the original act evidence, or submit a new comment in the live Review job');
+
+  let pickFail: Refusal | undefined;
+  try { decodeReviewAct(JSON.stringify({ ...baseEnvelope, kind: 'interview-picks', value: { questionId: 'camera_depth', note: '', selections: [] } }), 'interview-picks'); }
+  catch (error) { pickFail = error as Refusal; }
+  expect(pickFail?.code).toBe('REVIEW_ACT_INVALID');
+  expect(pickFail?.message).toContain("restore the stored act, or relay the owner's words with rig-create interview-answer --owner-chat");
+  expect(pickFail?.message).not.toContain('submit a new comment');
+  expectNoRetiredReview5Control(pickFail!.message);
+
+  let checkpointFail: Refusal | undefined;
+  try { decodeReviewAct(JSON.stringify({ ...baseEnvelope, kind: 'checkpoint', value: { checkpointId: 'bones', planStepId: 'bones', outcome: 'pass', words: 'ok' } }), 'checkpoint'); }
+  catch (error) { checkpointFail = error as Refusal; }
+  expect(checkpointFail?.code).toBe('REVIEW_ACT_INVALID');
+  expect(checkpointFail?.message).toContain("restore the stored act, or relay the owner's words with rig-create signoff --owner-chat");
+  expect(checkpointFail?.message).not.toContain('submit a new comment');
+  expectNoRetiredReview5Control(checkpointFail!.message);
+
+  let signoffFail: Refusal | undefined;
+  try { decodeReviewAct(JSON.stringify({ ...baseEnvelope, kind: 'signoff', value: { stage: 'plan-approved', decision: 'approved', words: 'ok' } }), 'signoff'); }
+  catch (error) { signoffFail = error as Refusal; }
+  expect(signoffFail?.code).toBe('REVIEW_ACT_INVALID');
+  expect(signoffFail?.message).toContain("restore the stored act, or relay the owner's words with rig-create signoff --owner-chat");
+  expect(signoffFail?.message).not.toContain('submit a new comment');
+  expectNoRetiredReview5Control(signoffFail!.message);
+
+  // 2. Numbered next.ts human signoff and reopen/amendment lapse moves name Create 1.27.x or adoption, and adopting exits 0.
+  const dir = realpathSync(root());
+  cpSync(join(import.meta.dir, '../templates/example-chain/checkpoints/4-direction-post'), dir, { recursive: true });
+  const projectFile = join(dir, 'project.json');
+
+  // 2a. Numbered open-interview signoff move (unanswered_by_record) and plan-approved signoff move.
+  const missingPlanDir = realpathSync(root());
+  cpSync(dir, missingPlanDir, { recursive: true });
+  const mpProj = JSON.parse(readFileSync(join(missingPlanDir, 'project.json'), 'utf8')) as JsonObject;
+  mpProj.stage = 'post-interview';
+  mpProj.versions = (mpProj.versions as JsonObject[]).filter(v => v.kind !== 'post');
+  mpProj.scenes = [];
+  delete mpProj.direction_contract;
+  mpProj.signoffs = (mpProj.signoffs as JsonObject[]).filter(s => s.stage !== 'post-interview' && s.stage !== 'post' && s.stage !== 'direction-review' && s.stage !== 'accepted');
+  mpProj.advances = (mpProj.advances as JsonObject[]).filter(a => a.stage !== 'post' && a.stage !== 'direction-review' && a.stage !== 'accepted');
+  for (const step of ((mpProj.plan as JsonObject).steps as JsonObject[]).filter(s => s.phase === 'post')) {
+    step.status = 'pending';
+    delete step.status_history;
+  }
+  (mpProj.plan as JsonObject).steps = ((mpProj.plan as JsonObject).steps as JsonObject[]).filter(s => s.id !== 'composition');
+  writeFileSync(join(missingPlanDir, 'project.json'), `${JSON.stringify(mpProj, null, 2)}\n`);
+  const mpNext = nextProject(missingPlanDir, EXAMPLE_NOW);
+  const mpMove = mpNext.moves.find(m => m.review_act?.kind === 'signoff' && m.review_act.stage === 'post-interview')!;
+  expect(mpMove.act).toContain('numbered stage post-interview signs only on Create 1.27.x');
+  expect(mpMove.act).toContain('use Create 1.27.x to keep writing, or adopt (docs/PROJECT.md#adopting-existing-numbered-outputs)');
+  expectNoRetiredReview5Control(mpMove.act);
+  expect(main(['record', 'rig', missingPlanDir, '--adopt'], EXAMPLE_NOW + 1000)).toBe(0);
+  expect(nextProject(missingPlanDir, EXAMPLE_NOW + 2000).moves.some(m => m.review_act?.kind === 'signoff')).toBe(false);
+
+  // 2b. Numbered reopen lapse move (~2305) on post-only cutoff preserves live rig v1, so record rig --adopt exits 0.
+  const chainRoot = join(import.meta.dir, '../templates/example-chain');
+  const reopenDir = realpathSync(root());
+  cpSync(chainRoot, reopenDir, { recursive: true });
+  const acceptedWords = join(reopenDir, 'accepted-words.txt');
+  writeFileSync(acceptedWords, 'Accepted as numbered release.\n');
+  expect(signoffCommand(['accepted', reopenDir, '--by', 'owner', '--verbatim-file', acceptedWords], EXAMPLE_NOW + 4000).exit).toBe(0);
+  plantLegacyReopen(reopenDir, 'post-interview', { by: 'owner', at: new Date(EXAMPLE_NOW + 5000).toISOString() });
+  const reopenNext = nextProject(reopenDir, EXAMPLE_NOW + 6000);
+  const reopenMove = reopenNext.moves.find(m => m.lapse?.code === 'REOPEN_SIGNOFF_LAPSED' && m.review_act?.kind === 'signoff')!;
+  expect(reopenMove.act).toContain('numbered stage accepted approval lapsed');
+  expect(reopenMove.act).toContain('use Create 1.27.x to keep writing, or adopt (docs/PROJECT.md#adopting-existing-numbered-outputs)');
+  expectNoRetiredReview5Control(reopenMove.act);
+  expect(main(['record', 'rig', reopenDir, '--adopt'], EXAMPLE_NOW + 7000)).toBe(0);
+  expect(nextProject(reopenDir, EXAMPLE_NOW + 8000).moves.some(m => m.lapse?.code === 'REOPEN_SIGNOFF_LAPSED')).toBe(false);
+
+  // 2c. Numbered amendment lapse move (~2406) on post stage preserves upstream live rig v1, so record rig --adopt exits 0.
+  const amendDir = realpathSync(root());
+  cpSync(chainRoot, amendDir, { recursive: true });
+  const amendWords = join(amendDir, 'amend-words.txt');
+  writeFileSync(amendWords, 'Adjust post timing track.\n');
+  expect(signoffCommand(['accepted', amendDir, '--by', 'owner', '--verbatim-file', amendWords], EXAMPLE_NOW + 8500).exit).toBe(0);
+  const changeFile = 'evidence/amend-note.txt';
+  writeFileSync(join(amendDir, changeFile), 'Changed post timing note.\n');
+  expect(main([
+    'amend', 'post', amendDir, '--kind', 'motion-track', '--target', 'idle',
+    '--change', changeFile, '--by', 'owner', '--owner-chat', amendWords,
+    '--said-at', new Date(EXAMPLE_NOW + 9000).toISOString(), '--relayed-by', 'example-agent',
+  ], EXAMPLE_NOW + 10_000)).toBe(0);
+  void projectFile;
+  const amendNext = nextProject(amendDir, EXAMPLE_NOW + 11_000);
+  const amendMove = amendNext.moves.find(m => m.lapse?.code === 'AMENDED_STEP' && m.review_act?.kind === 'signoff')!;
+  expect(amendMove.act).toContain('numbered stage accepted approval lapsed');
+  expect(amendMove.act).toContain('use Create 1.27.x to keep writing, or adopt (docs/PROJECT.md#adopting-existing-numbered-outputs)');
+  expectNoRetiredReview5Control(amendMove.act);
+  expect(main(['record', 'rig', amendDir, '--adopt'], EXAMPLE_NOW + 12_000)).toBe(0);
+  expect(nextProject(amendDir, EXAMPLE_NOW + 13_000).moves.some(m => m.lapse?.code === 'AMENDED_STEP' && m.review_act?.kind === 'signoff')).toBe(false);
 });

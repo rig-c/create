@@ -4,17 +4,17 @@ import { checkFigureMask } from './figure-mask.ts';
 import { createHash } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import { asArray, collectSignoffs, isObject, type Finding } from './check.ts';
-import { currentHash, currentShapeFindings, outputRoot, sha256 } from './current.ts';
+import { currentHash, currentOutputSupersedesSignoff, currentShapeFindings, hasNumberedOutputs, outputRoot, sha256 } from './current.ts';
 import { directionBinding } from './direction.ts';
 import { assembleOnlyDraftTarget, assembleOnlyVersionFinding, assertDraftHasRig, draftRigRequired, isAssembleOnlyDraft } from './draft-layout.ts';
 import { collectReopens, liveSignoff } from './reopen.ts';
 import { checkReviewPackages } from './review-package.ts';
-import { ownerChatAuthorityFinding } from './owner-chat.ts';
+import { OWNER_CHAT_SOURCE, ownerChatAuthorityFinding } from './owner-chat.ts';
 import { refuse, Refusal, USAGE_EXIT } from './refusal.ts';
 import { SIGNOFF_TARGET_KINDS } from './review-act.ts';
 import { sorted } from './step-hash.ts';
 import { signoffPairFinding } from './signoff-pair.ts';
-import { assertCurrentPartsStructure } from './structure.ts';
+import { assertCurrentPartsStructure, retainedCurrentPartsStructure } from './structure.ts';
 import type { Json, JsonObject } from './templates.ts';
 
 export const SIGNOFF_TARGET_SINCE = '2026-11-06T00:00:00Z';
@@ -94,7 +94,9 @@ export function checkSignoffTarget(dir: string, project: JsonObject, signoff: Js
   const stage = String(signoff.stage);
   const target = signoff.target;
   const format = signoffTargetFormat(target);
-  const currentParts = stage === 'parts-review' && (format === 'current' || format === 'mixed');
+  const currentParts = stage === 'parts-review' && (format === 'current' || format === 'mixed'
+    || (format === undefined && !hasNumberedOutputs(project) && signoff.source === OWNER_CHAT_SOURCE
+      && signoff.draft_id === undefined && signoff.evidence === undefined));
   if (!currentParts && !(stage in SIGNOFF_TARGET_KINDS)) return;
   const current = format === 'current' || format === 'mixed' || (format === undefined && project.current !== undefined);
   const kind = currentParts ? 'parts' : SIGNOFF_TARGET_KINDS[stage] === 'rig' ? 'rig' : 'direction';
@@ -108,6 +110,10 @@ export function checkSignoffTarget(dir: string, project: JsonObject, signoff: Js
   }
   const missing = target === undefined || target === null;
   let reason = missing ? 'target missing' : '';
+  const signedAt = Date.parse(String(signoff.at));
+  const historical = current && signoff.checkpoint === null
+    && typeof signoff.by === 'string' && typeof signoff.verbatim === 'string'
+    && currentOutputSupersedesSignoff(project, kind, signedAt);
   if (!missing && current) {
     try {
       if (!isObject(target) || target.subject !== `current.${kind}` || Object.keys(target).length !== 3
@@ -117,9 +123,11 @@ export function checkSignoffTarget(dir: string, project: JsonObject, signoff: Js
       if (currentParts && (signoff.draft_id !== undefined || signoff.evidence !== undefined || signoff.checkpoint !== null)) {
         throw Error('current.parts needs a stage signature without a draft, verdict receipt or checkpoint');
       }
-      const expected = currentTargetFor(dir, project, kind, currentParts ? Date.parse(String(signoff.at)) : undefined);
-      if (target.record_sha256 !== expected.record_sha256) throw Error(`current.${kind} record changed since signing`);
-      if (target.files_sha256 !== expected.files_sha256) throw Error(`current.${kind} output hash differs from the signed target`);
+      if (!historical) {
+        const expected = currentTargetFor(dir, project, kind, currentParts ? signedAt : undefined);
+        if (target.record_sha256 !== expected.record_sha256) throw Error(`current.${kind} record changed since signing`);
+        if (target.files_sha256 !== expected.files_sha256) throw Error(`current.${kind} output hash differs from the signed target`);
+      }
     } catch (error) { reason = error instanceof Error ? error.message : String(error); }
   } else if (!missing) {
     try {
@@ -148,7 +156,7 @@ export function checkSignoffTarget(dir: string, project: JsonObject, signoff: Js
       const authority = ownerChatAuthorityFinding(signoff, path, signoff.verbatim);
       // The generic owner-chat scan already reports malformed relay fields.
       if (authority?.code === 'OWNER_CHAT_REQUIRED') refusals.push(authority);
-      checkCurrentPartsStructure(dir, project, signoff, path, refusals);
+      checkCurrentPartsStructure(dir, project, signoff, path, refusals, historical);
       return;
     }
     const pair = current ? undefined : signoffPairFinding(project, signoff, path);
@@ -159,10 +167,11 @@ export function checkSignoffTarget(dir: string, project: JsonObject, signoff: Js
   const code = `SIGNOFF_TARGET_${missing ? 'MISSING' : 'STALE'}${legacy ? '_LEGACY' : ''}`;
   const at = `${path}.target`;
   const remedy = current ? currentRemedy(kind, stage) : `numbered ${stage} signatures are read-only — restore the signed target and reviewed inputs, or record current.${kind} with rig-create record ${kind} and relay owner chat sign-off with rig-create signoff ${stage} --by <owner> --owner-chat <words file> --said-at <ISO date> --relayed-by <operator>`;
-  (legacy ? warnings : refusals).push({ code, path: at, message: `${at}: ${reason}; ${remedy}` });
+  const fix = historical ? 'restore the original signature and its bound evidence' : remedy;
+  (legacy ? warnings : refusals).push({ code, path: at, message: `${at}: ${reason}; ${fix}` });
 }
 
-function checkCurrentPartsStructure(dir: string, project: JsonObject, signoff: JsonObject, path: string, refusals: Finding[]): void {
+function checkCurrentPartsStructure(dir: string, project: JsonObject, signoff: JsonObject, path: string, refusals: Finding[], historical: boolean): void {
   const at = `${path}.structure`;
   const remedy = 'run structure-snapshot on the current parts and relay the owner approval again';
   const binding = signoff.structure;
@@ -171,7 +180,14 @@ function checkCurrentPartsStructure(dir: string, project: JsonObject, signoff: J
     return;
   }
   try {
-    assertCurrentPartsStructure(dir, project, binding, Date.parse(String(signoff.at)));
+    if (historical) {
+      const snapshot = retainedCurrentPartsStructure(dir, binding);
+      if (!isDeepStrictEqual(snapshot.target, signoff.target)) {
+        refuse('STRUCTURE_DECISIONS_INVALID', 'the retained snapshot binds a different parts target; restore the original signature and snapshot');
+      }
+    } else {
+      assertCurrentPartsStructure(dir, project, binding, Date.parse(String(signoff.at)));
+    }
   } catch (error) {
     if (!(error instanceof Refusal)) throw error;
     refusals.push({ code: error.code, path: at, message: `${at}: ${error.message}` });

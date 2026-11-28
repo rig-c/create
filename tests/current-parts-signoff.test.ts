@@ -15,6 +15,7 @@ import { advanceCommand } from '../src/progress-writers.ts';
 import { recordCommand } from '../src/record.ts';
 import { signoffCommand } from '../src/signoff.ts';
 import { sorted } from '../src/step-hash.ts';
+import { currentPartsReviewContext } from '../src/structure.ts';
 import { structureSnapshotCommand } from '../src/structure-snapshot.ts';
 import { TEMPLATES_DIR, type JsonObject } from '../src/templates.ts';
 import { arr, obj } from './fixtures.ts';
@@ -214,4 +215,38 @@ test('a project without current still records the numbered draft and verdict thr
   approveNumberedParts(dir);
   expect(project(dir).current).toBeUndefined();
   expect(check(dir, EXAMPLE_NOW + 3000)).toEqual({ exit: 0, refusals: [] });
+});
+
+test('current parts options use the replacement and the historical signature still checks its retained snapshot', () => {
+  const dir = tempDir('current-parts-history-');
+  cpSync(join(TEMPLATES_DIR, 'example-current'), dir, { recursive: true });
+  const first = recordParts(dir, 1, EXAMPLE_NOW + 1000);
+  const firstStructure = snapshot(dir, first);
+  const signedAt = EXAMPLE_NOW + 2000;
+  const chat = relay(dir, firstStructure.path, signedAt, 'Approve synthetic parts revision one.');
+  expect(signoffCommand(chat.args(), signedAt).exit).toBe(0);
+  expect(check(dir, signedAt)).toEqual({ exit: 0, refusals: [] });
+  const signed = project(dir);
+  const signatureIndex = arr(signed.signoffs).length - 1;
+
+  const replacedAt = signedAt + 1000;
+  const current = recordParts(dir, 2, replacedAt);
+  const structure = snapshot(dir, current);
+  expect(project(dir).signoffs).toEqual(signed.signoffs!);
+  expect(check(dir, replacedAt)).toEqual({ exit: 0, refusals: [] });
+  const context = optionContext(project(dir), 'rigging-interview', replacedAt, dir);
+  expect(context).toMatchObject({ kind: 'current-parts', target: current, structure });
+  expect(context).not.toHaveProperty('signoff_at');
+  expect(currentPartsReviewContext(dir, project(dir), replacedAt)).toBeNull();
+  const runPath = join(dir, 'outputs/parts/run.json');
+  const run = readFileSync(runPath);
+  writeFileSync(runPath, '{}');
+  expect(() => currentPartsReviewContext(dir, project(dir), replacedAt))
+    .toThrow(expect.objectContaining({ code: 'STRUCTURE_DECISIONS_INVALID' }));
+  writeFileSync(runPath, run);
+
+  put(dir, firstStructure.path, '{}');
+  expect(check(dir, replacedAt)).toEqual({ exit: 1, refusals: [{
+    code: 'STRUCTURE_DECISIONS_INVALID', path: `signoffs[${signatureIndex}].structure`,
+  }] });
 });

@@ -7,7 +7,7 @@ import { lstatSync, readFileSync, realpathSync } from './check-reads.ts';
 import { isAbsolute, relative, resolve, sep } from 'node:path';
 import { isDeepStrictEqual as equal } from 'node:util';
 import { answered, asArray, collectItems, collectSignoffs, collectionQuestion, loadCollection, isDecision, isObject, type Ctx, type Finding, type Item } from './check.ts';
-import { adoptedRigInventoryProblem, builtFromNameAllowed, isRunRecordFile, outputSetHash } from './current.ts';
+import { adoptedRigInventoryProblem, builtFromNameAllowed, currentOutputSupersedesSignoff, isRunRecordFile, outputSetHash } from './current.ts';
 import { draftFileUnavailable } from './drafts.ts';
 import { ownerChatAuthorityFinding } from './owner-chat.ts';
 import { Refusal } from './refusal.ts';
@@ -205,10 +205,11 @@ function currentRigOptionContext(project: JsonObject, at: number, dir?: string):
     && signoff.at <= at && liveSignoff(cutoffs, signoff.stage, signoff.at)
     && signoffTargetFormat(signoff.record.target) === 'current')
     .sort((a, b) => b.at - a.at || b.index - a.index)[0];
-  if (latestSignoff) {
-    const authFinding = ownerChatAuthorityFinding(latestSignoff.record, `signoffs[${latestSignoff.index}]`, latestSignoff.record.verbatim);
+  const liveApproval = latestSignoff && !currentOutputSupersedesSignoff(project, 'rig', latestSignoff.at) ? latestSignoff : undefined;
+  if (liveApproval) {
+    const authFinding = ownerChatAuthorityFinding(liveApproval.record, `signoffs[${liveApproval.index}]`, liveApproval.record.verbatim);
     if (authFinding) fail('INTERVIEW_OPTIONS_STALE', authFinding.message);
-    if (latestSignoff.at < date(rig.at) || !equal(target, latestSignoff.record.target)) {
+    if (liveApproval.at < date(rig.at) || !equal(target, liveApproval.record.target)) {
       fail('INTERVIEW_OPTIONS_STALE', 'current.rig: the retained rig-review approval binds a different output; restore the rig and approval that were recorded together');
     }
   }
@@ -235,7 +236,7 @@ function currentRigOptionContext(project: JsonObject, at: number, dir?: string):
   }
   const config = { path: matches[0]!.path!, sha256: configHash };
   verifyBinding(dir, config, true);
-  return { kind: 'current-rig', target, ...(latestSignoff ? { signoff_at: latestSignoff.record.at! } : {}), run, config };
+  return { kind: 'current-rig', target, ...(liveApproval ? { signoff_at: liveApproval.record.at! } : {}), run, config };
 }
 
 function currentPartsOptionContext(project: JsonObject, at: number, dir?: string): JsonObject {
@@ -252,7 +253,7 @@ function currentPartsOptionContext(project: JsonObject, at: number, dir?: string
     && Number.isFinite(signoff.at) && signoff.at <= at && liveSignoff(cutoffs, signoff.stage, signoff.at)
     && isObject(signoff.record.target) && signoff.record.target.subject === 'current.parts')
     .sort((a, b) => b.at - a.at || b.index - a.index)[0];
-  if (latestSignoff) {
+  if (latestSignoff && !currentOutputSupersedesSignoff(project, 'parts', latestSignoff.at)) {
     try {
       const review = currentPartsReviewContext(dir, project, at);
       if (review !== null) return { kind: 'current-parts', ...review };

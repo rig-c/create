@@ -4,7 +4,7 @@ import { lstatSync, readFileSync, realpathSync } from './check-reads.ts';
 import { isAbsolute, relative, resolve, sep } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import { asArray, collectSignoffs, isObject, type Finding } from './check.ts';
-import { currentFindings, currentHash, currentShapeFindings, isRunRecordFile, sha256 } from './current.ts';
+import { currentFindings, currentHash, currentOutputSupersedesSignoff, currentShapeFindings, isRunRecordFile, sha256 } from './current.ts';
 import { draftFileUnavailable } from './drafts.ts';
 import { IGNORED_DIRS } from './init.ts';
 import { ownerChatAuthorityFinding } from './owner-chat.ts';
@@ -185,7 +185,8 @@ export function assertCurrentPartsStructure(dir: string, project: JsonObject, bi
 }
 
 export function currentPartsReviewContext(dir: string, project: JsonObject, at: number) {
-  const approval = currentPartsApproval(project, at);
+  const latest = currentPartsApproval(project, at);
+  const approval = latest && !currentOutputSupersedesSignoff(project, 'parts', latest.at) ? latest : undefined;
   const subject = readCurrentPartsSubject(dir, project);
   const { target } = subject;
   if (approval && (approval.at < Date.parse(String(subject.parts.at)) || !isDeepStrictEqual(approval.target, target))) {

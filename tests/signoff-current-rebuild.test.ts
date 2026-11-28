@@ -2,6 +2,7 @@ import { afterEach, expect, spyOn, test } from 'bun:test';
 import { cpSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import * as checker from '../src/check.ts';
+import { optionContext } from '../src/choices.ts';
 import { sha256 } from '../src/current.ts';
 import { recordCommand } from '../src/record.ts';
 import { selectSignoffTarget } from '../src/signoff-target.ts';
@@ -67,13 +68,20 @@ function signedRig(): { dir: string; path: string } {
   return { dir, path: `signoffs[${index}].target` };
 }
 
-test('record rig replaces a signed tree and leaves it stale until the owner signs the new output', () => {
+test('record rig replaces a signed tree and keeps the old approval as history', () => {
   const { dir, path } = signedRig();
   const original = load(dir);
   expect(record(dir).exit).toBe(0);
   expect(readFileSync(join(dir, root, 'mesh_report.json'), 'utf8')).toBe('{"revision":2}');
   expect(load(dir).signoffs).toEqual(original.signoffs!);
-  expect(checkProject(dir).refusals).toEqual([expect.objectContaining({ code: 'SIGNOFF_TARGET_STALE', path })]);
+  expect(checkProject(dir).refusals).toEqual([]);
+  const context = optionContext(load(dir), 'post-interview', testClock.now(), dir);
+  expect(context).toMatchObject({ kind: 'current-rig', target: selectSignoffTarget(dir, load(dir), stage)! });
+  expect(context).not.toHaveProperty('signoff_at');
+  const tampered = load(dir);
+  const index = arr(tampered.signoffs).length - 1;
+  obj(obj(arr(tampered.signoffs)[index]).target).record_sha256 = 'invalid';
+  expect(checkProject(dir, tampered).refusals).toContainEqual(expect.objectContaining({ code: 'SIGNOFF_TARGET_STALE', path }));
 
   testClock.set('2026-11-26T00:00:06Z');
   expect(relay(dir, 'Approve rig revision two.').exit).toBe(0);
@@ -81,6 +89,15 @@ test('record rig replaces a signed tree and leaves it stale until the owner sign
   expect(arr(fresh.signoffs).slice(0, -1)).toEqual(arr(original.signoffs));
   expect(obj(arr(fresh.signoffs).at(-1)).target).toEqual(selectSignoffTarget(dir, fresh, stage)!);
   expect(checkProject(dir).refusals).toEqual([]);
+});
+
+test('a changed signature digest or deleted target without a replacement still refuses', () => {
+  const { dir, path } = signedRig();
+  const changed = load(dir);
+  obj(obj(arr(changed.signoffs).at(-1)).target).record_sha256 = 'a'.repeat(64);
+  expect(checkProject(dir, changed).refusals).toContainEqual(expect.objectContaining({ code: 'SIGNOFF_TARGET_STALE', path }));
+  delete obj(changed.current).rig;
+  expect(checkProject(dir, changed).refusals).toContainEqual(expect.objectContaining({ code: 'SIGNOFF_TARGET_STALE', path }));
 });
 
 test('newer numbered, mixed and missing targets cannot hide the current signature in a mixed project', () => {
@@ -132,16 +149,16 @@ test.each(['unrelated', 'duplicate'] as const)('record rig refuses a second new 
   const installed = treeDigest(join(dir, root));
   const replacement = treeDigest(join(dir, staged));
   const realCheck = checker.checkProject;
-  let sawStale = false;
+  let checkedCandidate = false;
   const check = spyOn(checker, 'checkProject').mockImplementation((...args) => {
     const report = realCheck(...args);
     if (args[0] !== dir || args[1] === undefined) return report;
-    sawStale = report.refusals.some(f => f.code === 'SIGNOFF_TARGET_STALE' && f.path === path);
+    checkedCandidate = true;
     return { ...report, refusals: [...report.refusals, extra] };
   });
   try {
     expect(() => record(dir)).toThrow(expect.objectContaining({ code: extra.code, message: extra.message }));
-    expect(sawStale).toBe(true);
+    expect(checkedCandidate).toBe(true);
   } finally { check.mockRestore(); }
   expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
   expect(treeDigest(join(dir, root))).toEqual(installed);
@@ -151,7 +168,7 @@ test.each(['unrelated', 'duplicate'] as const)('record rig refuses a second new 
 test('reopening the review makes a stale current signature historical', () => {
   const { dir, path } = signedRig();
   expect(record(dir).exit).toBe(0);
-  expect(checkProject(dir).refusals).toContainEqual(expect.objectContaining({ code: 'SIGNOFF_TARGET_STALE', path }));
+  expect(checkProject(dir).refusals).toEqual([]);
   testClock.set('2026-11-26T00:00:06Z');
   plantLegacyReopen(dir, stage);
   const { refusals, warnings } = checkProject(dir);

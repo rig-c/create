@@ -32,6 +32,13 @@ export function hasNumberedOutputs(project: JsonObject): boolean {
     || asArray(project.scenes).length > 0;
 }
 
+/** Only a recorded, producer-backed replacement can make a current signature historical. */
+export function currentOutputSupersedesSignoff(project: JsonObject, kind: CurrentKind, signedAt: number): boolean {
+  const node = isObject(project.current) ? project.current[kind] : undefined;
+  return Number.isFinite(signedAt) && !hasNumberedOutputs(project) && isObject(node) && node.adopted === undefined
+    && Date.parse(String(node.at)) > signedAt && currentShapeFindings(kind, node, project).length === 0;
+}
+
 export const RUN_RECORD_NAME = 'run.json';
 export const REBUILD_RUN_SPECS = ['rig-run/2', 'rig-run/3', 'rigc-run/2'] as const;
 export type RebuildRunSpec = (typeof REBUILD_RUN_SPECS)[number];

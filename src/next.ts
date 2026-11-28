@@ -1985,7 +1985,7 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
     const signoffs = asArray(project.signoffs);
     const readyToResign = new Map<string, boolean>();
     for (const finding of report.refusals) {
-      if (finding.code !== 'SIGNOFF_ANSWERS_STALE') continue;
+      if (currentPath || finding.code !== 'SIGNOFF_ANSWERS_STALE') continue;
       const match = /^signoffs\[(\d+)\]\.answer_hashes\[(.+)\]$/.exec(finding.path);
       if (!match) continue;
       const signoff = signoffs[Number(match[1])];
@@ -2425,8 +2425,23 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
     }
   }
 
-  // 2. If accepted and no lapses remain, there are no remaining moves.
+  // 2. At acceptance, a revised plan can leave the boundary to be checked again.
   if (stage !== PAUSED_STAGE && effectiveStage === 'accepted' && moves.length === 0) {
+    if (currentPath) {
+      const accepted = asArray(project.advances).filter(isObject).findLast(entry => entry.stage === 'accepted');
+      const acceptedAt = Date.parse(String(accepted?.at));
+      const revised = PLAN_STEPS.filter(step => {
+        const plan = currentStepPlan(project, step, now);
+        return plan && Date.parse(String(plan.at)) > acceptedAt && plan.sha256 !== currentStepPlan(project, step, acceptedAt)?.sha256;
+      });
+      const command = revised.length > 0 ? candidateAdvance(dir, project, 'accepted', now) : null;
+      if (command) return {
+        schema: NEXT_SCHEMA, project_id: String(project.name ?? ''), stage, effective_stage: effectiveStage,
+        accepted: false, refusals, ...warningFields, awaits: ['project.stage'],
+        moves: [{ role: 'agent', field: 'interview.step_plans', awaits: 'project.stage', command,
+          act: `Check the outputs against the revised ${revised.join(', ')} plan. Rebuild affected outputs if needed, then record the accepted boundary again.` }],
+      };
+    }
     return {
       schema: NEXT_SCHEMA,
       project_id: String(project.name ?? ''),

@@ -10,6 +10,7 @@ import { appendWithdrawalReceipt, buildDiscardActReceipt, matchesActProjectSourc
 import { readRecordPublished, type RecordPublicationRequest } from '../src/job-publication.ts';
 import { jobRuntimeExecArgv } from '../src/job-writer.ts';
 import type { JsonObject } from '../src/templates.ts';
+import { TEST_NOW } from './clock.ts';
 import { arr, fixture, obj } from './fixtures.ts';
 import { seedStoredSignoffAct } from './historical-review-fixture.ts';
 import { CLI } from './helpers.ts';
@@ -19,6 +20,7 @@ const recordBytes = (root: string): Buffer => readFileSync(join(root, 'project.j
 const reviewer = { id: 'synthetic-owner', role: 'owner' as const };
 const signoff = { kind: 'signoff', stage: 'plan-approved' } as const;
 const legacyReopen = { kind: 'reopen', stage: 'interview' } as const;
+const retainedActAt = new Date(TEST_NOW - 2_000).toISOString();
 
 afterEach(() => {
   for (const root of roots.splice(0)) {
@@ -27,8 +29,9 @@ afterEach(() => {
   }
 });
 
-async function cli(root: string, args: string[]) {
-  const child = Bun.spawn([process.execPath, ...jobRuntimeExecArgv(), CLI, ...args], { cwd: root, stdout: 'pipe', stderr: 'pipe' });
+async function cli(root: string, args: string[], now?: number) {
+  const entry = now === undefined ? [CLI] : [join(import.meta.dir, 'cli-at.ts'), new Date(now).toISOString()];
+  const child = Bun.spawn([process.execPath, ...jobRuntimeExecArgv(), ...entry, ...args], { cwd: root, stdout: 'pipe', stderr: 'pipe' });
   const [stdout, stderr, exit] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
   return { stdout, stderr, exit };
 }
@@ -84,7 +87,7 @@ function seedReopenAct(host: JobOwnerHost, askId: string, words: string, actId: 
     const act = parseRecordAct({
       schema: JOB_RECORD_ACT_SCHEMA, actId, jobId, askId, publicationId: ask.publicationId,
       authority: { actor: 'human', channel: 'review-ui', reviewer: { ...data.reviewer } },
-      at: new Date().toISOString(), kind: 'reopen', source: ask.source, value: { stage: ask.subject.stage, words },
+      at: retainedActAt, kind: 'reopen', source: ask.source, value: { stage: ask.subject.stage, words },
     }) as unknown as JsonObject;
     data.acts[String(act.actId)] = act;
     data.asks[askId] = { ...data.asks[askId]!, status: 'answered' };
@@ -100,7 +103,7 @@ function seedSignoffAct(host: JobOwnerHost, askId: string, words: string, actId:
     const act = parseRecordAct({
       schema: JOB_RECORD_ACT_SCHEMA, actId, jobId, askId, publicationId: ask.publicationId,
       authority: { actor: 'human', channel: 'review-ui', reviewer: { ...data.reviewer } },
-      at: new Date().toISOString(), kind: 'signoff', source: ask.source,
+      at: retainedActAt, kind: 'signoff', source: ask.source,
       value: { stage: ask.subject.stage, decision: 'approved', words },
     }) as unknown as JsonObject;
     data.acts[String(act.actId)] = act;
@@ -219,24 +222,25 @@ test('#677 job withdraw-act withdraws one pending act in place, leaves the job a
 
     const wordsFile = join(root, 'withdraw-words.txt');
     writeFileSync(wordsFile, 'Ignore the misclicked reopen act.\n');
-    const saidAt = new Date(Date.now() - 1000).toISOString();
+    const saidAt = new Date(TEST_NOW - 1_000).toISOString();
     const relay = ['--by', 'synthetic-owner', '--owner-chat', wordsFile, '--said-at', saidAt, '--relayed-by', 'synthetic-operator'];
+    const withdraw = (actId: string, args = relay) => cli(root, ['job', 'withdraw-act', actId, root, ...args], TEST_NOW);
 
     // 1. Missing owner-chat evidence refuses and leaves project.json byte-identical.
     const beforeProject = recordBytes(root);
-    const missingChat = await cli(root, ['job', 'withdraw-act', String(reopenAct.actId), root, '--by', 'synthetic-owner']);
+    const missingChat = await withdraw(String(reopenAct.actId), ['--by', 'synthetic-owner']);
     expect(missingChat.exit).toBe(2);
     expect(missingChat.stderr).toContain('OWNER_CHAT_INVALID:');
     expect(recordBytes(root)).toEqual(beforeProject);
     expect(readFileSync(bindingPath)).toEqual(beforeBinding);
 
-    const agentBy = await cli(root, ['job', 'withdraw-act', String(reopenAct.actId), root, '--by', 'agent', '--owner-chat', wordsFile, '--said-at', saidAt, '--relayed-by', 'synthetic-operator']);
+    const agentBy = await withdraw(String(reopenAct.actId), ['--by', 'agent', '--owner-chat', wordsFile, '--said-at', saidAt, '--relayed-by', 'synthetic-operator']);
     expect(agentBy.exit).toBe(1);
     expect(agentBy.stderr).toStartWith('OWNER_CHAT_INVALID:');
     expect(recordBytes(root)).toEqual(beforeProject);
 
     // 2. An unknown act id refuses by name and leaves project.json byte-identical.
-    const unknownAct = await cli(root, ['job', 'withdraw-act', 'unknown-act-id', root, ...relay]);
+    const unknownAct = await withdraw('unknown-act-id');
     expect(unknownAct.exit).toBe(1);
     expect(unknownAct.stderr).toStartWith('JOB_ACT_NOT_PENDING:');
     expect(unknownAct.stderr).toContain(`act unknown-act-id is not pending on bound job ${host.session.jobId}; run rig-create job acts to list pending finalized acts`);
@@ -246,7 +250,7 @@ test('#677 job withdraw-act withdraws one pending act in place, leaves the job a
     // 2b. A short prefix of one pending act refuses with JOB_ACT_NOT_PENDING, names the full pending act id, and leaves project.json byte-identical.
     const shortReopenId = String(reopenAct.actId).slice(0, 8);
     expect(String(signoffAct.actId).startsWith(shortReopenId)).toBe(false);
-    const shortAct = await cli(root, ['job', 'withdraw-act', shortReopenId, root, ...relay]);
+    const shortAct = await withdraw(shortReopenId);
     expect(shortAct.exit).toBe(1);
     expect(shortAct.stderr).toStartWith('JOB_ACT_NOT_PENDING:');
     expect(shortAct.stderr).toContain(shortReopenId);
@@ -255,7 +259,7 @@ test('#677 job withdraw-act withdraws one pending act in place, leaves the job a
     expect(readFileSync(bindingPath)).toEqual(beforeBinding);
 
     // 2c. An ambiguous prefix shared by two pending acts refuses with JOB_ACT_NOT_PENDING, lists both full pending act ids, and leaves project.json byte-identical.
-    const ambiguousAct = await cli(root, ['job', 'withdraw-act', sharedPrefix, root, ...relay]);
+    const ambiguousAct = await withdraw(sharedPrefix);
     expect(ambiguousAct.exit).toBe(1);
     expect(ambiguousAct.stderr).toStartWith('JOB_ACT_NOT_PENDING:');
     expect(ambiguousAct.stderr).toContain(String(signoffAct.actId));
@@ -264,7 +268,7 @@ test('#677 job withdraw-act withdraws one pending act in place, leaves the job a
     expect(readFileSync(bindingPath)).toEqual(beforeBinding);
 
     // 3. Two pending acts; withdraw one: one discarded entry, the job still bound, the other act still pending.
-    const withdrew = await cli(root, ['job', 'withdraw-act', String(reopenAct.actId), root, ...relay]);
+    const withdrew = await withdraw(String(reopenAct.actId));
     expect(withdrew.exit, withdrew.stderr).toBe(0);
     expect(withdrew.stdout.trim()).toBe(`job: withdrew act ${String(reopenAct.actId)}`);
     expect(readFileSync(bindingPath)).toEqual(beforeBinding);
@@ -277,21 +281,21 @@ test('#677 job withdraw-act withdraws one pending act in place, leaves the job a
       kind: 'discarded',
       jobId: host.session.jobId,
       actId: reopenAct.actId,
-      at: expect.any(String),
+      at: new Date(TEST_NOW).toISOString(),
       by: 'synthetic-owner',
       owner_words: 'Ignore the misclicked reopen act.\n',
       said_at: saidAt,
       relayed_by: 'synthetic-operator',
       source: 'owner chat, relayed',
     }]);
-    expect(checkProject(root, afterWithdraw, { now: Date.now(), readOnly: true }).refusals).toEqual([]);
+    expect(checkProject(root, afterWithdraw, { now: TEST_NOW, readOnly: true }).refusals).toEqual([]);
 
     const listedAfter = JSON.parse((await cli(root, ['job', 'acts', root, '--json'])).stdout).acts as { actId: string }[];
     expect(listedAfter.map(act => act.actId)).toEqual([String(signoffAct.actId)]);
 
     // Re-withdrawing the already withdrawn act refuses with REVIEW_ACT_DISCARDED and leaves project.json byte-identical.
     const afterFirstBytes = recordBytes(root);
-    const rewithdraw = await cli(root, ['job', 'withdraw-act', String(reopenAct.actId), root, ...relay]);
+    const rewithdraw = await withdraw(String(reopenAct.actId));
     expect(rewithdraw.exit).toBe(1);
     expect(rewithdraw.stderr).toStartWith('REVIEW_ACT_DISCARDED:');
     expect(recordBytes(root)).toEqual(afterFirstBytes);
@@ -305,7 +309,7 @@ test('#677 job withdraw-act withdraws one pending act in place, leaves the job a
     const changed = Buffer.from(afterFirstBytes.toString().replace(/"name": "[^"]*"/, '"name": "Different synthetic project"'));
     expect(changed).not.toEqual(afterFirstBytes);
     writeFileSync(recordFile, changed);
-    expect(() => seedStoredSignoffAct(root, 'plan-approved', signoffAct, { now: Date.now(), checkProjectHash: true }))
+    expect(() => seedStoredSignoffAct(root, 'plan-approved', signoffAct, { now: TEST_NOW, checkProjectHash: true }))
       .toThrow(expect.objectContaining({ code: 'REVIEW_ACT_SOURCE_STALE' }));
     expect(recordBytes(root)).toEqual(changed);
 
@@ -316,13 +320,13 @@ test('#677 job withdraw-act withdraws one pending act in place, leaves the job a
     };
     const ledgerEdit = appendWithdrawalReceipt(afterFirstBytes, agentDiscard);
     writeFileSync(recordFile, ledgerEdit);
-    expect(() => seedStoredSignoffAct(root, 'plan-approved', signoffAct, { now: Date.now(), checkProjectHash: true }))
+    expect(() => seedStoredSignoffAct(root, 'plan-approved', signoffAct, { now: TEST_NOW, checkProjectHash: true }))
       .toThrow(expect.objectContaining({ code: 'REVIEW_ACT_SOURCE_STALE' }));
     expect(recordBytes(root).toString()).toBe(ledgerEdit);
     writeFileSync(recordFile, afterFirstBytes);
 
     // Ingest from the still-live publication and keep the withdrawal receipt.
-    seedStoredSignoffAct(root, 'plan-approved', signoffAct, { now: Date.now(), checkProjectHash: true });
+    seedStoredSignoffAct(root, 'plan-approved', signoffAct, { now: TEST_NOW, checkProjectHash: true });
     const afterIngestBytes = recordBytes(root);
     const recorded = JSON.parse(afterIngestBytes.toString()) as JsonObject;
     expect(arr(recorded.review_acts).map(row => obj(row).actId)).toEqual([reopenAct.actId, signoffAct.actId]);
@@ -330,7 +334,7 @@ test('#677 job withdraw-act withdraws one pending act in place, leaves the job a
       stage: 'plan-approved', by: 'user', source: `review act ${host.session.jobId}/${String(signoffAct.actId)}`,
       verbatim: 'Approve the synthetic plan.\n',
     });
-    const withdrawIngested = await cli(root, ['job', 'withdraw-act', String(signoffAct.actId), root, ...relay]);
+    const withdrawIngested = await withdraw(String(signoffAct.actId));
     expect(withdrawIngested.exit).toBe(1);
     expect(withdrawIngested.stderr).toStartWith('REVIEW_ACT_REPLAY_CONFLICT:');
     expect(withdrawIngested.stderr).toContain(String(signoffAct.actId));
@@ -341,8 +345,8 @@ test('#677 job withdraw-act withdraws one pending act in place, leaves the job a
 
     // Reset the synthetic record to exercise the reverse operation order too.
     writeFileSync(recordFile, beforeProject);
-    seedStoredSignoffAct(root, 'plan-approved', signoffAct, { now: Date.now(), checkProjectHash: true });
-    const withdrewAfterIngest = await cli(root, ['job', 'withdraw-act', String(reopenAct.actId), root, ...relay]);
+    seedStoredSignoffAct(root, 'plan-approved', signoffAct, { now: TEST_NOW, checkProjectHash: true });
+    const withdrewAfterIngest = await withdraw(String(reopenAct.actId));
     expect(withdrewAfterIngest.exit, withdrewAfterIngest.stderr).toBe(0);
     expect(JSON.parse((await cli(root, ['job', 'acts', root, '--json'])).stdout).acts).toEqual([]);
   } finally { host.stop(); }

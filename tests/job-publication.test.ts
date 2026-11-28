@@ -112,7 +112,8 @@ test('bound publication retains the committed record hash and the exact parts ro
 
 test('binding is private, ignored and unstaged in a tracked project', async () => {
   const { root } = setup();
-  for (const args of [['init', '-q'], ['add', 'project.json']]) {
+  for (const args of [['init', '-q'], ['config', 'user.name', 'Synthetic Test'],
+    ['config', 'user.email', 'synthetic@example.invalid'], ['add', '--', 'project.json'], ['commit', '-qm', 'Seed synthetic project']]) {
     expect(Bun.spawnSync(['git', ...args], { cwd: root, stdout: 'pipe', stderr: 'pipe' }).exitCode).toBe(0);
   }
   const host = await openCreateJob(root, { id: 'reviewer', role: 'owner' }, now);
@@ -120,6 +121,7 @@ test('binding is private, ignored and unstaged in a tracked project', async () =
   expect(lstatSync(join(root, JOB_BINDING_FILE)).mode & 0o077).toBe(0);
   expect(Bun.spawnSync(['git', 'check-ignore', JOB_BINDING_FILE], { cwd: root }).exitCode).toBe(0);
   expect(Bun.spawnSync(['git', 'ls-files', JOB_BINDING_FILE], { cwd: root }).stdout.toString()).toBe('');
+  expect(Bun.spawnSync(['git', 'show', '--format=', '--name-only', 'HEAD'], { cwd: root }).stdout.toString().trim()).toBe('project.json');
   expect(JSON.parse(readFileSync(join(root, 'project.json'), 'utf8')).review_job).toEqual({ jobId: host.session.jobId, origin: host.origin });
 });
 

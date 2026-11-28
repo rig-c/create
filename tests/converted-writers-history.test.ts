@@ -1,10 +1,11 @@
 import { beforeEach, expect, test } from 'bun:test';
 import { cpSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { JOB_COMMENT_ONLY_ACT_SCHEMA } from '@rig-c/review/job-host';
+import { JOB_COMMENT_ONLY_ACT_SCHEMA, type JobOwnerHost } from '@rig-c/review/job-host';
 import { OPTIONS_SPEC, optionContext, sha256 } from '../src/choices.ts';
 import { commentCommand } from '../src/comment-act.ts';
 import { freshProjectRecord, GITIGNORE } from '../src/init.ts';
+import { closeCreateJob, withdrawCreateJobAct } from '../src/job-close.ts';
 import { JOB_BINDING_FILE, jobHash, writePrivateJson } from '../src/job-outbox.ts';
 import { currentJobIdentity } from '../src/job-publication.ts';
 import { jobRuntimeExecArgv } from '../src/job-writer.ts';
@@ -821,5 +822,286 @@ test('#1168 group 6: restart, derived add, intake-report, checkpoint-evidence, s
   expect(fullState(memberRepo)).toEqual(beforeBindingRetry);
   expect(head(colRepo)).toBe(colParent);
 });
+
+test('#1168 group 7: pause, resume, advance, step-status, direction --adopt, record --adopt, job withdraw-act, and job close commit exact paths and preserve refused/no-op invariants', async () => {
+  // 1) pause, resume, step-status, advance, and direction --adopt on a current-path fixture
+  const curDir = join(tempDir(), 'group7-current');
+  cpSync(join(import.meta.dir, '../templates/example-current'), curDir, { recursive: true });
+  const repo: Repo = { dir: curDir, env: gitEnv({ name: 'Synthetic Writer', email: 'writer@example.test' }) };
+  const curRecord = JSON.parse(bytes(repo, PROJECT).toString('utf8')) as JsonObject;
+  curRecord.stage = 'parts';
+  curRecord.signoffs = (curRecord.signoffs as JsonObject[]).filter(s => ['interview', 'plan-approved'].includes(String(s.stage)));
+  curRecord.advances = (curRecord.advances as JsonObject[]).slice(0, 2);
+  delete (curRecord.current as JsonObject).rig;
+  delete (curRecord.current as JsonObject).motion;
+  delete (curRecord.current as JsonObject).direction;
+  delete curRecord.scenes;
+  delete curRecord.directions;
+  delete curRecord.direction_contract;
+  delete (curRecord.interview as JsonObject).rigging_context;
+  for (const item of (((curRecord.interview as JsonObject).post as JsonObject).items as JsonObject[])) item.guide = null;
+  for (const wp of ((curRecord.interview as JsonObject).waypoints as JsonObject[])) {
+    if (['turn', 'meshes'].includes(String(wp.id))) wp.guide = null;
+  }
+  (curRecord.interview as JsonObject).step_plans = ((curRecord.interview as JsonObject).step_plans as JsonObject[])
+    .filter(plan => plan.step === 'parts');
+  (curRecord.plan as JsonObject).steps = ((curRecord.plan as JsonObject).steps as JsonObject[])
+    .filter(step => ['seethrough', 'assemble'].includes(String(step.id)));
+  for (const step of ((curRecord.plan as JsonObject).steps as JsonObject[])) {
+    step.status = 'pending';
+    step.status_history = [];
+  }
+  putJson(repo, PROJECT, curRecord);
+  put(repo, UNRELATED, 'initial unrelated\n');
+  const partsCheckSaved = bytes(repo, 'evidence/parts-check.json');
+  git(repo, 'init', '-q');
+  git(repo, 'config', '--local', 'user.name', 'Synthetic Writer');
+  git(repo, 'config', '--local', 'user.email', 'writer@example.test');
+  git(repo, 'add', '--', '.');
+  git(repo, 'rm', '-f', '--cached', '--', 'evidence/parts-check.json');
+  git(repo, 'commit', '-qm', 'Seed current parts stage for group 7');
+  put(repo, 'evidence/parts-check.json', partsCheckSaved);
+  const unrelated = plantUnrelated(repo);
+  let parent = head(repo);
+
+  // pause & resume: refusal when unsigned -> signoff paused -> pause -> refused wrong resume -> resume
+  put(repo, 'scratch/pause-words.txt', 'Pause parts stage temporarily.\n');
+  assertRefusedUnchanged(repo, ['pause', repo.dir, '--by', 'synthetic-owner', '--verbatim-file', 'scratch/pause-words.txt'], 'PAUSED_UNSIGNED');
+  assertRefusedUnchanged(repo, ['resume', 'parts', repo.dir, '--by', 'synthetic-owner', '--verbatim-file', 'scratch/pause-words.txt'], 'RESUME_NOT_PAUSED');
+
+  success(cli(repo, 'signoff', 'paused', repo.dir, '--by', 'synthetic-owner', '--verbatim-file', 'scratch/pause-words.txt'));
+  parent = assertCommittedStep(repo, parent, 'signoff', [PROJECT], unrelated);
+
+  assertRefusedUnchanged(repo, ['pause', repo.dir, '--by', 'agent', '--verbatim-file', 'scratch/pause-words.txt'], 'SIGNOFF_NOT_HUMAN');
+  success(cli(repo, 'pause', repo.dir, '--by', 'synthetic-owner', '--verbatim-file', 'scratch/pause-words.txt'));
+  parent = assertCommittedStep(repo, parent, 'pause', [PROJECT], unrelated);
+
+  put(repo, 'scratch/resume-words.txt', 'Resume parts stage.\n');
+  assertRefusedUnchanged(repo, ['resume', 'interview', repo.dir, '--by', 'synthetic-owner', '--verbatim-file', 'scratch/resume-words.txt'], 'RESUME_STAGE_MISMATCH');
+  success(cli(repo, 'resume', 'parts', repo.dir, '--by', 'synthetic-owner', '--verbatim-file', 'scratch/resume-words.txt'));
+  parent = assertCommittedStep(repo, parent, 'resume', [PROJECT], unrelated);
+
+  // step-status: refused skip + valid transitions commit project.json under 'step-status'
+  assertRefusedUnchanged(repo, ['step-status', 'seethrough', 'done', repo.dir, '--by', 'agent'], 'STEP_STATUS_TRANSITION');
+  for (const stepId of ['seethrough', 'assemble']) {
+    for (const status of ['in-progress', 'done']) {
+      success(cli(repo, 'step-status', stepId, status, repo.dir, '--by', 'agent'));
+      parent = assertCommittedStep(repo, parent, 'step-status', [PROJECT], unrelated);
+    }
+  }
+
+  // advance: refused removed flag + valid advance with bound --parts-check commits project.json + evidence/parts-check.json
+  assertRefusedUnchanged(repo, ['advance', 'parts-review', repo.dir, '--by', 'agent'], 'ADVANCE_WORDS_REMOVED');
+  success(cli(repo, 'advance', 'parts-review', repo.dir, '--parts-check', 'evidence/parts-check.json', '--parts', 'outputs/parts/rig'));
+  parent = assertCommittedStep(repo, parent, 'advance', [PROJECT, 'evidence/parts-check.json'], unrelated);
+
+  // Plain advance (parts-review -> rigging-interview) commits only project.json
+  success(cli(repo, 'advance', 'rigging-interview', repo.dir));
+  parent = assertCommittedStep(repo, parent, 'advance', [PROJECT], unrelated);
+
+  // direction --adopt: domain refusal + dirty refusal + adopt commit + unchanged retry makes no commit
+  assertRefusedUnchanged(repo, ['direction', '--adopt', repo.dir, '--unknown'], 'DIRECTION_USAGE');
+  const cleanBeforeDirAdopt = bytes(repo, PROJECT);
+  put(repo, PROJECT, `${cleanBeforeDirAdopt.toString('utf8')}\n`);
+  assertRefusedUnchanged(repo, ['direction', '--adopt', repo.dir], 'PROJECT_COMMIT_DIRTY');
+  put(repo, PROJECT, cleanBeforeDirAdopt);
+
+  success(cli(repo, 'direction', '--adopt', repo.dir));
+  parent = assertCommittedStep(repo, parent, 'direction adopt', [PROJECT], unrelated);
+
+  const beforeDirAdoptRetry = fullState(repo);
+  success(cli(repo, 'direction', '--adopt', repo.dir));
+  expect(fullState(repo)).toEqual(beforeDirAdoptRetry);
+
+  // 2) record parts|rig|motion|direction --adopt
+  const adoptRepo = makeRepo(freshProjectRecord('synthetic-adopt', TEST_NOW));
+  git(adoptRepo, 'config', '--local', 'user.name', 'Synthetic Writer');
+  git(adoptRepo, 'config', '--local', 'user.email', 'writer@example.test');
+  const writeLegacy = (path: string, body: string) => {
+    put(adoptRepo, path, body);
+    return { path, sha256: sha256(Buffer.from(body)), bytes: Buffer.byteLength(body) };
+  };
+  const adoptRecord = JSON.parse(bytes(adoptRepo, PROJECT).toString('utf8')) as JsonObject;
+  adoptRecord.versions = [
+    {
+      n: 4,
+      kind: 'rig',
+      at: '2026-10-01T00:00:00.000Z',
+      built_by: 'synthetic-builder',
+      built_with: { '@rig-c/parts': '2.57.0', '@rig-c/core': '3.8.1' },
+      registration: {
+        config_source: writeLegacy('evidence/v4/registration/config-source.json', '{}'),
+        check_report: { ...writeLegacy('evidence/v4/registration/check.json', '{"spec":"rig-parts-check/1"}'), spec: 'rig-parts-check/1' },
+      },
+      outputs: [
+        writeLegacy('outputs/v4/out/parts.json', '{}'),
+        writeLegacy('outputs/v4/out/parts/body.png', 'synthetic part'),
+        writeLegacy('outputs/v4/out/rig/run.json', '{"spec":"rig-run/1","command":"rig"}'),
+        writeLegacy('outputs/v4/out/check/build/skeleton.model.json', '{"spec":"rigc-compiled/3"}'),
+        writeLegacy('outputs/v4/out/check/build/run.json', '{"spec":"rigc-run/1","command":"build"}'),
+        writeLegacy('outputs/v4/idle/frames.json', '{"spec":"rigc-frames/1","sets":[{"animation":"idle"}]}'),
+      ],
+    },
+    {
+      n: 7,
+      kind: 'post',
+      rig_version: 4,
+      at: '2026-10-01T00:00:00.000Z',
+      built_by: 'synthetic-builder',
+      built_with: { '@rig-c/parts': '2.57.0', '@rig-c/core': '3.8.1' },
+      outputs: [
+        writeLegacy('outputs/v7/compose/check/build/skeleton.model.json', '{"spec":"rigc-compiled/3"}'),
+      ],
+    },
+  ];
+  putJson(adoptRepo, PROJECT, adoptRecord);
+  git(adoptRepo, 'add', '--', '.');
+  git(adoptRepo, 'commit', '-qm', 'Seed legacy versions for record --adopt');
+  const adoptUnrelated = plantUnrelated(adoptRepo);
+  let adoptParent = head(adoptRepo);
+
+  for (const kind of ['parts', 'rig', 'motion', 'direction'] as const) {
+    const res = cli(adoptRepo, 'record', kind, adoptRepo.dir, '--adopt');
+    expect(res.code).toBe(0);
+    adoptParent = assertCommittedStep(adoptRepo, adoptParent, `record ${kind} adopt`, [PROJECT], adoptUnrelated);
+    // Once current.<kind> exists, --adopt refuses and leaves HEAD/index/tree unchanged.
+    assertRefusedUnchanged(adoptRepo, ['record', kind, adoptRepo.dir, '--adopt'], 'RECORD_ADOPT_CURRENT_EXISTS');
+  }
+
+  // 3) job withdraw-act and job close (with and without disposition)
+  const jobRepo = makeRepo({ ...freshProjectRecord('synthetic-job-close', TEST_NOW), owner: { language: 'en' } });
+  git(jobRepo, 'config', '--local', 'user.name', 'Synthetic Writer');
+  git(jobRepo, 'config', '--local', 'user.email', 'writer@example.test');
+  const canonicalDir = realpathSync(jobRepo.dir);
+  jobRepo.dir = canonicalDir;
+  const origin = 'http://127.0.0.1:43210';
+
+  const installFakeBoundJob = (jobId: string, pendingActIds: string[]) => {
+    const identity = currentJobIdentity({
+      root: canonicalDir,
+      stateDir: join(tempDir(), `state-${jobId}`),
+      fingerprint: 'synthetic-close-fp',
+      reviewer: { id: 'synthetic-owner', role: 'owner' },
+    }, canonicalDir);
+    const rec = JSON.parse(bytes(jobRepo, PROJECT).toString('utf8')) as JsonObject;
+    rec.review_job = { jobId, origin };
+    putJson(jobRepo, PROJECT, rec);
+    git(jobRepo, 'add', '--', PROJECT);
+    git(jobRepo, 'commit', '-qm', `Bind ${jobId}`, '--only', '--', PROJECT);
+    writePrivateJson(join(canonicalDir, JOB_BINDING_FILE), {
+      schema: 'rig-create/job-binding@1',
+      identity,
+      jobId,
+      origin,
+      fetchCapability: 'cap-fetch',
+      listenerIncarnation: `inc-${jobId}`,
+    }, true);
+
+    let closed = false;
+    const acts = pendingActIds.map(actId => ({
+      schema: JOB_COMMENT_ONLY_ACT_SCHEMA,
+      jobId,
+      actId,
+      publicationId: 'pub-1',
+      at: new Date(TEST_NOW).toISOString(),
+      authority: { actor: 'human', channel: 'review-ui', reviewer: { id: 'synthetic-owner', role: 'owner' } },
+      kind: 'comments',
+      source: {
+        sourceHash: 'a'.repeat(64),
+        projectHash: 'b'.repeat(64),
+        selector: { kind: 'current', output: 'parts' },
+        manifest: { path: 'review-live.json', sha256: 'c'.repeat(64) },
+      },
+      value: { comments: [{ id: 'c1', text: 'Synthetic pending comment.' }] },
+    }));
+    const startHost = async () => ({
+      reused: true,
+      origin,
+      stop: () => {},
+      session: {
+        jobId,
+        authorize: () => {},
+        status: () => ({ generation: 1 }),
+        hostCredentials: () => ({ agent: 'cap-agent', owner: 'cap-owner' }),
+      },
+      ports: {
+        handleJobApi: async (req: Request) => {
+          const body = await req.json() as { verb: string; after?: unknown };
+          if (body.verb === 'next') {
+            return Response.json({
+              ok: true,
+              value: body.after
+                ? { status: 'timeout', cursor: 'end', events: [] }
+                : { status: acts.length ? 'events' : 'timeout', cursor: 'end', events: acts.map(act => ({ type: 'act', act })) },
+            });
+          }
+          if (body.verb === 'close') {
+            closed = true;
+            return Response.json({ ok: true, value: { closed: true } });
+          }
+          return Response.json({ ok: false });
+        },
+      },
+    } as unknown as JobOwnerHost);
+    return { startHost, isClosed: () => closed };
+  };
+
+  // 3a) job withdraw-act: refuses dirty project.json, then commits project.json with 'job withdraw-act'
+  const job1 = installFakeBoundJob('job-withdraw-1', ['act-w1']);
+  const jobUnrelated = plantUnrelated(jobRepo);
+  let jobParent = head(jobRepo);
+
+  put(jobRepo, 'scratch/withdraw-chat.txt', 'Withdraw my earlier comment act.\n');
+  const withdrawOpts = {
+    '--by': 'synthetic-owner',
+    '--owner-chat': join(canonicalDir, 'scratch/withdraw-chat.txt'),
+    '--said-at': new Date(TEST_NOW).toISOString(),
+    '--relayed-by': 'synthetic-operator',
+  };
+
+  const cleanJob1 = bytes(jobRepo, PROJECT);
+  // Stage an index-only edit on project.json while keeping working-tree bytes equal to original so PROJECT_COMMIT_DIRTY fires.
+  put(jobRepo, PROJECT, `${cleanJob1.toString('utf8')}\n`);
+  git(jobRepo, 'add', '--', PROJECT);
+  put(jobRepo, PROJECT, cleanJob1);
+  const beforeDirtyWithdraw = fullState(jobRepo);
+  await expect(withdrawCreateJobAct(canonicalDir, 'act-w1', withdrawOpts, tick(), job1.startHost))
+    .rejects.toMatchObject({ code: 'PROJECT_COMMIT_DIRTY' });
+  expect(fullState(jobRepo)).toEqual(beforeDirtyWithdraw);
+  git(jobRepo, 'reset', '-q', 'HEAD', '--', PROJECT);
+
+  await withdrawCreateJobAct(canonicalDir, 'act-w1', withdrawOpts, tick(), job1.startHost);
+  jobParent = assertCommittedStep(jobRepo, jobParent, 'job withdraw-act', [PROJECT], jobUnrelated);
+
+  // Plain job close (no pending acts / no disposition) makes NO commit even when project.json is dirty!
+  const dirtyBeforePlainClose = `${bytes(jobRepo, PROJECT).toString('utf8')}\n`;
+  put(jobRepo, PROJECT, dirtyBeforePlainClose);
+  const closedPlain = await closeCreateJob(canonicalDir, job1.startHost, false, undefined, tick());
+  expect(closedPlain).toEqual({ status: 'closed' });
+  expect(job1.isClosed()).toBe(true);
+  expect(head(jobRepo)).toBe(jobParent);
+  git(jobRepo, 'checkout', '--', PROJECT);
+
+  // 3b) job close --discard-acts: refuses dirty project.json BEFORE closing host, then commits project.json with 'job close'
+  const job2 = installFakeBoundJob('job-discard-2', ['act-d1']);
+  jobParent = head(jobRepo);
+
+  const cleanJob2 = bytes(jobRepo, PROJECT);
+  put(jobRepo, PROJECT, `${cleanJob2.toString('utf8')}\n`);
+  git(jobRepo, 'add', '--', PROJECT);
+  put(jobRepo, PROJECT, cleanJob2);
+  const beforeDirtyClose = fullState(jobRepo);
+  await expect(closeCreateJob(canonicalDir, job2.startHost, false, { '--discard-acts': 'Superseded by new stage', '--by': 'agent' }, tick()))
+    .rejects.toMatchObject({ code: 'PROJECT_COMMIT_DIRTY' });
+  expect(job2.isClosed()).toBe(false);
+  expect(fullState(jobRepo)).toEqual(beforeDirtyClose);
+  git(jobRepo, 'reset', '-q', 'HEAD', '--', PROJECT);
+
+  const closedDiscard = await closeCreateJob(canonicalDir, job2.startHost, false, { '--discard-acts': 'Superseded by new stage', '--by': 'agent' }, tick());
+  expect(closedDiscard).toEqual({ status: 'closed' });
+  expect(job2.isClosed()).toBe(true);
+  assertCommittedStep(jobRepo, jobParent, 'job close', [PROJECT], jobUnrelated);
+});
+
 
 

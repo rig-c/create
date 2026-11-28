@@ -6,6 +6,7 @@ import { literalFile } from './choices.ts';
 import { currentFindings, currentHash, isCurrentProject, outputRoot, sha256 } from './current.ts';
 import { readWriterBinding } from './job-outbox.ts';
 import { acquireBoundJobWrite } from './job-writer.ts';
+import { assertCleanProjectStep, commitToolWrite } from './project-step-commit.ts';
 import { refuse } from './refusal.ts';
 import type { JsonObject } from './templates.ts';
 
@@ -14,7 +15,7 @@ export function isPublishAdvanceStage(stage: string): stage is 'rig-review' | 'd
 }
 
 export function acquireAdvanceJobWrite(dir: string, stage: string): () => void {
-  return isPublishAdvanceStage(stage) ? acquireBoundJobWrite(dir) : () => {};
+  return acquireBoundJobWrite(dir, isPublishAdvanceStage(stage) ? undefined : { kind: 'record-only' }, true);
 }
 
 /** The bound current-output gate shared by advance and its command preview. */
@@ -64,22 +65,33 @@ export function commitAdvance(
   file: string,
   project: JsonObject,
   writeRecord: (temp: string, target: string, bytes: Buffer) => void = defaultWriteRecord,
-): void {
+  assets: readonly string[] = [],
+): string | undefined {
   const stage = String(project.stage);
   const serialized = `${JSON.stringify(project, null, 2)}\n`;
   if (!isPublishAdvanceStage(stage) || !readWriterBinding(dir)) {
-    writeFileSync(file, serialized);
-    return;
+    assertCleanProjectStep(dir, ['project.json']);
+    assertCleanProjectStep(dir, assets, true);
+    const temp = join(dir, `.project.json.advance-${process.pid}-${crypto.randomUUID()}`);
+    try {
+      defaultWriteRecord(temp, file, Buffer.from(serialized));
+    } finally {
+      rmSync(temp, { force: true });
+    }
+    return commitToolWrite(dir, 'advance', ['project.json', ...assets]);
   }
   // Current stage approval happens in owner chat. The advance can leave the existing Review page open.
   if (isCurrentProject(project)) {
     const finding = currentAdvanceOutputFinding(dir, project, stage);
     if (finding) refuse(finding.code, finding.message);
   }
+  assertCleanProjectStep(dir, ['project.json']);
+  assertCleanProjectStep(dir, assets, true);
   const temp = join(dir, `.project.json.advance-${process.pid}-${Date.now()}`);
   try {
     writeRecord(temp, file, Buffer.from(serialized));
   } finally {
     rmSync(temp, { force: true });
   }
+  return commitToolWrite(dir, 'advance', ['project.json', ...assets]);
 }

@@ -57,13 +57,17 @@ function changedPath(line: string): string | undefined {
 }
 
 const PROJECT_WRITERS = new Set([
+  'direction adopt',
   'input painting',
   'interview-answer',
   'interview-decision',
+  'job close',
   'job open',
+  'job withdraw-act',
   'ledger add',
   'ledger retire',
   'owner-language set',
+  'pause',
   'plan add',
   'plan bar-amend',
   'plan checkpoint-withdraw',
@@ -73,8 +77,11 @@ const PROJECT_WRITERS = new Set([
   'plan revise',
   ...CURRENT_KINDS.map(kind => `record ${kind} adopt`),
   'restart',
+  'resume',
+  'step-status',
 ]);
 const BINDING_WRITERS = new Set([
+  'advance',
   'amend',
   'checkpoint-evidence',
   'collection-binding',

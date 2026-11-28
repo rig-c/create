@@ -17,7 +17,7 @@ import {
   signoffCommand,
   testClock,
 } from './clock.ts';
-import { ownerChatArgs, tempDir } from './helpers.ts';
+import { gitEnv, ownerChatArgs, run, tempDir } from './helpers.ts';
 
 const SYNTHETIC_PNG = Buffer.from(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9Zb1sAAAAASUVORK5CYII=',
@@ -38,6 +38,8 @@ beforeAll(() => {
     now: Date.parse('2026-11-27T01:00:00Z'),
     painting: { file: painting, origin: 'Synthetic 1x1 test painting.', projectsRoot: seedRoot },
   });
+  expect(run(['git', 'config', '--local', 'user.name', 'Synthetic Tester'], seedDir, gitEnv()).code).toBe(0);
+  expect(run(['git', 'config', '--local', 'user.email', 'tester@example.test'], seedDir, gitEnv()).code).toBe(0);
 }, 30_000);
 
 afterAll(() => {

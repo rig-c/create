@@ -10,6 +10,7 @@ import { stageReviewMeshDeltaCorrections } from './correction-writers.ts';
 import { discardReviewActOutputs, readProject, retainReviewSidecar } from './feedback.ts';
 import { jobHash } from './job-outbox.ts';
 import { acquireBoundJobWrite, beginJobProgress } from './job-writer.ts';
+import { assertCleanProjectStep, commitToolWrite } from './project-step-commit.ts';
 import { newRefusals } from './refusal-baseline.ts';
 import { refuse, USAGE_EXIT } from './refusal.ts';
 import { assertVersionReviewActSource, commentChestAct, commentMeshAct, decodeReviewAct, fetchBustPublicationSeeds, fetchReviewActBytes,
@@ -17,6 +18,7 @@ import { assertVersionReviewActSource, commentChestAct, commentMeshAct, decodeRe
 import { bustLandmarkCommands, currentUsesBustVersion, prepareBustConfig, retainedRigActPath } from './review-bust.ts';
 import { readVersions } from './review.ts';
 import type { Json, JsonObject } from './templates.ts';
+import { eligibleBoundPaths } from './writer-commit-paths.ts';
 
 export const COMMENT_HELP = `comment:
   rig-create comment --from-review <actId> [<dir>] [--config <path>] [--json]
@@ -68,7 +70,7 @@ function readReasonFile(path: string): string {
   }
 }
 
-function closeCommentCommand(args: string[], now: number): { stdout: string; exit: number } {
+function closeCommentCommand(args: string[], now: number): { stdout: string; exit: number; stderr?: string } {
   let closeRaw: string | undefined;
   let actSha256: string | undefined;
   let by: string | undefined;
@@ -98,7 +100,7 @@ function closeCommentCommand(args: string[], now: number): { stdout: string; exi
   const commentIndex = /^\d+$/.test(closeRaw!) ? Number(closeRaw!) : -1;
   const resolvedReason = reasonFile !== undefined ? readReasonFile(reasonFile) : reason;
   const root = resolve(positional[0] ?? process.cwd());
-  const release = acquireBoundJobWrite(root);
+  const release = acquireBoundJobWrite(root, undefined, true);
   const temporary = join(root, `.rig-create-comment-close-${randomUUID()}.tmp`);
   try {
     const { file } = readProject(root);
@@ -122,17 +124,22 @@ function closeCommentCommand(args: string[], now: number): { stdout: string; exi
     next.comment_closures = [...asArray(next.comment_closures), row as unknown as Json];
     const problem = newRefusals(root, project, next, { now, verifyingCommentClosure: index })[0];
     if (problem) refuse(problem.code, problem.message);
+    const assets = eligibleBoundPaths(row.after.map(entry => entry.path));
+    assertCleanProjectStep(root, ['project.json']);
+    assertCleanProjectStep(root, assets, true);
     const fd = openSync(temporary, 'wx', 0o600);
     try { writeFileSync(fd, `${JSON.stringify(next, null, 2)}\n`); fsyncSync(fd); } finally { closeSync(fd); }
     if (!readFileSync(file).equals(original)) {
       refuse('REVIEW_ACT_SOURCE_STALE', 'project.json: record changed during comment closure validation; retry against the current record');
     }
     renameSync(temporary, file);
+    const commitWarning = commitToolWrite(root, 'comment close', ['project.json', ...assets]);
     const result = { closure: `comment_closures[${index}]`, comment: `comments[${row.comment}]`, entry: row };
     return {
       stdout: json ? JSON.stringify(result, null, 2)
         : `comment: closed comments[${row.comment}] at ${result.closure} (${row.after.length} file hash(es))`,
       exit: 0,
+      ...(commitWarning === undefined ? {} : { stderr: commitWarning }),
     };
   } finally {
     rmSync(temporary, { force: true });
@@ -140,7 +147,7 @@ function closeCommentCommand(args: string[], now: number): { stdout: string; exi
   }
 }
 
-export function commentCommand(args: string[], now: number, hooks: CommentHooks = {}): { stdout: string; exit: number } {
+export function commentCommand(args: string[], now: number, hooks: CommentHooks = {}): { stdout: string; exit: number; stderr?: string } {
   if (args.includes('--close') && !args.includes('--from-review')) return closeCommentCommand(args, now);
   let actId: string | undefined;
   let config: string | undefined;
@@ -157,7 +164,7 @@ export function commentCommand(args: string[], now: number, hooks: CommentHooks 
   }
   if (actId === undefined || positional.length > 1) usage();
   const root = resolve(positional[0] ?? process.cwd());
-  const release = acquireBoundJobWrite(root);
+  const release = acquireBoundJobWrite(root, undefined, true);
   const progress = beginJobProgress(root, 'ingest', 'Reading the Review comment');
   const temporary = join(root, `.rig-create-comment-${randomUUID()}.tmp`);
   const created: string[] = [];
@@ -228,16 +235,28 @@ export function commentCommand(args: string[], now: number, hooks: CommentHooks 
         bytes, sha256, comment: index, ...(bustConfig ? { bust_config: bustConfig } : {}) });
     }
     next.review_acts = nextReceipts;
+    const priorCorrections = asArray(project.corrections).length;
     const mesh = receipt ? undefined : commentMeshAct(act);
     if (mesh) discardMesh = stageReviewMeshDeltaCorrections(root, project, next, mesh, now);
     const problem = reviewActFindings(next)[0] ?? newRefusals(root, project, next, { now })[0];
     if (problem) refuse(problem.code, problem.message);
+    const meshPaths = asArray(next.corrections).slice(priorCorrections).filter(isObject).flatMap(row =>
+      isObject(row.outcome) ? asArray(row.outcome.written).filter(isObject).flatMap(file =>
+        typeof file.path === 'string' ? [file.path] : []) : []);
+    const assets = eligibleBoundPaths([
+      ...(evidence ? [evidence.path] : []),
+      ...(bustConfig ? [bustConfig.path] : []),
+      ...meshPaths,
+    ]);
+    assertCleanProjectStep(root, ['project.json']);
+    assertCleanProjectStep(root, assets, true);
     if (evidence) retainReviewSidecar(root, evidence, created, 'version');
     const fd = openSync(temporary, 'wx', 0o600);
     try { writeFileSync(fd, `${JSON.stringify(next, null, 2)}\n`); fsyncSync(fd); } finally { closeSync(fd); }
     if (!readFileSync(file).equals(original)) refuse('REVIEW_ACT_SOURCE_STALE', 'project.json: record changed during comment validation; retry against the current record');
     renameSync(temporary, file);
     committed = true;
+    const commitWarning = commitToolWrite(root, 'comment ingest', ['project.json', ...assets]);
     const corrections = asArray(next.corrections).filter(row => isObject(row) && row.source === commentSource(act)).length;
     const warnings: CommentFinding[] = checked.warning ? [checked.warning] : [];
     progress?.('Review comment recorded');
@@ -246,7 +265,7 @@ export function commentCommand(args: string[], now: number, hooks: CommentHooks 
     return { stdout: json ? JSON.stringify(result, null, 2)
       : [...warnings.map(w => `WARN ${w.code}: ${w.message}`),
         `comment: ${act.actId} recorded at ${path} (${act.value.comments.length} comment(s), ${corrections} mesh correction(s), commit ${checked.commit ?? 'null'})`,
-        ...(commands ?? [])].join('\n'), exit: 0 };
+        ...(commands ?? [])].join('\n'), exit: 0, ...(commitWarning === undefined ? {} : { stderr: commitWarning }) };
   } finally {
     if (!committed) discardReviewActOutputs(created, discardMesh);
     rmSync(temporary, { force: true });

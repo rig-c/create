@@ -434,35 +434,42 @@ green. Green means three things:
 The writer never asks. Reason: the HQ bar, and that the comment and act bindings (§3.2
 rows 13, 19) need the published bytes to be in history.
 
-Commit scopes today:
+Commit scopes:
 
 | Writer | Commits |
 | --- | --- |
 | `init`, `init --collection`, `init --member` | the initial project or collection files (or the new member's files and `collection.json`) |
-| `record parts`, `record rig`, `record motion`, `record direction` | `project.json`, the tracked files of that kind, `.gitignore` when first rewritten |
+| `record parts`, `record rig`, `record motion`, `record direction` | `project.json`, eligible verified output paths and removals from the prior recorded output, `.gitignore` when first rewritten |
+| `record --adopt`, `direction --adopt` | `project.json` |
 | `scene write`, `direction write` | each writer's generated spec (`specs/direction/scene.json` or `specs/direction/direction.json`) |
-| `job open --current` | `project.json` and every tracked file in the publication closure, before publishing |
-| `plan propose` / `feedback` / `add` / `revise`, `comment --from-review` / `--close`, `input add`, `ledger add` / `retire`, `derived add`, `correction`, `owner-language set`, `packages upgrade` | none (write to the working tree without committing) |
+| `job open`, `job withdraw-act`, `job close` (with disposition) | `project.json` when the live job binding or act disposition changes |
+| `job open --current` | its generated manifest when HEAD already contains the exact record and trackable inputs |
+| `packages upgrade` | `project.json`, `package.json` and `bun.lock` |
+| `input add`, `plan propose`, `interview-options`, `comment --from-review`, `comment --close`, `correction`, `diff-classes`, `derived add`, `intake-report`, `checkpoint-evidence`, `signoff`, `amend`, `collection-binding`, `advance` | `project.json` and any eligible trackable files registered or bound by that step |
+| `input painting`, `owner-language set`, `interview-answer`, `interview-decision`, `plan feedback` / `add` / `revise` / `remove` / `replace` / `checkpoint-withdraw` / `bar-amend`, `ledger add` / `retire`, `restart`, `pause`, `resume`, `step-status` | `project.json` |
 
-In #1018, `record motion` and `record direction` attempt a commit of
-`project.json` and already tracked paths within their output trees. The
-unnumbered scene and direction writers save the generated spec, then attempt
-a commit scoped to that spec alone. Unrelated staged `project.json` bytes
-stay staged. The Parts scene and direction intent are separate authored
-inputs outside those commit pathspecs. Commit warnings go to stderr after
-the save, with exit 0. See `src/project-step-commit.ts`.
+Every record and package writer checks its shared paths before mutation. Review any
+pre-existing edits to `project.json`, `package.json` and `bun.lock` and run
+`rig-create history baseline <dir> --by <operator>` to commit the pending record
+as a baseline with unverified attribution. The same route can recover a record
+saved just before Git failed or the process stopped, including trackable
+bound assets whose bytes match their recorded hashes. Other staged paths stay staged.
+If Git cannot inspect the project, `next` still offers workflow moves and Review
+can serve its hash-bound view without a commit pointer.
 
 Commit rules for the final design:
 
 - Pathspec only: `git commit --only -- <paths>`. It never uses `git add -A` or
   touches other staged work. The pattern is `src/collection.ts:101-106`.
-- No work tree: skipped, with WARN `PROJECT_NOT_IN_GIT`.
+- A work tree is required to create a commit. Current output and spec writers
+  warn with `PROJECT_NOT_IN_GIT` when Git is unavailable.
 - A collection member commits in its collection's repository
   (`docs/PROJECT.md:36-38`).
 - A failed commit keeps the written record. It raises WARN
-  `PROJECT_COMMIT_FAILED` with the exact command to run.
-- **A failed commit never blocks looking at the work.** `job open` commits the
-  publication closure first. If that commit fails, it raises WARN
+  `PROJECT_COMMIT_FAILED` with a recovery command.
+- **A failed Git commit never blocks looking at the work.** `job open --current`
+  checks for an exact committed closure before attempting the manifest commit. If
+  either Git step fails, it raises WARN
   `PROJECT_COMMIT_FAILED` and publishes anyway. If there is no work tree, it
   raises WARN `PROJECT_NOT_IN_GIT` and publishes anyway. Either way the
   publication carries no commit, and every comment made on it records

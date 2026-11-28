@@ -3,6 +3,7 @@ import { checkpointEnabled, checkpointGeneration, checkpointRequired, collectChe
   planStepCompleted } from './plan-history.ts';
 import { readVerbatim } from './record-input.ts';
 import { acquireBoundJobWrite } from './job-writer.ts';
+import { assertCleanProjectStep, commitToolWrite } from './project-step-commit.ts';
 import { closeSync, openSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 
@@ -35,7 +36,7 @@ ${STEP_PLAN_HELP}`;
 
 const FIELDS = ['phase', 'order', 'does', 'produces', 'rests_on', 'bar', 'checkpoint_proposed'];
 
-export function planCommand(args: string[], now: number): { stdout: string; exit: number } {
+export function planCommand(args: string[], now: number): { stdout: string; exit: number; stderr?: string } {
   const action = args[0];
   if (action === 'help' || args.includes('--help')) return { stdout: PLAN_HELP, exit: 0 };
   if (action === 'propose' || action === 'feedback') return stepPlanCommand(args, now);
@@ -98,7 +99,7 @@ export function planCommand(args: string[], now: number): { stdout: string; exit
   const dir = resolve(positional[1] ?? process.cwd());
   // Validate the target before creating a lock, then reload under the lock.
   readProject(dir);
-  const releaseJob = acquireBoundJobWrite(dir);
+  const releaseJob = acquireBoundJobWrite(dir, undefined, true);
   const lock = join(dir, '.plan.lock');
   let descriptor: number;
   try { descriptor = openSync(lock, 'wx'); }
@@ -183,6 +184,7 @@ export function planCommand(args: string[], now: number): { stdout: string; exit
     // Refusals the record already carries stay; a new code/path pair, or one more copy of a carried one, refuses.
     const fresh = newFindings(baselineOf(checkProject(dir, project, { now })), checkProject(dir, next, { now }).refusals)[0];
     if (fresh !== undefined) refuse(fresh.code, fresh.message);
+    assertCleanProjectStep(dir, ['project.json']);
     const temporary = join(dirname(file), `.plan-${process.pid}-${crypto.randomUUID()}.tmp`);
     try {
       writeFileSync(temporary, `${JSON.stringify(next, null, 2)}\n`, { flag: 'wx' });
@@ -190,7 +192,9 @@ export function planCommand(args: string[], now: number): { stdout: string; exit
       if (amendingBar && inputs.some(input => readVerbatim(input.file) !== input.text)) refuse('PLAN_WRITE_CONFLICT', 'plan.bar_amendments: input files changed before commit; restore the intended files and retry');
       renameSync(temporary, file);
     } finally { rmSync(temporary, { force: true }); }
-    return { stdout: json ? JSON.stringify(plan, null, 2) : `plan: ${action} ${id} by ${opts['--by']} at ${at}`, exit: 0 };
+    const warning = commitToolWrite(dir, `plan ${action}`, ['project.json']);
+    return { stdout: json ? JSON.stringify(plan, null, 2) : `plan: ${action} ${id} by ${opts['--by']} at ${at}`, exit: 0,
+      ...(warning === undefined ? {} : { stderr: warning }) };
   } finally {
     closeSync(descriptor);
     rmSync(lock);

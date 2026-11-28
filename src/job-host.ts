@@ -9,7 +9,7 @@ import { DirectionError } from './direction.ts';
 import { Refusal, refuse, USAGE_EXIT } from './refusal.ts';
 import { CURRENT_LIVE_MANIFEST, liveManifestPath, draftPackageIdentity, draftPublishedContext, eligibleRigDraftModel, inspectCurrentPublication, inspectDraftPublication, inspectNumberedPostPublication, currentJobIdentity, optionPublicationRemedy, optionPublicationStage, partsEnumerator, prepareCurrentManifest, prepareDraftManifest, prepareLiveManifest, publicationFile, publicationSelector, publishedDraft, readPublished, readRecordPublished, recordOptionSets, riggingDraftPartsChange, type RecordPublicationResult } from './job-publication.ts';
 import { acknowledgePublication, acquireJobLock, assertJobIdentity, CURRENT_PUBLICATION_OUTPUTS, enqueuePublication, ensureJobPrivateIgnores, failPublication, JOB_BINDING_FILE, jobHash, jobHostStateRoot, pendingPublications, privateDirectory, publicationVersionHash, readAcknowledgedPublication, readWriterBinding, reconcilePublication, refuseJobIdentityMismatch, writePrivateJson, isRecordResult, type CreateJobSelector, type CurrentPublicationOutput, type CurrentPublicationSelector, type NumberedPublicationSelector, type PublicationResult, type JobIdentity, type PendingPublication, type WriterBinding, type PublicationSubject } from './job-outbox.ts';
-import { commitCurrentPublication } from './project-step-commit.ts';
+import { assertCleanProjectStep, commitCurrentPublication, commitToolWrite, projectStepDirtyPaths, trackedProjectStepPaths } from './project-step-commit.ts';
 import { draftPublicationResult } from './job-writer.ts';
 import { attachCreateJobForClose, refusePendingJobAsks } from './job-close.ts';
 import { actionablePendingAct, ingestedJobActs, ingestedSummary, pendingJobActs, readHostActsAndAsks, shellWord, type IngestedJobAct, type PendingJobAct } from './job-acts.ts';
@@ -23,8 +23,43 @@ import { hasStageOrder, interviewStageOfGuide } from './stages.ts';
 import { pendingInterviewOptionsPath } from './choices.ts';
 import { isCurrentProject } from './current.ts';
 
-function installBinding(root: string, binding: WriterBinding): void {
-  ensureJobPrivateIgnores(root);
+/** Shared for the binding and publication phases of one job open. */
+export interface JobOpenGitState {
+  current?: CurrentPublicationOutput;
+  warning?: Finding;
+  privateIgnoresChecked?: true;
+  bindingCommitFailed?: true;
+}
+
+function inspectJobGit<T>(git: JobOpenGitState, path: string, inspect: () => T): T | undefined {
+  try {
+    return inspect();
+  } catch (error) {
+    if (!(error instanceof Refusal) || error.code !== 'PROJECT_COMMIT_FAILED') throw error;
+    const message = path === 'project.json' ? error.message : `${path}: ${error.message}`;
+    git.warning ??= { code: error.code, path, message };
+  }
+}
+
+function inspectCurrentManifestGit(root: string, git: JobOpenGitState): boolean | undefined {
+  return inspectJobGit(git, CURRENT_LIVE_MANIFEST, () =>
+    trackedProjectStepPaths(root, [CURRENT_LIVE_MANIFEST]).length > 0
+    && projectStepDirtyPaths(root, [CURRENT_LIVE_MANIFEST]).length > 0);
+}
+
+function checkOpenPrivateIgnores(root: string, git: JobOpenGitState): void {
+  if (git.privateIgnoresChecked) return;
+  const warning = ensureJobPrivateIgnores(root);
+  git.privateIgnoresChecked = true;
+  git.warning ??= warning;
+}
+
+function printJobGitWarning(warning: Finding): void {
+  process.stderr.write(`rig-create: WARN ${warning.code}: ${warning.message}\n`);
+}
+
+function installBinding(root: string, binding: WriterBinding, git: JobOpenGitState): void {
+  checkOpenPrivateIgnores(root, git);
   writePrivateJson(join(root, JOB_BINDING_FILE), binding, true);
 }
 
@@ -83,6 +118,7 @@ export async function openCreateJob(
   now: number,
   startHost: (options: JobHostOptions) => Promise<JobOwnerHost> = startJobHost,
   recordMode = false,
+  git: JobOpenGitState = {},
 ): Promise<JobOwnerHost> {
   root = realpathSync(root);
   const release = acquireJobLock(root)!;
@@ -92,6 +128,7 @@ export async function openCreateJob(
     // state or connects to that port: it starts this root's own job and replaces the copy.
     const found = readWriterBinding(root);
     const existing = found && found.identity.root === root ? found : null;
+    if (!existing) inspectJobGit(git, 'project.json', () => assertCleanProjectStep(root, ['project.json']));
     if (recordMode && existing && !existing.identity.publicationMode) {
       refuse('JOB_HOST_REUSE_MISMATCH', 'project.json: publicationMode expected=record-and-package found=package-only; finish and ingest pending acts, then run job close once and retry job open');
     }
@@ -123,23 +160,37 @@ export async function openCreateJob(
     const file = join(root, 'project.json');
     const temporary = join(root, '.rig-create-job-record.tmp');
     try {
+      const project = JSON.parse(readFileSync(file, 'utf8'));
+      const next = { ...project, review_job: { jobId: host.session.jobId, origin: host.origin } };
+      const changed = !isDeepStrictEqual(project.review_job, next.review_job);
+      if (changed) inspectJobGit(git, 'project.json', () => assertCleanProjectStep(root, ['project.json']));
+      const failure = newFindings(baselineOf(checkProject(root, project, { now })), checkProject(root, next, { now }).refusals);
+      if (failure[0]) refuse(failure[0].code, failure[0].message);
+      // The first current publication can write two commits. Inspect both scopes
+      // before the binding commit, then recheck the manifest under its own lock.
+      if (changed && git.current && !git.warning) inspectCurrentManifestGit(root, git);
       if (host.attachment && writerGrant) {
         installBinding(identity.root, {
           schema: 'rig-create/job-binding@1',
           identity,
           ...writerGrant,
           listenerIncarnation: host.attachment.listenerIncarnation,
-        });
+        }, git);
+      } else if (changed) {
+        checkOpenPrivateIgnores(root, git);
       }
-      const project = JSON.parse(readFileSync(file, 'utf8'));
-      const next = { ...project, review_job: { jobId: host.session.jobId, origin: host.origin } };
-      const failure = newFindings(baselineOf(checkProject(root, project, { now })), checkProject(root, next, { now }).refusals);
-      // Validation uses the ordinary checker before this writer replaces the record.
-      if (failure[0]) refuse(failure[0].code, failure[0].message);
-      if (JSON.stringify(project.review_job) !== JSON.stringify(next.review_job)) {
+      if (changed) {
         writeFileSync(temporary, `${JSON.stringify(next, null, 2)}\n`, { flag: 'wx' });
         renameSync(temporary, file);
+        if (!git.warning) {
+          const warning = commitToolWrite(root, 'job open', ['project.json']);
+          if (warning) {
+            git.bindingCommitFailed = true;
+            process.stderr.write(`${warning}\n`);
+          }
+        }
       }
+      if (git.warning) printJobGitWarning(git.warning);
       return host;
     } catch (error) { host.stop(); throw error; }
     finally { rmSync(temporary, { force: true }); }
@@ -610,7 +661,7 @@ function requestedRecordPublication(root: string, question: QuestionSelection | 
   const { subjects } = readRecordPublished({ root, record: { path: 'project.json', sha256: recordHash }, result, phase: 'inventory' }, now);
   return { result, recordHash, subjects };
 }
-export async function openRecordPublication(root: string, host: JobOwnerHost, question: QuestionSelection | undefined, plan: boolean, now: number): Promise<string[]> {
+export async function openRecordPublication(root: string, host: JobOwnerHost, question: QuestionSelection | undefined, plan: boolean, now: number, git: JobOpenGitState = {}): Promise<string[]> {
   const release = acquireJobLock(root)!;
   let publicationId: string;
   let reused = false;
@@ -632,7 +683,10 @@ export async function openRecordPublication(root: string, host: JobOwnerHost, qu
       // A new publication supersedes the job's pending asks (#737).
       const generation = host.session.status().generation;
       await refusePendingJobAsks(root, binding.jobId, host, result);
-      const pending = enqueuePublication(root, binding, result);
+      const priorWarning = git.warning;
+      checkOpenPrivateIgnores(root, git);
+      if (git.warning && git.warning !== priorWarning) printJobGitWarning(git.warning);
+      const pending = enqueuePublication(root, binding, result, undefined, undefined, { privateIgnoresChecked: true });
       if (pending.generation === undefined) {
         pending.generation = generation;
         failPublication(root, pending, pending.failure);
@@ -649,7 +703,7 @@ export async function openRecordPublication(root: string, host: JobOwnerHost, qu
  * later stages, is published unless the job's head publication already covers that selector
  * over the current record bytes. Returns the lines `job open` prints.
  */
-export async function openDraftPublication(root: string, host: JobOwnerHost, now: number, requested?: string, requestedRig?: string): Promise<string[]> {
+export async function openDraftPublication(root: string, host: JobOwnerHost, now: number, requested?: string, requestedRig?: string, git: JobOpenGitState = {}): Promise<string[]> {
   root = realpathSync(root);
   const rigSelector = assertRequestedRig(root, requestedRig, requested);
   const { bytes, ids, stage, draftId } = assertRequestedDraft(root, requested, now);
@@ -702,7 +756,10 @@ export async function openDraftPublication(root: string, host: JobOwnerHost, now
       const rigging = targetSelector.kind === 'draft' && inspectDraftPublication(root, current, targetSelector.id).rigging;
       const result = selectorResult(root, targetSelector, rigging);
       if (rigSelector) prepareLiveManifest(root, current, rigSelector.version, warnings);
-      const pending = enqueuePublication(root, binding, result);
+      const priorWarning = git.warning;
+      checkOpenPrivateIgnores(root, git);
+      if (git.warning && git.warning !== priorWarning) warnings.push(git.warning);
+      const pending = enqueuePublication(root, binding, result, undefined, undefined, { privateIgnoresChecked: true });
       // A named --rig or --draft ends as the head; a republished head yields to newer pending versions (#849).
       const named = rigSelector !== undefined || requested !== undefined;
       ({ publicationId, others } = await reconcileOpenPublication(root, pending.id, now, named ? pending.id : undefined));
@@ -751,6 +808,7 @@ export async function openCurrentPublication(
   host: JobOwnerHost,
   output: CurrentPublicationOutput,
   now: number,
+  git: JobOpenGitState = {},
 ): Promise<string[]> {
   root = realpathSync(root);
   const release = acquireJobLock(root)!;
@@ -785,10 +843,15 @@ export async function openCurrentPublication(
         refuse('JOB_PUBLISH_PENDING', 'project.json: a record publication is pending; run rig-create job reconcile before opening the current output');
       }
       await refusePendingJobAsks(root, binding.jobId, host, candidateSelector);
+      const priorWarning = git.warning;
+      checkOpenPrivateIgnores(root, git);
+      const manifestWasDirty = git.warning || git.bindingCommitFailed ? undefined : inspectCurrentManifestGit(root, git);
+      if (git.warning && git.warning !== priorWarning) warnings.push(git.warning);
       const { closurePaths } = prepareCurrentManifest(root, project, output, recordHash, warnings);
-      const committed = commitCurrentPublication(root, output, recordHash, closurePaths);
-      if (committed.warning) warnings.push(committed.warning);
-      const pending = enqueuePublication(root, binding, { path: CURRENT_LIVE_MANIFEST, selector: candidateSelector }, undefined, committed.commit);
+      const committed = manifestWasDirty === undefined ? undefined
+        : commitCurrentPublication(root, output, recordHash, closurePaths, !manifestWasDirty);
+      if (committed?.warning) warnings.push(committed.warning);
+      const pending = enqueuePublication(root, binding, { path: CURRENT_LIVE_MANIFEST, selector: candidateSelector }, undefined, committed?.commit, { privateIgnoresChecked: true });
       ({ publicationId, others } = await reconcileOpenPublication(root, pending.id, now, pending.id));
       published = true;
     }

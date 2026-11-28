@@ -4,7 +4,7 @@
  * A refused write leaves project.json and outputs/<kind>/ byte-identical.
  */
 import { randomUUID } from 'node:crypto';
-import { closeSync, mkdirSync, openSync, renameSync, rmSync } from 'node:fs';
+import { mkdirSync, renameSync, rmSync } from 'node:fs';
 import { isAbsolute, join, posix, relative, resolve, sep } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import { existsSync, lstatSync, readFileSync, realpathSync } from './check-reads.ts';
@@ -17,10 +17,11 @@ import { DirectionError } from './direction.ts';
 import { directionFeedbackRefFinding, parseFeedbackPair, readProject } from './feedback.ts';
 import { recordCurrentPartsLedger } from './fix-ledger.ts';
 import { acquireBoundJobWrite } from './job-writer.ts';
+import { tryJobDirectoryLock } from './job-outbox.ts';
 import type { CommandResult } from './interview.ts';
 import { hasMotionLoopSeam, motionLoopSeamFindings, readMotionLoopSeamPolicy } from './motion-loop-seam.ts';
 import { PARTS_CHECK_FILE, PARTS_CHECK_SPEC, partsCheckFindings, partsCheckRecord } from './parts-check.ts';
-import { commitProjectStep, GITIGNORE_MIGRATION_LINE, migrateProjectGitignore } from './project-step-commit.ts';
+import { assertCleanProjectStep, commitProjectStep, commitToolWrite, GITIGNORE_MIGRATION_LINE, migrateProjectGitignore, trackedProjectStepPaths } from './project-step-commit.ts';
 import { adoptedOutputBindings, adoptedRigConfigBinding, resolveAdoptSource, wasNumberedRigAccepted } from './record-adopt.ts';
 import { writeRecord } from './record-input.ts';
 import { Refusal, refuse, USAGE_EXIT } from './refusal.ts';
@@ -492,14 +493,16 @@ function backfillMotionProvenance(dir: string, file: string, original: Buffer, p
   if (!provenance) return undefined;
   const node = { ...motion, provenance };
   const existing = Object.hasOwn(motion, 'provenance');
+  let stderr: string | undefined;
   if (!existing) {
     const candidate = validateCandidate(dir, project, 'motion', node, now);
     if (!verifiedLegacyMotionProvenance(dir, candidate)) {
       refuse('RECORD_SOURCE_CHANGED', 'current.motion.provenance: the numbered model or motion bytes changed while recording; restore them and retry --adopt');
     }
     writeRecord(file, original, candidate, 'record-motion-adopt', 'RECORD_SOURCE_CHANGED');
+    stderr = commitToolWrite(dir, 'record motion adopt', ['project.json']);
   }
-  return { stdout: json ? JSON.stringify(node, null, 2) : `record motion: v${String(provenance.version)} provenance ${existing ? 'already recorded' : 'recorded in place'}`, exit: 0 };
+  return { stdout: json ? JSON.stringify(node, null, 2) : `record motion: v${String(provenance.version)} provenance ${existing ? 'already recorded' : 'recorded in place'}`, exit: 0, ...(stderr ? { stderr } : {}) };
 }
 
 function recordAdoption(dir: string, file: string, original: Buffer, project: JsonObject, kind: RecordableKind, now: number, json: boolean): CommandResult {
@@ -542,8 +545,10 @@ function recordAdoption(dir: string, file: string, original: Buffer, project: Js
     process.stderr.write('Adopting this output will stop numbered verdict moves from being offered for this project. To sign off on an adopted output, rebuild it and use rig-create record <kind> --from <producer out>.\n');
   }
   writeRecord(file, original, candidate, `record-${kind}-adopt`, 'RECORD_SOURCE_CHANGED');
-  const stderr = source.bouncedDirectionVerdict === undefined ? undefined
+  const commitWarning = commitToolWrite(dir, `record ${kind} adopt`, ['project.json']);
+  const bounceWarning = source.bouncedDirectionVerdict === undefined ? undefined
     : `WARN [${ADOPT_DIRECTION_BOUNCED}]: current.direction adopted bounced v${source.version} in place (versions[v${source.version}].verdicts[${source.bouncedDirectionVerdict}]); run rig-create next to read the open direction feedback before rebuilding`;
+  const stderr = [bounceWarning, commitWarning].filter(Boolean).join('\n');
   return { stdout: json ? JSON.stringify(node, null, 2) : `record ${kind}: adopted v${source.version} in place (${files.length} files)`, exit: 0, ...(stderr ? { stderr } : {}) };
 }
 
@@ -645,14 +650,15 @@ export function recordCommand(args: string[], now: number): CommandResult {
   }
   const { file } = readProject(dir);
   const lock = `${file}.record.lock`;
-  let descriptor: number;
-  try { descriptor = openSync(lock, 'wx'); } catch { return refuse('RECORD_BUSY', `${lock}: another record writer holds the project lock; let it finish and retry`); }
+  const unlockRecord = tryJobDirectoryLock(lock);
+  if (!unlockRecord) refuse('RECORD_BUSY', `${lock}: another record writer holds the project lock; let it finish and retry`);
   let release = () => {};
   try {
-    release = acquireBoundJobWrite(dir, { kind: 'record-only' });
+    release = acquireBoundJobWrite(dir, { kind: 'record-only' }, true);
     const original = readFileSync(file);
     const project = JSON.parse(original.toString('utf8')) as JsonObject;
     if (project.schema !== PROJECT_SCHEMA) refuse('SCHEMA_UNKNOWN', `project.json.schema: record ${kind} reads ${PROJECT_SCHEMA}`);
+    assertCleanProjectStep(dir, ['project.json']);
     if (adopt) return recordAdoption(dir, file, original, project, kind, now, json);
     const current = isObject(project.current) ? project.current : {};
     const priorNode = isObject(current[kind]) ? current[kind] : undefined;
@@ -753,6 +759,18 @@ export function recordCommand(args: string[], now: number): CommandResult {
     if (from !== root && existsSync(join(dir, root)) && !lstatSync(join(dir, root)).isDirectory()) {
       refuse('RECORD_DESTINATION_INVALID', `${root}: expected a folder or nothing; move the file away and record again`);
     }
+    const trackedOutput = trackedProjectStepPaths(dir, [root]);
+    const priorPaths = new Set(asArray(priorNode?.files).filter(isObject).map(entry => entry.path));
+    const removed = trackedOutput.filter(path => !byPath.has(path) && (from !== root || priorPaths.has(path)));
+    if (from !== root) {
+      assertCleanProjectStep(dir, trackedOutput);
+    } else {
+      assertCleanProjectStep(dir, trackedOutput.filter(path => byPath.has(path) || priorPaths.has(path)), true);
+    }
+    const ignoreFile = join(dir, '.gitignore');
+    if (lstatSync(ignoreFile, { throwIfNoEntry: false })?.isFile() && /^\/outputs\/\r?$/m.test(readFileSync(ignoreFile, 'latin1'))) {
+      assertCleanProjectStep(dir, ['.gitignore']);
+    }
     const aside = `${root}.old-${process.pid}-${randomUUID()}`;
     let movedOld = false;
     let movedNew = false;
@@ -794,7 +812,7 @@ export function recordCommand(args: string[], now: number): CommandResult {
     const migrationWarning = migration.changed ? undefined : migration.warning;
     const commitWarning = !migration.changed && migration.failed ? undefined : commitProjectStep(dir, kind, writer, 'project.json', root, stale, {
       migratedGitignore: migration.changed,
-      ...(kind === 'parts' ? { partsFiles: files.map(f => f.path) } : {}),
+      exactPaths: [...files.map(f => f.path), ...removed],
       filesSha256: String(node.files_sha256),
       builtFrom: node.built_from as FileHash[],
       ...(previousBuiltFrom ? { previousBuiltFrom } : {}),
@@ -812,8 +830,7 @@ export function recordCommand(args: string[], now: number): CommandResult {
     if (error instanceof DirectionError) return refuse(error.code, error.message);
     return refuse('RECORD_WRITE_FAILED', `record ${kind}: ${error instanceof Error ? error.message : String(error)}; the record and ${root} were left as they were`);
   } finally {
-    closeSync(descriptor);
-    rmSync(lock, { force: true });
-    release();
+    try { unlockRecord(); }
+    finally { release(); }
   }
 }

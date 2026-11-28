@@ -477,6 +477,7 @@ test('#1029 parts then rig commit exact scoped paths and preserve unrelated stag
   const trailer = ['stale: none', `create: ${version.name} ${version.version}`];
   const partMessage = [
     'parts: add background, eye_l, eye_r, face, lantern, torso', '', `writer: rig-create record parts --from ${NEXT} --config ${CONFIG}`,
+    'command: record parts',
     ...changes(partPaths), ...trailer,
   ].join('\n');
   expect(git('log', '-2', '--format=%B')).toBe(`${partMessage}\n\nSeed synthetic project\n\n`);
@@ -490,6 +491,7 @@ test('#1029 parts then rig commit exact scoped paths and preserve unrelated stag
   const configSha = sha(readFileSync(join(dir, CONFIG))).slice(0, 8);
   const rigMessage = [
     `rig: build from parts ${partsManifestSha}, config.json ${configSha}`, '', `writer: rig-create record rig --from ${RIG_NEXT} --config ${CONFIG}`,
+    'command: record rig',
     ...changes(['project.json']), ...trailer,
   ].join('\n');
   expect(git('log', '-2', '--format=%B')).toBe(`${rigMessage}\n\n${partMessage}\n\n`);

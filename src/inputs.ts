@@ -6,6 +6,7 @@ import { isAbsolute, relative, resolve, sep } from 'node:path';
 import { asArray, isObject, readJsonObject, type Ctx } from './check.ts';
 import { sameArtworkFor } from './init.ts';
 import { acquireBoundJobWrite } from './job-writer.ts';
+import { assertCleanProjectStep, commitToolWrite } from './project-step-commit.ts';
 import { Refusal, refuse, USAGE_EXIT } from './refusal.ts';
 import { assertNotScratchBinding } from './scratch-bindings.ts';
 import type { Json, JsonObject } from './templates.ts';
@@ -136,7 +137,7 @@ function inputsArray(ctx: InputProject): void {
 
 interface ArtworkOptions { projectsRoot?: string; sameArtworkReason?: string }
 
-export function inputCommand(args: string[], now: number): { stdout: string; exit: number } {
+export function inputCommand(args: string[], now: number): { stdout: string; exit: number; stderr?: string } {
   const mode = args[0];
   if (mode !== 'add' && mode !== 'painting') refuse('INPUT_USAGE', INPUT_HELP, USAGE_EXIT);
   const positional: string[] = [];
@@ -167,13 +168,12 @@ export function inputCommand(args: string[], now: number): { stdout: string; exi
   const name = inputPath(dir, positional[0]!);
   assertNotScratchBinding(name, 'inputs[].path');
   const file = resolve(dir, 'project.json');
+  const releaseJob = acquireBoundJobWrite(dir, mode === 'add' ? { kind: 'record-only' } : undefined, true);
   const lock = resolve(dir, '.input.lock');
   let fd: number;
-  try { fd = openSync(lock, 'wx'); } catch { refuse('INPUT_SOURCE_CHANGED', 'inputs: another input writer holds the project lock; wait for it to finish and retry against frozen source bytes'); }
+  try { fd = openSync(lock, 'wx'); } catch { releaseJob(); refuse('INPUT_SOURCE_CHANGED', 'inputs: another input writer holds the project lock; wait for it to finish and retry against frozen source bytes'); }
   let published = false;
-  let releaseJob = () => {};
   try {
-    if (mode === 'add') releaseJob = acquireBoundJobWrite(dir, { kind: 'record-only' });
     let before: Buffer;
     try { before = readFileSync(file); } catch { refuse('PROJECT_JSON_INVALID', `project.json: restore a readable project record before input ${mode}`); }
     const read = readJsonObject(file);
@@ -188,6 +188,9 @@ export function inputCommand(args: string[], now: number): { stdout: string; exi
     checkInputs(ctx);
     const finding = ctx.refusals[0];
     if (finding) refuse(finding.code, finding.message);
+    const path = String(entry.path);
+    assertCleanProjectStep(dir, ['project.json']);
+    if (mode === 'add') assertCleanProjectStep(dir, [path], true);
     try {
       fchmodSync(fd, statSync(file).mode);
       writeFileSync(fd, `${JSON.stringify(project, null, 2)}\n`);
@@ -198,10 +201,10 @@ export function inputCommand(args: string[], now: number): { stdout: string; exi
       if (error instanceof Refusal) throw error;
       refuse('INPUT_WRITE_FAILED', 'inputs: could not publish the staged project.json record; restore writable project storage and retry');
     }
-    const path = String(entry.path);
+    const warning = commitToolWrite(dir, `input ${mode}`, mode === 'add' ? ['project.json', path] : ['project.json']);
     const stdout = json ? JSON.stringify(entry, null, 2)
       : mode === 'add' ? `input: recorded '${path}' (${bytes.length} bytes)` : `input: declared '${path}' as the painting`;
-    return { stdout, exit: 0 };
+    return { stdout, exit: 0, ...(warning === undefined ? {} : { stderr: warning }) };
   } finally {
     try { closeSync(fd); if (!published) unlinkSync(lock); }
     finally { releaseJob(); }

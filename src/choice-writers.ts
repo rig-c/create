@@ -13,6 +13,7 @@ import { approvalStageOfGuide, currentStepPlan, planStepOfGuide, STEP_PLAN_SOURC
 import { SECTIONLESS_POST_ITEMS, WAYPOINT_ASKS } from './waypoints.ts';
 import { collectReopens, liveSignoff } from './reopen.ts';
 import { readProject } from './feedback.ts';
+import { assertCleanProjectStep, BASELINE_PATHS, commitToolWrite } from './project-step-commit.ts';
 import { readVerbatim } from './record-input.ts';
 import { assertTurnBody } from './rig-version.ts';
 import { refuse, USAGE_EXIT } from './refusal.ts';
@@ -78,7 +79,7 @@ function run(action: () => string): string {
 }
 /** Partial interviews may retain unrelated pre-existing refusals, but a writer cannot add a new one. */
 export function save(file: string, dir: string, original: JsonObject, candidate: JsonObject, now: number, baseline: JsonObject[] = [],
-  recordedAnswers: readonly { id: string; correction: boolean }[] = [], originalBytes?: Buffer): void {
+  recordedAnswers: readonly { id: string; correction: boolean }[] = [], originalBytes?: Buffer, beforeWrite?: () => void): void {
   const asRead = checkProject(dir,original,{now});
   const counts = baselineOf(asRead);
   // A pending answer's stored baseline widens the record's own; it never stands in for a check that stopped early.
@@ -106,6 +107,7 @@ export function save(file: string, dir: string, original: JsonObject, candidate:
     && !(finding.code === 'RIG_DEPTH_PLAN_MISSING' && finding.path === 'plan.steps[turn]' && recordsTurn));
   if (first) refuse(first.code,first.message);
   if (originalBytes && !readFileSync(file).equals(originalBytes)) refuse('REVIEW_ACT_SOURCE_STALE', 'project.json: record changed during interview validation; retry against the current job');
+  beforeWrite?.();
   const tmp = join(dirname(file), `.interview-${process.pid}-${crypto.randomUUID()}.tmp`);
   writeFileSync(tmp,`${JSON.stringify(candidate,null,2)}\n`, { flag: 'wx' }); renameSync(tmp,file);
 }
@@ -130,9 +132,24 @@ export function interviewOptionsCommand(args: string[], now: number): string { r
     if (opts.positional.length > 1 || Object.keys(opts.one).length) usage('--adopt takes only a project folder');
   } else if (opts.positional.length > 2 || !opts.one['--file']) usage('question and --file required');
   const dir = resolve(opts.positional[opts.adopt ? 0 : 1] ?? process.cwd());
-  const release = acquireBoundJobWrite(dir, { kind: 'record-only', writer: 'interview' });
+  const release = acquireBoundJobWrite(dir, { kind: 'record-only', writer: 'interview' }, true);
   try {
-    const {file,project} = readProject(dir); const next = structuredClone(project);
+    const {file,project,bytes} = readProject(dir); const next = structuredClone(project);
+    const persist = (output: string, binding?: { path: string; sha256: string }): string => {
+      const recordPaths = ['project.json'];
+      save(file, dir, project, next, now, [], [], undefined, () => {
+        assertCleanProjectStep(dir, recordPaths);
+        if (!readFileSync(file).equals(bytes)) refuse('INTERVIEW_OPTIONS_STALE', 'project.json: record changed during interview validation; retry against the current record');
+        if (binding) {
+          assertCleanProjectStep(dir, [binding.path], true);
+          optionFile(dir, binding);
+        }
+      });
+      const paths = binding ? [...recordPaths, binding.path] : recordPaths;
+      const warning = commitToolWrite(dir, 'interview-options', paths);
+      if (warning !== undefined) process.stderr.write(`${warning}\n`);
+      return output;
+    };
     if (opts.adopt) {
       const interview = isObject(next.interview) ? next.interview : null;
       if (interview && interview.order === undefined && isObject(interview.post)) {
@@ -142,15 +159,18 @@ export function interviewOptionsCommand(args: string[], now: number): string { r
           return 'interview: post choices already adopted; original date preserved';
         }
         interview.post.choices_adopted_at = new Date(now).toISOString();
-        save(file,dir,project,next,now); return 'interview: post choices adopted; stage order and earlier answers preserved';
+        return persist('interview: post choices adopted; stage order and earlier answers preserved');
       }
       if (!interview || !isObject(interview.order) || !['rig-create/stage-order@1', CHOICE_ORDER_SPEC].includes(String(interview.order.spec))) refuse('INTERVIEW_CHOICE_INVALID','interview.order: first adopt the split stage order with a fresh parts/rigging interview; then adopt choices');
       if (interview.order.spec === CHOICE_ORDER_SPEC) return 'interview: choices already adopted; original dates preserved';
       interview.order = {...interview.order,spec:CHOICE_ORDER_SPEC,choices_adopted_at:new Date(now).toISOString()};
-      save(file,dir,project,next,now); return 'interview: choices adopted; earlier answers preserved';
+      return persist('interview: choices adopted; earlier answers preserved');
     }
     const item = itemAt(next,dir,opts.positional[0]); const path = opts.one['--file'];
-    let binding: JsonObject;
+    if ([...BASELINE_PATHS, '.gitignore', 'collection.json', 'review-live.json'].includes(path) || /^(?:scratch\/|node_modules\/|\.rig-create-)/.test(path)) {
+      refuse('INTERVIEW_OPTIONS_FILE', `${item.path}: retain the option set in a separate file before registering it`);
+    }
+    let binding: { path: string; sha256: string };
     try { binding = {path,sha256:sha256(readFileSync(literalFile(dir,path)))}; } catch (e) { throw new ChoiceError('INTERVIEW_OPTIONS_FILE',String(e)); }
     const {set} = optionFile(dir,binding); validateSet(next,item,set,loadCollection(dir)); validateContext(dir,next,set,now,true);
     validateCameraOptions(dir, set);
@@ -164,7 +184,9 @@ export function interviewOptionsCommand(args: string[], now: number): string { r
         if (retained.id === set.id && !equal(old,binding)) refuse('INTERVIEW_OPTIONS_FILE',`${item.path}: option id is already retained; use a new id/path for a redraft`);
       }
     }
-    item.record.pending_options = binding; save(file,dir,project,next,now); return JSON.stringify(binding);
+    if (equal(item.record.pending_options, binding)) return JSON.stringify(binding);
+    item.record.pending_options = binding;
+    return persist(JSON.stringify(binding), binding);
   } finally { release(); }
 }); }
 
@@ -266,13 +288,15 @@ function closeInterviewComment(args: string[], now: number): string {
   const order = /^[1-9]\d*$/.test(orderText) ? Number(orderText) : NaN;
   const reason = readVerbatim(reasonFile);
   const dir = resolve(directory ?? process.cwd());
-  const release = acquireBoundJobWrite(dir, { kind: 'record-only', writer: 'interview' });
+  const release = acquireBoundJobWrite(dir, { kind: 'record-only', writer: 'interview' }, true);
   try {
     const { file, project, bytes } = readProject(dir);
     const { row, replay } = prepareInterviewCommentClosure(dir, project, now, { jobId, actId, question, order }, reason, one['--resolved-by-answer']);
     if (!replay) {
       const next = { ...project, interview_comment_closures: [...asArray(project.interview_comment_closures), row] };
-      save(file, dir, project, next, now, [], [], bytes);
+      save(file, dir, project, next, now, [], [], bytes, () => assertCleanProjectStep(dir, ['project.json']));
+      const warning = commitToolWrite(dir, 'interview-answer', ['project.json']);
+      if (warning !== undefined) process.stderr.write(`${warning}\n`);
     }
     return JSON.stringify(row);
   } finally { release(); }
@@ -299,7 +323,7 @@ export function interviewAnswerCommand(args: string[], now: number): string { re
   if (opts.one['--owner-chat'] !== undefined && opts.one['--by']?.toLowerCase() === 'agent') refuse('INTERVIEW_CHOICE_INVALID', 'project.json.interview: --by must name the owner; relay owner words without claiming agent authority');
   const chat = readOwnerChat(opts.one, opts.one['--by'], now, 'project.json.interview');
   const dir = resolve(opts.positional[1] ?? process.cwd());
-  const release = acquireBoundJobWrite(dir, { kind: 'record-only', writer: 'interview' });
+  const release = acquireBoundJobWrite(dir, { kind: 'record-only', writer: 'interview' }, true);
   try {
     const {file,project} = readProject(dir);
     const original = readFileSync(file);
@@ -312,7 +336,9 @@ export function interviewAnswerCommand(args: string[], now: number): string { re
     const next = structuredClone(project);
     assertTurnBody(draft.item.id, draft.answer, draft.item.path);
     applyInterviewAnswer(dir, next, draft);
-    save(file,dir,project,next,now,[],[{ id: draft.item.id, correction: draft.correction }],original);
+    save(file,dir,project,next,now,[],[{ id: draft.item.id, correction: draft.correction }],original,() => assertCleanProjectStep(dir, ['project.json']));
+    const warning = commitToolWrite(dir, 'interview-answer', ['project.json']);
+    if (warning !== undefined) process.stderr.write(`${warning}\n`);
     return JSON.stringify(draft.answer);
   } finally { release(); }
 }); }
@@ -334,9 +360,9 @@ function stepPlanAsks(dir: string, project: JsonObject, item: Item, value: Json)
 function stepPlanDecision(opts: Args, now: number): string {
   if (opts.many['--fragment'] || !opts.one['--plan-quote-file']) usage('a step plan value takes --value-file and --plan-quote-file, without --fragment');
   const dir = resolve(opts.positional[1] ?? process.cwd());
-  const release = acquireBoundJobWrite(dir, { kind: 'record-only', writer: 'interview' });
+  const release = acquireBoundJobWrite(dir, { kind: 'record-only', writer: 'interview' }, true);
   try {
-    const {file,project} = readProject(dir); const next = structuredClone(project);
+    const {file,project,bytes} = readProject(dir); const next = structuredClone(project);
     const item = itemAt(next,dir,opts.positional[0]);
     if (!VALUE_QUESTIONS.includes(item.id)) usage(`${item.id}: no code reads its value; under a step plan it stays unanswered`);
     const step = planStepOfGuide(item.id, item.kind === 'post'); const plan = currentStepPlan(next, step);
@@ -352,7 +378,10 @@ function stepPlanDecision(opts: Args, now: number): string {
     if (prior) item.record.history = [...asArray(item.record.history), prior];
     item.record[item.kind === 'framing' ? 'answer' : 'guide'] = answer;
     // Like every other answer writer: steps resting on the new value are marked for revision, not refused.
-    save(file,dir,project,next,now,[],[{ id: item.id, correction: false }]); return JSON.stringify(answer);
+    save(file,dir,project,next,now,[],[{ id: item.id, correction: false }],bytes,() => assertCleanProjectStep(dir, ['project.json']));
+    const warning = commitToolWrite(dir, 'interview-decision', ['project.json']);
+    if (warning !== undefined) process.stderr.write(`${warning}\n`);
+    return JSON.stringify(answer);
   } finally { release(); }
 }
 
@@ -364,9 +393,9 @@ export function interviewDecisionCommand(args: string[], now: number): string { 
   if (opts.one['--value-file'] !== undefined) return stepPlanDecision(opts, now);
   if (opts.one['--plan-quote-file'] !== undefined) usage('--plan-quote-file goes with --value-file');
   const dir = resolve(opts.positional[1] ?? process.cwd());
-  const release = acquireBoundJobWrite(dir, { kind: 'record-only', writer: 'interview' });
+  const release = acquireBoundJobWrite(dir, { kind: 'record-only', writer: 'interview' }, true);
   try {
-    const {file,project} = readProject(dir); const next = structuredClone(project);
+    const {file,project,bytes} = readProject(dir); const next = structuredClone(project);
     const item = itemAt(next,dir,opts.positional[0]); checkNewAnswer(dir,next,item);
     if (!isObject(item.raw) || !isObject(item.raw.choice)) refuse('INTERVIEW_CHOICE_INVALID',`${item.path}: explicitly choose auto before writing a decision`);
     const {set} = optionFile(dir,item.raw.choice.set); validateContext(dir,next,set,now,true);
@@ -377,6 +406,10 @@ export function interviewDecisionCommand(args: string[], now: number): string { 
     const baseline = pending ? refusalBaseline(item.raw) : [];
     item.raw.agent_decision = {by:opts.one['--by'],at:new Date(now).toISOString(),reasoning:readText(opts.one['--reasoning-file']),covers:result.autos.join(','),fragments,value:assembleFragments(String((set.assembly as JsonObject).rule),fragments.map(f=>f.fragment))};
     assertTurnBody(item.id,{agent_decision:item.raw.agent_decision},item.path);
-    validateChoice(dir,next,item,item.raw); save(file,dir,project,next,now,baseline,[{id:item.id,correction:false}]); return JSON.stringify(item.raw.agent_decision);
+    validateChoice(dir,next,item,item.raw);
+    save(file,dir,project,next,now,baseline,[{id:item.id,correction:false}],bytes,() => assertCleanProjectStep(dir, ['project.json']));
+    const warning = commitToolWrite(dir, 'interview-decision', ['project.json']);
+    if (warning !== undefined) process.stderr.write(`${warning}\n`);
+    return JSON.stringify(item.raw.agent_decision);
   } finally { release(); }
 }); }

@@ -15,6 +15,7 @@ import { freshProjectRecord, run } from './init.ts';
 import { checkInputs } from './inputs.ts';
 import { acquireBoundJobWrite } from './job-writer.ts';
 import { OWNER_CHAT_FLAGS, REOPEN_RESTART_OWNER_CHAT_SINCE, ownerChatAuthorityFinding, readOwnerChat } from './owner-chat.ts';
+import { assertCleanProjectStep, commitToolWrite } from './project-step-commit.ts';
 import { readVerbatim, writeRecord } from './record-input.ts';
 import { refuse, USAGE_EXIT } from './refusal.ts';
 import { baselineOf, newFindings } from './refusal-baseline.ts';
@@ -141,7 +142,7 @@ export function restartCommand(args: string[], now: number): { stdout: string; e
   const notProject = (why: string): never => refuse('RESTART_NOT_A_PROJECT', `${file}: ${why}; restart runs on a create project folder`);
   if (!existsSync(file)) notProject('does not exist');
   const committed = committedRecord(dir, file);
-  const release = acquireBoundJobWrite(dir);
+  const release = acquireBoundJobWrite(dir, undefined, true);
   try {
     const original = readFileSync(file);
     if (!original.equals(committed)) refuse('RESTART_SOURCE_CHANGED', 'project.json: changed while restart was validating; retry against the current record');
@@ -201,7 +202,9 @@ export function restartCommand(args: string[], now: number): { stdout: string; e
     const fresh = checkProject(dir, freshProjectRecord(String(candidate.name ?? ''), now), { now });
     const rejected = newFindings(baselineOf(fresh), checkProject(dir, structuredClone(candidate), { now }).refusals)[0];
     if (rejected !== undefined) refuse(rejected.code, rejected.message);
+    assertCleanProjectStep(dir, ['project.json']);
     writeRecord(file, original, candidate, 'restart', 'RESTART_SOURCE_CHANGED');
+    const warning = commitToolWrite(dir, 'restart', ['project.json']);
     const rows = asArray(candidate.fix_ledger).length;
     const droppedText = dropped.map(row => `  ${String(row.path)} (source: ${JSON.stringify(row.source)})`);
     const leftOutText = leftOut.length
@@ -212,6 +215,7 @@ export function restartCommand(args: string[], now: number): { stdout: string; e
         : [`restart: project record restarted at stage ${String(candidate.stage)}; kept ${asArray(candidate.inputs).length} input(s) and ${rows} ledger row(s)${leftOutText}; the earlier record (sha256 ${String(entry.previous_record_sha256)}) is in git history`,
           `Dropped ${dropped.length} answer addition(s)`, ...droppedText].join('\n'),
       exit: 0,
+      ...(warning === undefined ? {} : { stderr: warning }),
     };
   } finally { release(); }
 }

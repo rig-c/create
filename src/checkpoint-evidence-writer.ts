@@ -5,10 +5,12 @@ import { checkProject, isObject } from './check.ts';
 import { parseCheckpointEvidence, parseCheckpointTable, readCheckpointEvidence } from './checkpoint-evidence.ts';
 import { readProject } from './feedback.ts';
 import { acquireBoundJobWrite } from './job-writer.ts';
+import { assertCleanProjectStep, commitToolWrite } from './project-step-commit.ts';
 import { baselineOf, newFindings } from './refusal-baseline.ts';
 import { readVerbatim } from './record-input.ts';
 import { refuse, USAGE_EXIT } from './refusal.ts';
 import type { Json, JsonObject } from './templates.ts';
+import { eligibleBoundPaths } from './writer-commit-paths.ts';
 
 export const CHECKPOINT_EVIDENCE_HELP = `checkpoint-evidence [<project dir>] (--file <packet-list.json> | --clear) [--json]
   Attach an ordered sealed packet list as plan.checkpoint_evidence. Assets already live
@@ -49,10 +51,10 @@ function readJson(file: string): Json {
   catch { return refuse('CHECKPOINT_EVIDENCE_INVALID', 'plan.checkpoint_evidence: input must be valid UTF-8 JSON; supply the producer presentation file'); }
 }
 
-export function checkpointEvidenceCommand(args: string[], now: number): { stdout: string; exit: number } {
+export function checkpointEvidenceCommand(args: string[], now: number): { stdout: string; exit: number; stderr?: string } {
   const { root, opts, json, clear } = options(args, false);
   const raw = clear ? undefined : readJson(resolve(root, opts['--file']!));
-  const release = acquireBoundJobWrite(root);
+  const release = acquireBoundJobWrite(root, undefined, true);
   const lock = join(root, '.checkpoint-evidence.lock');
   let descriptor: number;
   try { descriptor = openSync(lock, 'wx'); }
@@ -71,15 +73,26 @@ export function checkpointEvidenceCommand(args: string[], now: number): { stdout
     const fresh = newFindings(baselineOf(checkProject(root, project, { now, readOnly: true })), checkProject(root, next, { now, readOnly: true }).refusals)[0];
     if (fresh) refuse(fresh.code, fresh.message);
     const previous = isObject(project.plan) ? project.plan.checkpoint_evidence : undefined;
+    let warning: string | undefined;
     if (JSON.stringify(previous) !== JSON.stringify(packets)) {
+      const assets = packets
+        ? eligibleBoundPaths(packets.flatMap(packet => [...packet.tiles.map(tile => tile.path), packet.table.path]))
+        : [];
+      assertCleanProjectStep(root, ['project.json']);
+      assertCleanProjectStep(root, assets, true);
       writeFileSync(temporary, `${JSON.stringify(next, null, 2)}\n`, { flag: 'wx' });
       // Check the raw assets again after candidate validation, before committing.
       readCheckpointEvidence(root, next);
       if (!readFileSync(file).equals(original)) refuse('CHECKPOINT_EVIDENCE_WRITE_CONFLICT', 'project.json: changed during checkpoint attachment; reload and retry');
       renameSync(temporary, file);
+      warning = commitToolWrite(root, 'checkpoint-evidence', ['project.json', ...assets]);
     }
-    return { stdout: json ? JSON.stringify(packets ?? null, null, 2)
-      : packets ? `checkpoint-evidence: retained ${packets.length} packet(s)` : 'checkpoint-evidence: cleared', exit: 0 };
+    return {
+      stdout: json ? JSON.stringify(packets ?? null, null, 2)
+        : packets ? `checkpoint-evidence: retained ${packets.length} packet(s)` : 'checkpoint-evidence: cleared',
+      exit: 0,
+      ...(warning === undefined ? {} : { stderr: warning }),
+    };
   } finally {
     rmSync(temporary, { force: true });
     closeSync(descriptor);

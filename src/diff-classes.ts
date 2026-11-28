@@ -1,14 +1,16 @@
 /** Group only producer fields; no image measurement takes place here. */
 import { createHash } from 'node:crypto';
-import { writeFileSync } from 'node:fs';
 import { existsSync, readFileSync } from './check-reads.ts';
-import { join, resolve } from 'node:path';
+import { join, relative, resolve, sep } from 'node:path';
 
 import { checkProject, readJsonObject, type Finding } from './check.ts';
 import { diffReportBytes, diffReportShapeDetail, reportShape, resolveDiffMapPartsFile, validateDiffMapRecord } from './diff-map.ts';
 import { acquireBoundJobWrite } from './job-writer.ts';
+import { assertCleanProjectStep, commitToolWrite } from './project-step-commit.ts';
+import { writeRecord } from './record-input.ts';
 import { refuse, USAGE_EXIT } from './refusal.ts';
 import type { JsonObject } from './templates.ts';
+import { eligibleBoundPaths } from './writer-commit-paths.ts';
 
 type Component = { id: string; px: number; uncovered_px: number; coverage: string; borders: { part: string }[] };
 type Key = { coverage_band: string; border_parts: string[] };
@@ -125,7 +127,7 @@ export const DIFF_CLASSES_HELP = `diff-classes [<project dir>] --diff-report <pa
   Triage JSON: {"classes":{"<class id>":{"status":"left","why":"<property and observation>"}},"components":{}}.
   Mixed bands have width 0.25; the lower bound is inclusive and upper bound exclusive.`;
 
-export function diffClassesCommand(args: string[], now: number = Date.now()): { stdout: string; exit: number } {
+export function diffClassesCommand(args: string[], now: number = Date.now()): { stdout: string; exit: number; stderr?: string } {
   let dir: string | undefined;
   let report: string | undefined;
   let triageFile: string | undefined;
@@ -172,8 +174,9 @@ export function diffClassesCommand(args: string[], now: number = Date.now()): { 
   if (!existsSync(projectFile)) {
     refuse('PROJECT_JSON_MISSING', `${projectFile} does not exist; run diff-classes in a project folder or name one`);
   }
-  const release = acquireBoundJobWrite(root);
+  const release = acquireBoundJobWrite(root, undefined, true);
   try {
+    const original = readFileSync(projectFile);
     const read = readJsonObject(projectFile);
     if (!read.ok) refuse('PROJECT_JSON_INVALID', `${projectFile}: ${read.error}`);
     const project = read.value;
@@ -206,8 +209,13 @@ export function diffClassesCommand(args: string[], now: number = Date.now()): { 
     const baseline = new Set(checkProject(root, asRead, { now, readOnly: true }).refusals.map(f => `${f.code}\0${f.path}\0${f.message}`));
     const fresh = checkProject(root, project, { now, readOnly: true }).refusals.find(f => !baseline.has(`${f.code}\0${f.path}\0${f.message}`));
     if (fresh !== undefined) refuse(fresh.code, fresh.message);
-    writeFileSync(projectFile, `${JSON.stringify(project, null, 2)}\n`);
-    return { stdout: JSON.stringify({ diff_map: diffMap }, null, 2), exit: 0 };
+    const reportRel = relative(root, resolve(root, report)).split(sep).join('/');
+    const assets = eligibleBoundPaths([reportRel]);
+    assertCleanProjectStep(root, ['project.json']);
+    assertCleanProjectStep(root, assets, true);
+    writeRecord(projectFile, original, project, 'diff-classes', 'DIFF_MAP_REPORT');
+    const warning = commitToolWrite(root, 'diff-classes', ['project.json', ...assets]);
+    return { stdout: JSON.stringify({ diff_map: diffMap }, null, 2), exit: 0, ...(warning === undefined ? {} : { stderr: warning }) };
   } finally {
     release();
   }

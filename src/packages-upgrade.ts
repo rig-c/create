@@ -1,12 +1,14 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { closeSync, existsSync, lstatSync, mkdtempSync, openSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdtempSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, join, resolve } from 'node:path';
 import { stripVTControlCharacters } from 'node:util';
 import { isObject, type CheckReport } from './check.ts';
+import { tryJobDirectoryLock } from './job-outbox.ts';
 import { acquireBoundJobWrite, jobRuntimeExecArgv } from './job-writer.ts';
 import { PACKAGE_NAMES, compareVersions, exactVersion, packageUpgradeFindings } from './package-upgrades.ts';
 import { CREATE_PACKAGE, PINNED_PACKAGES, runningCreateVersion } from './pins.ts';
+import { assertCleanProjectStep, commitToolWrite } from './project-step-commit.ts';
 import { writeRecord } from './record-input.ts';
 import { Refusal, refuse, USAGE_EXIT } from './refusal.ts';
 import type { JsonObject } from './templates.ts';
@@ -77,6 +79,7 @@ function rehearsalTarballPath(spec: string): string | null {
 }
 
 const DEFAULT_INSTALL_REFUSAL = 'package.json/bun.lock: staged bun install failed; check registry access and package versions before retrying packages upgrade';
+const UPGRADE_PATHS = ['package.json', 'bun.lock', 'project.json'];
 
 function unpublishedRunningCreate(stderr: string, runningVersion: string): { name: string; version: string } | null {
   const text = stripVTControlCharacters(stderr).replace(/\r\n/g, '\n');
@@ -120,17 +123,28 @@ export function packagesCommand(args: string[], now: number, options?: { running
   }
   if (!by.trim()) refuse('PACKAGE_UPGRADE_USAGE', 'project.json: packages upgrade requires --by <operator>', USAGE_EXIT);
   const dir = resolve(dirArg ?? process.cwd());
-  const release = acquireBoundJobWrite(dir);
-  const lock = join(dir, '.rig-create-packages.lock');
-  let fd: number;
-  try { fd = openSync(lock, 'wx'); } catch { release(); return refuse('PACKAGE_UPGRADE_CONFLICT', 'project.json: another package writer holds the lock; finish it before packages upgrade'); }
+  const release = acquireBoundJobWrite(dir, undefined, true);
+  let releasePackages: (() => void) | null = null;
+  try {
+    releasePackages = tryJobDirectoryLock(join(dir, '.rig-create-packages.lock'));
+    if (!releasePackages) refuse('PACKAGE_UPGRADE_CONFLICT', 'project.json: cannot acquire the package writer lock; finish or recover the active package write before packages upgrade');
+    const result = upgradePackages(dir, by, rehearsal, now, options?.runningCreateVersion ?? runningCreateVersion());
+    const warning = commitToolWrite(dir, 'packages upgrade', UPGRADE_PATHS);
+    if (warning !== undefined) process.stderr.write(`${warning}\n`);
+    return result;
+  } finally {
+    try { releasePackages?.(); } finally { release(); }
+  }
+}
+
+function upgradePackages(dir: string, by: string, rehearsal: boolean, now: number, createVersion: string): string {
   let scratch: string | undefined;
-  let swapped = false; let committed = false;
+  let swapped = false; let saved = false;
   const backup = join(dir, `.node_modules-${randomUUID()}`);
-  const paths = ['package.json', 'bun.lock', 'project.json'];
   const originals = new Map<string, Buffer | null>();
   try {
-    for (const path of paths) originals.set(path, existsSync(join(dir, path)) ? readFileSync(join(dir, path)) : null);
+    assertCleanProjectStep(dir, UPGRADE_PATHS);
+    for (const path of UPGRADE_PATHS) originals.set(path, existsSync(join(dir, path)) ? readFileSync(join(dir, path)) : null);
     const pkgBytes = originals.get('package.json'); const recordBytes = originals.get('project.json');
     if (!pkgBytes || !recordBytes) refuse('PACKAGE_UPGRADE_INPUT', 'project.json/package.json: missing record or manifest; restore them before packages upgrade');
     let pkg: JsonObject; let project: JsonObject;
@@ -142,7 +156,6 @@ export function packagesCommand(args: string[], now: number, options?: { running
     if (malformed) refuse(malformed.code, malformed.message);
     const dependencies = pkg.dependencies as JsonObject;
     const reviewPin = (JSON.parse(readFileSync(join(import.meta.dir, '../package.json'), 'utf8')) as { dependencies: Record<string, string> }).dependencies['@rig-c/review']!;
-    const createVersion = options?.runningCreateVersion ?? runningCreateVersion();
     const pins: Record<(typeof PACKAGE_NAMES)[number], string> = {
       '@rig-c/core': PINNED_PACKAGES['@rig-c/core'],
       [CREATE_PACKAGE]: createVersion,
@@ -235,6 +248,7 @@ export function packagesCommand(args: string[], now: number, options?: { running
       } catch { unchanged = false; }
       if (!unchanged) refuse('PACKAGE_UPGRADE_CONFLICT', `project.json: rehearsal tarball for ${dep.name} changed during installation; retry packages upgrade --rehearsal against the current tarball`);
     }
+    assertCleanProjectStep(dir, UPGRADE_PATHS);
     if (existsSync(join(dir, 'node_modules'))) {
       if (!lstatSync(join(dir, 'node_modules')).isDirectory()) refuse('PACKAGE_UPGRADE_INPUT', 'package.json: node_modules must be a project-owned directory; restore a standalone install before packages upgrade');
       renameSync(join(dir, 'node_modules'), backup);
@@ -264,20 +278,19 @@ export function packagesCommand(args: string[], now: number, options?: { running
       counts.set(key(finding), count - 1);
     }
     writeRecord(join(dir, 'project.json'), recordBytes, candidate, 'packages', 'PACKAGE_UPGRADE_CONFLICT');
-    committed = true;
+    saved = true;
     const moved = [...(questionSet ? [`interview.question_set → ${JSON.stringify(questionSet.to)}`] : []), ...configs.map(move => `interview.waypoints[${move.id}].config → [${move.to.join(', ')}]`)];
     return `packages: upgraded ${packages.map(pin => `${pin.name} ${pin.from ?? '(absent)'} → ${pin.to}`).join(', ')}${moved.length ? `; ${moved.join('; ')}` : ''}; recorded package_upgrades[${history.length - 1}]${rehearsal ? ' (rehearsal)' : ''}`;
   } catch (error) {
     if (error instanceof Refusal) throw error;
     return refuse('PACKAGE_UPGRADE_INSTALL', 'project.json/package.json: package migration could not complete; restore filesystem access and retry packages upgrade');
   } finally {
-    if (swapped && !committed) {
+    if (swapped && !saved) {
       rmSync(join(dir, 'node_modules'), { recursive: true, force: true });
       if (existsSync(backup)) renameSync(backup, join(dir, 'node_modules'));
       for (const [path, bytes] of originals) if (bytes === null) rmSync(join(dir, path), { force: true }); else writeFileSync(join(dir, path), bytes);
     }
-    if (committed) rmSync(backup, { recursive: true, force: true });
+    if (saved) rmSync(backup, { recursive: true, force: true });
     if (scratch) rmSync(scratch, { recursive: true, force: true });
-    closeSync(fd); rmSync(lock); release();
   }
 }

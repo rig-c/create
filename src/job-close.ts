@@ -29,6 +29,7 @@ import {
   type WriterBinding,
 } from './job-outbox.ts';
 import { currentJobIdentity } from './job-publication.ts';
+import { assertCleanProjectStep, commitToolWrite } from './project-step-commit.ts';
 import { baselineOf, newFindings } from './refusal-baseline.ts';
 import { refuse, USAGE_EXIT } from './refusal.ts';
 import { appendWithdrawalReceipt, buildDiscardActReceipt, reviewActFindings } from './review-act.ts';
@@ -510,8 +511,11 @@ async function withBoundJobRecord(
       const { next, afterWrite } = await edit({ root, file, host, binding, project, original });
       assertUnchangedBindingAndRecord(root, file, binding, original, verb, next !== undefined);
       if (next !== undefined) {
+        assertCleanProjectStep(root, ['project.json']);
         writeFileSync(temporary, typeof next === 'string' ? next : `${JSON.stringify(next, null, 2)}\n`, { flag: 'wx' });
         renameSync(temporary, file);
+        const warning = commitToolWrite(root, `job ${verb}`, ['project.json']);
+        if (warning !== undefined) process.stderr.write(`${warning}\n`);
       }
       afterWrite?.();
     } finally {
@@ -664,6 +668,7 @@ export async function closeCreateJob(
         next = appendDiscardedJobActs(root, project, acts.map(act => buildDiscardActReceipt(binding.jobId, act.actId, discardEvidence)), now);
       }
       assertUnchangedBindingAndRecord(root, file, binding, original, 'close');
+      if (next !== undefined) assertCleanProjectStep(root, ['project.json']);
       const response = await host.ports.handleJobApi(new Request(`${host.origin}/jobs/${binding.jobId}/api`, {
         method: 'POST',
         headers: { authorization: `Bearer ${host.session.hostCredentials().agent}`, 'content-type': 'application/json' },
@@ -683,6 +688,8 @@ export async function closeCreateJob(
       if (next !== undefined) {
         writeFileSync(temporary, `${JSON.stringify(next, null, 2)}\n`, { flag: 'wx' });
         renameSync(temporary, file);
+        const warning = commitToolWrite(root, 'job close', ['project.json']);
+        if (warning !== undefined) process.stderr.write(`${warning}\n`);
       }
       if (retireRefused) retireRefusedPublications(root, failed);
       rmSync(join(root, JOB_BINDING_FILE));

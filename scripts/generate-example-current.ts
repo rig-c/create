@@ -231,6 +231,10 @@ export function generateExampleCurrent(destination: string, stopAfterOptions?: '
   advance('direction-review');
   sign('direction-review');
   advance('accepted');
+  const atAcceptance = JSON.parse(nextCommand([dir, '--json'], now).stdout) as NextReport;
+  if (atAcceptance.moves.some(move => move.field === 'git.baseline')) {
+    throw new Error('unexpected pending baseline move at acceptance');
+  }
   const final = checkProject(dir, undefined, { now });
   if (final.refusals.length || final.warnings.length) throw new Error(jsonBytes({ refusals: final.refusals, warnings: final.warnings } as unknown as Json));
   console.log('current example: accepted; 0 refusals, 0 warnings');

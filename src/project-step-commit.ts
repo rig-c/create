@@ -1,15 +1,21 @@
 import { spawnSync } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 import { chmodSync, closeSync, constants, fstatSync, openSync, renameSync, rmSync, writeFileSync, type Stats } from 'node:fs';
-import { basename, dirname, join, posix } from 'node:path';
-import { existsSync, lstatSync, readFileSync } from './check-reads.ts';
-import type { Finding } from './check.ts';
-import type { CurrentKind } from './current.ts';
+import { basename, dirname, join, posix, sep } from 'node:path';
+import { existsSync, lstatSync, readFileSync, realpathSync } from './check-reads.ts';
+import { asArray, collectItems, isObject, PROJECT_SCHEMA, type Finding } from './check.ts';
+import { CHOICE_SPEC, OPTIONS_SPEC } from './choices.ts';
+import { CURRENT_KINDS, currentShapeFindings, type CurrentKind } from './current.ts';
+import { intakeItem } from './intake.ts';
 import type { CurrentPublicationOutput } from './job-outbox.ts';
+import { refuse } from './refusal.ts';
+import { PLAN_STEPS, STEP_PLAN_SCHEMA } from './stages.ts';
+import type { Json, JsonObject } from './templates.ts';
+import { BASELINE_PATHS, GITIGNORE_MIGRATION_LINE, OUTPUTS_IGNORE } from './writer-commit-paths.ts';
+
+export { BASELINE_PATHS, GITIGNORE_MIGRATION_LINE, OUTPUTS_IGNORE };
 
 type Step = 'scene' | CurrentKind;
-export const OUTPUTS_IGNORE = ['/outputs/*', '!/outputs/parts/'] as const;
-export const GITIGNORE_MIGRATION_LINE = `gitignore: /outputs/ -> ${OUTPUTS_IGNORE.join(' ')}`;
 const MAX_SUBJECT = 72;
 const UPSTREAM_ORDER = ['motion', 'rig', 'parts'] as const;
 const UPSTREAM_PRIMARY: Record<(typeof UPSTREAM_ORDER)[number], readonly string[]> = {
@@ -80,6 +86,7 @@ export interface ChangedStepPath {
 }
 
 export interface RecordCommitOptions {
+  exactPaths?: readonly string[];
   migratedGitignore?: boolean;
   partsFiles?: readonly string[];
   filesSha256?: string;
@@ -249,57 +256,483 @@ function changedPathsFromStatus(stdout: string): ChangedStepPath[] {
   return entries;
 }
 
+function projectGit(dir: string, args: string[], input?: string) {
+  return spawnSync('git', ['--no-optional-locks', '--literal-pathspecs', ...args], {
+    cwd: dir, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024, input,
+  });
+}
+
+function gitFailure(result: ReturnType<typeof projectGit>): string {
+  return result.error?.message || result.stderr?.trim() || result.stdout?.trim() || 'Git exited unsuccessfully';
+}
+
+function gitRead(dir: string, args: string[], input?: string): string {
+  const result = projectGit(dir, args, input);
+  if (result.status !== 0) throw new Error(gitFailure(result));
+  return result.stdout;
+}
+
+function hasProjectGit(dir: string): boolean {
+  if (!existsSync(join(dir, 'project.json')) && !existsSync(join(dir, 'collection.json'))) return false;
+  const canonical = realpathSync(dir);
+  const repo = findProjectRepo(canonical);
+  if (!repo) return false;
+  const root = projectGit(dir, ['rev-parse', '--show-toplevel']);
+  if (root.status !== 0) throw new Error(gitFailure(root));
+  return realpathSync(root.stdout.replace(/\r?\n$/, '')) === repo;
+}
+
+function projectPaths(paths: readonly string[]): string[] {
+  const unique = [...new Set(paths)];
+  if (unique.some(path => path.includes('\0') || (sep === '\\' && /\\|^[a-z]:/i.test(path))
+    || path.split('/').some(part => !part || ['.', '..', '.git'].includes(part.toLowerCase())))) {
+    throw new Error('expected literal project-relative paths');
+  }
+  return unique;
+}
+
+function listPaths(dir: string, flags: string[], scopes: readonly string[]): string[] {
+  return scopes.length ? pathsFrom(gitRead(dir, ['ls-files', ...flags, '-z', '--', ...scopes])) : [];
+}
+
+/** Expand literal file or tree scopes to tracked paths relative to the project. */
+export function trackedProjectStepPaths(dir: string, paths: readonly string[]): string[] {
+  try {
+    if (!paths.length || !hasProjectGit(dir)) return [];
+    const scope = projectPaths(paths);
+    const tracked = listPaths(dir, ['--cached', '--deduplicate'], scope);
+    const head = projectHead(dir);
+    if (head) tracked.push(...pathsFrom(gitRead(dir, ['ls-tree', '-r', '--name-only', '-z', head, '--', ...scope])));
+    return [...new Set(tracked)].sort();
+  } catch (error) {
+    return refuse('PROJECT_COMMIT_FAILED', `project.json: ${String(error)}; repair the project Git work tree and retry`);
+  }
+}
+
+const diffFlags = ['--name-status', '--no-renames', '--no-ext-diff', '--ignore-submodules=none', '--relative', '-z'];
+
+function scopedDiff(dir: string, flags: string[], paths: readonly string[]): ChangedStepPath[] {
+  return paths.length ? changedPathsFromStatus(gitRead(dir, ['diff', ...diffFlags, ...flags, '--', ...paths])) : [];
+}
+
+function exactDiff(dir: string, flags: string[], paths: readonly string[]): ChangedStepPath[] {
+  const scope = new Set(paths);
+  return scopedDiff(dir, flags, paths).filter(({ path }) => scope.has(path));
+}
+
+function worktreeEntry(dir: string, path: string): Stats | undefined {
+  try { return lstatSync(join(dir, path), { throwIfNoEntry: false }); }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOTDIR') return undefined;
+    throw error;
+  }
+}
+
+function dirtyPaths(dir: string, paths: readonly string[], indexOnly: boolean): string[] {
+  const staged = new Set(exactDiff(dir, ['--cached'], paths).map(entry => entry.path));
+  if (indexOnly) return paths.filter(path => staged.has(path));
+  const tracked = new Set(listPaths(dir, ['--cached'], paths));
+  const changed = new Set(exactDiff(dir, [], paths).map(entry => entry.path));
+  return paths.filter(path => staged.has(path) || changed.has(path) || (!tracked.has(path) && worktreeEntry(dir, path)));
+}
+
+export function projectStepDirtyPaths(dir: string, paths: readonly string[]): string[] {
+  return readProjectDirtyPaths(dir, paths, false);
+}
+
+function readProjectDirtyPaths(dir: string, paths: readonly string[], indexOnly: boolean): string[] {
+  try {
+    return hasProjectGit(dir) ? dirtyPaths(dir, projectPaths(paths), indexOnly) : [];
+  } catch (error) {
+    return refuse('PROJECT_COMMIT_FAILED', `project.json: ${String(error)}; repair the project Git work tree and retry`);
+  }
+}
+
+export function assertCleanProjectStep(dir: string, paths: readonly string[], indexOnly = false): void {
+  const dirty = readProjectDirtyPaths(dir, paths, indexOnly);
+  if (!dirty.length) return;
+  const baseline = new Set<string>(BASELINE_PATHS);
+  const remedy = dirty.every(path => baseline.has(path))
+    ? `review and preserve the existing changes with rig-create history baseline ${quote(dir)} --by <operator>`
+    : 'review and commit or set aside the existing changes';
+  refuse('PROJECT_COMMIT_DIRTY', `${dirty.map(quote).join(', ')}: ${indexOnly ? 'the index' : 'the index or work tree'} has pending changes; ${remedy} before retrying`);
+}
+
+const NO_PROJECT_GIT = 'rig-create: WARN PROJECT_NOT_IN_GIT: project.json: the project and its collection have no Git work tree; saved the files without a commit';
+
+function commitWarning(dir: string, paths: readonly string[], error: unknown): string {
+  const baseline = new Set<string>(BASELINE_PATHS);
+  const remedy = paths.some(path => baseline.has(path))
+    ? `review the saved shared changes with rig-create history baseline ${quote(dir)} --by <operator>`
+    : 'review the saved changes before committing';
+  return `rig-create: WARN PROJECT_COMMIT_FAILED: project.json: ${error instanceof Error ? error.message : String(error)}; correct the Git error and ${remedy}`;
+}
+
+function projectHead(dir: string): string | undefined {
+  const head = projectGit(dir, ['rev-parse', '--verify', '--quiet', 'HEAD^{commit}']);
+  if (head.status === 0) return head.stdout.trim();
+  if (head.status !== 1) throw new Error(gitFailure(head));
+}
+
+function exactChanges(dir: string, paths: readonly string[], staged: ChangedStepPath[] = []): ChangedStepPath[] {
+  const scope = new Set(paths);
+  const additions = listPaths(dir, ['--others', '--exclude-standard'], paths).filter(path => scope.has(path));
+  const head = projectHead(dir);
+  const changes = head ? exactDiff(dir, [head], paths) : staged;
+  return [...changes, ...additions.map(path => ({ status: 'A', path }))];
+}
+
+const BASELINE_PROJECT_FILES = new Set<string>([...BASELINE_PATHS, 'collection.json', 'review-live.json', 'members']);
+const BASELINE_RESERVED = new Set([
+  '.git', '.gitignore', '.gitattributes', '.gitmodules', 'scratch', 'node_modules', '.plan.lock', 'project.json.record.lock',
+]);
+
+function baselineAssetPath(path: string): boolean {
+  const parts = path.toLowerCase().split('/');
+  return !BASELINE_PROJECT_FILES.has(parts[0]!) && !/[\\:\0\r\n]/.test(path)
+    && parts.every(part => part && part !== '.' && part !== '..'
+      && !BASELINE_RESERVED.has(part) && !part.startsWith('.rig-create-'));
+}
+
+type BaselineBinding = StepBinding & { question?: string };
+
+type BaselineRecordBindingSpec = {
+  readonly kind: string;
+  readonly select: (project: JsonObject) => readonly (Json | undefined)[];
+};
+
+function baselineBinding(value: Json | undefined): StepBinding | undefined {
+  if (!isObject(value) || typeof value.path !== 'string' || typeof value.sha256 !== 'string'
+    || !/^[a-f0-9]{64}$/.test(value.sha256)) return;
+  return { path: value.path, sha256: value.sha256 };
+}
+
+function nestedBindings(value: Json | undefined, out: Json[] = []): Json[] {
+  if (Array.isArray(value)) {
+    for (const item of value) nestedBindings(item, out);
+    return out;
+  }
+  if (!isObject(value)) return out;
+  if (baselineBinding(value)) out.push(value);
+  for (const child of Object.values(value)) nestedBindings(child, out);
+  return out;
+}
+
+const BASELINE_RECORD_BINDING_SPECS: readonly BaselineRecordBindingSpec[] = [
+  { kind: 'inputs', select: project => asArray(project.inputs) },
+  {
+    kind: 'review_acts',
+    select: project => asArray(project.review_acts).filter(isObject).flatMap(row => {
+      const items: (Json | undefined)[] = [row.bust_config];
+      if (typeof row.sha256 === 'string' && typeof row.bytes === 'string') {
+        const parsed = jsonObject(Buffer.from(row.bytes, 'utf8'));
+        const selector = isObject(parsed?.source) && isObject(parsed.source.selector) ? parsed.source.selector : undefined;
+        if (selector?.kind === 'rig' && Number.isSafeInteger(selector.version)) {
+          items.push({ path: `evidence/v${String(selector.version)}/${row.sha256}.act.json`, sha256: row.sha256 });
+        }
+      }
+      return items;
+    }),
+  },
+  { kind: 'comment_closures', select: project => asArray(project.comment_closures).filter(isObject).flatMap(row => asArray(row.after)) },
+  { kind: 'corrections', select: project => nestedBindings(project.corrections) },
+  { kind: 'diff_map', select: project => (isObject(project.diff_map) ? [project.diff_map.report] : []) },
+  {
+    kind: 'derived',
+    select: project => asArray(project.derived).filter(isObject).flatMap(entry => {
+      const sources = entry.sources === undefined ? [entry.source] : asArray(entry.sources);
+      const folder = typeof entry.path === 'string' ? entry.path.replace(/\/+$/, '') : undefined;
+      const outputs = entry.kind === 'run' && folder !== undefined
+        ? asArray(entry.members).filter(isObject).map(member => ({
+          path: `${folder}/${String(member.path ?? '')}`,
+          sha256: member.sha256 ?? null,
+        }))
+        : [entry];
+      return [...sources, ...outputs, entry.receipt];
+    }),
+  },
+  { kind: 'intake', select: project => (isObject(project.intake) ? asArray(project.intake.reports).filter(isObject).map(row => row.report) : []) },
+  {
+    kind: 'checkpoint_evidence',
+    select: project => (isObject(project.plan)
+      ? asArray(project.plan.checkpoint_evidence).filter(isObject).flatMap(packet => [...asArray(packet.tiles), packet.table])
+      : []),
+  },
+  { kind: 'signoffs', select: project => asArray(project.signoffs).filter(isObject).map(row => row.structure) },
+  { kind: 'amendments', select: project => asArray(project.amendments).filter(isObject).flatMap(row => asArray(row.changes)) },
+  { kind: 'collection_binding', select: project => [project.collection_binding] },
+  { kind: 'advances', select: project => asArray(project.advances).filter(isObject).map(row => row.parts_check) },
+];
+
+function baselineRecordBindings(...records: (JsonObject | undefined)[]): Map<string, BaselineBinding[]> {
+  const bindings = new Map<string, BaselineBinding[]>();
+  const add = (value: Json | undefined, question?: string): void => {
+    const binding = baselineBinding(value);
+    if (!binding || !baselineAssetPath(binding.path)) return;
+    if (question !== undefined && /^(?:derived|outputs)(?:\/|$)/i.test(binding.path)) return;
+    const entries = bindings.get(binding.path) ?? [];
+    entries.push({ ...binding, question });
+    bindings.set(binding.path, entries);
+  };
+  for (const project of records) {
+    if (!project) continue;
+    const items = collectItems(project, { collection: null });
+    const intake = intakeItem(project);
+    if (intake) items.push(intake);
+    for (const item of items) {
+      add(item.record.pending_options, item.id);
+      for (const answer of [item.raw, ...asArray(item.record.history)].filter(isObject)) {
+        if (isObject(answer.choice) && answer.choice.spec === CHOICE_SPEC) add(answer.choice.set, item.id);
+      }
+    }
+    const interview = project.interview;
+    for (const plan of asArray(isObject(interview) ? interview.step_plans : undefined).filter(isObject)) {
+      if (plan.schema !== STEP_PLAN_SCHEMA || !PLAN_STEPS.some(step => step === plan.step) || !baselineBinding(plan)
+        || !Number.isSafeInteger(plan.bytes) || Number(plan.bytes) <= 0 || typeof plan.by !== 'string' || !plan.by.trim()
+        || typeof plan.at !== 'string' || !Number.isFinite(Date.parse(plan.at)) || !Array.isArray(plan.feedback)
+        || !Array.isArray(plan.inputs) || !plan.inputs.every(input => baselineBinding(input))) continue;
+      add(plan);
+      // plan propose stores registered inputs and --input together, with no source marker.
+      for (const input of plan.inputs) add(input);
+    }
+    if (isObject(project.current)) {
+      for (const kind of CURRENT_KINDS) {
+        const node = project.current[kind];
+        if (isObject(node) && !currentShapeFindings(kind, node, project).length) {
+          for (const file of asArray(node.files)) add(file);
+        }
+      }
+    }
+    for (const { select } of BASELINE_RECORD_BINDING_SPECS) {
+      for (const candidate of select(project)) add(candidate);
+    }
+  }
+  return bindings;
+}
+
+function jsonObject(bytes: Buffer | undefined): JsonObject | undefined {
+  if (!bytes) return;
+  try {
+    const value: Json = JSON.parse(bytes.toString('utf8'));
+    if (isObject(value)) return value;
+  } catch { /* Malformed JSON supplies no bindings. */ }
+}
+
+function baselineRecord(bytes: Buffer | undefined): JsonObject | undefined {
+  const record = jsonObject(bytes);
+  if (record?.schema === PROJECT_SCHEMA) return record;
+}
+
+function matchingBaselineHash(bindings: readonly BaselineBinding[], bytes: Buffer): string | undefined {
+  const hash = createHash('sha256').update(bytes).digest('hex');
+  for (const binding of bindings) {
+    if (binding.sha256 !== hash) continue;
+    if (binding.question === undefined) return hash;
+    const set = jsonObject(bytes);
+    if (set?.schema === OPTIONS_SPEC && set.question === binding.question) return hash;
+  }
+}
+
+function baselineTreeEntries(dir: string, commit: string, paths: readonly string[]): Map<string, { mode: string; oid: string }> {
+  return new Map(pathsFrom(gitRead(dir, ['ls-tree', '-z', commit, '--', ...paths])).flatMap(entry => {
+    const match = /^(\d+) \w+ ([a-f0-9]+)\t([\s\S]+)$/.exec(entry);
+    return match ? [[match[3]!, { mode: match[1]!, oid: match[2]! }]] : [];
+  }));
+}
+
+function baselineBlob(dir: string, entry: { mode: string; oid: string } | undefined): Buffer | undefined {
+  if (!entry || !/^100(?:644|755)$/.test(entry.mode)) return;
+  const result = spawnSync('git', ['--no-optional-locks', 'cat-file', 'blob', entry.oid], { cwd: dir, maxBuffer: 256 * 1024 * 1024 });
+  if (result.status !== 0) throw new Error(result.error?.message || result.stderr?.toString().trim() || 'Git could not read the baseline blob');
+  return result.stdout;
+}
+
+/** Verify added baseline paths against the exact contents of the commit and its parent record. */
+export function baselineCommitMatches(dir: string, commit: string, parent: string | undefined, assets: ReadonlyMap<string, string>): boolean {
+  if (!assets.size) return true;
+  if ([...assets.keys()].some(path => !baselineAssetPath(path))) return false;
+  const tree = baselineTreeEntries(dir, commit, ['project.json', ...assets.keys()]);
+  const previous = parent ? baselineTreeEntries(dir, parent, ['project.json']).get('project.json') : undefined;
+  const bindings = baselineRecordBindings(baselineRecord(baselineBlob(dir, tree.get('project.json'))), baselineRecord(baselineBlob(dir, previous)));
+  for (const [path, declared] of assets) {
+    const candidates = bindings.get(path);
+    const bytes = candidates && baselineBlob(dir, tree.get(path));
+    if (!candidates || !bytes || matchingBaselineHash(candidates, bytes)?.slice(0, 12) !== declared) return false;
+  }
+  return true;
+}
+
+function baselineWorktreeFile(dir: string, path: string): string | undefined {
+  const parts = path.split('/');
+  const name = parts.pop()!;
+  for (const part of parts) {
+    if (!worktreeEntry(dir, part)?.isDirectory()) return;
+    dir = join(dir, part);
+    if (worktreeEntry(dir, '.git')) return;
+  }
+  if (worktreeEntry(dir, name)?.isFile()) return join(dir, name);
+}
+
+/** Select only changed, non-ignored regular files whose working bytes match a record binding. */
+function baselineBoundAssetHashes(dir: string, head: string | undefined): Map<string, string> {
+  const working = baselineWorktreeFile(dir, 'project.json');
+  const previous = head ? baselineTreeEntries(dir, head, ['project.json']).get('project.json') : undefined;
+  const bindings = baselineRecordBindings(baselineRecord(working ? readFileSync(working) : undefined), baselineRecord(baselineBlob(dir, previous)));
+  const files = new Map([...bindings.keys()].flatMap(path => {
+    const full = baselineWorktreeFile(dir, path);
+    return full ? [[path, full] as const] : [];
+  }));
+  if (!files.size) return new Map();
+  // check-ignore reads filenames from stdin and rejects pathspec magic, including the global literal flag.
+  const ignored = projectGit(dir, ['--no-literal-pathspecs', 'check-ignore', '--no-index', '-z', '--stdin'],
+    `${[...files.keys()].join('\0')}\0`);
+  if (ignored.status !== 0 && ignored.status !== 1) throw new Error(gitFailure(ignored));
+  for (const path of pathsFrom(ignored.stdout)) files.delete(path);
+  const candidates = [...files.keys()];
+  const staged = exactDiff(dir, ['--cached'], candidates);
+  const pending = new Set([...staged, ...exactChanges(dir, candidates, staged)].map(entry => entry.path));
+  const hashes = new Map<string, string>();
+  for (const path of pending) {
+    const hash = matchingBaselineHash(bindings.get(path)!, readFileSync(files.get(path)!));
+    if (hash !== undefined) hashes.set(path, hash);
+  }
+  return hashes;
+}
+
+function assertBaselineNamespace(dir: string, head: string | undefined, paths: readonly string[]): void {
+  if (!paths.length) return;
+  const files = new Set(paths);
+  const indexed = listPaths(dir, ['--cached'], paths);
+  const tree = head ? baselineTreeEntries(dir, head, paths) : new Map<string, { mode: string }>();
+  const collisions = indexed.filter(path => !files.has(path));
+  for (const [path, entry] of tree) {
+    if (!files.has(path) || !/^100(?:644|755)$/.test(entry.mode)) collisions.push(path);
+  }
+  const parents = new Set<string>();
+  for (const file of paths) {
+    for (let path = posix.dirname(file); path !== '.'; path = posix.dirname(path)) parents.add(path);
+  }
+  if (parents.size) {
+    const prefix = gitRead(dir, ['rev-parse', '--show-prefix']).replace(/\r?\n$/, '');
+    // Exact object expressions avoid scanning the files beneath each parent directory.
+    const queries = [...parents].flatMap(path => [
+      ...(head ? [{ path, ref: `${head}:${prefix}${path}`, treeAllowed: true }] : []),
+      ...[0, 1, 2, 3].map(stage => ({ path, ref: `:${stage}:${prefix}${path}`, treeAllowed: false })),
+    ]);
+    const rows = gitRead(dir, ['cat-file', '--batch-check=%(objecttype)'], `${queries.map(query => query.ref).join('\n')}\n`).split('\n');
+    for (const [i, { path, ref, treeAllowed }] of queries.entries()) {
+      if (rows[i] !== `${ref} missing` && !(treeAllowed && rows[i] === 'tree')) collisions.push(path);
+    }
+  }
+  if (collisions.length) {
+    refuse('PROJECT_COMMIT_DIRTY', `${[...new Set(collisions)].map(quote).join(', ')}: overlaps a different Git entry; resolve the file or directory changes before retrying history baseline`);
+  }
+}
+
+function commitChanges(
+  dir: string, command: string, writer: string, subject: string, changed: readonly ChangedStepPath[], stale: readonly string[], operator?: string,
+  boundHashes?: ReadonlyMap<string, string>,
+): void {
+  const paths = changed.map(entry => entry.path).sort();
+  const assetPaths = paths.filter(path => boundHashes?.has(path));
+  const gitHashes = assetPaths.length ? gitRead(dir, ['hash-object', '--', ...assetPaths]).trim().split('\n') : [];
+  const gitAssetHashes = new Map(assetPaths.map((path, i) => [path, gitHashes[i]!]));
+  const changes = paths.map(path => {
+    const full = join(dir, path);
+    const entry = worktreeEntry(dir, path);
+    if (entry && !entry.isFile()) throw new Error(`${quote(path)} is not a regular file`);
+    const expected = boundHashes?.get(path);
+    const bytes = expected === undefined ? (entry ? readFileSync(full) : undefined)
+      : (baselineWorktreeFile(dir, path) ? readFileSync(full) : undefined);
+    const digest = bytes && createHash('sha256').update(bytes).digest('hex');
+    if (expected !== undefined) {
+      if (!bytes || digest !== expected) throw new Error(`${quote(path)} changed after its baseline binding was verified`);
+      const oid = gitAssetHashes.get(path);
+      const rawOid = createHash(oid?.length === 64 ? 'sha256' : 'sha1').update(`blob ${bytes.length}\0`).update(bytes).digest('hex');
+      if (oid !== rawOid) throw new Error(`${quote(path)}: Git filters change the bound bytes`);
+    }
+    const hash = digest?.slice(0, 12) ?? 'removed';
+    return `changed: ${path.startsWith('"') || /[\r\n]/.test(path) ? JSON.stringify(path) : path} ${hash}`;
+  });
+  const spec = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as { name: string; version: string };
+  const message = [subject, '', `writer: rig-create ${writer}`, `command: ${command}`,
+    ...(operator === undefined ? [] : [`operator: ${operator}`]), ...changes, `stale: ${stale.join(', ') || 'none'}`,
+    `create: ${spec.name} ${spec.version}`].join('\n');
+  const scope = new Set(paths);
+  const additions = listPaths(dir, ['--others', '--exclude-standard'], paths).filter(path => scope.has(path));
+  if (additions.length) gitRead(dir, ['add', '--intent-to-add', '--', ...additions]);
+  gitRead(dir, ['commit', '--only', '-m', message, '--', ...paths]);
+}
+
+function requireUnstaged(dir: string, paths: readonly string[]): void {
+  const staged = exactDiff(dir, ['--cached'], paths);
+  if (staged.length) throw new Error(`${staged.map(entry => quote(entry.path)).join(', ')} has staged changes`);
+}
+
+/** Save one command's already-validated writes. The caller holds the writer lock. */
+export function commitToolWrite(dir: string, command: string, paths: readonly string[], subject?: string): string | undefined {
+  if (!paths.length) return;
+  try {
+    if (!hasProjectGit(dir)) return;
+    const scope = projectPaths(paths);
+    requireUnstaged(dir, scope);
+    const changed = exactChanges(dir, scope);
+    if (!changed.length) return;
+    commitChanges(dir, command, command, subject === undefined ? formatActionGroups(`${command}: `, changed.map(entry => ({ ...entry, name: entry.path })))
+      : clampSubject(cleanToken(subject)), changed, []);
+  } catch (error) {
+    return commitWarning(dir, paths, error);
+  }
+}
+
+/** Commit reviewed work-tree contents as a baseline. The caller holds the writer locks. */
+export function commitProjectBaseline(dir: string, operator: string): string[] {
+  if (!hasProjectGit(dir)) refuse('PROJECT_NOT_IN_GIT', 'project.json: use a project or collection Git work tree to establish a baseline');
+  const head = projectHead(dir);
+  const boundHashes = baselineBoundAssetHashes(dir, head);
+  const scope = [...BASELINE_PATHS, ...boundHashes.keys()];
+  const staged = exactDiff(dir, ['--cached'], scope);
+  const unstaged = new Set(exactDiff(dir, [], scope).map(entry => entry.path));
+  const conflicts = staged.filter(({ path, status }) => unstaged.has(path) || status === 'U'
+    || (status === 'D' && worktreeEntry(dir, path)));
+  if (conflicts.length) {
+    refuse('PROJECT_COMMIT_DIRTY', `${conflicts.map(entry => quote(entry.path)).join(', ')}: staged and work-tree contents differ; preserve both versions, then make the index agree with the reviewed work-tree choice before retrying history baseline`);
+  }
+  const changed = exactChanges(dir, scope, staged);
+  const included = new Set(changed.map(entry => entry.path));
+  const excluded = dirtyPaths(dir, scope, false).filter(path => !included.has(path));
+  if (excluded.length) {
+    refuse('PROJECT_COMMIT_DIRTY', `${excluded.map(quote).join(', ')}: Git cannot include these paths in the baseline; review their types and ignore rules before retrying history baseline`);
+  }
+  assertBaselineNamespace(dir, head, [...included]);
+  if (changed.length) commitChanges(dir, 'history baseline', 'history baseline', 'history baseline: attribution unverified', changed, [], cleanToken(operator), boundHashes);
+  return changed.map(entry => entry.path);
+}
+
 /** After a successful write, commit just its paths. Any Git failure leaves the saved data usable. */
 export function commitProjectStep(
   dir: string, kind: Step, writer: string, path: string, trackedTree?: string, stale: string[] = [], options: RecordCommitOptions = {},
 ): string | undefined {
-  const collection = basename(dirname(dir)) === 'members' ? dirname(dirname(dir)) : undefined;
-  const repo = existsSync(join(dir, '.git')) ? dir
-    : collection && existsSync(join(collection, 'collection.json')) && existsSync(join(collection, '.git')) ? collection : undefined;
-  if (!repo) return 'rig-create: WARN PROJECT_NOT_IN_GIT: project.json: the project and its collection have no Git work tree; saved the files without a commit';
-  const git = (args: string[]) => spawnSync('git', ['--literal-pathspecs', ...args], { cwd: dir, encoding: 'utf8' });
-  const retry = (args: string[], why: string) =>
-    `rig-create: WARN PROJECT_COMMIT_FAILED: project.json: ${why.trim() || 'Git exited unsuccessfully'}; retry: cd ${quote(dir)} && git --literal-pathspecs ${args.map(quote).join(' ')}`;
-  const written = [path, ...(options.migratedGitignore ? ['.gitignore'] : [])];
-  const indexCandidates = [...written];
-  if (trackedTree && options.partsFiles) {
-    const args = ['ls-files', '--others', '--exclude-standard', '-z', '--', trackedTree];
-    const untracked = git(args);
-    if (untracked.status !== 0) return retry(args, untracked.error?.message ?? untracked.stderr);
-    const bound = new Set(options.partsFiles);
-    indexCandidates.push(...pathsFrom(untracked.stdout).filter(file => bound.has(file)));
-  }
-  // A new file needs an index entry before commit --only accepts its path.
-  const add = ['add', '--intent-to-add', '--', ...indexCandidates];
-  const staged = git(add);
-  if (staged.status !== 0) return retry(add, staged.error?.message ?? staged.stderr);
-
-  const diff = ['diff', '--name-status', '--no-renames', '--no-ext-diff', '--relative', '-z', 'HEAD', '--', ...written, ...(trackedTree ? [trackedTree] : [])];
-  const changed = git(diff);
-  if (changed.status !== 0) return retry(diff, changed.error?.message ?? changed.stderr);
-  const changedEntries = changedPathsFromStatus(changed.stdout);
-  const paths = changedEntries.map(entry => entry.path);
-  if (!paths.length) return undefined;
-  const subject = stepCommitSubject(kind, path, trackedTree, changedEntries, options);
-  let changes: string[];
-  let spec: { name: string; version: string };
   try {
-    changes = paths.map(file => {
-      const full = join(dir, file);
-      const hash = lstatSync(full, { throwIfNoEntry: false })?.isFile()
-        ? createHash('sha256').update(readFileSync(full)).digest('hex').slice(0, 12)
-        : 'removed';
-      return `changed: ${/[\r\n]/.test(file) ? JSON.stringify(file) : file} ${hash}`;
-    });
-    spec = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as { name: string; version: string };
+    if (!hasProjectGit(dir)) return NO_PROJECT_GIT;
+    const written = [path, ...(options.migratedGitignore ? ['.gitignore'] : [])];
+    const scopes = [...written, ...(trackedTree ? [trackedTree] : [])];
+    const exact = trackedTree && options.exactPaths === undefined ? undefined : projectPaths([...written, ...(options.exactPaths ?? [])]);
+    let changed: ChangedStepPath[];
+    if (exact) {
+      requireUnstaged(dir, exact);
+      changed = exactChanges(dir, exact);
+    } else {
+      const bound = new Set([...written, ...(options.partsFiles ?? [])]);
+      const additions = listPaths(dir, ['--others', '--exclude-standard'], scopes).filter(file => bound.has(file));
+      changed = [...scopedDiff(dir, ['HEAD'], scopes), ...additions.map(file => ({ status: 'A', path: file }))];
+    }
+    if (!changed.length) return;
+    const command = trackedTree ? `record ${kind}` : `${kind} write`;
+    commitChanges(dir, command, cleanToken(writer), stepCommitSubject(kind, path, trackedTree, changed, options), changed, stale);
   } catch (error) {
-    return retry(['commit', '--only', '-m', subject, '--', ...paths], String(error));
+    return commitWarning(dir, [path, ...(options.exactPaths ?? [])], error);
   }
-  const message = [subject, '', `writer: rig-create ${writer}`, ...changes, `stale: ${stale.join(', ') || 'none'}`, `create: ${spec.name} ${spec.version}`].join('\n');
-  const args = ['commit', '--only', '-m', message, '--', ...paths];
-  const commit = git(args);
-  if (commit.status !== 0) return retry(args, commit.error?.message ?? commit.stderr ?? commit.stdout);
-  git(['gc', '--auto']);
 }
 
 function findProjectRepo(dir: string): string | undefined {
@@ -325,15 +758,13 @@ export function resolvePublishedRecordCommit(dir: string, recordHash: string, ca
   return createHash('sha256').update(shown.stdout).digest('hex') === recordHash ? sha : undefined;
 }
 
-/**
- * Commit `project.json` and every non-ignored file in the publication closure before publishing a `current` output
- * (docs/CURRENT-DATA.md §4.2). A missing work tree or failed Git command emits a warning and never blocks publication.
- */
+/** Bind an existing, exact input closure and commit only the generated manifest. */
 export function commitCurrentPublication(
   dir: string,
   output: CurrentPublicationOutput,
   recordHash: string,
   closurePaths: readonly string[],
+  mayCommitManifest = true,
 ): { commit?: string; warning?: Finding } {
   if (!findProjectRepo(dir)) {
     return {
@@ -345,45 +776,39 @@ export function commitCurrentPublication(
     };
   }
   const git = (args: string[]) => spawnSync('git', ['--literal-pathspecs', ...args], { cwd: dir, encoding: 'utf8' });
-  const failed = (args: string[], why: string): { warning: Finding } => ({
+  const failed = (why: string): { warning: Finding } => ({
     warning: {
       code: 'PROJECT_COMMIT_FAILED',
       path: 'project.json',
-      message: `project.json: ${why.trim() || 'Git exited unsuccessfully'}; retry: cd ${quote(dir)} && git --literal-pathspecs ${args.map(quote).join(' ')}`,
+      message: `project.json: ${why.trim() || 'Git exited unsuccessfully'}; commit or restore the exact publication inputs and rerun job open --current ${output}`,
     },
   });
-  const candidates = [...new Set(['project.json', ...closurePaths])];
-  const trackedArgs = ['ls-files', '-z', '--', ...candidates];
-  const tracked = git(trackedArgs);
-  if (tracked.status !== 0) return failed(trackedArgs, tracked.error?.message ?? tracked.stderr);
-  const untrackedArgs = ['ls-files', '--others', '--exclude-standard', '-z', '--', ...candidates];
-  const untracked = git(untrackedArgs);
-  if (untracked.status !== 0) return failed(untrackedArgs, untracked.error?.message ?? untracked.stderr);
-  const untrackedPaths = pathsFrom(untracked.stdout);
-  const trackable = [...new Set([...pathsFrom(tracked.stdout), ...untrackedPaths])];
-  if (untrackedPaths.length > 0) {
-    const addArgs = ['add', '--intent-to-add', '--', ...untrackedPaths];
-    const staged = git(addArgs);
-    if (staged.status !== 0) return failed(addArgs, staged.error?.message ?? staged.stderr);
+  const manifest = 'review-live.json';
+  const parents = [...new Set(closurePaths.filter(path => path !== manifest && path !== 'project.json'))];
+  const parent = resolvePublishedRecordCommit(dir, recordHash);
+  if (!parent) return failed('HEAD does not hold the frozen publication record; review pending shared edits with rig-create history baseline --by <operator>');
+  if (!mayCommitManifest) return failed(`${manifest} already had pending edits before publication`);
+  if (parents.length > 0) {
+    const visible = git(['ls-files', '--cached', '--others', '--exclude-standard', '-z', '--', ...parents]);
+    if (visible.status !== 0) return failed(visible.error?.message ?? visible.stderr);
+    const tree = git(['ls-tree', '-r', '-z', parent, '--', ...parents]);
+    if (tree.status !== 0) return failed(tree.error?.message ?? tree.stderr);
+    const blobs = new Map(pathsFrom(tree.stdout).flatMap(entry => {
+      const match = /^100(?:644|755) blob ([a-f0-9]+)\t([\s\S]+)$/.exec(entry);
+      return match ? [[match[2]!, match[1]!] as const] : [];
+    }));
+    for (const path of new Set([...pathsFrom(visible.stdout), ...blobs.keys()])) {
+      try {
+        const oid = blobs.get(path);
+        const bytes = readFileSync(join(dir, path));
+        const hash = oid && createHash(oid.length === 64 ? 'sha256' : 'sha1').update(`blob ${bytes.length}\0`).update(bytes).digest('hex');
+        if (oid && hash === oid) continue;
+      } catch { /* Report unavailable input as a missing Git binding. */ }
+      return failed(`${path} differs from the publication input at HEAD`);
+    }
   }
-  const head = git(['rev-parse', '--verify', '--quiet', 'HEAD^{commit}']);
-  let changedPaths: string[];
-  if (head.status === 0) {
-    if (trackable.length === 0) return {};
-    const diffArgs = ['diff', '--name-status', '--no-renames', '--no-ext-diff', '--relative', '-z', 'HEAD', '--', ...trackable];
-    const diff = git(diffArgs);
-    if (diff.status !== 0) return failed(diffArgs, diff.error?.message ?? diff.stderr);
-    changedPaths = changedPathsFromStatus(diff.stdout).map(entry => entry.path);
-  } else {
-    changedPaths = trackable;
-  }
-  if (changedPaths.length > 0) {
-    const subject = clampSubject(`publish: current ${output} ${recordHash.slice(0, 12)}`);
-    const commitArgs = ['commit', '--only', '-m', subject, '--', ...changedPaths];
-    const committed = git(commitArgs);
-    if (committed.status !== 0) return failed(commitArgs, committed.error?.message ?? committed.stderr ?? committed.stdout);
-    git(['gc', '--auto']);
-  }
+  const warning = commitToolWrite(dir, 'publish current', [manifest], `publish: current ${output} ${recordHash.slice(0, 12)}`);
+  if (warning) return failed(warning);
   const commit = resolvePublishedRecordCommit(dir, recordHash);
-  return commit ? { commit } : {};
+  return commit ? { commit } : failed('the publication record changed while saving the manifest');
 }

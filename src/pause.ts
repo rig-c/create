@@ -2,6 +2,8 @@ import { renameSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { asArray, collectItems, collectSignoffs, isObject, loadCollection } from './check.ts';
 import { readProject } from './feedback.ts';
+import { acquireBoundJobWrite } from './job-writer.ts';
+import { assertCleanProjectStep, commitToolWrite } from './project-step-commit.ts';
 import { readVerbatim } from './record-input.ts';
 import { refuse, USAGE_EXIT } from './refusal.ts';
 import { newRefusals } from './refusal-baseline.ts';
@@ -75,49 +77,79 @@ function options(args: string[], command: 'pause' | 'resume'): { positional: str
  * Validate the complete candidate with the check, then replace project.json in one rename; a refusal writes nothing.
  * Refusals the record already carries do not block the write; a new one does.
  */
-function commit(dir: string, file: string, project: JsonObject, entry: JsonObject, stage: string, now: number): void {
+function commit(
+  dir: string,
+  file: string,
+  project: JsonObject,
+  entry: JsonObject,
+  stage: string,
+  now: number,
+  command: 'pause' | 'resume',
+): string | undefined {
   if (project.pauses !== undefined && !Array.isArray(project.pauses)) refuse('PAUSE_MALFORMED', 'pauses: must be a list; preserve existing history');
   const candidate: JsonObject = { ...project, pauses: [...asArray(project.pauses), entry], stage };
   const rejected = newRefusals(dir, project, candidate, { now, resumeStage: stage === PAUSED_STAGE ? undefined : stage })[0];
   if (rejected !== undefined) refuse(rejected.code, rejected.message);
+  assertCleanProjectStep(dir, ['project.json']);
   const tmp = join(dirname(file), `.pause-${process.pid}-${crypto.randomUUID()}.tmp`);
   try { writeFileSync(tmp, `${JSON.stringify(candidate, null, 2)}\n`, { flag: 'wx' }); renameSync(tmp, file); }
   finally { rmSync(tmp, { force: true }); }
+  return commitToolWrite(dir, command, ['project.json']);
 }
 
-export function pauseCommand(args: string[], now: number): { stdout: string; exit: number } {
+export function pauseCommand(args: string[], now: number): { stdout: string; exit: number; stderr?: string } {
   const { positional, opts, json } = options(args, 'pause');
   const dir = resolve(positional[0] ?? process.cwd());
-  const { file, project } = readProject(dir);
-  const from = String(project.stage);
-  if (from === PAUSED_STAGE) refuse('PAUSE_ALREADY_PAUSED', 'stage: already paused; resume from the recorded stage, then use amend if an artifact needs changing');
-  if (!pausable(from)) refuse('PAUSE_STAGE_INVALID', `stage: ${from} is not a stage in the order before accepted; only work in progress can be paused`);
-  const entry: JsonObject = { from_stage: from, stage: PAUSED_STAGE, by: opts['--by']!, at: new Date(now).toISOString(),
-    verbatim: '', signoff: null };
-  const items = collectItems(project, { collection: loadCollection(dir, project) });
-  if (!isUnsignedCurrentPause({ project, items }, entry)) {
-    const after = latestEvent(project)?.at ?? -Infinity;
-    const signature = collectSignoffs(project, []).filter(s => s.stage === PAUSED_STAGE && s.checkpoint === null && s.at >= after && s.at <= now)
-      .sort((a, b) => b.at - a.at || b.index - a.index)[0];
-    if (signature === undefined) refuse('PAUSED_UNSIGNED', 'stage: no human { "stage": "paused" } sign-off is dated after the latest recorded move; record signoff paused first');
-    entry.signoff = signoffIdentity(signature.record);
+  readProject(dir);
+  const release = acquireBoundJobWrite(dir, undefined, true);
+  try {
+    const { file, project } = readProject(dir);
+    const from = String(project.stage);
+    if (from === PAUSED_STAGE) refuse('PAUSE_ALREADY_PAUSED', 'stage: already paused; resume from the recorded stage, then use amend if an artifact needs changing');
+    if (!pausable(from)) refuse('PAUSE_STAGE_INVALID', `stage: ${from} is not a stage in the order before accepted; only work in progress can be paused`);
+    const entry: JsonObject = { from_stage: from, stage: PAUSED_STAGE, by: opts['--by']!, at: new Date(now).toISOString(),
+      verbatim: '', signoff: null };
+    const items = collectItems(project, { collection: loadCollection(dir, project) });
+    if (!isUnsignedCurrentPause({ project, items }, entry)) {
+      const after = latestEvent(project)?.at ?? -Infinity;
+      const signature = collectSignoffs(project, []).filter(s => s.stage === PAUSED_STAGE && s.checkpoint === null && s.at >= after && s.at <= now)
+        .sort((a, b) => b.at - a.at || b.index - a.index)[0];
+      if (signature === undefined) refuse('PAUSED_UNSIGNED', 'stage: no human { "stage": "paused" } sign-off is dated after the latest recorded move; record signoff paused first');
+      entry.signoff = signoffIdentity(signature.record);
+    }
+    entry.verbatim = readVerbatim(opts['--verbatim-file'] ?? '-');
+    if (opts['--source'] !== undefined) entry.source = opts['--source'];
+    const warning = commit(dir, file, project, entry, PAUSED_STAGE, now, 'pause');
+    return {
+      stdout: json ? JSON.stringify(entry, null, 2) : `pause: ${from} -> ${PAUSED_STAGE}`,
+      exit: 0,
+      ...(warning === undefined ? {} : { stderr: warning }),
+    };
+  } finally {
+    release();
   }
-  entry.verbatim = readVerbatim(opts['--verbatim-file'] ?? '-');
-  if (opts['--source'] !== undefined) entry.source = opts['--source'];
-  commit(dir, file, project, entry, PAUSED_STAGE, now);
-  return { stdout: json ? JSON.stringify(entry, null, 2) : `pause: ${from} -> ${PAUSED_STAGE}`, exit: 0 };
 }
 
-export function resumeCommand(args: string[], now: number): { stdout: string; exit: number } {
+export function resumeCommand(args: string[], now: number): { stdout: string; exit: number; stderr?: string } {
   const { positional, opts, json } = options(args, 'resume');
   const target = positional[0]!;
   const dir = resolve(positional[1] ?? process.cwd());
-  const { file, project } = readProject(dir);
-  if (project.stage !== PAUSED_STAGE) refuse('RESUME_NOT_PAUSED', `stage: ${String(project.stage)} is not paused; there is nothing to resume`);
-  const from = pausedFrom(project);
-  if (target !== from) refuse('RESUME_STAGE_MISMATCH', `stage: the project was paused from ${from}, not ${target}; resume ${from}, then advance when ready or use amend if an artifact needs changing`);
-  const entry: JsonObject = { from_stage: PAUSED_STAGE, stage: target, by: opts['--by']!, at: new Date(now).toISOString(), verbatim: readVerbatim(opts['--verbatim-file'] ?? '-') };
-  if (opts['--source'] !== undefined) entry.source = opts['--source'];
-  commit(dir, file, project, entry, target, now);
-  return { stdout: json ? JSON.stringify(entry, null, 2) : `resume: ${PAUSED_STAGE} -> ${target}`, exit: 0 };
+  readProject(dir);
+  const release = acquireBoundJobWrite(dir, undefined, true);
+  try {
+    const { file, project } = readProject(dir);
+    if (project.stage !== PAUSED_STAGE) refuse('RESUME_NOT_PAUSED', `stage: ${String(project.stage)} is not paused; there is nothing to resume`);
+    const from = pausedFrom(project);
+    if (target !== from) refuse('RESUME_STAGE_MISMATCH', `stage: the project was paused from ${from}, not ${target}; resume ${from}, then advance when ready or use amend if an artifact needs changing`);
+    const entry: JsonObject = { from_stage: PAUSED_STAGE, stage: target, by: opts['--by']!, at: new Date(now).toISOString(), verbatim: readVerbatim(opts['--verbatim-file'] ?? '-') };
+    if (opts['--source'] !== undefined) entry.source = opts['--source'];
+    const warning = commit(dir, file, project, entry, target, now, 'resume');
+    return {
+      stdout: json ? JSON.stringify(entry, null, 2) : `resume: ${PAUSED_STAGE} -> ${target}`,
+      exit: 0,
+      ...(warning === undefined ? {} : { stderr: warning }),
+    };
+  } finally {
+    release();
+  }
 }

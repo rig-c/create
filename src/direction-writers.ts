@@ -11,7 +11,7 @@ import { refuseNumberedWriter } from './numbered-retirement.ts';
 import { refuse, USAGE_EXIT } from './refusal.ts';
 import { baselineOf, newFindings } from './refusal-baseline.ts';
 import type { CommandResult } from './interview.ts';
-import { commitProjectStep } from './project-step-commit.ts';
+import { assertCleanProjectStep, commitProjectStep, commitToolWrite } from './project-step-commit.ts';
 import { acquireBoundJobWrite } from './job-writer.ts';
 import type { JsonObject } from './templates.ts';
 
@@ -129,7 +129,7 @@ function checkDirectionCommand(args: string[], now: number): { stdout: string; e
   };
 }
 
-function adoptDirectionCommand(args: string[], now: number, hooks: DirectionWriteHooks): { stdout: string; exit: number } {
+function adoptDirectionCommand(args: string[], now: number, hooks: DirectionWriteHooks): CommandResult {
   const positional: string[] = [];
   for (const arg of args) {
     if (arg.startsWith('-')) usage(`unknown ${arg}`);
@@ -152,7 +152,7 @@ function adoptDirectionCommand(args: string[], now: number, hooks: DirectionWrit
   const staged: string[] = [];
   let releasePublication = () => {};
   try {
-    releasePublication = acquireBoundJobWrite(dir);
+    releasePublication = acquireBoundJobWrite(dir, undefined, true);
     const contract = directionContract(project, now);
     if (contract) return { stdout: 'direction: already adopted; original adoption preserved', exit: 0 };
     const next = structuredClone(project);
@@ -170,12 +170,18 @@ function adoptDirectionCommand(args: string[], now: number, hooks: DirectionWrit
     if (!directionBytes(dir, 'project.json').equals(original)) {
       directionFail('DIRECTION_SOURCE_CHANGED', 'project.json', 'source bytes changed during publication');
     }
+    assertCleanProjectStep(dir, ['project.json']);
     const recordBytes = Buffer.from(`${JSON.stringify(next, null, 2)}\n`);
     const temp = join(dir, `.direction-${crypto.randomUUID()}.tmp`);
     staged.push(temp);
     writeFileSync(temp, recordBytes, { flag: 'wx' });
     renameSync(temp, file);
-    return { stdout: 'direction: adopted; historical posts preserved', exit: 0 };
+    const warning = commitToolWrite(dir, 'direction adopt', ['project.json']);
+    return {
+      stdout: 'direction: adopted; historical posts preserved',
+      exit: 0,
+      ...(warning === undefined ? {} : { stderr: warning }),
+    };
   } finally {
     for (const path of staged) rmSync(path, { force: true });
     closeSync(fd);

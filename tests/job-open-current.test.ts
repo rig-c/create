@@ -852,6 +852,7 @@ test(
     const secondReceipt = latestReceipt(root);
     expect(secondReceipt.publicationId).not.toBe(firstReceipt.publicationId);
     expect(republished.stdout.trim().split('\n').slice(1)).toEqual([
+      expect.stringContaining('WARN PROJECT_COMMIT_FAILED:'),
       `job: current rig published (publication ${secondReceipt.publicationId})`,
     ]);
 

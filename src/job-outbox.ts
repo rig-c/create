@@ -1,9 +1,11 @@
+import { spawnSync } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 import { closeSync, constants, fsyncSync, mkdirSync, openSync, renameSync, rmdirSync, rmSync, writeFileSync } from 'node:fs';
 import { existsSync, JOB_PRIVATE_DIRECTORY, lstatSync, readFileSync, readdirSync, realpathSync } from './check-reads.ts';
 import { basename, dirname, join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { isDeepStrictEqual } from 'node:util';
+import type { Finding } from './check.ts';
 import type { JobReviewerBinding, JobSubject, RecordSubject, RecordResult } from '@rig-c/review/job-host';
 
 export type PublicationSubject = JobSubject | RecordSubject;
@@ -104,7 +106,7 @@ export function tryJobDirectoryLock(lock: string): (() => void) | null {
   const install = (): boolean => {
     try { renameSync(candidate, lock); return true; }
     catch (error) {
-      if (!['EEXIST', 'ENOTEMPTY'].includes((error as NodeJS.ErrnoException).code ?? '')) throw error;
+      if (!['EEXIST', 'ENOTEMPTY', 'ENOTDIR', 'EISDIR'].includes((error as NodeJS.ErrnoException).code ?? '')) throw error;
       return false;
     }
   };
@@ -145,29 +147,47 @@ export function jobHostStateRoot(root: string): string {
 /** Existing repositories use their local exclude so opening a job does not
  * dirty a tracked ignore file. New projects already carry these root patterns.
  */
-export function ensureJobPrivateIgnores(root: string): void {
+export function ensureJobPrivateIgnores(root: string): Finding | undefined {
   const names = [JOB_BINDING_FILE, JOB_OUTBOX_DIRECTORY];
+  const git = (...args: string[]) => spawnSync('git', args, {
+    cwd: root, encoding: 'utf8', env: { ...process.env, LC_ALL: 'C' },
+  });
+  const failed = (result: ReturnType<typeof git>): Finding => ({
+    code: 'PROJECT_COMMIT_FAILED',
+    path: 'project.json',
+    message: `project.json: cannot verify the Git excludes for the private job files (${result.error?.message || result.stderr?.trim() || 'Git exited unsuccessfully'}); repair the project Git work tree`,
+  });
+  const gitPath = git('rev-parse', '--git-path', 'info/exclude');
+  if (gitPath.error || (gitPath.status !== 0 && !/^fatal: not a git repository\b/m.test(gitPath.stderr))) return failed(gitPath);
+  const hasGit = gitPath.status === 0;
+  const ignored = (name: string) => git('check-ignore', '--quiet', '--no-index', '--',
+    name === JOB_OUTBOX_DIRECTORY ? `${name}/receipt.json` : name);
+  const missing: string[] = [];
   for (const name of names) {
-    const tracked = Bun.spawnSync(['git', 'ls-files', '--error-unmatch', '--', name], { cwd: root, stdout: 'ignore', stderr: 'ignore' });
-    if (tracked.exitCode === 0) refuse('JOB_BINDING_INVALID', `project.json: private ${name} is tracked; remove it from version control before opening the job`);
+    if (!hasGit) { missing.push(name); continue; }
+    const tracked = git('ls-files', '--error-unmatch', '--', name);
+    if (tracked.status === 0) refuse('JOB_BINDING_INVALID', `project.json: private ${name} is tracked; remove it from version control before opening the job`);
+    if (tracked.status !== 1) return failed(tracked);
+    const result = ignored(name);
+    if (result.status === 1) missing.push(name);
+    else if (result.status !== 0) return failed(result);
   }
-  const missing = names.filter(name => Bun.spawnSync(['git', 'check-ignore', '--quiet', '--no-index', '--', name === JOB_OUTBOX_DIRECTORY ? `${name}/receipt.json` : name],
-    { cwd: root, stdout: 'ignore', stderr: 'ignore' }).exitCode !== 0);
   if (!missing.length) return;
-  const gitPath = Bun.spawnSync(['git', 'rev-parse', '--git-path', 'info/exclude'], { cwd: root, stdout: 'pipe', stderr: 'ignore' });
-  const path = gitPath.exitCode === 0 ? resolve(root, gitPath.stdout.toString().trim()) : join(root, '.gitignore');
+  const prefix = hasGit ? git('rev-parse', '--show-prefix') : undefined;
+  if (prefix && prefix.status !== 0) return failed(prefix);
+  const path = hasGit ? resolve(root, gitPath.stdout.trim()) : join(root, '.gitignore');
   try {
     const info = lstatSync(path);
     if (!info.isFile() || info.isSymbolicLink()) refuse('JOB_BINDING_INVALID', 'project.json: private ignore destination must be a regular file; restore it before opening the job');
   } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
   const before = existsSync(path) ? readFileSync(path, 'utf8') : '';
-  const prefix = gitPath.exitCode === 0 ? Bun.spawnSync(['git', 'rev-parse', '--show-prefix'],
-    { cwd: root, stdout: 'pipe', stderr: 'ignore' }).stdout.toString().trimEnd() : '';
-  const patterns = missing.map(name => `/${prefix}${name}${name === JOB_OUTBOX_DIRECTORY ? '/' : ''}`);
-  writeFileSync(path, `${before}${before && !before.endsWith('\n') ? '\n' : ''}${patterns.join('\n')}\n`);
-  if (gitPath.exitCode === 0 && names.some(name => Bun.spawnSync(['git', 'check-ignore', '--quiet', '--no-index', '--', name === JOB_OUTBOX_DIRECTORY ? `${name}/receipt.json` : name],
-    { cwd: root, stdout: 'ignore', stderr: 'ignore' }).exitCode !== 0)) {
-    refuse('JOB_BINDING_INVALID', 'project.json: private binding/outbox are not effectively ignored; remove conflicting unignore rules before opening the job');
+  const patterns = missing.map(name => `/${prefix?.stdout.trimEnd() ?? ''}${name}${name === JOB_OUTBOX_DIRECTORY ? '/' : ''}`);
+  const additions = hasGit ? patterns : patterns.filter(pattern => !before.split(/\r?\n/).includes(pattern));
+  if (additions.length) writeFileSync(path, `${before}${before && !before.endsWith('\n') ? '\n' : ''}${additions.join('\n')}\n`);
+  if (hasGit) for (const name of names) {
+    const result = ignored(name);
+    if (result.status === 1) refuse('JOB_BINDING_INVALID', 'project.json: private binding/outbox are not effectively ignored; remove conflicting unignore rules before opening the job');
+    if (result.status !== 0) return failed(result);
   }
 }
 
@@ -249,7 +269,10 @@ export function assertJobIdentity(expected: JobIdentity, found: JobIdentity): vo
   }
 }
 
-export function enqueuePublication<R extends PublicationResult>(root: string, binding: WriterBinding, result: R, intentBytes?: Buffer, commit?: string): PendingPublication & { result: R } {
+export function enqueuePublication<R extends PublicationResult>(
+  root: string, binding: WriterBinding, result: R, intentBytes?: Buffer, commit?: string,
+  options: { privateIgnoresChecked?: boolean } = {},
+): PendingPublication & { result: R } {
   const bytes = intentBytes ?? readFileSync(join(root, 'project.json'));
   requireOwnerLanguage(JSON.parse(bytes.toString('utf8')) as JsonObject);
   const recordHash = jobHash(bytes);
@@ -264,7 +287,7 @@ export function enqueuePublication<R extends PublicationResult>(root: string, bi
       ? { previousVersionHash: publicationVersionHash(readFileSync(join(root, 'project.json')), result) ?? undefined } : {}),
     result, failure: null, phase: intentBytes ? 'intent' : 'pending',
   };
-  ensureJobPrivateIgnores(root);
+  if (!options.privateIgnoresChecked) ensureJobPrivateIgnores(root);
   const path = pendingPath(root, id);
   if (existsSync(path)) return privateJson(path) as PendingPublication & { result: R };
   writePrivateJson(path, pending);

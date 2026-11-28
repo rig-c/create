@@ -1,14 +1,17 @@
 /** Advisory intake: consume immutable producer bytes, never pixels or producer verifiers. */
-import { renameSync, writeFileSync } from 'node:fs';
+import { renameSync, rmSync, writeFileSync } from 'node:fs';
 import { readFileSync } from './check-reads.ts';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, join, relative, resolve, sep } from 'node:path';
 import { isDeepStrictEqual as equal } from 'node:util';
 import { asArray, classify, isObject, type Finding, type Item } from './check.ts';
 import { choiceAdoption, literalFile, optionFile, selection, sha256, validateChoice, validateContext, validateSet } from './choices.ts';
 import { structurePathIsIgnored } from './structure.ts';
 import { readProject } from './feedback.ts';
-import { refuse } from './refusal.ts';
+import { acquireBoundJobWrite } from './job-writer.ts';
+import { assertCleanProjectStep, commitToolWrite } from './project-step-commit.ts';
+import { Refusal, refuse } from './refusal.ts';
 import type { Json, JsonObject } from './templates.ts';
+import { eligibleBoundPaths } from './writer-commit-paths.ts';
 
 export const INTAKE_SPEC = 'rig-create/intake@1';
 export const PREFLIGHT_SPEC = 'rig-parts/head-crop-preflight/1';
@@ -131,9 +134,13 @@ export function intakeReportCommand(args: string[], now: number): string {
     opts[arg] = args[++i] as string;
   }
   if (positional.length > 1 || !['--id','--report','--sha256','--parts-version','--by'].every(k => opts[k]?.trim())) refuse('INTAKE_REPORT_INVALID',`intake.reports: missing writer arguments; ${INTAKE_HELP}`);
-  const dir = resolve(positional[0] ?? process.cwd()); const {file,project} = readProject(dir);
-  const next = structuredClone(project);
+  const dir = resolve(positional[0] ?? process.cwd());
+  readProject(dir);
+  const release = acquireBoundJobWrite(dir, undefined, true);
+  let tmp: string | undefined;
   try {
+    const {file,project} = readProject(dir);
+    const next = structuredClone(project);
     if (project.stage !== 'parts') invalid('offer intake only in the parts stage at report time');
     if (next.intake !== undefined && intakeWarnings(dir,next).some(w => w.code === 'INTAKE_REPORT_INVALID')) invalid('restore existing retained intake reports before appending');
     if (next.intake === undefined) next.intake = {spec:INTAKE_SPEC,reports:[],choice:{id:INTAKE_QUESTION,answer:null,history:[]}};
@@ -145,10 +152,21 @@ export function intakeReportCommand(args: string[], now: number): string {
     reports.push({id:opts['--id'] as string,report:binding,parts_version:opts['--parts-version'] as string,measurement,prediction:intakeHit(measurement)?'hit':'no-hit',by:opts['--by'] as string,at:new Date(now).toISOString(),...(opts['--supersedes']?{supersedes:opts['--supersedes']}:{})});
     const errors = intakeWarnings(dir,next).filter(w => w.code === 'INTAKE_REPORT_INVALID');
     if (errors.length) invalid(errors[0]?.message ?? 'invalid report');
-    const tmp = join(dirname(file),`.intake-${crypto.randomUUID()}.tmp`);
+    const assets = eligibleBoundPaths([relative(dir, resolve(dir, opts['--report'] as string)).split(sep).join('/')]);
+    assertCleanProjectStep(dir, ['project.json']);
+    assertCleanProjectStep(dir, assets, true);
+    tmp = join(dirname(file),`.intake-${crypto.randomUUID()}.tmp`);
     writeFileSync(tmp,`${JSON.stringify(next,null,2)}\n`,{flag:'wx'}); renameSync(tmp,file);
+    const warning = commitToolWrite(dir, 'intake-report', ['project.json', ...assets]);
+    if (warning !== undefined) process.stderr.write(`${warning}\n`);
     return intakeCommand([dir]);
-  } catch (e) { refuse('INTAKE_REPORT_INVALID',`intake.reports: ${String(e)}; retain correct report bytes and retry intake-report`); }
+  } catch (e) {
+    if (e instanceof Refusal) throw e;
+    return refuse('INTAKE_REPORT_INVALID',`intake.reports: ${String(e)}; retain correct report bytes and retry intake-report`);
+  } finally {
+    if (tmp) rmSync(tmp, { force: true });
+    release();
+  }
 }
 export function intakeCommand(args: string[]): string {
   if (args.length > 1 || args.some(a => a.startsWith('-'))) refuse('INTAKE_REPORT_INVALID',`intake: expected a project folder; ${INTAKE_HELP}`);

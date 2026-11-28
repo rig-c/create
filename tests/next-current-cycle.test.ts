@@ -97,6 +97,9 @@ async function replay(destination: string, skipSignoffs = false): Promise<void> 
     ...cli,
     main(args: string[], at: number) {
       const writer = args[0];
+      if (writer === 'history' && args[1] === 'baseline') {
+        throw new Error('current walk must not require history baseline once all tool writers commit');
+      }
       if (writer === 'signoff' && skipSignoffs) {
         const stage = args[1]!;
         const report = JSON.parse(nextCommand([dir, '--json'], now).stdout) as NextReport;

@@ -4,7 +4,7 @@ import { readFileSync, realpathSync } from './check-reads.ts';
 import { asArray, isObject, type Finding } from './check.ts';
 import { literalFile } from './choices.ts';
 import { CURRENT_DIRECTION_PATH } from './current-direction.ts';
-import { CURRENT_KINDS, currentShapeFindings, isRunRecordFile, outputRoot, sha256, treeFiles, type CurrentKind } from './current.ts';
+import { CURRENT_KINDS, adoptedRigInventoryProblem, currentShapeFindings, isRunRecordFile, outputRoot, sha256, type CurrentKind } from './current.ts';
 import type { NextMove, NextReport } from './next.ts';
 import { RunRecordError, validateRunRecord } from './run-record.ts';
 import type { Json, JsonObject } from './templates.ts';
@@ -43,24 +43,7 @@ function adoptedOutputPath(kind: CurrentKind, node: JsonObject): string | undefi
 
 /** Verify the adopted rig's entire recorded product inventory, including its images and compiled build. */
 export function adoptedRigInventoryMatches(dir: string, project: JsonObject, rig: JsonObject): boolean {
-  const root = adoptedOutputPath('rig', rig);
-  if (!root || currentShapeFindings('rig', rig, project).length > 0) return false;
-  const files = asArray(rig.files).filter(isObject);
-  try {
-    const projectRoot = realpathSync(dir);
-    for (const subdir of ['rig', 'check']) {
-      const path = `${root}/${subdir}`;
-      const expected = files.filter(file => String(file.path).startsWith(`${path}/`));
-      if (expected.length === 0) continue;
-      if (realpathSync(join(projectRoot, path)) !== join(projectRoot, path)) return false;
-      const actual = treeFiles(dir, path);
-      if (actual.length !== expected.length || !actual.every((file, i) => {
-        const recorded = expected[i];
-        return recorded?.path === file.path && recorded.sha256 === file.sha256 && recorded.bytes === file.bytes;
-      })) return false;
-    }
-    return true;
-  } catch { return false; }
+  return adoptedRigInventoryProblem(dir, project, rig) === undefined;
 }
 
 function inDirectory(dir: string, step: string, quote: ShellWord): string {

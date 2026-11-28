@@ -47,7 +47,7 @@ export function isCurrentPartsSignoff(signoff: JsonObject): boolean {
   return signoff.stage === 'parts-review' && isObject(signoff.target) && signoff.target.subject === 'current.parts';
 }
 
-function currentTargetFor(dir: string, project: JsonObject, kind: CurrentTargetKind, signedAt?: number) {
+export function currentTargetFor(dir: string, project: JsonObject, kind: CurrentTargetKind, signedAt?: number) {
   const subject = `current.${kind}` as const;
   if (!isObject(project.current)) throw Error('current is missing or malformed');
   const node = project.current[kind];

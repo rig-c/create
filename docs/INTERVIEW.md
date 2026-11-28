@@ -418,7 +418,9 @@ Their sign-off is the verdict they save in rig-review's parts view: it is
 recorded with the `parts-review` sign-off as evidence, and a part changed after
 it means they look again.
 
-## Post-production: asked after the rig is accepted
+<a id="post-production-asked-after-the-rig-is-accepted"></a>
+
+## Post-production choices on the recorded rig
 
 Record the current rig and inspect it at a fixed view before discussing
 direction. At `post-interview`, ask the three questions below in chat.
@@ -463,12 +465,10 @@ unavailable in direction; do not promise them in plan bars.
 
 ## Bars have reading commands
 
-Before putting a bar to the user for sign-off, the drafter names the command
-that produces **each** reading in it, the inputs it reads and the output that
-contains the reading. Check each command and flag against the installed CLI's
-`--help`. A missing command, or a command that only produces inputs for a
-missing measurement, is a **STOP before sign-off**. Write the command beside
-its clause in the plan's `bar` text. No new record field is needed.
+When drafting a bar, name the command, its inputs and the output that
+contains each reading. Verify the command and flags against the installed
+CLI's `--help`. Write the command beside the clause in the plan's `bar`
+text. If the reading is unavailable, leave its status open and explain why.
 
 For example, for a compiled synthetic eight-second `idle` candidate in
 `derived/rig/`, these are two draft clauses, each with its reading command.
@@ -531,7 +531,7 @@ only for the behaviour it actually reproduces.
 
 ### Post bars on a looping idle
 
-Draft the loop-seam bar with these three clauses before seeking sign-off.
+Draft the loop-seam bar with these three clauses before building the take.
 
 1. Compare the whole-figure changed-pixel count across a boundary with physics
    on against physics off **at that same boundary**. Breath can have its
@@ -598,6 +598,8 @@ kept:
   sentence or delegation the bounced entry came from.
 
 ## Polish feedback
+
+Use Review comments and chat for current work. The following describes how retained numbered verdicts record feedback.
 
 What the user says after seeing a version is stored verbatim in that version's
 `verdicts[]`, with `review` (`rig-review` or `direction-review`) and
@@ -748,24 +750,14 @@ contract and receive `GUIDE_ASKS_LEGACY` when a new applicable ask is absent.
 Core does not require a ground answer.
 
 
-## Rigging questions follow the approved parts
+<a id="rigging-questions-follow-the-approved-parts"></a>
 
-In the explicit split order, the initial interview asks framing plus source
-and parts preparation only (`seethrough`, `assemble`). Bones, deformation,
-constraints and motion guides wait for `rigging-interview`, after the person
-has accepted the parts and mesh/chest structure. Null later guides are not
-missing early answers. The rigging plan is signed separately, against the
-hash-bound parts approval and structure snapshot. The person's earlier mesh
-and chest declarations are carried into that interview as approved context.
+## Rigging questions use the recorded parts
 
-The context is outside the answer union. This card keeps the existing
-user/delegated/not-applicable/inherited states without prescribing the later
-multiple-choice option set or correction-path schema. Existing sentence answers
-remain history; adoption does not re-date them or copy them as new answers.
-The source and rigging approval resolver is `approvalStageOfStep`; all delegation
-and plan checks read it. Source planning cannot require an unanswered later
-rigging guide. Hand pass means the correction loop of rig-review, not another
-signature whose meaning nobody defined.
+Use the registered parts and structure snapshot to plan bones, deformation,
+constraints and motion in `rigging-interview`. Later rigging guides can be
+silent during source planning. Existing sentence answers and older signed
+parts contexts remain historical evidence.
 
 ## Per-ask choices (interview@2)
 

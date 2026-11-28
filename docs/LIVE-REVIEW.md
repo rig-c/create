@@ -118,79 +118,30 @@ Review re-enumerates and validates the supplied identity under API@2/act@2.
 
 ## Commit and recovery
 
-`job open --draft <id>` opens an existing recorded draft view-only
-(`subjects: []`); for new work, record `current.parts` with
-`record parts --from <dir> --config <file>` and publish with
-`job open --current parts`.
+Open the current selector to publish a recorded output. Entering
+`rig-review` or `direction-review` on a bound current project checks the
+target output and leaves the existing page open. Open the desired selector
+again when ready to show the result.
 
-A bound writer or `job open` that reports
-`JOB_ASK_PENDING` needs the owner to finish the current asks. Run
-`job acts --wait`, ingest with the printed commands, then retry the command
-to publish into the existing job.
+The outbox retains committed publication work until Review acknowledges
+it. Pending entries keep their identity and generation across retries,
+including acknowledgment loss. A write that already committed can report
+`WARN JOB_PUBLISH_PENDING` and leave the committed result in place.
+A refused record write preserves the previous record bytes.
+`interview --check` reports unresolved publication holes.
 
-A bound version writer refuses with `JOB_PUBLICATION_ASK_REQUIRED` before
-committing if its candidate would replace an open page without an owner ask.
-When a writer updates an open page, its text output names the new publication
-ID and the asks Review accepted.
+Restore the host and named source files, then run `job reconcile`. It
+checks the retained publication bindings and clears acknowledged entries
+without rewriting the project record. Pending publications can block
+other bound work and ordinary close. For a recorded failed publication,
+`job close --retire-refused` archives the failed receipt. When unfailed
+work remains the job stays open for reconciliation. See
+[Job retirement](JOB-RETIREMENT.md) for the close and discard rules.
 
-Participating bound writers hold a shared write lock as well as their existing
-writer lock until publication acknowledgment. Before replacing the project,
-the writer fsyncs a private outbox intent containing the published `versions[]`
-entry hash and result selector. The hash uses that entry's two-space JSON
-serialization with a final newline. After commit, the matching entry is pending until Review
-acknowledges it. The pending identity and generation
-remain stable across retries, including acknowledgment loss. A publish failure
-leaves the committed result, and the writer exits 0 with a
-`WARN JOB_PUBLISH_PENDING:` line on stderr beside its normal output: a
-non-zero exit stays reserved for refusals, which leave the record byte-identical.
-`interview --check` includes every pending entry in `holes[]` and exits 1.
-Unbound projects retain their existing report shape and writer behavior.
-
-On a bound job, `advance rig-review` and `advance direction-review` follow the
-same commit-then-durable-outbox order for the current live `rig` or `post`
-version: holding the shared job write lock, the writer validates the post-advance
-candidate and live version before writing, records the outbox intent for the
-post-advance record bytes, atomically replaces `project.json`, and publishes the
-version with its `review-verdict` subject. A fresh rig approval at effective
-rig-review also signs that stage, so no separate stage `signoff` is asked. If publication
-fails after `project.json` is committed, the stage advance stays committed in
-`project.json`, `JOB_PUBLISH_PENDING` remains in the durable outbox and is
-reported in `interview --check` `holes[]`, and `rig-create job reconcile`
-publishes and clears it. If the atomic record write itself fails before
-`project.json` is replaced, the uncommitted advance intent is removed and
-`project.json` stays byte-identical, so there is never a silent half-advance
-where the stage is advanced without either an acknowledged publication or a
-durable pending outbox entry. Advances into any other stage and advances when no
-job is bound do not publish or touch the outbox.
-
-Run `job reconcile` after restoring the host or declared package. It holds the
-same lock, verifies the retained version and files, publishes against the
-current whole-record hash and removes the acknowledged entry. Reconcile and the
-publish step of `job open` take pending entries in record order, not receipt-hash
-order: record publications first, then drafts in `drafts[]` order, then rig and post
-versions by number, so after a host restart the newest committed version ends as the
-page head. A version or draft named with `job open --rig` or `--draft` goes last and
-ends as the head. `job open` prints `job: pending rig v<n> published` (or
-`draft <id>`, `post v<n>`, `plan`, `option-set …`) for every other pending entry it
-published. Later signoffs,
-inputs and other independent writes remain in that current record.
-Reconciliation never rewrites `project.json`. A changed or missing committed
-version refuses with `JOB_PUBLICATION_STALE`. Pending work blocks other
-participating writers and ordinary close. For a recorded publication failure,
-`next` offers `rig-create job close <dir> --retire-refused`. This archives the
-failed receipts. When unfailed work remains, the job and its URL stay bound for
-`job reconcile`. Otherwise, the command closes the job after the usual act
-checks. See [job retirement](JOB-RETIREMENT.md) for the `--discard-acts` rules.
-After process loss, `check` and reconcile
-recover a dead writer's shared lock. An intent with a matching version entry is
-a pending HOLE, including after other writers change the surrounding record.
-An intent whose version is absent is dropped with its ID and version hash
-in the private `discarded-intents.jsonl` log. Active writer intents stay held.
-A different version hash remains a named HOLE and is preserved. A refused
-write cancels its absent-version intent. Each current-record snapshot has its
-own idempotent request key, with a stable key/generation for retries of that
-snapshot. Receipt recovery and
-acknowledgment never edit project bytes.
+Older jobs may have retained numbered or record-only outbox entries.
+Their immutable receipts continue to govern recovery and replay. A
+historical pending ask concerns that job and its state. It is independent
+of progress through the current four steps.
 
 ## Host attachment and delivery
 
@@ -216,7 +167,7 @@ attach never writes the binding.
 When an open Review host advertises progress, Create reports milestones while
 ingesting live acts, preparing drafts, versions and review packages, checking
 or advancing the project, planning its next actions, and preparing a
-publication. The page shows the latest line between asks. Create keeps the
+publication. The page shows the latest line while progress is active. Create keeps the
 sequence in the private job directory across CLI invocations. Review clears
 the display when a publication, ask or close commits. Commands continue with
 their usual output and exit status if the host is absent, lacks the capability

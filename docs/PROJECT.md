@@ -740,9 +740,11 @@ remain unverified by this caption fixture.
 
 ## The plan
 
-The plan lives in `project.json` `plan`, not in a separate file: `project.json`
-is already the only place a decision is recorded and the first thing a resuming
-agent reads, and a second file is one a resume can skip.
+The owner-facing [step plans](INTERVIEW.md#step-plans) are Markdown files
+bound by `interview.step_plans[]`. The executable work rows below live in
+`project.json` under `plan.steps[]`. Use `next` to see which rows are needed
+and write them with the plan writers. The example retains a historical
+checkpoint answer.
 
 ```json
 "plan": {
@@ -799,10 +801,7 @@ the current guide's recorded `at`, regardless of the owner-chat `said_at`.
 If the existing definition still fits, use `plan revise <id> --by <drafter>
 --reason <why it still fits>` to record that review. Every write refuses
 additional checker findings counted by code and path before changing the file.
-Amend the stage that owns the change before replanning under a live covering
-approval. To replace completed work under the same id, record an amendment
-after completion at the step's approval stage or an earlier stage, then run
-`plan replace <id>` with the same phase and every `add` field. It removes the
+Existing live signature bindings may need a recorded amendment when replanning historical work. To replace a row, use `plan replace <id>` with the same phase and every `add` field. It removes the
 old step and adds the new definition in one write, checked once on the final
 state, so a step another rule requires (such as the depth `turn` step) is never
 missing in between. Historical reopens still qualify under their original
@@ -827,10 +826,9 @@ checkpoints against history. Live approvals bind current steps.
 - **`bar`** is what *done* is measured by for that step, written before the
   step runs. A sentence that names a part, effect or extent is a bar line
   ([INTERVIEW.md § Direction and exact words](INTERVIEW.md#direction-and-exact-words)).
-- **`status`**: `pending` → `in-progress` → `at-checkpoint` (waiting for a
-  sign-off) → `done`. A step without a checkpoint may skip `at-checkpoint`.
-- A changed guide — including one added from polish feedback — sends every step
-  that rests on it back for a new sign-off by its step-specific approval stage before it runs.
+- **`status`** records `pending`, `in-progress`, any checkpoint hop and
+  `done`. Record readings before marking completion. Changes in a guide
+  can require rebuilding the outputs that use it.
 - **Provenance**: each version built from a config records, per config
   section, the guide sentence or delegation each entry follows
   (`versions[].provenance`, [INTERVIEW.md § Provenance](INTERVIEW.md#provenance-every-config-section-cites-its-guide)).

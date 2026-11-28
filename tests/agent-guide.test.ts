@@ -84,8 +84,10 @@ test('#674 the guide routes current direction corrections through the dependency
   expect(guide).toContain("follow next to rebuild\n");
   expect(guide).not.toContain("amend direction-review");
   const readme = readFileSync(join(REPO, 'README.md'), 'utf8');
-  expect(readme).toContain('with `amend direction-review`');
-  for (const text of [guide, readme]) expect(text).not.toContain('reopen direction-review --from-review');
+  for (const text of [guide, readme]) {
+    expect(text).not.toContain('amend direction-review');
+    expect(text).not.toContain('reopen direction-review --from-review');
+  }
   expect(Buffer.byteLength(guide)).toBeLessThan(GUIDE_MAX_BYTES);
 });
 

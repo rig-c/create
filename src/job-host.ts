@@ -245,12 +245,13 @@ export async function publishPending(
         await refusePendingJobAsks(entry.root, entry.jobId, host, selector);
       }
       entry.generation = status.generation;
+      if (isCurrentSelector) entry.generationKeyed = true;
     }
     entry.phase = 'pending';
     failPublication(entry.root, entry, entry.failure);
-    // Draft readiness can change when producer bytes drift without a record write.
-    // Keep retries on the stored generation, and give a fresh enqueue its own attempt.
-    const attempt = jobHash(JSON.stringify((isRecordResult(entry.result) || selector?.kind === 'draft')
+    // Current outputs can return as head at a later generation with identical bytes.
+    // Keep the original key for an in-flight legacy request, including a lost acknowledgment.
+    const attempt = jobHash(JSON.stringify((entry.generationKeyed || isRecordResult(entry.result) || selector?.kind === 'draft')
       ? [entry.id, entry.recordHash, entry.generation]
       : [entry.id, entry.recordHash]));
     const request = {
@@ -271,9 +272,10 @@ export async function publishPending(
     } };
     if (result.schema !== request.schema || !result.ok) {
       const code = result.error?.code ?? 'JOB_PUBLICATION_INVALID';
-      // Review rejected this attempt before publishing. Reconciliation must
-      // scan the refreshed asks before attempting the new generation.
-      if (result.schema === request.schema && code === 'JOB_GENERATION_STALE' && (viewOnly || isRecordResult(entry.result))) delete entry.generation;
+      // Neither rejection applied this request. The next reconcile must run the guard again.
+      const staleGeneration = code === 'JOB_GENERATION_STALE' && (viewOnly || isRecordResult(entry.result));
+      const legacyKeyConflict = code === 'JOB_IDEMPOTENCY_CONFLICT' && isCurrentSelector && !entry.generationKeyed;
+      if (result.schema === request.schema && (staleGeneration || legacyKeyConflict)) delete entry.generation;
       const reason = typeof result.error?.message === 'string' && result.error.message.trim() ? `: ${result.error.message}` : '';
       refuse(code, `project.json: publication of record ${entry.recordHash} was refused by review (${code})${reason}; run rig-create job reconcile after restoring the bound sources`);
     }

@@ -5,16 +5,16 @@ import { planCommand } from '../src/plan-writers.ts';
 import { checkpointProblem } from '../src/signable.ts';
 import { stepHash } from '../src/step-hash.ts';
 import { afterEach, expect, test } from 'bun:test';
-import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { EXAMPLE_NOW } from '../scripts/example-time.ts';
 import { JOB_API_SCHEMA, JOB_API_V3_SCHEMA, startJobHost, type JobHostAttachFailure, type JobHostOptions, type JobOwnerHost } from '@rig-c/review/job-host';
-import { attachCreateJob, closeCreateJob, openCreateJob, openDraftPublication, openRecordPublication, publishPending, reconcileCreateJob, requestedRecordResult } from '../src/job-host.ts';
+import { attachCreateJob, closeCreateJob, openCreateJob, openCurrentPublication, openDraftPublication, openRecordPublication, publishPending, reconcileCreateJob, requestedRecordResult } from '../src/job-host.ts';
 import { reportOwnerSubmitRefusal } from '../src/job-refusal.ts';
-import { acquireJobLock, cancelUncommittedIntent, enqueuePublication, failPublication, JOB_BINDING_FILE, jobHash, jobHostStateRoot, jobPrivateRoot, pendingPublications, publicationVersionHash, readAcknowledgedPublication, readWriterBinding, reconcilePublication, writePrivateJson } from '../src/job-outbox.ts';
+import { acquireJobLock, cancelUncommittedIntent, enqueuePublication, failPublication, JOB_BINDING_FILE, jobHash, jobHostStateRoot, jobPrivateRoot, pendingPublications, publicationVersionHash, readAcknowledgedPublication, readWriterBinding, reconcilePublication, retireRefusedPublications, writePrivateJson } from '../src/job-outbox.ts';
 import { jobRuntimeExecArgv } from '../src/job-writer.ts';
-import { draftPublicationContext, draftPublishedContext, liveManifestPath, loadedPartsIdentity, partsEnumerator, prepareDraftManifest, prepareLiveManifest, readPublished, readRecordPublished } from '../src/job-publication.ts';
+import { CURRENT_LIVE_MANIFEST, draftPublicationContext, draftPublishedContext, liveManifestPath, loadedPartsIdentity, partsEnumerator, prepareDraftManifest, prepareLiveManifest, readPublished, readRecordPublished } from '../src/job-publication.ts';
 import { checkProject, collectItems, formatReport } from '../src/check.ts';
 import { interviewAnswerCommand, interviewOptionsCommand } from '../src/choice-writers.ts';
 import { structureSnapshotCommand } from '../src/structure-snapshot.ts';
@@ -265,6 +265,148 @@ test('lost acknowledgment replays the same request without a second publication'
   expect(replay.pending).toEqual([]);
   expect(readAcknowledgedPublication(root, host.session.jobId, publicationId)?.subjects).toEqual([]);
   expect(pendingPublications(root)).toEqual([]);
+});
+
+async function boundCurrentPublication() {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'create-current-publication-')));
+  roots.push(root);
+  cpSync(join(import.meta.dir, '../templates/example-current'), root, { recursive: true });
+  const host = await openCreateJob(root, { id: 'reviewer', role: 'owner' }, EXAMPLE_NOW);
+  hosts.push(host);
+  const binding = readWriterBinding(root)!;
+  const record = readFileSync(join(root, 'project.json'));
+  const enqueue = (output: 'rig' | 'parts') => enqueuePublication(root, binding, {
+    path: CURRENT_LIVE_MANIFEST, selector: { kind: 'current', output, record: jobHash(record) },
+  });
+  return { root, host, record, enqueue };
+}
+
+test.each(['legacy', 'generation-keyed'] as const)('#1119 current %s lost acknowledgment replays before a fresh generation publishes', async keyKind => {
+  const { root, host, record, enqueue } = await boundCurrentPublication();
+  const entry = enqueue('rig');
+  const initialGeneration = host.session.status().generation;
+  if (keyKind === 'legacy') {
+    entry.generation = initialGeneration;
+    failPublication(root, entry, null);
+  }
+  const bodies: string[] = [];
+  const observePublish = async (options: JobHostOptions): Promise<JobOwnerHost> => {
+    const attached = await startJobHost(options);
+    return { ...attached, ports: { ...attached.ports, handleJobApi: async request => {
+      const body = await request.clone().text();
+      const response = await attached.ports.handleJobApi(request);
+      if (JSON.parse(body).verb === 'publish') {
+        bodies.push(body);
+        if (bodies.length === 1) throw new Error('planted loss of the Review response');
+      }
+      return response;
+    } } };
+  };
+  const reconcile = () => reconcileCreateJob(root, item => publishPending(item, undefined, undefined, observePublish, undefined, EXAMPLE_NOW), EXAMPLE_NOW);
+  await expect(reconcile()).rejects.toMatchObject({ code: 'JOB_PUBLISH_PENDING' });
+  const first = host.session.status().publication!;
+  expect(first.generation).toBe(initialGeneration + 1);
+  expect(readAcknowledgedPublication(root, host.session.jobId, first.publicationId)).toBeNull();
+  expect(pendingPublications(root)).toMatchObject([{ id: entry.id, generation: initialGeneration }]);
+  expect(enqueue('rig').id).toBe(entry.id);
+  expect(pendingPublications(root)).toHaveLength(1);
+
+  expect(await reconcile()).toBe(1);
+  expect(bodies).toHaveLength(2);
+  expect(bodies[1]).toBe(bodies[0]);
+  const identity = [entry.id, entry.recordHash];
+  const originalKey = jobHash(JSON.stringify(keyKind === 'legacy' ? identity : [...identity, initialGeneration]));
+  expect(JSON.parse(bodies[0]!)).toMatchObject({ requestId: originalKey, idempotencyKey: originalKey, expectedGeneration: initialGeneration });
+  expect(host.session.status()).toMatchObject({ generation: first.generation, publication: { publicationId: first.publicationId } });
+  const firstReceipt = readAcknowledgedPublication(root, host.session.jobId, first.publicationId);
+  expect(firstReceipt).toMatchObject({ requestId: originalKey, generation: first.generation });
+  expect(pendingPublications(root)).toEqual([]);
+
+  // Parts drains first and advances the generation before the requested rig is sent.
+  const parts = enqueue('parts');
+  expect(parts.generation).toBeUndefined();
+  expect(await openCurrentPublication(root, host, 'rig', EXAMPLE_NOW)).toContain('job: pending current parts published');
+  const latest = host.session.status().publication!;
+  expect(latest.generation).toBe(first.generation + 2);
+  expect(latest.publicationId).not.toBe(first.publicationId);
+  expect(readAcknowledgedPublication(root, host.session.jobId, latest.publicationId)).toMatchObject({
+    requestId: jobHash(JSON.stringify([...identity, latest.generation - 1])), generation: latest.generation,
+  });
+  expect(readAcknowledgedPublication(root, host.session.jobId, first.publicationId)).toEqual(firstReceipt);
+  expect(pendingPublications(root)).toEqual([]);
+  expect(readFileSync(join(root, 'project.json'))).toEqual(record);
+});
+
+test('#1119 a legacy current publication key conflict recovers on the second job reconcile', async () => {
+  const { root, host, record, enqueue } = await boundCurrentPublication();
+  const rig = enqueue('rig');
+  rig.generation = host.session.status().generation;
+  failPublication(root, rig, null);
+  expect(await reconcileCreateJob(root, undefined, EXAMPLE_NOW)).toBe(1);
+  const originalRig = host.session.status().publication!;
+  const legacyKey = jobHash(JSON.stringify([rig.id, rig.recordHash]));
+  expect(readAcknowledgedPublication(root, host.session.jobId, originalRig.publicationId)?.requestId).toBe(legacyKey);
+
+  await openCurrentPublication(root, host, 'parts', EXAMPLE_NOW);
+  const parts = host.session.status().publication!;
+  expect(parts.source).toMatchObject({ selector: { kind: 'current', output: 'parts' } });
+  const pending = enqueue('rig');
+  expect(pending.id).toBe(rig.id);
+  expect(pending.generationKeyed).toBeUndefined();
+  pending.generation = parts.generation;
+  failPublication(root, pending, null);
+
+  const reconcile = async () => {
+    const child = Bun.spawn([process.execPath, ...jobRuntimeExecArgv(), join(import.meta.dir, '../src/cli.ts'),
+      'job', 'reconcile', root], { cwd: root, stdout: 'pipe', stderr: 'pipe' });
+    const [exit, stdout, stderr] = await Promise.all([
+      child.exited, new Response(child.stdout).text(), new Response(child.stderr).text(),
+    ]);
+    return { exit, stdout, stderr };
+  };
+  expect(await reconcile()).toMatchObject({ exit: 1, stderr: expect.stringMatching(/^JOB_PUBLISH_PENDING: .*JOB_IDEMPOTENCY_CONFLICT/m) });
+  expect(host.session.status().publication?.publicationId).toBe(parts.publicationId);
+  const [failed] = pendingPublications(root);
+  expect(failed).toMatchObject({ id: pending.id, failure: { code: 'JOB_IDEMPOTENCY_CONFLICT' } });
+  expect(failed?.generation).toBeUndefined();
+  expect(checkProject(root, undefined, { now: EXAMPLE_NOW }).holes?.map(hole => hole.code)).toEqual(['JOB_PUBLISH_PENDING']);
+  expect(readFileSync(join(root, 'project.json'))).toEqual(record);
+
+  expect(await reconcile()).toMatchObject({ exit: 0, stdout: 'job: reconciled 1 publication(s)\n' });
+  const recovered = host.session.status().publication!;
+  expect(recovered.source).toMatchObject({ selector: { kind: 'current', output: 'rig' } });
+  expect(new Set([originalRig.publicationId, parts.publicationId, recovered.publicationId]).size).toBe(3);
+  expect(readAcknowledgedPublication(root, host.session.jobId, recovered.publicationId)?.requestId)
+    .toBe(jobHash(JSON.stringify([pending.id, pending.recordHash, parts.generation])));
+  expect(pendingPublications(root)).toEqual([]);
+  expect(checkProject(root, undefined, { now: EXAMPLE_NOW }).holes ?? []).toEqual([]);
+  expect(readFileSync(join(root, 'project.json'))).toEqual(record);
+}, 15_000);
+
+test('#1119 retirement preserves the original path and distinct generations or failures of one current outbox ID', async () => {
+  const { root, enqueue } = await boundCurrentPublication();
+  const archive = join(jobPrivateRoot(root), 'retired-publications');
+  const original = enqueue('rig');
+  const archived = new Map<string, Buffer>();
+  const release = acquireJobLock(root)!;
+  try {
+    for (const [generation, message] of [[0, 'legacy refusal'], [2, 'later refusal'], [2, 'different refusal'], [2, 'different refusal']] as const) {
+      const entry = enqueue('rig');
+      expect(entry.id).toBe(original.id);
+      entry.generation = generation;
+      if (generation !== 0) entry.generationKeyed = true;
+      failPublication(root, entry, { code: generation === 0 ? 'JOB_IDEMPOTENCY_CONFLICT' : 'JOB_RECORD_INCOMPLETE', message });
+      const pending = pendingPublications(root);
+      const content = JSON.stringify(pending[0]);
+      const name = generation === 0 ? `${entry.id}.json` : `${entry.id}-${jobHash(content)}.json`;
+      retireRefusedPublications(root, pending);
+      archived.set(name, Buffer.from(`${content}\n`));
+      for (const [file, bytes] of archived) expect(readFileSync(join(archive, file)).equals(bytes)).toBe(true);
+      expect(pendingPublications(root)).toEqual([]);
+    }
+    expect(archived.size).toBe(3);
+    expect(readdirSync(archive).sort()).toEqual([...archived.keys()].sort());
+  } finally { release(); }
 });
 
 test('explicit close removes the fetch binding and the next incarnation gets a fresh grant', async () => {

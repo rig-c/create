@@ -18,6 +18,7 @@ import { hostPortRefuses } from './job-host-state.ts';
 import { reportOwnerSubmitRefusal } from './job-refusal.ts';
 import {
   acquireJobLock,
+  assertJobIdentity,
   JOB_BINDING_FILE,
   jobHostStateRoot,
   pendingPublications,
@@ -577,6 +578,10 @@ export async function withdrawCreateJobAct(
   });
 }
 
+type CloseResult =
+  | { status: 'closed' }
+  | { status: 'kept-open'; retired: number; pending: number };
+
 export async function closeCreateJob(
   root: string,
   startHost: (options: JobHostOptions) => Promise<JobOwnerHost> = startJobHost,
@@ -584,7 +589,7 @@ export async function closeCreateJob(
   discardActs?: Record<string, string>,
   now = Date.now(),
   lockWaitMs = CLOSE_LOCK_WAIT_MS,
-): Promise<void> {
+): Promise<CloseResult> {
   let discardEvidence: JsonObject | undefined;
   if (discardActs) {
     const by = discardActs['--by']?.trim() ?? '';
@@ -595,26 +600,45 @@ export async function closeCreateJob(
     }
     discardEvidence = { by, at: new Date(now).toISOString(), ...chat, ...(reason ? { reason } : {}) };
   }
-  let pending: ReturnType<typeof pendingPublications> = [];
   root = realpathSync(root);
   const release = await acquireJobLockWaiting(root, lockWaitMs, 'close', holder => {
     process.stderr.write(`job: waiting up to ${Math.ceil(lockWaitMs / 1000)} s for ${holder === null ? 'another rig-create process' : `process ${holder}`} to release the job write lock\n`);
   });
   try {
-    pending = pendingPublications(root);
-    if (pending.length && (!retireRefused || pending.some(entry => !entry.failure))) {
-      refuse('JOB_PUBLISH_PENDING', 'project.json: a committed publication remains pending; run rig-create job reconcile, or job close --retire-refused to archive failed publications and close without publishing them');
+    const pending = pendingPublications(root);
+    const failed = pending.filter(entry => entry.failure);
+    const unfailed = pending.filter(entry => !entry.failure);
+    if (pending.length && !retireRefused) {
+      refuse('JOB_PUBLISH_PENDING', 'project.json: a committed publication remains pending; run rig-create job reconcile, or use job close --retire-refused to archive failed publications');
+    }
+    if (unfailed.length > 0 && failed.length === 0) {
+      refuse('JOB_PUBLISH_PENDING', 'project.json: unfailed publications remain pending; run rig-create job reconcile before closing');
+    }
+    if (unfailed.length > 0 && discardEvidence) {
+      refuse('JOB_PUBLISH_PENDING', `project.json.review_acts: unfailed publications prevent closing with --discard-acts; run rig-create job close ${shellWord(root)} --retire-refused by itself, then run rig-create job reconcile ${shellWord(root)} before closing with --discard-acts`);
     }
     const binding = readWriterBinding(root);
     if (!binding) refuse('JOB_BINDING_INVALID', 'project.json: no writer-owned job binding; open the live job first');
+    if (unfailed.length > 0) {
+      // Reconcile still needs this binding. Only a full close inspects or discards acts.
+      assertStoredCloseBinding(root, binding);
+      for (const entry of unfailed) {
+        if (entry.jobId !== binding.jobId || entry.origin !== binding.origin) {
+          refuse('JOB_HOST_REUSE_MISMATCH', `project.json: pending publication ${entry.id} belongs to a different job; restore its writer-owned binding before rig-create job reconcile`);
+        }
+        assertJobIdentity(entry.identity, binding.identity);
+      }
+      retireRefusedPublications(root, failed);
+      return { status: 'kept-open', retired: failed.length, pending: unfailed.length };
+    }
     const attachment = await openJobForClose(root, binding, startHost);
     const file = join(root, 'project.json');
     if (attachment.kind === 'absent-store') {
       const original = readFileSync(file);
       assertUnchangedBindingAndRecord(root, file, binding, original, 'close', false);
-      if (retireRefused) retireRefusedPublications(root, pending);
+      if (retireRefused) retireRefusedPublications(root, failed);
       rmSync(join(root, JOB_BINDING_FILE));
-      return;
+      return { status: 'closed' };
     }
     const { host } = attachment;
     const temporary = join(root, '.rig-create-job-record.tmp');
@@ -634,9 +658,10 @@ export async function closeCreateJob(
       if (acts.length > 0) {
         if (!discardEvidence) {
           const listed = acts.map(act => `${act.actId} (${pendingActRemedy(act)})`).join('; ');
+          const discard = `rig-create job close --discard-acts <reason> --by agent${failed.length > 0 ? ' --retire-refused' : ''}`;
           const action = attachment.kind === 'stopped-store'
-            ? 'the bound host has stopped across a pin or hook change and cannot serve --from-review, so run rig-create job close --discard-acts <reason> --by agent to record and discard them'
-            : 'ingest each act before closing, or run rig-create job close --discard-acts <reason> --by agent to record and discard them';
+            ? `the bound host has stopped across a pin or hook change and cannot serve --from-review, so run ${discard} to record and discard them`
+            : `ingest each act before closing, or run ${discard} to record and discard them`;
           refuse('JOB_ACTS_PENDING', `project.json.review_acts: un-ingested finalized review act(s) ${listed}; ${action}`);
         }
         next = appendDiscardedJobActs(root, project, acts.map(act => buildDiscardActReceipt(binding.jobId, act.actId, discardEvidence)), now);
@@ -662,8 +687,9 @@ export async function closeCreateJob(
         writeFileSync(temporary, `${JSON.stringify(next, null, 2)}\n`, { flag: 'wx' });
         renameSync(temporary, file);
       }
-      if (retireRefused) retireRefusedPublications(root, pending);
+      if (retireRefused) retireRefusedPublications(root, failed);
       rmSync(join(root, JOB_BINDING_FILE));
+      return { status: 'closed' };
     } finally {
       rmSync(temporary, { force: true });
       if (attachment.kind === 'stopped-store') attachment.finish();

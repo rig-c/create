@@ -2,12 +2,12 @@
   "schema": "rig-create/structure-decisions@0",
   "target": {
     "subject": "current.parts",
-    "record_sha256": "e8c88f81f1595e97c663d59e46d607d90c29731c67bb18b988d95406b7efea8c",
+    "record_sha256": "905ae7cfee00e5c4d6fb07daa73264024618fd2190d5e04e6aa65c627b827222",
     "files_sha256": "8086da1cca9944f02b9a2b838c3430e1f8069519661c0df6f33c692c5611ae74"
   },
   "run": {
     "path": "outputs/parts/run.json",
-    "sha256": "87703f82316d68e462f3d4adf21e4c99d9ae52d9a099b28995edde0c09d6c88b"
+    "sha256": "ff045d69a3706ffb2db1a1988c1becb4a00aa0f8f5c32262e0fed5822a27337e"
   },
   "config": {
     "path": "specs/rig/assemble.json",

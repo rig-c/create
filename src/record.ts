@@ -677,7 +677,7 @@ export function recordCommand(args: string[], now: number): CommandResult {
     let stagedDirectionSeam = false;
     if (kind === 'direction') {
       const { policy, finding } = readMotionLoopSeamPolicy(dir);
-      const direction = readDirectionOutput(dir, project, from, options['--direction']!, byPath, snapshots);
+      const direction = readDirectionOutput(dir, project, from, options['--direction']!, byPath, snapshots, now);
       const seamProblem = finding ?? (policy && directionLoopSeamFindings(dir, policy, byPath, from, direction.report, direction.takeDuration)[0]);
       if (seamProblem) refuse(seamProblem.code, seamProblem.message);
       stagedDirectionSeam = policy !== undefined;

@@ -275,7 +275,7 @@ export function validateDirectionScene(dir: string, project: JsonObject, doc: Js
 export function requireDirectionScene(doc: JsonObject, at: number, path: string): void {
   if (at >= Date.parse(DIRECTION_SCENE_SINCE) && doc.schema !== DIRECTION_SCENE_SPEC && doc.schema !== DIRECTION_COMPOSE_SPEC) directionFail('DIRECTION_SCENE_REQUIRED', path, 'run scene write and bind that scene in a direction@2 document');
 }
-export function readDirection(dir: string, project: JsonObject, n: Json | undefined, current = false, { currentCitations = current } = {}): JsonObject {
+export function readDirection(dir: string, project: JsonObject, n: Json | undefined, current = false, { currentCitations = current, warnings }: { currentCitations?: boolean; warnings?: Finding[] } = {}): JsonObject {
   const v = directionVersion(project,n); const prov = v.provenance;
   if (v.kind !== 'post') directionFail('DIRECTION_VERSION',`versions[v${String(n)}]`,'direction belongs to a post version');
   if (!isObject(prov) || !isObject(prov.direction)) directionFail('DIRECTION_DOCUMENT_REQUIRED',`versions[v${String(n)}].provenance.direction`,'retain a direction document for this post');
@@ -288,7 +288,7 @@ export function readDirection(dir: string, project: JsonObject, n: Json | undefi
   if (!isObject(prov.sections) || !['camera','timing'].every(section => {const entries=objects((prov.sections as JsonObject)[section]);return entries.length === 1 && equal(entries[0],{entry:section,...((doc.citations as JsonObject)[section] as JsonObject)});})) directionFail('DIRECTION_CITATION',`versions[v${String(n)}].provenance.sections`,'version citations must match authored document citations');
   requireDirectionScene(doc, Date.parse(String(v.at)), `versions[v${String(n)}].provenance.direction`);
   validateDirectionScene(dir, project, doc, current);
-  if (doc.schema === DIRECTION_COMPOSE_SPEC) validateComposeDirection(dir, project, doc, { current, currentCitations });
+  if (doc.schema === DIRECTION_COMPOSE_SPEC) validateComposeDirection(dir, project, doc, { current, currentCitations, warnings });
   else validateDirectionRig(dir,project,doc,current);
   validateDirectionCitations(dir,project,doc,currentCitations);
   return doc;
@@ -310,7 +310,7 @@ export function checkDirections(ctx: {dir:string;project:JsonObject;refusals:Fin
       try {
         if (!explicit && Date.parse(String(v.at)) >= Date.parse(DIRECTION_SCENE_SINCE)) directionFail('DIRECTION_SCENE_REQUIRED', `versions[v${String(v.n)}].provenance.direction`, 'run scene write and retain a direction@2 document');
         // A recorded post may cite a superseded answer while still using the current rig.
-        const doc = readDirection(ctx.dir,ctx.project,v.n,currentOverride ?? v.n===latest, { currentCitations: currentOverride === true });
+        const doc = readDirection(ctx.dir,ctx.project,v.n,currentOverride ?? v.n===latest, { currentCitations: currentOverride === true, warnings: ctx.warnings });
         if (doc.schema === DIRECTION_SPEC) ctx.warnings?.push({code:'DIRECTION_SCENE_REQUIRED',path:`versions[v${String(v.n)}].provenance.direction`,message:`versions[v${String(v.n)}].provenance.direction: historical direction@1 predates ${DIRECTION_SCENE_SINCE}; run scene write and author direction@2 for the next post`});
       }
       catch(e) { if (!(e instanceof DirectionError)) throw e; ctx.refusals.push(directionFinding(e)); }

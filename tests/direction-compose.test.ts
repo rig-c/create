@@ -3,6 +3,7 @@ import { plantLegacyReopen } from './fixtures.ts';
 import { afterEach, expect, test } from 'bun:test';
 import { appendFileSync, existsSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
+import type { Finding } from '../src/check.ts';
 import { directionHash, directionPostIdentity, objects, readDirection, validateDirectionShape } from '../src/direction.ts';
 import { composeInventory, composeRunMatchesAcceptedRig, composeScenePath, readComposeRun } from '../src/direction-compose.ts';
 import { prepareLiveManifest, readPublished, REVIEW_REFUSED_JOB_PATH } from '../src/job-publication.ts';
@@ -57,6 +58,12 @@ test.each([
 
   expect(f.publish().exit).toBe(0);
   const project = f.load();
+  const ctx = { dir: f.dir, project, refusals: [], warnings: [] as Finding[] };
+  checkDirections(ctx);
+  expect(ctx.refusals).toEqual([]);
+  expect(ctx.warnings).toContainEqual(expect.objectContaining({
+    code: 'SCENE_CAMERA_CHOICE_MISSING', path: 'compose.scene.json',
+  }));
   const doc = readDirection(f.dir, project, 2);
   const reportBinding = { path: 'outputs/v2/compose/scene.json', sha256: report.sha256 };
   const modelBinding = { path: 'outputs/v2/compose/check/build/skeleton.model.json', sha256: modelSha };
@@ -529,6 +536,23 @@ test('direction@3 does not reopen the producer scene or build paths', () => {
   const f = fixture(); (f.run.scene as JsonObject).path = 'unavailable-source/scene.json'; saveRun(f);
   expect(f.publish().exit).toBe(0);
   expect(() => readDirection(f.dir, f.load(), 2, true)).not.toThrow();
+});
+test('direction@3 resolves a nested Parts scene plate without reopening the source', () => {
+  const f = fixture();
+  const source = 'specs/direction/compose-scene.json';
+  for (const plate of objects(f.scene.plates)) plate.image = `../../${String(plate.image)}`;
+  const binding = f.put(source, f.scene);
+  f.run.scene = binding;
+  for (const plate of objects(f.run.plates)) plate.path = `../../${String(plate.path)}`;
+  f.report.scene = join(f.dir, source);
+  for (const plate of objects(f.report.plates)) plate.image = `../../${String(plate.image)}`;
+  f.put('compose-out/scene.json', f.report);
+  saveRun(f);
+  f.put('evidence/compose-direction.json', f.doc);
+  expect(seedRetainedDirectionPost(['write', '2', f.dir, '--file', 'evidence/compose-direction.json', '--rig', '1',
+    '--compose-out', 'compose-out', '--compose-scene', source], testClock.now()).exit).toBe(0);
+  rmSync(join(f.dir, source));
+  expect(directionCommand(['check', '2', f.dir]).exit).toBe(0);
 });
 for (const target of ['name', 'path', 'hash', 'missing', 'extra', 'legacy']) test(`DIRECTION_COMPOSE_RUN_PLATE refuses ${target} plate binding`, () => {
   const f = fixture();

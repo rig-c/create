@@ -961,6 +961,22 @@ files are never rewritten. Regenerate the choice wire examples with
 current example reproduces through `generate-example-current.ts` and checks
 with zero refusals and warnings.
 
+### Composition options with a keyed camera
+
+Put `camera_scene: {path, sha256}` inside `value.compose` (the option's
+`fragment.compose` for a single-ask set). Use each option's own retained,
+project-relative Parts `spine-parts-scene/1` input. A set may include options
+with and without a keyed camera. Keep the camera keys in the scene file.
+
+The scene can live at the project root or under a retained folder such as
+`specs/direction/`. In the Parts scene, write `characters[].build` and
+`plates[].image` relative to that file. Option plate paths stay relative to the
+project root. For example, a registered `inputs/backdrop.png` becomes
+`../../inputs/backdrop.png` inside `specs/direction/compose-scene.json`.
+
+When using a compose preview, use the exact scene bytes the option binds.
+After relaying the pick, pass that file to `scene write --compose-scene`.
+
 ## Optional intake choice in parts
 
 Recording a preflight with `intake-report` offers a new optional ask,

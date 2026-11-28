@@ -205,6 +205,7 @@ export const INTERVIEW_VALUE_READERS: readonly { question: string; file: string;
   { question: 'post_timing', file: 'direction-compose.ts', empty: 'composed direction has no timing values' },
   { question: 'post_timing', file: 'current-direction.ts', empty: 'the compose citation reader refuses DIRECTION_COMPOSE_CITATION without resolved timing' },
   { question: 'post_composition', file: 'compose-value.ts', empty: 'composed values have no candidates' },
+  { question: 'post_composition', file: 'camera-choice.ts', empty: 'a keyed scene has no selected camera binding' },
   { question: 'post_composition', file: 'direction-compose.ts', empty: 'composed direction has no composition values' },
   { question: 'post_composition', file: 'current-direction.ts', empty: 'the compose citation reader refuses DIRECTION_COMPOSE_CITATION without resolved composition, or current direction refuses DIRECTION_COMPOSE_CHOICE_MISMATCH without a compose value' },
   { question: 'post_composition', file: 'next.ts', empty: 'next prints no scene command citation' },

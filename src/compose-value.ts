@@ -16,6 +16,7 @@
  */
 import { asArray, isObject, itemFor, type Ctx, type Finding } from './check.ts';
 import { closed } from './direction.ts';
+import { sceneBinding } from './scene.ts';
 import type { Json, JsonObject } from './templates.ts';
 
 export const COMPOSE_VALUE_INVALID = 'COMPOSE_VALUE_INVALID';
@@ -86,6 +87,7 @@ export interface ComposeValueSpec {
   order: string[];
   character: ComposeCharacterSpec;
   idle_tracks: ComposeIdleTrackSpec[];
+  camera_scene?: JsonObject;
   end?: number;
 }
 
@@ -163,8 +165,12 @@ export function readComposeValue(value: Json | undefined, path: string): Compose
   if (!('idle_tracks' in raw) || raw.idle_tracks === undefined) {
     composeFail(`${composePath}.idle_tracks`, 'post_composition value.compose must declare idle_tracks');
   }
-  if (!closed(raw, ['canvas', 'plates', 'order', 'character', 'idle_tracks'])) {
-    composeFail(composePath, 'post_composition value.compose allows only canvas, plates, order, character and idle_tracks');
+  if (!closed(raw, ['canvas', 'plates', 'order', 'character', 'idle_tracks'], ['camera_scene'])) {
+    composeFail(composePath, 'post_composition value.compose allows only canvas, plates, order, character, idle_tracks and camera_scene');
+  }
+  const cameraScene = raw.camera_scene;
+  if ('camera_scene' in raw && !sceneBinding(cameraScene)) {
+    composeFail(`${composePath}.camera_scene`, 'bind the retained Parts scene by its project-relative path and raw sha256');
   }
 
   const canvasPath = `${composePath}.canvas`;
@@ -376,7 +382,8 @@ export function readComposeValue(value: Json | undefined, path: string): Compose
     idle_tracks.push({ bone: entry.bone, property, keys });
   }
 
-  return { canvas, plates, order, character, idle_tracks, ...(end === undefined ? {} : { end }) };
+  return { canvas, plates, order, character, idle_tracks, ...(isObject(cameraScene) ? { camera_scene: cameraScene } : {}),
+    ...(end === undefined ? {} : { end }) };
 }
 
 function collectAnswerValues(answer: JsonObject, basePath: string): { value: Json | undefined; path: string }[] {

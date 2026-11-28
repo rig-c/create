@@ -1,6 +1,7 @@
 /** Current-path scene spec writer and adopted-compose stager. */
 import { resolve } from 'node:path';
 import { isObject, type Finding } from './check.ts';
+import { CAMERA_SCENE_BINDING_SINCE, currentCameraBindingFinding, hasKeyedCamera } from './camera-choice.ts';
 import { stageAdoptedCompose } from './adopted-compose.ts';
 import { writeDirectionSpec } from './direction-spec-write.ts';
 import { closed, directionHash } from './direction.ts';
@@ -23,7 +24,7 @@ scene stage-adopted [<dir>]
 
 export interface SceneWriteHooks { beforeCommit?: () => void; }
 
-export function sceneCommand(args: string[], _now?: number, hooks: SceneWriteHooks = {}): CommandResult {
+export function sceneCommand(args: string[], now = Date.now(), hooks: SceneWriteHooks = {}): CommandResult {
   try {
     if (args[0] === 'stage-adopted') return stageAdoptedCompose(args.slice(1));
     if (args.some(arg => arg === '--rig' || arg.startsWith('--rig='))) {
@@ -32,7 +33,7 @@ export function sceneCommand(args: string[], _now?: number, hooks: SceneWriteHoo
         replacement: 'use rig-create scene write --background <path> --citations-file <file> or rig-create scene write --compose-scene <file>',
       });
     }
-    return writeCurrentScene(args, hooks);
+    return writeCurrentScene(args, now, hooks);
   }
   catch (error) { if (error instanceof SceneError) refuse(error.code, error.message); throw error; }
 }
@@ -80,7 +81,7 @@ function scenePlates(dir: string, project: JsonObject, opts: Record<string, stri
   return plates;
 }
 
-function writeCurrentScene(args: string[], hooks: SceneWriteHooks): CommandResult {
+function writeCurrentScene(args: string[], now: number, hooks: SceneWriteHooks): CommandResult {
   const opts: Record<string, string> = {};
   const positional: string[] = [];
   const usage = (): never => refuse('SCENE_MALFORMED', `scene: ${SCENE_HELP}`, USAGE_EXIT);
@@ -100,6 +101,7 @@ function writeCurrentScene(args: string[], hooks: SceneWriteHooks): CommandResul
   if (positional.length > 1 || (composePath ? plateArgs.some(key => opts[key] !== undefined)
     : !opts['--background'] || !opts['--citations-file'] || opts['--foreground-rect'] && !opts['--foreground'])) return usage();
   const dir = resolve(positional[0] ?? process.cwd());
+  let warning: string | undefined;
   writeDirectionSpec(dir, CURRENT_SCENE_PATH, 'SCENE_FILE_CHANGED', snapshots => {
     const original = sceneBytes(dir, 'project.json', 'SCENE_MALFORMED', snapshots);
     let project: JsonObject;
@@ -108,6 +110,7 @@ function writeCurrentScene(args: string[], hooks: SceneWriteHooks): CommandResul
     if (!isObject(project) || project.schema !== 'rig-create/project@0') sceneFail('SCENE_MALFORMED', 'project.json.schema', 'expected rig-create/project@0');
     const { rig, stage } = currentSceneRig(dir, project, snapshots, opts['--animation']);
     const doc: JsonObject = { schema: CURRENT_SCENE_SPEC, rig, frame: { space: 'rig-world-y-up', stage } };
+    let keyed = false;
     if (composePath) {
       const bytes = sceneBytes(dir, composePath, 'SCENE_MALFORMED', snapshots);
       let source: JsonObject;
@@ -116,9 +119,15 @@ function writeCurrentScene(args: string[], hooks: SceneWriteHooks): CommandResul
       if (!isObject(source) || source.spec !== 'spine-parts-scene/1') sceneFail('SCENE_MALFORMED', composePath, 'expected a Parts spine-parts-scene/1 scene');
       if (composePath === CURRENT_SCENE_PATH || composePath.startsWith('outputs/')) sceneFail('SCENE_MALFORMED', composePath, 'retain the Parts input under specs/direction/ before scene write');
       doc.compose = { path: composePath, sha256: directionHash(bytes) };
+      keyed = hasKeyedCamera(source);
     } else {
       doc.plates = scenePlates(dir, project, opts, stage, snapshots);
       doc.layers = opts['--foreground'] ? ['background', 'rig', 'foreground'] : ['background', 'rig'];
+    }
+    const finding = currentCameraBindingFinding(dir, project, (doc.compose as JsonObject | undefined) ?? { path: CURRENT_SCENE_PATH }, keyed, snapshots);
+    if (finding) {
+      if (now >= Date.parse(CAMERA_SCENE_BINDING_SINCE)) throw finding;
+      warning = `rig-create: WARN ${finding.code}: ${finding.message}`;
     }
     validateCurrentScene(dir, project, doc, snapshots);
     if (!composePath) {
@@ -129,6 +138,6 @@ function writeCurrentScene(args: string[], hooks: SceneWriteHooks): CommandResul
     }
     return doc;
   }, hooks.beforeCommit);
-  const stderr = commitProjectStep(dir, 'scene', ['scene', ...args].join(' '), CURRENT_SCENE_PATH);
+  const stderr = [warning, commitProjectStep(dir, 'scene', ['scene', ...args].join(' '), CURRENT_SCENE_PATH)].filter(Boolean).join('\n');
   return { stdout: `scene: ${CURRENT_SCENE_PATH} written`, exit: 0, ...(stderr ? { stderr } : {}) };
 }

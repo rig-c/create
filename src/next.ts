@@ -92,7 +92,7 @@ import {
 } from './stages.ts';
 import type { Json, JsonObject } from './templates.ts';
 import { SECTIONLESS_POST_ITEMS } from './waypoints.ts';
-import { currentComposition } from './camera-choice.ts';
+import { currentCameraChoice } from './camera-choice.ts';
 import { CURRENT_SCENE_PATH, currentScene, currentSceneRig, plateRegistration, sceneBinding, sceneBytes, SceneError, validateCurrentScene } from './scene.ts';
 import { depthPlanMoves, turnExtraGroupMoves } from './rig-version.ts';
 import { checkRigReport, parseRigCheckReport, RIG_CHECK_REPORT_FILE } from './rig-check-report.ts';
@@ -1384,8 +1384,8 @@ function currentPostOutputMove(dir: string, project: JsonObject, kind: 'motion' 
   if (!isObject(project.current) || !isObject(project.current.motion)) return;
   let pickedScene: JsonObject | undefined;
   try {
-    const value = currentComposition(dir, project)?.value;
-    if (isObject(value) && isObject(value.compose) && sceneBinding(value.compose.camera_scene)) pickedScene = value.compose.camera_scene;
+    const binding = currentCameraChoice(dir, project)?.binding;
+    if (sceneBinding(binding)) pickedScene = binding;
     const scene = directionJson(sceneBytes(dir, CURRENT_SCENE_PATH, 'SCENE_FILE_CHANGED'), CURRENT_SCENE_PATH);
     validateCurrentScene(dir, project, scene);
     if (!sceneBinding(scene.compose)) throw new SceneError('SCENE_MALFORMED', CURRENT_SCENE_PATH, 'expected a Parts compose scene');

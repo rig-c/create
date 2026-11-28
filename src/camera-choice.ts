@@ -45,13 +45,17 @@ export function cameraChoiceId(answer: JsonObject | undefined): string {
   return String(pick?.option_id ?? '(missing)');
 }
 
-export function currentComposition(dir: string, project: JsonObject, snapshots?: Map<string, Buffer>) {
+export function currentCameraChoice(dir: string, project: JsonObject, snapshots?: Map<string, Buffer>) {
   const item = collectItems(project, { collection: loadCollection(dir) }).find(row => row.id === 'post_composition');
   if (!item || (item.state.state !== 'user' && item.state.state !== 'delegated')) return;
   const answer = item.state.answer;
-  if (!isObject(answer.choice)) return { answer, value: undefined };
+  const recorded = answer.delegated === true && isObject(answer.agent_decision) ? answer.agent_decision.value : answer.value;
+  if (!isObject(answer.choice) || !isObject(recorded) || !isObject(recorded.compose) || recorded.compose.camera_scene === undefined) {
+    return { answer, binding: undefined };
+  }
   const citation: JsonObject = answer.delegated === true ? { delegated: true } : { quote: String(answer.verbatim ?? '') };
-  return { answer, value: resolveAnswerValue(dir, item.path, answer, citation, snapshots).value };
+  const { value } = resolveAnswerValue(dir, item.path, answer, citation, snapshots);
+  return { answer, binding: isObject(value) && isObject(value.compose) ? value.compose.camera_scene : undefined };
 }
 
 export function cameraBindingFinding(source: JsonObject, choice: string, selected: Json | undefined): SceneError | undefined {
@@ -64,7 +68,6 @@ export function cameraBindingFinding(source: JsonObject, choice: string, selecte
 }
 
 export function currentCameraBindingFinding(dir: string, project: JsonObject, source: JsonObject, snapshots?: Map<string, Buffer>): SceneError | undefined {
-  const chosen = currentComposition(dir, project, snapshots);
-  const compose = isObject(chosen?.value) && isObject(chosen.value.compose) ? chosen.value.compose : undefined;
-  return cameraBindingFinding(source, cameraChoiceId(chosen?.answer), compose?.camera_scene);
+  const chosen = currentCameraChoice(dir, project, snapshots);
+  return cameraBindingFinding(source, cameraChoiceId(chosen?.answer), chosen?.binding);
 }

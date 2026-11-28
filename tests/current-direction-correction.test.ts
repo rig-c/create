@@ -114,7 +114,8 @@ function stageCameraReport({ modelMatches = true, track = 'idle', duration = 4, 
   const reportSha = put(`${from}/scene.json`, { ...read(`${from}/scene.json`), spec: 'spine-parts-scene-report/2', scene: sourcePath,
     camera: { backdrop, model_sha256: modelMatches ? modelSha : '0'.repeat(64),
       tracks: { [track]: { duration, compiled_duration: 4, loop, keys } } } });
-  const record = () => recordCommand(['direction', f.dir, '--from', from, '--direction', CURRENT_DIRECTION_PATH], Date.parse('2026-11-26T09:12:00Z'));
+  const record = (now = Date.parse('2026-11-26T09:12:00Z')) =>
+    recordCommand(['direction', f.dir, '--from', from, '--direction', CURRENT_DIRECTION_PATH], now);
   return { f, record, source, sourcePath, sourceSha, read, put, bindings: {
     report: { path: 'outputs/direction/scene.json', sha256: reportSha },
     model: { path: `outputs/direction/${modelPath}`, sha256: modelSha },
@@ -122,7 +123,7 @@ function stageCameraReport({ modelMatches = true, track = 'idle', duration = 4, 
 }
 
 test('camera options bind distinct retained scene files and can include an unkeyed choice', () => {
-  const { f, source, sourcePath, sourceSha, put, read } = stageCameraReport();
+  const { f, source, sourcePath, sourceSha, put, read, record } = stageCameraReport();
   const project = f.load();
   const answer = collectItems(project, { collection: null }).find(item => item.id === 'post_composition')!.raw as JsonObject;
   const choice = answer.choice as JsonObject;
@@ -159,6 +160,10 @@ test('camera options bind distinct retained scene files and can include an unkey
   expect(readFileSync(join(f.dir, 'specs/direction/scene.json'))).toEqual(before);
   expect(write(sourcePath).exit).toBe(0);
   expect(read('specs/direction/scene.json').compose).toEqual(first);
+  testClock.set(now);
+  expect(directionCommand(['write', f.dir, '--file', 'evidence/intent-revised.json']).exit).toBe(0);
+  expect(record(now).exit).toBe(0);
+  expect(checkProject(f.dir).refusals.filter(finding => finding.code.startsWith('SCENE_CAMERA_CHOICE_'))).toEqual([]);
   expect(write('specs/direction/compose-scene.json').exit).toBe(0);
   for (const value of [readFileSync(join(f.dir, setPath), 'utf8'), JSON.stringify(answer)]) {
     expect(value).not.toMatch(/"(pan|zoom|t)"\s*:/);

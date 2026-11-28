@@ -453,6 +453,23 @@ test('#1111 next routes an adopted direction redo and its offered writer closes 
     expect(closed.feedback.find(feedback => feedback.verdict === path)).toMatchObject({ answered_by_current_direction: true, withdrawn: false });
     expect(closed.feedback.flatMap(feedback => feedback.open_direction_comment ?? [])).toEqual([]);
     expect(next().open_direction_comments).toBeUndefined();
+
+    tick();
+    const adoptedRun = obj(obj(obj(read().current).rig).run);
+    const context = optionContext(read(), 'post-interview', testClock.now(), dir);
+    expect(adoptedRun.path).toBe('outputs/v3/out/rig/run.json');
+    expect(context).toMatchObject({ kind: 'adopted-rig', run: adoptedRun });
+    const setPath = 'evidence/interview/post_composition-adopted.json';
+    put(setPath, { ...read('evidence/interview/post_composition.json'), id: 'post-composition-adopted',
+      drafted_at: testClock.iso(), context });
+    const args = ['post_composition', dir, '--file', setPath];
+    expect(JSON.parse(interviewOptionsCommand(args)).path).toBe(setPath);
+    const registered = readFileSync(recordPath);
+    writeFileSync(join(dir, String(adoptedRun.path)), '{}');
+    expect(() => interviewOptionsCommand(args)).toThrow(expect.objectContaining({
+      code: 'INTERVIEW_OPTIONS_STALE', message: expect.stringContaining(String(adoptedRun.path)),
+    }));
+    expect(readFileSync(recordPath)).toEqual(registered);
   } finally {
     testClock.reset();
   }

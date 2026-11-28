@@ -7,7 +7,7 @@ import { lstatSync, readFileSync, realpathSync } from './check-reads.ts';
 import { isAbsolute, relative, resolve, sep } from 'node:path';
 import { isDeepStrictEqual as equal } from 'node:util';
 import { answered, asArray, collectItems, collectSignoffs, collectionQuestion, loadCollection, isDecision, isObject, type Ctx, type Finding, type Item } from './check.ts';
-import { builtFromNameAllowed, currentShapeFindings, isRunRecordFile, outputSetHash } from './current.ts';
+import { adoptedRigInventoryProblem, builtFromNameAllowed, isRunRecordFile, outputSetHash } from './current.ts';
 import { draftFileUnavailable } from './drafts.ts';
 import { ownerChatAuthorityFinding } from './owner-chat.ts';
 import { Refusal } from './refusal.ts';
@@ -185,11 +185,12 @@ function currentRigOptionContext(project: JsonObject, at: number, dir?: string):
     fail('INTERVIEW_OPTIONS_STALE', 'current.rig: record the current rig before drafting post options');
   }
   if (rig.adopted !== undefined) {
-    const issue = currentShapeFindings('rig', rig, project)[0];
-    if (issue) fail('INTERVIEW_OPTIONS_STALE', `${issue.message}; restore the adopted record and its numbered bindings`);
-    for (const binding of [...asArray(rig.files), ...asArray(rig.built_from)]) verifyBinding(dir, binding, true);
-    return { kind: 'adopted-rig', target: { subject: 'current.rig', record_sha256: sha256(Buffer.from(JSON.stringify(sorted(rig)))),
-      files_sha256: rig.files_sha256! } };
+    const issue = adoptedRigInventoryProblem(dir, project, rig, { requireComplete: false });
+    if (issue) fail('INTERVIEW_OPTIONS_STALE', `${issue}; restore the adopted record and its numbered bindings`);
+    for (const binding of asArray(rig.built_from)) verifyBinding(dir, binding, true);
+    const target = { subject: 'current.rig', record_sha256: sha256(Buffer.from(JSON.stringify(sorted(rig)))), files_sha256: rig.files_sha256! };
+    const run = isObject(rig.run) ? { path: rig.run.path!, sha256: rig.run.sha256! } : undefined;
+    return { kind: 'adopted-rig', target, ...(run ? { run } : {}) };
   }
   if (!isObject(rig.run) || !text(rig.run.path) || !text(rig.run.sha256)) {
     fail('INTERVIEW_OPTIONS_STALE', 'current.rig: record the current rig and its producer run before drafting post options');
@@ -574,9 +575,10 @@ function validateAnsweredContext(dir: string, project: JsonObject, set: JsonObje
   if (isObject(context) && context.kind === 'current-parts') return validateAnsweredPartsContext(dir, project, set, context, at);
   if (isObject(context) && context.kind === 'adopted-rig') {
     const drafted = date(set.drafted_at);
-    const { target } = context;
+    const { target, run } = context;
     if (!Number.isFinite(drafted) || !Number.isFinite(at) || drafted > at || set.stage !== 'post-interview'
-      || Object.keys(context).length !== 2 || !isObject(target) || Object.keys(target).length !== 3
+      || Object.keys(context).length !== (run === undefined ? 2 : 3) || !isObject(target) || Object.keys(target).length !== 3
+      || (run !== undefined && (!historicalBinding(run) || !/^outputs\/v[1-9]\d*\/out\/(rig|check\/build)\/run\.json$/.test(run.path)))
       || target.subject !== 'current.rig' || !digest(target.record_sha256) || !digest(target.files_sha256)) {
       fail('INTERVIEW_OPTIONS_STALE', 'context: restore the sealed adopted rig target shown for this answer');
     }

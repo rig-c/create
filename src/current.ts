@@ -246,6 +246,36 @@ export function currentFileBinding(project: JsonObject, kind: CurrentKind, path:
   if (file) return { path, sha256: String(file.sha256) };
 }
 
+/** Verify the adopted rig's entire recorded product inventory and name the first difference. */
+export function adoptedRigInventoryProblem(dir: string, project: JsonObject, rig: JsonObject,
+  { requireComplete = true } = {}): string | undefined {
+  const version = adoptedVersion(rig);
+  if (version === undefined) return 'current.rig.adopted: expected a numbered rig binding';
+  const issue = currentShapeFindings('rig', rig, project)[0];
+  if (issue) return issue.message;
+  const files = asArray(rig.files).filter(isObject);
+  for (const subdir of ['rig', 'check']) {
+    const path = `outputs/v${version}/out/${subdir}`;
+    const expected = files.filter(file => String(file.path).startsWith(`${path}/`));
+    if (expected.length === 0) continue;
+    try {
+      const absolute = join(realpathSync(dir), path);
+      if (realpathSync(absolute) !== absolute) return `${path}: expected the recorded directory at its literal path`;
+      const actual = new Map(treeFiles(dir, path).map(file => [file.path, file]));
+      for (const recorded of expected) {
+        const name = String(recorded.path);
+        const file = actual.get(name);
+        if (!file) return `${name}: recorded file is missing`;
+        if (recorded.sha256 !== file.sha256 || recorded.bytes !== file.bytes) return `${name}: bytes differ from the adopted record`;
+        actual.delete(name);
+      }
+      if (requireComplete && actual.size) return `${actual.keys().next().value}: file is absent from the adopted inventory`;
+    } catch (error) {
+      return `${path}: ${error instanceof Error ? error.message : String(error)}`;
+    }
+  }
+}
+
 export const CURRENT_RIG_MODEL = 'outputs/rig/check/build/skeleton.model.json';
 export const CURRENT_MOTION_FRAMES = 'outputs/motion/frames.json';
 const RIG_MODEL_RELATIVE = 'check/build/skeleton.model.json';

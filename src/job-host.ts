@@ -12,7 +12,7 @@ import { acknowledgePublication, acquireJobLock, assertJobIdentity, CURRENT_PUBL
 import { commitCurrentPublication } from './project-step-commit.ts';
 import { draftPublicationResult } from './job-writer.ts';
 import { attachCreateJobForClose, refusePendingJobAsks } from './job-close.ts';
-import { actionablePendingAct, agentCall, ingestedJobActs, ingestedSummary, jobEvents, pendingJobActs, readHostActsAndAsks, shellWord, type AgentReply, type IngestedJobAct, type PendingJobAct } from './job-acts.ts';
+import { actionablePendingAct, ingestedJobActs, ingestedSummary, pendingJobActs, readHostActsAndAsks, shellWord, type IngestedJobAct, type PendingJobAct } from './job-acts.ts';
 import { checkReviewPackages } from './review-package.ts';
 import type { JsonObject } from './templates.ts';
 import { recoverReplacedJobHostState, replacedRootRefusal } from './job-host-state.ts';
@@ -206,7 +206,7 @@ export async function publishPending(
   startHost: (options: JobHostOptions) => Promise<JobOwnerHost> = startJobHost,
   onPublished?: (publication: { publicationId: string; replaced: boolean }) => void,
   now?: number,
-): Promise<AskOutcome[]> {
+): Promise<void> {
   const host = await attachCreateJob(entry, requested, beforeAttach, startHost, now);
   try {
     const reportsProgress = await postJobProgress(entry.root, host, { phase: 'publish', text: 'Preparing the Review publication', step: { i: 1, n: 2 } });
@@ -300,25 +300,7 @@ export async function publishPending(
     acknowledgePublication(entry, publicationId, generation, attempt, acknowledgedSubjects,
       replay ? replay.draftSource : draftSource, replay?.draftReview);
     onPublished?.({ publicationId: result.value.publicationId, replaced: Boolean(status.publication && status.publication.publicationId !== result.value.publicationId) });
-    // The person answers on the page, so every declared subject is asked here, with the
-    // agent authority this process already holds in memory. An ask Review refuses never
-    // makes the acknowledged publication pending again; the caller names it afterwards.
-    return viewOnly ? [] : await askDeclaredSubjects(host, publicationId, subjects, isRecordResult(entry.result));
   } finally { host.stop(); }
-}
-
-/** One declared subject after the ask step: asked now, asked before on this publication, or refused by Review. */
-export type AskOutcome = { readonly subject: PublicationSubject; readonly status: 'asked' | 'already' }
-  | { readonly subject: PublicationSubject; readonly status: 'refused'; readonly code: string; readonly message?: string };
-
-/**The subjects already asked on this publication, from the same event reader as job acts, plus host capabilities from the `next` response. */
-async function askedSubjects(host: JobOwnerHost, publicationId: string): Promise<{ asked: PublicationSubject[]; askBatch: boolean }> {
-  const asked: PublicationSubject[] = [];
-  const capabilities: { askBatch?: boolean } = {};
-  for await (const event of jobEvents(host, false, capabilities)) {
-    if (event.type === 'pending' && event.ask.publicationId === publicationId) asked.push(event.ask.subject as PublicationSubject);
-  }
-  return { asked, askBatch: capabilities.askBatch === true };
 }
 
 /** Read through the official strict attachment; never bootstrap, publish or install a writer binding. */
@@ -366,108 +348,15 @@ export async function listCreateJobActs(
   } finally { host.stop(); }
 }
 
-const ASK_BATCH_LIMIT = 64;
-
-function refusedAskOutcome(subject: PublicationSubject, code: string, message?: string): AskOutcome {
-  const trimmed = code === 'JOB_ASK_SUPERSEDED' && typeof message === 'string'
-    ? message.replace(/^subjects\[\d+\]: /, '').trim()
-    : '';
-  return { subject, status: 'refused', code, ...(trimmed ? { message: trimmed } : {}) };
-}
-
-/**
- * Ask each declared subject of a publication once. A subject already asked on that
- * publication, pending or answered, is not asked again, so a re-open never shows a second
- * control. Asks stay limited to the declared list (`REVIEW_ACT_SUBJECT_UNDECLARED`).
- */
-export async function askDeclaredSubjects(host: JobOwnerHost, publicationId: string, subjects: readonly PublicationSubject[], record: boolean): Promise<AskOutcome[]> {
-  const { asked: before, askBatch } = await askedSubjects(host, publicationId);
-  // Review's ask-batch is record mode only; a package-retained head refuses it (review#963).
-  if (!askBatch || !record) {
-    const outcomes: AskOutcome[] = [];
-    for (const subject of subjects) {
-      if (before.some(asked => isDeepStrictEqual(asked, subject))) { outcomes.push({ subject, status: 'already' }); continue; }
-      const expectedGeneration = host.session.status().generation;
-      let reply: AgentReply;
-      try {
-        reply = await agentCall(host, { verb: 'ask', expectedGeneration, publicationId, subject,
-          idempotencyKey: jobHash(JSON.stringify([publicationId, subject, expectedGeneration])) });
-      } catch { reply = { ok: false }; }
-      outcomes.push(reply.ok ? { subject, status: 'asked' } : refusedAskOutcome(subject, reply.error?.code ?? 'JOB_ASK_INVALID', reply.error?.message));
-    }
-    return outcomes;
-  }
-  const outcomes: (AskOutcome | undefined)[] = subjects.map(subject =>
-    before.some(asked => isDeepStrictEqual(asked, subject)) ? { subject, status: 'already' } : undefined);
-  const remaining = subjects.flatMap((subject, index) => outcomes[index] ? [] : [{ subject, index }]);
-  for (let offset = 0; offset < remaining.length; offset += ASK_BATCH_LIMIT) {
-    const chunk = remaining.slice(offset, offset + ASK_BATCH_LIMIT);
-    const batchSubjects = chunk.map(item => item.subject);
-    const expectedGeneration = host.session.status().generation;
-    let reply: AgentReply;
-    try {
-      reply = await agentCall(host, { verb: 'ask-batch', expectedGeneration, publicationId, subjects: batchSubjects,
-        idempotencyKey: jobHash(JSON.stringify([publicationId, batchSubjects, expectedGeneration])) });
-    } catch { reply = { ok: false }; }
-    const asks = reply.ok && Array.isArray(reply.value?.asks) ? reply.value.asks : undefined;
-    if (asks && asks.length === chunk.length) {
-      for (let i = 0; i < chunk.length; i++) outcomes[chunk[i]!.index] = { subject: chunk[i]!.subject, status: 'asked' };
-      continue;
-    }
-    const code = reply.error?.code ?? 'JOB_ASK_INVALID';
-    const message = reply.error?.message;
-    const match = typeof message === 'string' ? /^subjects\[(\d+)\]: /.exec(message) : null;
-    const failedIndex = match ? Number(match[1]) : -1;
-    if (failedIndex >= 0 && failedIndex < chunk.length) {
-      outcomes[chunk[failedIndex]!.index] = refusedAskOutcome(chunk[failedIndex]!.subject, code, message);
-    } else {
-      for (const item of chunk) outcomes[item.index] = refusedAskOutcome(item.subject, code, message);
-    }
-    break;
-  }
-  return outcomes.filter((outcome): outcome is AskOutcome => outcome !== undefined);
-}
-
-export function subjectLabel(subject: PublicationSubject): string {
-  switch (subject.kind) {
-    case 'parts-verdict': return `parts-verdict ${subject.draftId}`;
-    case 'checkpoint': return `checkpoint ${subject.checkpointId}`;
-    case 'interview-picks': return `interview-picks ${subject.questionId}/${subject.setId}`;
-    default: return `${subject.kind} ${subject.stage}`;
-  }
-}
-
-/** Format `asked` and `already` outcome lines for `job open` and bound writers. */
-export function askOutcomeLines(outcomes: readonly AskOutcome[]): string[] {
-  const lines: string[] = [];
-  for (const status of ['asked', 'already'] as const) {
-    const named = outcomes.filter(outcome => outcome.status === status).map(outcome => subjectLabel(outcome.subject));
-    if (named.length) lines.push(`job: ${status === 'asked' ? 'asked' : 'already asked'} ${named.join(', ')}`);
-  }
-  return lines;
-}
-
-/** Name every ask Review refused. The publications themselves are acknowledged. */
-export function refuseAskOutcomes(outcomes: readonly AskOutcome[]): void {
-  const refused = outcomes.filter((outcome): outcome is Extract<AskOutcome, { status: 'refused' }> => outcome.status === 'refused');
-  if (!refused.length) return;
-  const named = refused.map(outcome => `${subjectLabel(outcome.subject)} (${outcome.code}${outcome.message ? `: ${outcome.message}` : ''})`).join(', ');
-  refuse('JOB_ASK_REFUSED', `project.json: the publication is acknowledged but review refused the ask for ${named}; restore the published record bytes and run rig-create job open to ask again`);
-}
-
 export async function reconcileCreateJob(root: string, publish?: (entry: PendingPublication) => Promise<unknown>, now?: number): Promise<number> {
   root = realpathSync(root);
   const release = acquireJobLock(root)!;
-  let outcomes: AskOutcome[];
-  let count: number;
   try {
     const binding = readWriterBinding(root);
     if (!binding || binding.identity.stateDir === join(jobHostStateRoot(root), 'host')) await recoverReplacedJobHostState(root, now);
-    ({ count, outcomes } = await reconcileLocked(root, publish, now));
+    return (await reconcileLocked(root, publish, now)).count;
   }
   finally { release(); }
-  refuseAskOutcomes(outcomes);
-  return count;
 }
 
 /**
@@ -509,21 +398,19 @@ function pendingPublishedLines(published: readonly PendingPublication[], target:
   return published.filter(entry => entry.id !== target).map(entry => `job: pending ${resultLabel(entry.result)} published`);
 }
 
-/** Publish every pending entry under the caller's job lock. Ask outcomes are returned, not thrown. */
+/** Publish every pending entry under the caller's job lock. */
 async function reconcileLocked(
   root: string,
   publish: (entry: PendingPublication) => Promise<unknown> = entry => publishPending(entry, undefined, undefined, undefined, undefined, now),
   now?: number,
   last?: string,
-): Promise<{ count: number; outcomes: AskOutcome[]; published: PendingPublication[] }> {
-  const outcomes: AskOutcome[] = [];
+): Promise<{ count: number; published: PendingPublication[] }> {
   const published: PendingPublication[] = [];
   const entries = inRecordOrder(root, pendingPublications(root, true), last);
   for (const entry of entries) {
     try {
       await reconcilePublication(root, entry, async item => {
-        const result = await publish(item);
-        if (Array.isArray(result)) outcomes.push(...result as AskOutcome[]);
+        await publish(item);
       });
     } catch (error) {
       const failure = error instanceof Refusal ? { code: error.code, message: error.message }
@@ -533,20 +420,20 @@ async function reconcileLocked(
     }
     published.push(entry);
   }
-  return { count: entries.length, outcomes, published };
+  return { count: entries.length, published };
 }
 
 /** Keep the requested publication's ID even if reconciliation advances the page head. */
 async function reconcileOpenPublication(root: string, target: string, now: number, last?: string) {
   let publicationId: string | undefined;
-  const { outcomes, published } = await reconcileLocked(root, entry =>
+  const { published } = await reconcileLocked(root, entry =>
     publishPending(entry, undefined, undefined, undefined, publication => {
       if (entry.id === target) publicationId = publication.publicationId;
     }, now), now, last);
   if (publicationId === undefined) {
     refuse('JOB_OUTBOX_INVALID', 'project.json: reconciliation did not acknowledge the requested publication; inspect the Review job and retry rig-create job open');
   }
-  return { outcomes, publicationId, others: pendingPublishedLines(published, target) };
+  return { publicationId, others: pendingPublishedLines(published, target) };
 }
 
 /** The stages whose record consumes a draft: `job open` publishes the latest one there. */
@@ -725,7 +612,6 @@ function requestedRecordPublication(root: string, question: QuestionSelection | 
 }
 export async function openRecordPublication(root: string, host: JobOwnerHost, question: QuestionSelection | undefined, plan: boolean, now: number): Promise<string[]> {
   const release = acquireJobLock(root)!;
-  let outcomes: AskOutcome[];
   let publicationId: string;
   let reused = false;
   let others: string[] = [];
@@ -740,7 +626,6 @@ export async function openRecordPublication(root: string, host: JobOwnerHost, qu
       && isDeepStrictEqual(ack.subjects, publication.subjects)) {
       reused = true;
       publicationId = head.publicationId;
-      outcomes = await askDeclaredSubjects(host, publicationId, publication.subjects, true);
     } else {
       const binding = readWriterBinding(root);
       if (!binding || binding.jobId !== host.session.jobId) refuse('JOB_BINDING_INVALID', 'project.json: open the writer-owned job before publishing');
@@ -752,19 +637,17 @@ export async function openRecordPublication(root: string, host: JobOwnerHost, qu
         pending.generation = generation;
         failPublication(root, pending, pending.failure);
       }
-      ({ outcomes, publicationId, others } = await reconcileOpenPublication(root, pending.id, now));
+      ({ publicationId, others } = await reconcileOpenPublication(root, pending.id, now));
     }
   } finally { release(); }
-  refuseAskOutcomes(outcomes);
-  return [`job: ${resultLabel(result)} ${reused ? 'already published' : 'published'} (publication ${publicationId})`, ...others, ...askOutcomeLines(outcomes)];
+  return [`job: ${resultLabel(result)} ${reused ? 'already published' : 'published'} (publication ${publicationId})`, ...others];
 }
 
 /**
  * After `job open`: show or refresh the record's current publication on the owner's page.
  * The latest recorded draft (or `--draft <id>`), or the head's `rig` / `post` selector at
  * later stages, is published unless the job's head publication already covers that selector
- * over the current record bytes, and every subject the publication declares is asked once.
- * Returns the lines `job open` prints.
+ * over the current record bytes. Returns the lines `job open` prints.
  */
 export async function openDraftPublication(root: string, host: JobOwnerHost, now: number, requested?: string, requestedRig?: string): Promise<string[]> {
   root = realpathSync(root);
@@ -785,7 +668,6 @@ export async function openDraftPublication(root: string, host: JobOwnerHost, now
   const draft = targetSelector?.kind === 'draft'
     ? inspectDraftPublication(root, project, targetSelector.id, warnings, stage)
     : undefined;
-  // Refresh package subjects before asking on a reused head.
   const currentSubjects = draft?.context.subjects ?? (targetSelector && targetSelector.kind !== 'draft'
     ? []
     : undefined);
@@ -795,16 +677,11 @@ export async function openDraftPublication(root: string, host: JobOwnerHost, now
     targetSelector === undefined || isDeepStrictEqual(headSelector, targetSelector)
   ) && (viewOnly && acknowledged !== null || currentSubjects === undefined || isDeepStrictEqual(acknowledged?.subjects, currentSubjects)));
   let selector: CreateJobSelector;
-  let outcomes: AskOutcome[];
   let publicationId: string;
   let published: boolean;
   let others: string[] = [];
   if (reuseHead && head && headSelector) {
-    const result = acknowledged?.result ?? selectorResult(root, headSelector, draft?.rigging);
-    const subjects = acknowledged?.subjects
-      ?? (await readPublished({ root, record: { path: 'project.json', sha256: jobHash(bytes) }, result: result as Parameters<typeof readPublished>[0]['result'] })).subjects;
     publicationId = head.publicationId;
-    outcomes = viewOnly ? [] : await askDeclaredSubjects(host, publicationId, subjects, false);
     selector = headSelector;
     published = false;
   } else {
@@ -828,15 +705,13 @@ export async function openDraftPublication(root: string, host: JobOwnerHost, now
       const pending = enqueuePublication(root, binding, result);
       // A named --rig or --draft ends as the head; a republished head yields to newer pending versions (#849).
       const named = rigSelector !== undefined || requested !== undefined;
-      ({ outcomes, publicationId, others } = await reconcileOpenPublication(root, pending.id, now, named ? pending.id : undefined));
+      ({ publicationId, others } = await reconcileOpenPublication(root, pending.id, now, named ? pending.id : undefined));
     } finally { release(); }
     selector = targetSelector;
     published = true;
   }
-  const lines = [...warnings.map(finding => `WARN ${finding.code}: ${finding.message}`),
-    `job: ${selectorLabel(selector)} ${published ? 'published' : 'already published'} (publication ${publicationId})`, ...others, ...askOutcomeLines(outcomes)];
-  refuseAskOutcomes(outcomes);
-  return lines;
+  return [...warnings.map(finding => `WARN ${finding.code}: ${finding.message}`),
+    `job: ${selectorLabel(selector)} ${published ? 'published' : 'already published'} (publication ${publicationId})`, ...others];
 }
 
 function canReuseCurrentHead(
@@ -879,7 +754,6 @@ export async function openCurrentPublication(
 ): Promise<string[]> {
   root = realpathSync(root);
   const release = acquireJobLock(root)!;
-  let outcomes: AskOutcome[] = [];
   let publicationId: string;
   let published = false;
   let others: string[] = [];
@@ -915,16 +789,14 @@ export async function openCurrentPublication(
       const committed = commitCurrentPublication(root, output, recordHash, closurePaths);
       if (committed.warning) warnings.push(committed.warning);
       const pending = enqueuePublication(root, binding, { path: CURRENT_LIVE_MANIFEST, selector: candidateSelector }, undefined, committed.commit);
-      ({ outcomes, publicationId, others } = await reconcileOpenPublication(root, pending.id, now, pending.id));
+      ({ publicationId, others } = await reconcileOpenPublication(root, pending.id, now, pending.id));
       published = true;
     }
   } finally { release(); }
-  refuseAskOutcomes(outcomes);
   return [
     ...warnings.map(finding => `WARN ${finding.code}: ${finding.message}`),
     `job: current ${output} ${published ? 'published' : 'already published'} (publication ${publicationId})`,
     ...others,
-    ...askOutcomeLines(outcomes),
   ];
 }
 

@@ -1,14 +1,13 @@
 /**
  * `job open` forwards SIGTERM/SIGINT from the CLI wrapper to its spawned runtime so the
- * host port stops without leaving an orphan listener, and bound writers surface refused ask
- * outcomes (`JOB_ASK_REFUSED`) after acknowledging the publication (#355).
+ * host port stops without leaving an orphan listener (#355).
  */
 import { Database } from 'bun:sqlite';
 import { afterEach, expect, test } from 'bun:test';
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { askOutcomeLines, closeCreateJob } from '../src/job-host.ts';
+import { closeCreateJob } from '../src/job-host.ts';
 import { jobHostStateRoot, jobPrivateRoot, pendingPublications, readAcknowledgedPublication, readWriterBinding } from '../src/job-outbox.ts';
 import { jobRuntimeExecArgv, prepareDraftIntent } from '../src/job-writer.ts';
 import type { JsonObject } from '../src/templates.ts';
@@ -113,15 +112,7 @@ for (const signal of ['SIGTERM', 'SIGINT'] as const) test(`job open CLI forwards
   expect(await isOriginListening(url.origin)).toBe(false);
 }, 20_000);
 
-test('bound writers print concise asked/already subject lines in text mode and preserve JSON stdout in --json mode', async () => {
-  expect(askOutcomeLines([
-    { subject: { kind: 'parts-verdict', draftId: 'chain-2' }, status: 'asked' },
-    { subject: { kind: 'checkpoint', checkpointId: 'assemble' }, status: 'already' },
-  ])).toEqual([
-    'job: asked parts-verdict chain-2',
-    'job: already asked checkpoint assemble',
-  ]);
-
+test('bound writers emit no asked/already subject lines in text mode and preserve JSON stdout in --json mode', async () => {
   // --json stdout stays one JSON document on bound writers; view-only draft preparation defers without an ask.
   const draftRoot = await preparedParts();
   const args = copyDraft(draftRoot, 'chain-2');
@@ -130,6 +121,9 @@ test('bound writers print concise asked/already subject lines in text mode and p
   (snapshot.config as JsonObject).path = 'derived/drafts/chain-2/config.json';
   writeFileSync(join(draftRoot, 'evidence/structure-chain-2.json'), JSON.stringify(snapshot));
   await openPartsWithoutAsk(draftRoot);
+  const diffText = await cli(draftRoot, ['diff-classes', draftRoot, '--diff-report', 'evidence/diff-components.json', '--by', 'agent']);
+  expect({ exit: diffText.exit, stderr: diffText.stderr }).toEqual({ exit: 0, stderr: '' });
+  expect(diffText.stdout).not.toMatch(/job: (already )?asked /);
   expect(seedRetainedDraft(args).exit).toBe(0);
   const intent = prepareDraftIntent(draftRoot, readFileSync(join(draftRoot, 'project.json')), 'chain-2');
   expect(intent.intent).toBeNull();

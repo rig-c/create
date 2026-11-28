@@ -139,7 +139,6 @@ test('#395 sealed checkpoint record and package publications retain every asset 
       expect(legacyPublished.ok).toBe(true);
       const legacyPublication = obj(legacyPublished.value);
       const publicationId = String(legacyPublication.publicationId);
-      expect(await legacyApi('ask', { publicationId, subject: legacySubject })).toMatchObject({ ok: false, error: { code: 'JOB_ASK_INVALID' } });
       const uiRequest = (route: string, body: object) => new Request(`${legacyOwner.origin}/jobs/${legacyOwner.session.jobId}/${route}`, {
         method: 'POST', headers: { origin: legacyOwner.origin, 'X-Review-Capability': legacyCredentials.ui, 'content-type': 'application/json' }, body: JSON.stringify(body),
       });

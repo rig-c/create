@@ -229,5 +229,50 @@
     "file": "tests/candidate-publication.test.ts",
     "name": "#1163 publishes a camera-free candidate and routes its attested comment to the ordinary writer",
     "reason": "Requires the candidate selector in the sibling Review source until Review 5.1.0 is released."
+  },
+  {
+    "file": "tests/candidate-compose.test.ts",
+    "name": "#1171 candidate keyed scene preserves the exact option path and raw digest",
+    "reason": "Exercises the exact authored camera scene binding under sibling source resolution."
+  },
+  {
+    "file": "tests/candidate-compose.test.ts",
+    "name": "#1171 candidate unkeyed Parts compose seals the private scene and publishes a null scene report",
+    "reason": "Publishes real Parts output using the candidate selector in the sibling Review source."
+  },
+  {
+    "file": "tests/candidate-next.test.ts",
+    "name": "#1171 candidate next offers preview beside the independent owner chat route",
+    "reason": "Exercises preview and owner chat routing under sibling source resolution."
+  },
+  {
+    "file": "tests/candidate-next.test.ts",
+    "name": "#1171 candidate next prints the finalized comment command with both IDs",
+    "reason": "Reads an attested candidate comment from the live sibling Review source."
+  },
+  {
+    "file": "tests/candidate-retirement.test.ts",
+    "name": "#1171 candidate pick drains finalized comments and leaves the question host untouched",
+    "reason": "Exercises dedicated candidate jobs with the pinned sibling Review candidate selector."
+  },
+  {
+    "file": "tests/candidate-retirement.test.ts",
+    "name": "#1171 candidate set replacement drains finalized comments and leaves the question host untouched",
+    "reason": "Exercises dedicated candidate jobs with the pinned sibling Review candidate selector."
+  },
+  {
+    "file": "tests/candidate-retirement.test.ts",
+    "name": "#1171 candidate close drains finalized comments and leaves the question host untouched",
+    "reason": "Exercises dedicated candidate jobs with the pinned sibling Review candidate selector."
+  },
+  {
+    "file": "tests/candidate-retirement.test.ts",
+    "name": "#1171 candidate close retries a stale generation and drains the late finalized comment",
+    "reason": "Exercises dedicated candidate jobs with the pinned sibling Review candidate selector."
+  },
+  {
+    "file": "tests/candidate-retirement.test.ts",
+    "name": "#1171 candidate open reuses the same links and a partial publish failure exposes none",
+    "reason": "Exercises dedicated candidate jobs with the pinned sibling Review candidate selector."
   }
 ]

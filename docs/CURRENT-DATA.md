@@ -452,9 +452,11 @@ Converted record writers check their shared paths before mutation. Review any
 pre-existing edits to `project.json`, `package.json` and `bun.lock` and run
 `rig-create history baseline <dir> --by <operator>` to commit the pending record
 as a baseline with unverified attribution. The same route can recover a record
-saved just before Git failed or the process stopped. Other staged paths stay
-staged. A current publication can serve a hash-bound view without a Git
-pointer when its exact closure is unavailable in HEAD.
+saved just before Git failed or the process stopped, including trackable
+option documents, step plans and their inputs, and current output files
+whose bytes match their recorded hashes. Other staged paths stay staged.
+If Git cannot inspect the project, `next` still offers workflow moves and Review
+can serve its hash-bound view without a commit pointer.
 
 Commit rules for the final design:
 

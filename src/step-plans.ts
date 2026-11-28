@@ -14,7 +14,7 @@ import { readProject } from './feedback.ts';
 import { tryJobDirectoryLock } from './job-outbox.ts';
 import { acquireBoundJobWrite } from './job-writer.ts';
 import { OWNER_CHAT_SOURCE, ownerChatFinding } from './owner-chat.ts';
-import { assertCleanProjectStep, BASELINE_PATHS, commitToolWrite } from './project-step-commit.ts';
+import { assertCleanProjectStep, BASELINE_PATHS, commitToolWrite, trackedProjectStepPaths } from './project-step-commit.ts';
 import { readVerbatim, writeRecord } from './record-input.ts';
 import { refuse, USAGE_EXIT } from './refusal.ts';
 import { baselineOf, newFindings } from './refusal-baseline.ts';
@@ -174,6 +174,7 @@ export function stepPlanCommand(args: string[], now: number): { stdout: string; 
       const planHash = sha256(bytes);
       registered.set(path, planHash);
       const bound = new Map<string, string>();
+      const explicitInputs: string[] = [];
       for (const input of asArray(project.inputs)) {
         if (isObject(input) && insidePath(input.path) && typeof input.sha256 === 'string' && HEX.test(input.sha256)) bound.set(input.path, input.sha256);
       }
@@ -183,7 +184,9 @@ export function stepPlanCommand(args: string[], now: number): { stdout: string; 
         if (inputPath === path && hash !== planHash) refuse('PLAN_WRITE_CONFLICT', `${path}: plan bytes changed while binding --input; retry with stable files`);
         bound.set(inputPath, hash);
         registered.set(inputPath, hash);
+        explicitInputs.push(inputPath);
       }
+      assertCleanProjectStep(dir, trackedProjectStepPaths(dir, explicitInputs));
       const inputs = [...bound].map(([inputPath, hash]) => ({ path: inputPath, sha256: hash }));
       const current = currentStepPlan(project, step);
       if (current && current.path === path && current.sha256 === planHash && JSON.stringify(current.inputs) === JSON.stringify(inputs)) {

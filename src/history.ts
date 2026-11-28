@@ -7,7 +7,7 @@ import { CURRENT_SCENE_PATH } from './scene.ts';
 import type { CommandResult } from './interview.ts';
 import { acquireJobLock, tryJobDirectoryLock } from './job-outbox.ts';
 import { CURRENT_LIVE_MANIFEST } from './job-publication.ts';
-import { BASELINE_PATHS, commitProjectBaseline } from './project-step-commit.ts';
+import { BASELINE_PATHS, baselineCommitMatches, commitProjectBaseline } from './project-step-commit.ts';
 import { Refusal, refuse, USAGE_EXIT } from './refusal.ts';
 
 const USAGE = 'history [<dir>] [--json]';
@@ -21,7 +21,7 @@ type Entry = {
   command?: string; attribution?: 'unverified'; operator?: string; files?: string[];
 };
 
-type StepScope = { paths: Set<string>; command?: string; operator?: string };
+type StepScope = { paths: Set<string>; command?: string; operator?: string; baselineAssets?: Map<string, string> };
 
 function git(dir: string, ...args: string[]) {
   return spawnSync('git', ['--literal-pathspecs', ...args], {
@@ -72,7 +72,8 @@ function commandScope(command: string, subject: string): ((path: string) => bool
   const spec = Object.entries(SPEC_PATHS).find(([kind]) => command === `${kind} write`);
   if (spec) return subject.startsWith(`${spec[0]}: `) ? path => path === spec[1] : undefined;
   if (!subject.startsWith(`${command}: `)) return;
-  if (command === 'history baseline' || command === 'packages upgrade') return path => SHARED_PATHS.has(path);
+  if (command === 'history baseline') return () => true;
+  if (command === 'packages upgrade') return path => SHARED_PATHS.has(path);
   if (PROJECT_WRITERS.has(command)) return path => path === 'project.json';
   if (BINDING_WRITERS.has(command)) return path => path === 'project.json' || (
     !SHARED_PATHS.has(path) && !['.gitignore', 'collection.json', CURRENT_LIVE_MANIFEST].includes(path)
@@ -104,24 +105,30 @@ function stepScope(message: string): StepScope | undefined {
   } else if (!kind && !spec) return;
 
   const paths = new Set<string>();
+  const baselineAssets = baseline ? new Map<string, string>() : undefined;
   for (const line of body.slice(baseline ? 2 : command ? 1 : 0, -2)) {
     const path = changedPath(line);
     if (!path || posix.normalize(path) !== path || path.split('/').some(part => !part || ['.', '..', '.git'].includes(part.toLowerCase())) || paths.has(path)) return;
     if (allows && !allows(path)) return;
     if (!command && (kind ? path !== 'project.json' && path !== '.gitignore' && !path.startsWith(`outputs/${kind}/`) : path !== spec)) return;
+    if (baselineAssets && !SHARED_PATHS.has(path)) {
+      const digest = / ([0-9a-f]{12})$/.exec(line)?.[1];
+      if (!digest) return;
+      baselineAssets.set(path, digest);
+    }
     paths.add(path);
   }
-  return paths.size ? { paths, command, operator } : undefined;
+  return paths.size ? { paths, command, operator, baselineAssets } : undefined;
 }
 
 function readHistory(dir: string, repo: string, head: string): Entry[] {
   const prefix = dir === repo ? '' : relative(repo, dir).split(sep).join('/') + '/';
   const fields = gitOutput(git(dir, 'log', '--full-history', '--no-merges', '--no-follow', '--no-notes', '--no-show-signature',
-    '--no-decorate', '--no-color', '--encoding=UTF-8', '--abbrev=8', '-z', '--format=%H%x00%h%x00%cI%x00%B',
+    '--no-decorate', '--no-color', '--encoding=UTF-8', '--abbrev=8', '-z', '--format=%H%x00%h%x00%cI%x00%P%x00%B',
     '--grep=^writer: rig-create ', '--grep=^publish: current ', head, '--', '.'), dir).split('\0');
   const entries: Entry[] = [];
-  for (let i = 0; i + 3 < fields.length; i += 4) {
-    const [sha, short_sha, time, message] = fields.slice(i, i + 4) as [string, string, string, string];
+  for (let i = 0; i + 4 < fields.length; i += 5) {
+    const [sha, short_sha, time, parent, message] = fields.slice(i, i + 5) as [string, string, string, string, string];
     const subject = message.split('\n', 1)[0]!;
     const scope = stepScope(message);
     const legacyPublish = !scope && LEGACY_PUBLISH.test(message.trimEnd());
@@ -132,6 +139,13 @@ function readHistory(dir: string, repo: string, head: string): Entry[] {
       '-r', '-z', sha), dir).split('\0').filter(Boolean);
     if (!changed.length || !changed.every(path => path.startsWith(prefix) && (!scope || scope.paths.has(path.slice(prefix.length))))) continue;
     if (scope?.command && changed.length !== scope.paths.size) continue;
+    if (scope?.baselineAssets?.size) {
+      try {
+        if (!baselineCommitMatches(dir, sha, parent || undefined, scope.baselineAssets)) continue;
+      } catch (error) {
+        refuse('HISTORY_READ_FAILED', `project.json: ${String(error)}. Repair or fetch the project Git history and retry history.`);
+      }
+    }
     const at = new Date(time).toISOString().replace('.000Z', 'Z');
     const present = new Set(gitOutput(git(dir, 'ls-tree', '-z', '--name-only', sha, '--', 'specs', 'outputs/parts'), dir)
       .split('\0').filter(Boolean));
@@ -170,10 +184,10 @@ function historyBaseline(args: string[]): CommandResult {
     releasePlan = tryJobDirectoryLock(join(dir, '.plan.lock'));
     if (!releasePlan) refuse('PLAN_WRITE_CONFLICT', 'project.json: finish the active plan writer before retrying history baseline');
     const paths = commitProjectBaseline(dir, operator);
-    return { stdout: paths.length ? `history baseline: attribution unverified (${paths.join(', ')})` : 'history baseline: shared paths are clean', exit: 0 };
+    return { stdout: paths.length ? `history baseline: attribution unverified (${paths.join(', ')})` : 'history baseline: baseline paths are clean', exit: 0 };
   } catch (error) {
     if (error instanceof Refusal) throw error;
-    return refuse('HISTORY_BASELINE_FAILED', `project.json: ${error instanceof Error ? error.message : String(error)}; correct the Git error and review the shared files before retrying history baseline`);
+    return refuse('HISTORY_BASELINE_FAILED', `project.json: ${error instanceof Error ? error.message : String(error)}; correct the Git error and review the baseline files before retrying history baseline`);
   } finally {
     try { releasePlan?.(); }
     finally {

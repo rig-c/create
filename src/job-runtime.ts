@@ -3,7 +3,7 @@ import { readFileSync, realpathSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { startJobHost } from '@rig-c/review/job-host';
 import { assertNoPendingJobAsk, attachCreateJobForClose, closeCreateJob, withdrawCreateJobAct } from './job-close.ts';
-import { assertRequestedCurrent, assertRequestedDraft, assertRequestedRig, listCreateJobActs, openCreateJob, openCurrentPublication, openDraftPublication, openRecordPublication, requestedRecordResult, publishPending, reconcileCreateJob } from './job-host.ts';
+import { assertRequestedCurrent, assertRequestedDraft, assertRequestedRig, listCreateJobActs, openCreateJob, openCurrentPublication, openDraftPublication, openRecordPublication, requestedRecordResult, publishPending, reconcileCreateJob, type JobOpenGitState } from './job-host.ts';
 import { failPublication, pendingPublications, readWriterBinding, reconcilePublication } from './job-outbox.ts';
 import { postJobProgress, type JobProgressUpdate } from './job-progress.ts';
 import { jobActsText, shellWord, type JobWriteAskTarget } from './job-acts.ts';
@@ -115,7 +115,8 @@ async function run(): Promise<void> {
       };
       process.on('SIGINT', onSignal);
       process.on('SIGTERM', onSignal);
-      const host = await openCreateJob(root, { id: input.reviewer, role: input.role }, input.now, undefined, record !== undefined);
+      const git: JobOpenGitState = current ? { current: current.output } : {};
+      const host = await openCreateJob(root, { id: input.reviewer, role: input.role }, input.now, undefined, record !== undefined, git);
       if (stopping) {
         process.off('SIGINT', onSignal);
         process.off('SIGTERM', onSignal);
@@ -127,10 +128,10 @@ async function run(): Promise<void> {
       // named here; a foreground host keeps serving so `job reconcile` and `job open` can retry.
       try {
         const lines = await (record
-          ? openRecordPublication(root, host, input.question, Boolean(input.plan), input.now)
+          ? openRecordPublication(root, host, input.question, Boolean(input.plan), input.now, git)
           : current
-            ? openCurrentPublication(root, host, current.output, input.now)
-            : openDraftPublication(root, host, input.now, input.draft, input.rig));
+            ? openCurrentPublication(root, host, current.output, input.now, git)
+            : openDraftPublication(root, host, input.now, input.draft, input.rig, git));
         console.log(lines.join('\n'));
       }
       catch (error) {

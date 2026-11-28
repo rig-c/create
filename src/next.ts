@@ -1849,7 +1849,14 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
   if (recovery) {
     result = { ...result, moves: [recovery, ...result.moves], awaits: [...new Set([recovery.awaits, ...result.awaits])] };
   }
-  const pendingGitPaths = projectStepDirtyPaths(dir, BASELINE_PATHS);
+  let pendingGitPaths: string[] = [];
+  try {
+    pendingGitPaths = projectStepDirtyPaths(dir, BASELINE_PATHS);
+  } catch (error) {
+    if (!(error instanceof Refusal) || error.code !== 'PROJECT_COMMIT_FAILED') throw error;
+    const warning = { code: error.code, path: 'project.json', message: error.message };
+    result = { ...result, warnings: [...(result.warnings ?? []), warning] };
+  }
   if (pendingGitPaths.length > 0) {
     const field = 'git.baseline';
     const move: NextMove = {
@@ -3014,14 +3021,17 @@ export function formatNext(report: NextReport | NextCollectionReport): string {
   return lines.join('\n');
 }
 
-export function nextCommand(args: string[], now: number = Date.now()): { stdout: string; exit: number } {
+export function nextCommand(args: string[], now: number = Date.now()): { stdout: string; stderr?: string; exit: number } {
   const { dir, json } = parseArgs(args);
   const collectionDir = collectionDirOf(dir);
   const progress = collectionDir === null ? beginJobProgress(dir, 'other', 'Resolving the next project actions') : undefined;
   const report = collectionDir !== null ? nextCollection(collectionDir) : nextProject(dir, now);
   progress?.('Next project actions ready');
+  const gitWarning = json && 'warnings' in report
+    ? report.warnings?.find(warning => warning.code === 'PROJECT_COMMIT_FAILED') : undefined;
   return {
     stdout: json ? JSON.stringify(report, null, 2) : formatNext(report),
+    ...(gitWarning ? { stderr: `rig-create: WARN ${gitWarning.code}: ${gitWarning.message}` } : {}),
     exit: 0,
   };
 }

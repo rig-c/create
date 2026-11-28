@@ -21,7 +21,9 @@ import {
   renderAgentGuide,
 } from '../src/agent-guide.ts';
 import { renderCollectionGuide } from '../src/collection.ts';
+import { RETIRED_NUMBERED_COMMANDS } from '../src/cli.ts';
 import { PINNED_PACKAGES } from '../src/pins.ts';
+import { STAGE_VALUES } from '../src/stages.ts';
 import { cli, gitEnv, run, stagedCreateRegistry, tempDir } from './helpers.ts';
 
 const REPO = join(import.meta.dir, '..');
@@ -317,4 +319,29 @@ test('rendered guide names both explicit painting declarations and their persist
   expect(guide).toContain("`job acts [--json]` lists each pending act's comments and `words`, even when ingest is unavailable.");
   expect(guide).toContain('["rig-review-comment/1", mode, "reference", referenceId, referenceHash, x, y, w, h]');
   expect(Buffer.byteLength(guide)).toBeLessThan(GUIDE_MAX_BYTES);
+});
+
+test('#1122 neither the rendered guide nor AGENT-REFERENCE.md names any retired numbered command', () => {
+  const guide = renderAgentGuide();
+  expect(Buffer.byteLength(guide)).toBeLessThan(GUIDE_MAX_BYTES);
+  const stageArrowLine = '`interview` → `plan-approved` → `parts` → `parts-review` (parts, by eye) →';
+  expect(guide).toContain(stageArrowLine);
+  // Stage tokens in the stage-order arrow line name STAGES entries, not CLI commands.
+  const guideWithoutStageLine = guide.replace(stageArrowLine, '');
+  const codeSpans = (markdown: string): string[] => [...markdown.matchAll(/`([^`]+)`/g)].map((m) => m[1]!);
+  const referenceSpans = codeSpans(reference);
+  const guideSpans = codeSpans(guide);
+  const guideSpansWithoutStageLine = codeSpans(guideWithoutStageLine);
+  for (const name of Object.keys(RETIRED_NUMBERED_COMMANDS)) {
+    const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const rigCreateForm = new RegExp(`\\brig-create\\s+${escaped}(?![A-Za-z0-9_-])`);
+    const spanNamesCommand = (span: string): boolean =>
+      span === name || span.startsWith(`${name} `) || rigCreateForm.test(span);
+    for (const [label, text] of [['renderAgentGuide()', guide], ['docs/AGENT-REFERENCE.md', reference]] as const) {
+      expect(rigCreateForm.test(text), `${label} names rig-create ${name}`).toBe(false);
+    }
+    expect(referenceSpans.filter(spanNamesCommand), `docs/AGENT-REFERENCE.md names \`${name}\` in backticks`).toEqual([]);
+    const targetSpans = STAGE_VALUES.includes(name) ? guideSpansWithoutStageLine : guideSpans;
+    expect(targetSpans.filter(spanNamesCommand), `renderAgentGuide() names \`${name}\` in backticks`).toEqual([]);
+  }
 });

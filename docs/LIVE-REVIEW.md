@@ -117,13 +117,19 @@ HOLE visible.
 
 ## Phase 1 results
 
-| Writer | Published result | Review subject |
+Numbered package writers are retired (`NUMBERED_WRITER_REMOVED`, exit 2), and
+current builds publish through `record parts|rig|direction` and
+`job open --current parts|rig|direction`. Existing numbered and draft records
+retain their historical Phase 1 publications below (now opened view-only with
+`subjects: []`):
+
+| Historical writer | Published result | Historical Review subject |
 | --- | --- | --- |
-| `draft-rig` | The labelled draft, C4 input inventory and retained output when its owner ask is ready | `draft` selector with the prepared `parts-verdict` at parts-review, or eligible checkpoint asks at parts |
-| `rig-version` | The recorded rig and retained review package. Supply the build’s `bun.lock` or npm v3 `package-lock.json` with `--toolchain-lock`. | `rig` selector and `review-verdict` for `rig-review`, plus sign subjects |
-| `direction write` | The recorded post, direction document and retained rig package | `post` selector and only `review-verdict` for `direction-review` |
-| `advance rig-review` | The current live rig at the entered review stage | `rig` selector and one `review-verdict`; approval also signs rig-review |
-| `advance direction-review` | The current live post at the entered review stage | `post` selector and only `review-verdict direction-review` |
+| 1.x draft recorder | The labelled draft, C4 input inventory and retained output | `draft` selector (now view-only; historical asks carried `parts-verdict` or `parts` checkpoints) |
+| 1.x rig registrar | The recorded rig, retained review package and toolchain lock | `rig` selector (now view-only; historical asks carried `review-verdict` for `rig-review` and sign subjects) |
+| 1.x post direction writer | The recorded post, direction document and retained rig package | `post` selector (now view-only; historical asks carried `review-verdict` for `direction-review`) |
+| `advance rig-review` | The current live rig at the entered review stage | `current` or historical `rig` selector |
+| `advance direction-review` | The current live post at the entered review stage | `current` or historical `post` selector |
 
 The sign subjects are the `signoff` and `checkpoint` subjects of
 [Live sign-off routes](#live-sign-off-routes).
@@ -149,10 +155,10 @@ Review re-enumerates and validates the supplied identity under API@2/act@2.
 
 ## Commit and recovery
 
-When a bound draft is missing evidence for its owner ask, `draft-rig` records it
-and leaves the open page and outbox unchanged. Its text output identifies the
-missing evidence. Run the preparation moves shown by `next` and then
-`job open --draft <id>` to show the prepared draft in the same job.
+`job open --draft <id>` opens an existing recorded draft view-only
+(`subjects: []`); for new work, record `current.parts` with
+`record parts --from <dir> --config <file>` and publish with
+`job open --current parts`.
 
 A bound writer or `job open` that reports
 `JOB_ASK_PENDING` needs the owner to finish the current asks. Run
@@ -371,8 +377,9 @@ record the owner's new selection with `interview-options` and
 `interview-answer`, then re-sign the approvals named by `next`. For an
 artifact change, record the owner's correction with `amend` at the owning
 stage. After an accepted post is bounced, `next` offers
-`amend direction-review`. Then use `direction write` with
-`--answers <version>:<verdict>` to bind the replacement post to the bounce.
+`amend direction-review`. Then update the scene and direction specs, compose,
+and run `record direction --from <dir> --direction specs/direction/direction.json --answers-feedback <version>:<verdict>`
+to bind the replacement direction output to the bounce.
 [Forward amendments](PROJECT.md#forward-amendments).
 
 ## Live sign-off routes
@@ -426,9 +433,8 @@ declare `subjects: []` (showing the set, images or plan for viewing and
 comments without opening an ask). Review's `next` response advertises
 `capabilities.askBatch: true` for the host; Create batches eligible record
 subjects, with up to 64 subjects per call.
-A `draft`, `rig` or `post` selector publication uses one ask per subject,
-including when the host advertises the capability. That covers `draft-rig`, `rig-version`,
-`direction write`, `advance rig-review|direction-review`, `job reconcile`
+A `draft`, `rig` or `post` selector publication now declares `subjects: []`
+(view-only) across `advance rig-review|direction-review`, `job reconcile`
 and `job open`. The process already
 holds Review's agent authority in memory for the publish, so the ask needs no
 other transport. The authority never enters argv, the environment or a project
@@ -548,18 +554,16 @@ target). Old verdict-only receipts remain verdict-only.
 ## Parts drafts and independent verdicts
 
 ```sh
-rig-create draft-rig <id> <project> --config <config> --from <output> --parts <parts>
 rig-create job open <project> --draft <id> --reviewer <id> --role owner
 ```
 
-Bound draft registration holds the #184 shared lock through intent, atomic
-record commit and publication acknowledgment. Its durable identity is the exact
-`drafts[id]` entry, hashed by `publicationVersionHash` with the existing
-serialization. A rebuild receives a new draft ID. Failed publication retains
-its original intent and retries through `job reconcile`. Unbound registration
-continues to record the existing draft inventory.
+`draft-rig` is retired (`NUMBERED_WRITER_REMOVED`, exit 2); record new parts
+outputs with `record parts --from <dir> --config <file>` and open them with
+`job open <project> --current parts`. Stored `drafts[id]` entries remain
+readable, hashed by `publicationVersionHash` with the existing serialization,
+and failed historical publications still retry through `job reconcile`.
 
-The writer publishes `review-draft-<id>.json` with a labelled draft title, an
+`job open --draft <id>` publishes `review-draft-<id>.json` with a labelled draft title, an
 entry-hash revision, the recorded compiled model when available, declared image
 references, and read-only rig/motion/mesh-report artifacts, always view-only
 (`subjects: []`). Standalone output without a compiled model uses Review's
@@ -570,8 +574,9 @@ bytes are read and hash-bound. Publication performs no build or producer
 measurement.
 
 The manifest, and any historical `review-rigging-draft-<id>.json`, sits at
-the project root beside `project.json`. It is written when a bound `draft-rig`
-commits, by `job open --draft <id>` and by `job reconcile`. It is live state,
+the project root beside `project.json`. It is written by `job open --draft <id>`
+and by `job reconcile` (alongside manifests retained from earlier bound draft
+writes). It is live state,
 not scratch: projects commit it, and init's `.gitignore` does not ignore it.
 Each draft ID has one file for the project's life. Publishing the same draft
 again leaves identical bytes alone, and no command, `job close` and retirement

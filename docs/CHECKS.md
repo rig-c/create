@@ -41,7 +41,7 @@ Declared files must match their recorded hashes.
 
 | Code | Finding and remedy |
 | --- | --- |
-| `JOB_PUBLISH_PENDING` | A committed `project.json` result awaits publication. A bound writer that committed its record and could not publish it (`rig-version`, `draft-rig`, `direction`, `advance`) exits 0 and prints `WARN JOB_PUBLISH_PENDING:` on stderr naming the recorded path; it is not a refusal. Restore its bound host and sources, then run `job reconcile` before another participating write or close. To abandon failed publications explicitly, `job close --retire-refused` archives their complete receipts under the private `retired-publications/` directory and closes without acknowledging them; unfailed pending publications still block close. |
+| `JOB_PUBLISH_PENDING` | A committed `project.json` result awaits publication. A bound writer that committed its record and could not publish it (`record`, `direction`, `advance`, or a historical numbered/draft writer) exits 0 and prints `WARN JOB_PUBLISH_PENDING:` on stderr naming the recorded path; it is not a refusal. Restore its bound host and sources, then run `job reconcile` before another participating write or close. To abandon failed publications explicitly, `job close --retire-refused` archives their complete receipts under the private `retired-publications/` directory and closes without acknowledging them; unfailed pending publications still block close. |
 | `JOB_OWNER_SUBMIT_REFUSED` (WARN) | Review refused an owner submission for the live `project.json` job. The listening `job open` process prints one stderr line with Review's code, the route template `/jobs/:jobId/ui/acts`, the number of request bytes Review read (possibly zero), and the byte limit if Review supplied one. Use Review's code to resolve the refusal, then have the owner retry in Review. A refused submission produces no finalized act for `job acts --wait`. |
 | `JOB_ROOT_REPLACED` | `project.json`: the managed Review state belongs to a replaced project directory, or its ownership/liveness cannot be established safely. Stop the original `job open` host in its terminal, then retry `job open` or `job reconcile`. With no pending publication or startup claim, both commands preserve the old state in a dated `.replaced-…` sibling only when its recorded PID is absent and its recorded loopback port refuses connections. Missing/unsafe metadata, an occupied port or uncertain liveness refuses without retiring state; restore the retained metadata or original directory before retrying. |
 | `JOB_HOST_ATTACH_REFUSED` | Strict reuse-only attach to the bound live host was refused. The pending receipt names the host `reason` and `phase` (including `incarnation-missing` on `record` or `probe`). Reopen or restore the bound live host before reconciling. When the binding matches the current pin and hooks, `job close` reads the job's finalized owner acts and retires the job through the live host, never from the record alone, so a stopped host refuses close and the message names the `job open <dir> --reviewer <id> --role <role>` restart; the restart serves the same job, then retry `job close` (for a stopped binding from an older pin or hook that `job open` refuses with `JOB_HOST_REUSE_MISMATCH`, `job close` retires the binding directly; see [job retirement](JOB-RETIREMENT.md)). The refusal leaves `project.json` and the job state byte-identical. |
@@ -57,11 +57,11 @@ Declared files must match their recorded hashes.
 | `JOB_BINDING_INVALID` | The private sibling/outbox is tracked or not effectively ignored, the binding is malformed, unavailable or mismatched, or a job command has invalid arguments. Restore effective private ignores. Restore the matching writer-owned binding through `job open`, then retry publication into the existing job. |
 | `JOB_PRIVATE_STORAGE_INVALID` | Private publication storage has unsafe permissions, type or symlinks. Restore owner-only real directories and regular files. |
 | `JOB_OUTBOX_INVALID` | A private publication receipt is absent, malformed or unreadable. Restore its writer-owned bytes before reconciling. The check reports this as a HOLE. |
-| `JOB_ASK_PENDING` | A publication from a bound writer or `job open` would replace an unresolved owner ask. `input add`, interview record writers, `draft-rig`, and `owner-language set` also refuse while a bound live job holds an unresolved ask. The message names the job and pending asks. Comment ingestion with `comment --from-review` can proceed. For one stale act on an active bound job, use the reported `job withdraw-act <actId>` command with the owner-chat flags to keep the page and URL. For multiple stale acts, follow the reported `job close --discard-acts` remedy before retrying with `--owner-chat`. If an interview page needs a refresh, include every remaining unresolved question with its exact option-set binding. A verdict ask or act on a rig or post version that a later amendment made history does not hold the job (a historical reopen still holds it); `job acts` still lists the act as unavailable. Refusal preserves `project.json` and the job state byte-identically. |
+| `JOB_ASK_PENDING` | A publication from a bound writer or `job open` would replace an unresolved owner ask. `input add`, interview record writers, `record`, and `owner-language set` also refuse while a bound live job holds an unresolved ask. The message names the job and pending asks. Comment ingestion with `comment --from-review` can proceed. For one stale act on an active bound job, use the reported `job withdraw-act <actId>` command with the owner-chat flags to keep the page and URL. For multiple stale acts, follow the reported `job close --discard-acts` remedy before retrying with `--owner-chat`. If an interview page needs a refresh, include every remaining unresolved question with its exact option-set binding. A verdict ask or act on a rig or post version that a later amendment made history does not hold the job (a historical reopen still holds it); `job acts` still lists the act as unavailable. Refusal preserves `project.json` and the job state byte-identically. |
 | `JOB_PUBLICATION_ASK_REQUIRED` | Retired. Earlier numbered version writers used this refusal when replacing an open publication without an owner ask or a verified carried draft approval. Open the numbered view explicitly for inspection. |
 | `JOB_ASK_REFUSED` | A publication is acknowledged, but Review refused the ask for one of its declared subjects. The message names each subject and Review's code. The publication is not pending. Restore the published record bytes and run `job open` to ask again. |
 | `JOB_ASK_INVALID` | An ask or ask batch failed without a Review error code. Create uses this fallback in the refused ask outcome reported by `JOB_ASK_REFUSED`. Restore the published record bytes and retry `job open` on the bound host. |
-| `JOB_DRAFT_UNKNOWN` | `job open --draft <id>` names a draft the record does not hold. Record the draft with `draft-rig` or name a recorded draft. |
+| `JOB_DRAFT_UNKNOWN` | `job open --draft <id>` names a draft the record does not hold. Name an existing draft in `project.json.drafts`, or record and open current parts with `rig-create record parts` and `rig-create job open --current parts`. |
 | `JOB_PARTS_VERDICT_UNASKABLE` | Retired. Earlier draft publications at `parts-review` used this refusal when the draft's structure snapshot was missing or invalid. `job open --draft <id>` now opens the draft view-only. |
 | `JOB_RIG_VERDICT_DEFERRED` | Retired. Earlier numbered rig publications used this diagnostic for a verdict ask deferred until rig-review. Use the numbered view for inspection and see `NUMBERED_ACT_RETIRED` for migration. |
 | `PREVIOUS_DRAFT_UNAVAILABLE` (WARN) | A draft comparison operand lacks a retained SHA-256 and PNG binding or fails that binding. Restore the producer recomposite with its original seal or register a fresh draft. |
@@ -551,14 +551,14 @@ Exit `1`. Each names its object in `path`.
 | `DIFF_MAP_CLASS_WHY` | a class reason names neither an exact border part nor its coverage band | inspect the class and state its measured property in why |
 | `DIFF_MAP_TRIAGE` | the triage file is unreadable or malformed, supplies keys or members, or names unknown ids | read `diff-classes` and supply only status and why per class or component id |
 | `DIFF_MAP_POLICY` | `definition.floor_px` exceeds 2 or `definition.threshold` exceeds 40 | regenerate with floor at most 2 and threshold at most 40 |
-| `PARTS_VERDICT_MISSING` | Retired. Earlier Create releases used this code when the parts sign-off lacked a saved-file verdict. | Record the parts verdict with `parts-review` and sign using its retained receipt. See `PARTS_VERDICT_RECEIPT_REQUIRED`. |
-| `PARTS_VERDICT_UNREAD` | Retired. Earlier Create releases used this code when the sign-off's saved verdict could not be read or failed its byte binding. | Restore the current retained response and its receipt, or review again and record a new receipt. |
-| `PARTS_VERDICT_SCHEMA_UNKNOWN` | Retired. Earlier Create releases used this code for an unsupported saved-verdict schema. | Record a supported Review response with `parts-review`. See `PARTS_REVIEW_CLI_INVALID`. |
-| `PARTS_VERDICT_ATLAS` | Retired. Earlier Create releases used this code when a saved build-atlas verdict was supplied for `parts-review`. | Review the assembled parts in Review and record the response with `parts-review`. |
-| `PARTS_VERDICT_MALFORMED` | Retired. Earlier Create releases used this code for an invalid saved-verdict shape or file inventory. | Record a supported Review response with `parts-review`. See `PARTS_REVIEW_CLI_INVALID`. |
+| `PARTS_VERDICT_MISSING` | Retired. Earlier Create releases used this code when the parts sign-off lacked a saved-file verdict. | Record current parts with `rig-create record parts` and relay any owner chat sign-off; on stored numbered records, see `PARTS_VERDICT_RECEIPT_REQUIRED`. |
+| `PARTS_VERDICT_UNREAD` | Retired. Earlier Create releases used this code when the sign-off's saved verdict could not be read or failed its byte binding. | Restore the retained response and receipt on stored numbered records, or record current parts with `rig-create record parts`. |
+| `PARTS_VERDICT_SCHEMA_UNKNOWN` | Retired. Earlier Create releases used this code for an unsupported saved-verdict schema. | Record current parts with `rig-create record parts`; historical CLI receipts are validated read-only (`PARTS_REVIEW_CLI_INVALID`). |
+| `PARTS_VERDICT_ATLAS` | Retired. Earlier Create releases used this code when a saved build-atlas verdict was supplied for `parts-review`. | Inspect current parts with `rig-create job open --current parts` and record outputs with `rig-create record parts`. |
+| `PARTS_VERDICT_MALFORMED` | Retired. Earlier Create releases used this code for an invalid saved-verdict shape or file inventory. | Record current parts with `rig-create record parts`; historical CLI receipts are validated read-only (`PARTS_REVIEW_CLI_INVALID`). |
 | `PARTS_VERDICT_NOT_APPROVED` | the verdict's `status` is `pending` or `changes-requested`, or a carried approval comes from a delegate | fix flagged parts and record the owner's approval before signing an amendment |
-| `PARTS_VERDICT_SOURCE_CHANGED` | Retired. Earlier Create releases used this code when a file listed by the saved verdict was missing or changed. | Review changed parts and record the new response with `parts-review` before signing again. |
-| `PARTS_VERDICT_SOURCE_MISMATCH` | Retired. Earlier Create releases used this code when the saved verdict's declared source digest differed from its file list. | Record a fresh Review response for the exact draft with `parts-review`. |
+| `PARTS_VERDICT_SOURCE_CHANGED` | Retired. Earlier Create releases used this code when a file listed by the saved verdict was missing or changed. | Record updated current parts with `rig-create record parts` and relay any owner chat sign-off. |
+| `PARTS_VERDICT_SOURCE_MISMATCH` | Retired. Earlier Create releases used this code when the saved verdict's declared source digest differed from its file list. | Record current parts with `rig-create record parts` so the output inventory binds the current build. |
 | `VERSION_MALFORMED` | a `versions[]` entry has no integer `n`, a `kind` other than `rig` / `post`, or a rig version has a non-null `rig_version` | fix the entry ([PROJECT.md § Versions](PROJECT.md#versions)) |
 | `STILL_MALFORMED` | an `evidence[]` entry of `kind: "still"` lacks `path` or a 64-hex `sha256`, has a `camera` other than `"fixed"`, or no `frame` ≥ 0 | write it in the still-frame shape ([PROJECT.md § The rig review](PROJECT.md#the-rig-review)); it does not count as a still until it is |
 | `RIG_ACCEPTED_WITHOUT_STILL` | Retired. Earlier Create releases refused accepted rigs without a still-frame record. | Historical still records remain readable. |
@@ -574,7 +574,7 @@ Exit `1`. Each names its object in `path`.
 | `CITATION_WRONG_PHASE` | a `post` version's entry cites a rig waypoint | cite the post item (or framing answer) it rests on; a rig change is a new rig version |
 | `QUOTE_NOT_FOUND` | an entry's `quote` is in no `verbatim` or `additions[].verbatim` of the cited answer (current or `history[]`). If removing one matching pair of outer marks (`「」`, `『』`, `""`, `''`, `“”`, `‘’`, `()`, `[]`) would make the quote equal to an entire stored field, a separate line names the marks and the exact field path | quote the stored sentence exactly; feedback no guide covered goes into `additions[]` first |
 | `RIG_VERSION_AT_INVALID` | a rig version in the project's own `versions[]`, including a pre-interview version, has an `at` other than a calendar date `YYYY-MM-DD` or an ISO date-time with mandatory `Z` or `±HH:MM`, or parsing fails or its written calendar date is invalid | restore the named version's valid build date from its record. Package, rig acceptance, rig signoff and handoff refuse the selected version before writing |
-| `VERDICT_MALFORMED` | a verdict lacks `by`, `at` or `verbatim`, has a `verdict` other than `accepted` / `bounced` / `provisional` or a `review` other than `rig-review` / `direction-review`, `on_items` is not a list, or an item lacks `id` or a valid `answer_was` | write it in the verdict shape ([PROJECT.md § Versions](PROJECT.md#versions)); `rig-create review` writes it |
+| `VERDICT_MALFORMED` | a verdict lacks `by`, `at` or `verbatim`, has a `verdict` other than `accepted` / `bounced` / `provisional` or a `review` other than `rig-review` / `direction-review`, `on_items` is not a list, or an item lacks `id` or a valid `answer_was` | restore the stored entry to the verdict shape ([PROJECT.md § Versions](PROJECT.md#versions)); numbered verdicts are read-only |
 | `FEEDBACK_UNANSWERED` | a human bounced verdict on version N, not withdrawn, and a version later than N exists while none lists `{ "version": N, "verdict": i }` in `answers_feedback` | list it in the version built from that feedback, with what changed in `changed`; if the feedback was not acted on, say so to the user — a later version that ignores it is the bounce coming back |
 | `PRE_INTERVIEW_ORDER` | pre-interview versions follow a create-built version, or migrated history has nonpositive, repeated or out-of-order version numbers | put historical versions first, with strictly increasing `n` and consistent references |
 | `PRE_INTERVIEW_ORIGINAL_N_MISSING` | a pre-interview version omits its source id or it is not a number, string or null | copy its original id unchanged into `original_n` |
@@ -591,7 +591,7 @@ Exit `1`. Each names its object in `path`.
 | `VERDICT_MALFORMED` (pre-interview) | an imported verdict lacks create-shaped fields, a valid date or a nonempty source, or `verbatim: null` lacks a nonempty note recording the user | preserve the source and write the record in `note`. A create-built version still requires the user's words |
 | `FEEDBACK_REF_UNKNOWN` | an `answers_feedback` entry is not `{ version, verdict }` integers, names no version or no verdict index, or names a version not earlier than its own | point it at the verdict it answers |
 | `FEEDBACK_ITEM_UNKNOWN` | an `on_items[]` id is no framing, waypoint or post item | name the answer the feedback is about; a decision no prompt reaches becomes an `x_` prompt at its waypoint, and the item names that waypoint |
-| `FEEDBACK_NOT_ADDED` | an item is `not-asked` and its answer has no `additions[]` entry with `source: "polish feedback, v<N>"` quoting the verdict, or a recorded Review feedback route has no matching addition for its exact comment | add the sentence to the guide (`rig-create review` does it when it records the verdict) before the next version is built, or restore the original routed addition |
+| `FEEDBACK_NOT_ADDED` | an item is `not-asked` and its answer has no `additions[]` entry with `source: "polish feedback, v<N>"` quoting the verdict, or a recorded Review feedback route has no matching addition for its exact comment | restore the original routed addition in the cited guide's `additions[]` (numbered verdicts are read-only) |
 | `DELEGATION_NOT_GIVEN` | an entry is `delegated: true`, and no answer of the cited item (current or `history[]`) is a delegation or carries an `agent_decision` — or the delegation has no `agent_decision` | cite the sentence instead, or ask the user; a user answer is not a delegation unless it left part open and the agent's decision is written beside it |
 | `RIG_TYPE_UNKNOWN` | the answered `rig_type` (the user's `value`, or the agent's decision on a delegation) is none of `character.idle`, `character.complex`, `character.monster`, `fullscreen.minimal`, `fullscreen.game_logic` | write the value the answer means ([INTERVIEW.md](INTERVIEW.md)); an illustration CG is `fullscreen.minimal` or `fullscreen.game_logic` |
 | `CG_GATES_UNREAD` | a CG project's `rig` version (§ CG gates) has no config at `provenance.config.path` under the project with the recorded sha256, or the requirements file its config names is not there, under the project, a JSON object | keep the config the version was built from, and its requirements file, under the project (`evidence/v<N>/`) and record the config's path and sha256 |
@@ -831,7 +831,7 @@ declaration list is `entries: []`.
 | `VERBATIM_INVALID_UTF8` | the input cannot round-trip as UTF-8 through JSON (exit 2) |
 | `REVIEW_NOT_HUMAN` | Retired. Earlier `review` writer invocations refused `agent` reviewers. |
 | `REVIEW_OPTION_INVALID` | Retired. Earlier `review` writer invocations refused invalid or competing verdict options. |
-| `FEEDBACK_REF_UNKNOWN` | `--answers-feedback` names no existing verdict on an earlier version; `rig-version` and `direction write/patch --answers` additionally require a human bounced verdict. Name an earlier human bounce in `versions[vN].answers_feedback` |
+| `FEEDBACK_REF_UNKNOWN` | `--answers-feedback` names no existing verdict on an earlier version, or a stored numbered `answers_feedback` entry fails its human-bounce target rule. Name an earlier human bounce in `--answers-feedback <version>:<verdict>` on `record direction`, or restore the stored `versions[vN].answers_feedback` entry |
 | `FEEDBACK_REF_DUPLICATE` | `current.direction.answers_feedback` repeats the same `<version>:<verdict>` reference |
 
 `signoff parts-review` on `current.parts` binds the retained structure snapshot
@@ -890,20 +890,17 @@ independent of the parts-review stage boundary. Read the history entry's own
 
 | Code | Condition | Remedy |
 | --- | --- | --- |
-| `REVIEW_PACKAGE_CONFIG_MISMATCH` | package config SHA256 differs from the version's provenance config SHA256 | preserve history and record a new version whose config and package bind the same build |
+| `REVIEW_PACKAGE_CONFIG_MISMATCH` | package config SHA256 differs from the version's provenance config SHA256 | preserve history and restore the version's recorded config and `review_package` bindings (numbered versions are read-only); record new rig builds with `rig-create record rig --from <dir> --config <file>` |
 
 The package is not compared with a parts approval: parts may change after a rig exists, and the next rig version is built from the current parts (#981).
 
-```sh
-rig-create review-package <n> [<project dir>] --config <path> --from <build out dir> [--json]
-```
-
-Copies the recorded rig version's explicitly supplied producer inputs and
-stores `review_package` with the complete sorted package-relative file hashes
-and `open` command. The copy lives in `derived/review/v<n>/`. Source files
-remain available for comparison through their hashes after the original
-build directory is cleaned. `interview --check` calls this package check for
-create-built rig versions. Post and pre-interview versions are exempt.
+`rig-create review-package` is retired (`NUMBERED_WRITER_REMOVED`, exit 2).
+Stored `versions[].review_package` records retain the complete sorted
+package-relative file hashes and `open` command under `derived/review/v<n>/`,
+keeping source files comparable through their hashes after the original build
+directory is cleaned. `interview --check` continues to verify stored packages
+read-only for create-built numbered rig versions. Post and pre-interview
+versions are exempt.
 
 | Refusal | Fires when | Clear it by |
 | --- | --- | --- |
@@ -912,7 +909,7 @@ create-built rig versions. Post and pre-interview versions are exempt.
 
 | Warning | Fires when | Clear it by |
 | --- | --- | --- |
-| `REVIEW_PACKAGE_MISSING` | a create-built rig has no package record, or its recorded package is absent, leaving its figure mask unverified | run the `rig-create review-package` command printed by the warning with the explicit frozen sources |
+| `REVIEW_PACKAGE_MISSING` | a create-built rig has no package record, or its recorded package is absent, leaving its figure mask unverified | numbered rig versions are read-only; restore `derived/review/v<n>` and its recorded `review_package` entry from git history if available, or record new builds with `rig-create record rig --from <dir> --config <file>` |
 
 | Writer or checker finding | Fires when |
 | --- | --- |
@@ -960,7 +957,7 @@ asks. Projection accepts `core` or `visible`; ground accepts `plain` or `busy`.
 Missing or invalid values are `GUIDE_ASK_UNANSWERED` by name, even if coverage
 claims an answer. Record the answer or a decided delegation before approval.
 
-The check reads `config.json` if present and retained rig-version
+The check reads `config.json` if present and retained numbered rig
 configs via their provenance paths and hashes. Core and absent projection add
 no ground question or refusal. Unread retained files remain under the existing
 provenance checks.
@@ -1013,9 +1010,8 @@ unread config is reported by provenance, not here. Config-relative
 
 An absent or unread requirements file already refused by `CG_GATE_UNDECLARED`
 or `CG_GATES_UNREAD` keeps that single CG finding. The setup check adds no
-second finding for the same path. Parts owns limit validation and measurement.
-`rig-version --preflight` shows both codes, so a config learns every missing
-declaration in one run (§ Frozen rig registration).
+second finding for the same path. Parts owns limit validation and measurement;
+frozen registration checks report every missing declaration in order (§ Frozen rig registration).
 Limits come from parts' own `pixel_count` per region on the accepted split
 build, recorded with their source as a "no worse than the accepted split" bar.
 The filled example retains its historical config references. Synthetic tests
@@ -1048,7 +1044,7 @@ plate-making fix; the default recipe above stays unchanged.
 | `FIGURE_MASK_EXTERNAL_RECEIPT_INVALID` | a matching prepared figure mask declares an external receipt that fails verification | restore the external receipt, painting and mask, then record with `derived add --receipt`. A bound external mask receipt satisfies the figure-mask receipt requirement at `FIGURE_MASK_MATTE_RECEIPT_SINCE` |
 | `FIGURE_MASK_MATTE_RECEIPT_MISSING` | a retained figure mask on or after `FIGURE_MASK_MATTE_RECEIPT_SINCE = 2026-11-19T00:00:00Z` lacks a bound matte receipt, dated by version.at | record the mask and its painting with `derived add --receipt` |
 | `FIGURE_MASK_MATTE_RECEIPT_LEGACY` | WARN for a retained older figure mask bound by an operation and source hashes alone | keep the earlier record and bind the matte receipt for the next build |
-| `FIGURE_MASK_INPUT_UNBOUND` | a present recorded package lacks the requirements or figure mask binding on or after `FIGURE_MASK_INPUTS_SINCE = 2026-11-06T00:00:00Z`, dated by version.at | preserve the package and record a new build with review-package binding both inputs |
+| `FIGURE_MASK_INPUT_UNBOUND` | a present recorded package lacks the requirements or figure mask binding on or after `FIGURE_MASK_INPUTS_SINCE = 2026-11-06T00:00:00Z`, dated by version.at | preserve the historical package or restore its bound requirements and figure mask; record new builds with `rig-create record rig --from <dir> --config <file>` |
 | `FIGURE_MASK_INPUTS_LEGACY` | WARN for those missing bindings before FIGURE_MASK_INPUTS_SINCE or with no readable date | preserve history and package both inputs on the next build |
 | `FIGURE_MASK_LEGACY` | WARN for these findings on a record before `FIGURE_MASK_SINCE` or without a readable date | preserve the earlier record and declare and record the mask for its next build |
 
@@ -1058,59 +1054,58 @@ plate-making fix; the default recipe above stays unchanged.
 Historical `rig-review` verdicts on a rigging draft bound the project hash, joined source
 hash and model of their acknowledged publication, retaining the exact act and its comments alongside the draft ID.
 Historical draft receipts with a still retain its digest check.
-When the registered inputs and model are byte-identical, `rig-version` carries
-the latest approval with its original job and act IDs, so the version needs no
-second verdict. Changed bytes require a new version verdict. A carried verdict
-with mismatched provenance or bytes triggers `REVIEW_ACT_LEDGER_INVALID`.
+When the registered inputs and model were byte-identical, historical numbered
+registration carried the latest approval with its original job and act IDs; a
+carried verdict with mismatched provenance or bytes triggers `REVIEW_ACT_LEDGER_INVALID`.
 
 The explicit `interview.order.spec: "rig-create/stage-order@1"` switch enables
 parts-only plan approval followed by a post-parts rigging interview. It is not
 a date inference. Existing signatures keep their original scope. Draft inventory
 is create-owned artifact identity, not producer provenance or reproducibility.
 
-`draft-rig --from <out>` records assemble output as `layout: "assemble-only"`.
-It retains the parts manifest, part images, recomposite and other bound output
-under the draft root. It reads the producer from a bound assemble `run.json`
-when present. `job open --draft` uses the same draft
-identity as for a full draft. Existing standalone and build drafts have no
-`layout` field and retain their rig output requirements.
+Stored `drafts[]` entries with `layout: "assemble-only"` retain the parts
+manifest, part images, recomposite and other bound output under the draft root,
+reading the producer from a bound assemble `run.json` when present (`draft-rig`
+is retired; new outputs use `record parts` and `record rig`). `job open --draft`
+uses the same draft identity as for a full draft. Existing standalone and build
+drafts have no `layout` field and retain their rig output requirements.
 
 | Code | Fires when | Remedy |
 | --- | --- | --- |
 | `STAGE_ORDER_LEGACY` | WARN: order metadata is absent or the old contract is used | preserve historical answers; adopt explicitly with fresh rigging answers after parts review |
 | `RIGGING_INTERVIEW_CONTEXT` | the order adoption (`interview.order.adopted_at`) lacks a readable date | restore the recorded adoption date |
-| `DRAFT_RIG_MALFORMED` | malformed/duplicate draft identity, ambiguous layout, missing standalone parts inputs, an assemble-only inventory missing its parts bindings or carrying rig output, or a config-named input `draft-rig` cannot bind because it leaves the project, is not a regular file, or is a directory without a regular-file `receipt.json` declaring the installed parts' `PLATE_RECEIPT_SPEC` (or the installed parts exports none), or a `config_inputs` directory binding does not bind `<directory>/receipt.json` with a string `spec` | retain one labelled output with explicit parts inputs |
-| `DRAFT_RIG_REQUIRED` | an assemble-only draft is supplied as a rig source or target for a version, rig review, signoff, handoff, direction, a correction requiring a model, or a rig fix-ledger report | register a new draft with a rig output using `draft-rig`; use an independently registered rig or post version for production review and direction |
+| `DRAFT_RIG_MALFORMED` | malformed/duplicate draft identity, ambiguous layout, missing standalone parts inputs, an assemble-only inventory missing its parts bindings or carrying rig output, or a config-named input that leaves the project, is not a regular file, or is a directory without a regular-file `receipt.json` declaring the installed parts' `PLATE_RECEIPT_SPEC` (or the installed parts exports none), or a `config_inputs` directory binding does not bind `<directory>/receipt.json` with a string `spec` | restore the stored `drafts[]` entry and its explicit parts inputs |
+| `DRAFT_RIG_REQUIRED` | an assemble-only draft is supplied as a rig source or target for a version, rig review, signoff, handoff, direction, a correction requiring a model, or a rig fix-ledger report | stored drafts are read-only; select a recorded draft that holds a rig output, or record a current rig build with `rig-create record rig --from <dir> --config <file>` |
 | `DRAFT_RIG_STACK` | Retired. Earlier Create releases refused missing or ambiguous stack candidates during `draft-rig` registration with this code; `draft-rig` now refuses `NUMBERED_WRITER_REMOVED`. | Record current parts or rig outputs with `rig-create record parts` or `rig-create record rig`. |
-| `DRAFT_RIG_STACK_UNBOUND` | a standalone or assemble-only draft's `files` has no SHA-256 binding for the recomposite beside its `parts.json` or, for a `rig/` directory, in `../render/`. For standalone drafts, refuses from `DRAFT_STACK_BINDING_SINCE = 2026-11-19T00:00:00Z` by `drafts[].at`; earlier standalone drafts WARN. The stack is optional with `--reuse` | preserve the old record and register a new draft with the retained recomposite |
+| `DRAFT_RIG_STACK_UNBOUND` | a standalone or assemble-only draft's `files` has no SHA-256 binding for the recomposite beside its `parts.json` or, for a `rig/` directory, in `../render/`. For standalone drafts, refuses from `DRAFT_STACK_BINDING_SINCE = 2026-11-19T00:00:00Z` by `drafts[].at`; earlier standalone drafts WARN. The stack is optional with `--reuse` | preserve or restore the recorded draft; record new builds with `rig-create record parts` or `rig-create record rig` |
 | `DRAFT_RIG_FILE` | a config-named input points to a dangling symlink, a config-named input lacks a config_inputs binding (WARN before CONFIG_INPUTS_SINCE; an absent key before DRAFT_CONFIG_INPUTS_SINCE is `DRAFT_CONFIG_INPUTS_UNRECORDED` instead), a config_inputs binding outside the draft root is missing, changed or leaves the project (a directory input, such as an occluder plate, by its `receipt.json`, whose declared spec must equal the binding's `spec`), or a present draft artifact is unreadable, changed, unexpected or escapes its root | restore its frozen config, parts and output files |
-| `DRAFT_EDITED_PART_UNBOUND` | a draft's hash-bound `parts.json` declares `parts[i].provenance.edited_part`, but `config_inputs` has no regular-file binding (no `directory`) whose `sha256` equals the receipt's `sha256` (including an absent key, empty list, directory binding or wrong hash; `/<receipt.file>` is only a tie-break for naming which binding the finding reports). Refuses from `EDITED_PART_INPUTS_SINCE = 2026-11-15T00:00:00Z` by `draft.at`; earlier drafts WARN with this same code. `draft-rig` runs the same check before writing, including when its parts install silently omits the reference | preserve the old draft; install parts that declares the edited receipt files and record a new draft with `draft-rig` |
+| `DRAFT_EDITED_PART_UNBOUND` | a draft's hash-bound `parts.json` declares `parts[i].provenance.edited_part`, but `config_inputs` has no regular-file binding (no `directory`) whose `sha256` equals the receipt's `sha256` (including an absent key, empty list, directory binding or wrong hash; `/<receipt.file>` is only a tie-break for naming which binding the finding reports). Refuses from `EDITED_PART_INPUTS_SINCE = 2026-11-15T00:00:00Z` by `draft.at`; earlier drafts WARN with this same code | preserve the historical draft or restore its `config_inputs` bindings; for new work, record current outputs with `rig-create record parts` or `rig-create record rig` |
 | `DRAFT_CONFIG_INPUTS_UNRECORDED` | WARN: a draft recorded from CONFIG_INPUTS_SINCE and before DRAFT_CONFIG_INPUTS_SINCE has no `config_inputs` key while its sha256-bound config names inputs (by the installed parts' declarations, or by the pinned ones when the install has no `configFileReferences`). An install that could not declare them recorded nothing; a later absent key refuses `DRAFT_RIG_FILE`. A present key that misses a named input or binds a changed hash refuses `DRAFT_RIG_FILE` on both sides of the date | keep the record; record current outputs with `rig-create record parts` or `rig-create record rig` |
 | `DRAFT_PARTS_INSTALL_BEHIND` | Retired. Earlier Create releases refused `draft-rig` when the installed `@rig-c/parts` trailed the draft producer's input declarations; `draft-rig` now refuses `NUMBERED_WRITER_REMOVED`. | Record current outputs with `rig-create record parts` or `rig-create record rig`. |
-| `DRAFT_DECLARED_FILE_UNBOUND` | WARN at any date: a present file that the draft's `parts.json` declares under `painting_in_rig` is not bound in `drafts[].parts.files` | rebuild the draft and record it again with `draft-rig`; the old record is kept |
+| `DRAFT_DECLARED_FILE_UNBOUND` | WARN at any date: a present file that the draft's `parts.json` declares under `painting_in_rig` is not bound in `drafts[].parts.files` | preserve the historical draft record; record new builds with `rig-create record parts` or `rig-create record rig` |
 | `DRAFT_RIG_UNAVAILABLE` | WARN: declared regenerable draft artifacts are absent under the ignored draft root | restore the named recorded bytes before inspecting or rebuilding the draft; retained structure snapshots still verify |
 | `ASSEMBLY_CONFIG_STALE` | Retired. Earlier Create releases refused `draft-rig` when declared config assembly inputs differed from `parts.json`; `draft-rig` now refuses `NUMBERED_WRITER_REMOVED`. | Record current parts outputs with `rig-create record parts --from <dir> --config <file>`. |
-| `DRAFT_ASSEMBLY_CONFIG_UNRECORDED` | WARN: an accepted draft binds a legacy parts.json without an assembly config reading | preserve the accepted draft and use a new assemble output for future review |
-| `DRAFT_PRODUCER_ASSUMED` | WARN at any date: no `run.json` is bound beside the draft's `rig.json` or at the assemble output root, so `drafts[].producer` is the installed `@rig-c/parts` assumed when `draft-rig` recorded it | regenerate the output with `rig-parts rig` or `rig-parts assemble` and register a new draft with its `run.json` |
-| `DRAFT_PRODUCER_MISMATCH` | WARN at any date: `drafts[].producer` differs from the `package` in the bound `rig-run/1` stamp | record the draft again with `draft-rig` under a new id |
+| `DRAFT_ASSEMBLY_CONFIG_UNRECORDED` | WARN: an accepted draft binds a legacy parts.json without an assembly config reading | preserve the accepted draft and use `rig-create record parts` for current builds |
+| `DRAFT_PRODUCER_ASSUMED` | WARN at any date: no `run.json` is bound beside the draft's `rig.json` or at the assemble output root, so `drafts[].producer` reflects the `@rig-c/parts` version assumed when recorded | preserve the historical draft; regenerate current outputs with `rig-parts assemble` or `rig-parts rig` and record them with `rig-create record parts` or `rig-create record rig` |
+| `DRAFT_PRODUCER_MISMATCH` | WARN at any date: `drafts[].producer` differs from the `package` in the bound `rig-run/1` stamp | restore `drafts[].producer` to match the bound `run.json` stamp, or record current outputs with `rig-create record parts` or `rig-create record rig` |
 | `DRAFT_RIG_AS_VERSION` | draft role/identity/reserved paths are offered as a numbered version, review, package or handoff | build an independently authorised production rig |
-| `STRUCTURE_DECISIONS_MISSING` | new-order numbered parts approval lacks its draft or explicit structure snapshot, or a current parts approval lacks its snapshot | supply --draft and --structure-file, including entries:[] when unchanged |
+| `STRUCTURE_DECISIONS_MISSING` | new-order numbered parts approval lacks its draft or explicit structure snapshot, or a current parts approval lacks its snapshot | run `structure-snapshot` and supply `--structure-file` when needed, including `entries:[]` when unchanged |
 | `STRUCTURE_DECISIONS_INVALID` | snapshot schema/declarations/config binding are malformed or changed | retain the exact human-approved structure file |
 | `STRUCTURE_DECISIONS_CONFLICT` | a structure snapshot contradicts the mesh/chest declaration of the config it binds | retain the snapshot written from that config |
-| `STRUCTURE_DELTA_MISMATCH` | recorded structure_delta differs from the snapshot/config comparison | register a new rig version with its exact computed delta |
+| `STRUCTURE_DELTA_MISMATCH` | recorded structure_delta differs from the snapshot/config comparison | restore the version's recorded `provenance.structure_delta` (numbered versions are read-only) |
 | `STRUCTURE_DELTA_REVIEW` | WARN: counted structure entries changed under the signed rigging meshes guide | cover changed structure in the rig-review verdict and sign-off |
-| `PARTS_VERDICT_DRAFT_MISMATCH` | a parts-review sign-off's verdict `source.files[]` lists a file whose sha256 is in neither its `draft_id` draft's `parts.files[]` nor its `files[]` (the outputs a parts view that shows meshes also lists: `rig.json`, `mesh_report.json`, mesh rasters), or leaves out one of the draft's `parts.files[]`, matched as sha256 multisets and leaving out only the raster the draft's `parts.json` declares under `painting_in_rig`; an output the verdict does not list is not missing; the message lists up to three unmatched files on each side. `signoff parts-review --draft` and `structure-snapshot` refuse it; the check refuses a sign-off dated from `PARTS_VERDICT_DRAFT_SINCE = 2026-11-08T00:00:00Z` or without a readable date and WARNs an earlier one | review the named draft's parts in rig-review's parts view and sign with that verdict, or name the draft the verdict reviewed; preserve an earlier record |
+| `PARTS_VERDICT_DRAFT_MISMATCH` | a parts-review sign-off's verdict `source.files[]` lists a file whose sha256 is in neither its `draft_id` draft's `parts.files[]` nor its `files[]` (the outputs a parts view that shows meshes also lists: `rig.json`, `mesh_report.json`, mesh rasters), or leaves out one of the draft's `parts.files[]`, matched as sha256 multisets and leaving out only the raster the draft's `parts.json` declares under `painting_in_rig`; an output the verdict does not list is not missing; the message lists up to three unmatched files on each side. `structure-snapshot` refuses it; the check refuses a sign-off dated from `PARTS_VERDICT_DRAFT_SINCE = 2026-11-08T00:00:00Z` or without a readable date and WARNs an earlier one | restore the recorded `draft_id` and parts-verdict binding on the historical sign-off, or preserve an earlier record |
 | `DRAFT_RIG_USAGE` | Retired. Earlier Create releases refused malformed or unsupported `draft-rig` arguments with this code; `draft-rig` now refuses `NUMBERED_WRITER_REMOVED`. | Record current outputs with `rig-create record parts` or `rig-create record rig`. |
-| `STRUCTURE_SNAPSHOT_USAGE` | `structure-snapshot` misses `--draft`, repeats a flag, takes an unsupported flag or more than one folder (exit 2) | use structure-snapshot [dir] --draft <id> [--out <path>] |
-| `STRUCTURE_SNAPSHOT_DRAFT_UNKNOWN` | `drafts[<id>]`: no recorded draft has the `--draft` id | record the reviewed draft with `draft-rig`, then name its id |
-| `STRUCTURE_SNAPSHOT_CONFIG_CHANGED` | `drafts[i].config` is absent, unreadable, escapes the project or no longer hashes to its recorded sha256 | restore the recorded config bytes, or record the changed config as a new draft and review it |
+| `STRUCTURE_SNAPSHOT_USAGE` | `structure-snapshot` misses `--draft` when `current.parts` is absent, repeats a flag, takes an unsupported flag or more than one folder (exit 2) | use `structure-snapshot [<dir>] [--out <path>]` for `current.parts` (or pass `--draft <id>` for a recorded draft) |
+| `STRUCTURE_SNAPSHOT_DRAFT_UNKNOWN` | `drafts[<id>]`: no recorded draft has the `--draft` id | name an existing id in `project.json.drafts`, or record `current.parts` with `rig-create record parts` and run `rig-create structure-snapshot` without `--draft` |
+| `STRUCTURE_SNAPSHOT_CONFIG_CHANGED` | `drafts[i].config` is absent, unreadable, escapes the project or no longer hashes to its recorded sha256 | restore the recorded config bytes, or record the changed config on `current.parts` with `rig-create record parts` |
 | `STRUCTURE_SNAPSHOT_OUT_UNREAD` | `--out` is not one of the retained paths `partsStructureSnapshot` reads for `--draft <id>` (`evidence/structure-<encodeURIComponent(id)>.json` or `-<n>.json`) | omit `--out` or write to the expected path named in the refusal |
 | `STRUCTURE_SNAPSHOT_OUT_INVALID` | `--out` is absolute or not a literal POSIX path, leads out of the project through a link, sits under a file, or names an existing entry that is not a regular file | name a new file under the project, for example `evidence/structure-<id>.json` |
 | `STRUCTURE_SNAPSHOT_OUT_IGNORED` | `--out`, as written or with links followed, is under an ignored root | write the snapshot outside ignored roots, for example `evidence/` |
 | `STRUCTURE_SNAPSHOT_OUT_EXISTS` | `--out` already holds bytes other than the snapshot (the same bytes are a no-op success) | name a new file; a retained snapshot is never overwritten |
-| `DRAFT_REUSE_SOURCE` | `draft-rig --reuse <draft-id> [--reuse-record <sha256>]` cannot find a distinct reviewed source with a valid retained parts verdict, or its prior record differs from or is missing at the SHA-256 named by `restarts[]` or `evidence/draft-reuse/<sha256>.json`. Reuse binds the source verdict as historical evidence. The new draft needs its own verdict. | select a reviewed draft in the current record, or use the SHA-256 from `restarts[]` in a clone with the source history and retain the snapshot and its verdict evidence. For exact reviewed parts this route replaces the installed-producer assumption in `DRAFT_PRODUCER_ASSUMED`. |
-| `DRAFT_REUSE_MISMATCH` | a reused draft differs from its source in a relative inventory path or SHA-256 for `parts.json`, `parts/` or a declared painting, or its recorded See-through layers differ from the bound manifest | restore the exact reviewed parts or run `rig-parts build` and record a normal draft |
-| `DRAFT_REUSE_PRODUCER` | the reused draft's recorded producer or its local run stamp disagrees with the reviewed draft's producer. The inherited identity applies to the reused parts inventory. | supply matching artifacts or run `rig-parts build` and record a normal draft |
+| `DRAFT_REUSE_SOURCE` | a reused draft in `drafts[]` cannot find a distinct reviewed source with a valid retained parts verdict, or its prior record differs from or is missing at the SHA-256 named by `restarts[]` or `evidence/draft-reuse/<sha256>.json` | restore the referenced reviewed draft or `evidence/draft-reuse/<sha256>.json` snapshot and its verdict evidence |
+| `DRAFT_REUSE_MISMATCH` | a reused draft differs from its source in a relative inventory path or SHA-256 for `parts.json`, `parts/` or a declared painting, or its recorded See-through layers differ from the bound manifest | restore the exact reviewed parts on the stored draft, or record current outputs with `rig-create record parts` |
+| `DRAFT_REUSE_PRODUCER` | the reused draft's recorded producer or its local run stamp disagrees with the reviewed draft's producer. The inherited identity applies to the reused parts inventory. | restore the matching producer stamp on the stored draft, or record current outputs with `rig-create record parts` |
 
 Each refusal names the record path and writes nothing in the corresponding writer.
 `structure-snapshot` reads the draft's retained config. It also refuses with
@@ -1202,11 +1197,11 @@ patch, computes a producer check/diff, or launches an Apply.
 | `CORRECTION_PART_IMAGE_OUTSIDE_MASK` | `part-image` `after` differs from `before` outside `mask` |
 | `CORRECTION_PART_IMAGE_ADDED_ALPHA` | `part-image` `after` increases alpha (`afterA > beforeA`) outside `mask`; reports the number of outside texels and refuses before writing. Keep alpha restoration inside the declared mask |
 | `CORRECTION_PART_IMAGE_ALPHA_COUNT` | present `artifact.added_alpha_texels` differs from the count of texels with `afterA > beforeA`; retain the original bytes and record the masked edit again |
-| `DRAFT_PART_REPAINT_UNRECORDED` | Compare only named colour parts in the draft's hash-bound producer `parts.json`, never auxiliary depth maps. WARN only when that part has producer-declared `parts[i].provenance.edited_part`, its bound bytes differ from the immediately preceding draft's same part, and no live correction covers the exact parent/before/after pair, even with no correction records. Byte changes alone do not declare an edit; fresh splits without the declaration do not WARN. The warning itself records the historical gap: postdated correction records refuse, so preserve history and record a correction before draft-rig for the next edit only. Existing refusal remains when a named part binds known repaint bytes with no live covering record (withdrawn, superseded, post-dated or wrong part/draft) |
+| `DRAFT_PART_REPAINT_UNRECORDED` | Compare only named colour parts in the draft's hash-bound producer `parts.json`, never auxiliary depth maps. WARN only when that part has producer-declared `parts[i].provenance.edited_part`, its bound bytes differ from the immediately preceding draft's same part, and no live correction covers the exact parent/before/after pair, even with no correction records. Byte changes alone do not declare an edit; fresh splits without the declaration do not WARN. The warning itself records the historical gap: postdated correction records refuse, so preserve history on stored drafts and record new part edits on the current path through `assemble.edited_parts` and `rig-create record parts`. Existing refusal remains when a named part binds known repaint bytes with no live covering record (withdrawn, superseded, post-dated or wrong part/draft) |
 | `CORRECTION_UNSUPPORTED_OUTCOME` | a named unsupported operation attempts supported completion |
 | `CORRECTION_MESH_DELTA_INVALID` | `corrections` cannot bind a finalized mesh edit to one Parts result and its retained revision files, or the act and attachment already have a completion. Restore the exact source and Parts receipt, then replay on the recorded revision. |
-| `CORRECTION_MESH_DELTA_REVISION` | The next registered rig version does not bind the final Parts revision from the completed mesh corrections. Build and check that revision and supply the matching compile run record to `rig-version`. |
-| `CORRECTION_PENDING` | attempted scoped approval/handoff relies on an unresolved active correction. If `rig-version` refuses while carrying a draft verdict, retry with `--no-draft-verdict` to register the frozen inputs without that verdict. Resolve the correction before approving rig-review. |
+| `CORRECTION_MESH_DELTA_REVISION` | A numbered rig version after completed mesh corrections does not bind the final Parts revision. Restore the recorded compile run record and revision bindings on the numbered version (or record current rig builds with `rig-create record rig --from <dir> --config <file>`). |
+| `CORRECTION_PENDING` | attempted scoped approval/handoff relies on an unresolved active correction. Resolve the correction before approving or handing off the stage. |
 | `CORRECTION_PATH_LEGACY` | WARN once when explicit corrections adoption is absent |
 | `DESCRIBED_DIRECTION_REQUIRED` | a described correction on a post with authored direction uses @1 on or after `DESCRIBED_DIRECTION_SINCE = 2026-11-06T00:00:00Z`. Preserve the evidence and capture a new correction@2 request with the exact direction identity |
 | `DESCRIBED_DIRECTION_LEGACY` | WARN for the same @1 authored-direction description before DESCRIBED_DIRECTION_SINCE, dated by correction.at. Preserve history and use correction@2 for the next request |
@@ -1250,11 +1245,11 @@ direction*, defines the closed schema, immutable paths and read contract.
 | `DIRECTION_CITATION` | camera/timing citations, resolved selections or live approved step hashes do not match the retained request | preserve words and complete/reapprove the named answers/steps |
 | `DIRECTION_VERSION` | post identity/number/path/config/output binding conflicts or is not uniquely later for authoring/current for acceptance | create a later uniquely numbered post and bind its document |
 | `DIRECTION_SOURCE_CHANGED` | lock held, immutable destination exists, or any captured source differs before project commit | preserve published bytes and retry against frozen inputs |
-| `DIRECTION_PATCH` | Retired. Earlier Create releases refused invalid direction patch input with this code. | Record direction feedback as a review verdict and publish a revised post with `direction write --answers`. |
+| `DIRECTION_PATCH` | Retired. Earlier Create releases refused invalid direction patch input with this code. | Write the current direction spec with `rig-create direction write [<dir>] --file <intent.json>` and record the compose output with `rig-create record direction`. |
 | `DIRECTION_CORRECTION_OUTCOME` | a correction@2 source/outcome differs from the exact direction post or `current.direction` identity, or a made direction closure lacks matching patch/base/result and the same rig | retain the exact `current.direction` or post bindings, and resolve a made patch only to its create-ingested result |
-| `CORRECTION_DIRECTION_PATCH_FILE_REMOVED` | `correction` receives `--direction-patch-file` or resolves a `direction-patch` record (exit 2) | record direction feedback as a review verdict and publish the revised post with `direction write <N> --file <direction.json> --rig <R> --answers <version>:<verdict>` |
+| `CORRECTION_DIRECTION_PATCH_FILE_REMOVED` | `correction` receives `--direction-patch-file` or resolves a `direction-patch` record (exit 2) | update the current direction spec with `rig-create direction write [<dir>] --file <intent.json>` and record the compose output with `rig-create record direction --from <dir> --direction specs/direction/direction.json` (with `--answers-feedback <version>:<verdict>` when answering an adopted bounce) |
 | `DIRECTION_PATCH_FILE_REMOVED` | Retired. Earlier Create releases refused `direction patch` and `--patch-file` with this code; numbered direction writes now refuse `NUMBERED_WRITER_REMOVED`. | Write the current direction spec with `rig-create direction write [<dir>] --file <intent.json>` and record the compose output with `rig-create record direction`. |
-| `DIRECTION_PATCH_LEGACY` | WARN for an existing record before `DIRECTION_PATCH_SINCE = 2026-11-19T00:00:00Z` that binds `versions[].direction_origin.patch` or a correction direction patch | preserve the historical record without reopening the old patch file; publish future direction changes with `direction write --answers` after a review verdict |
+| `DIRECTION_PATCH_LEGACY` | WARN for an existing record before `DIRECTION_PATCH_SINCE = 2026-11-19T00:00:00Z` that binds `versions[].direction_origin.patch` or a correction direction patch | preserve the historical record without reopening the old patch file; record future direction revisions through `direction write [<dir>] --file <intent.json>` and `record direction` |
 
 Each message names the record path and a remedy. Code assertions accompany
 negative controls; failed writer/transaction tests also assert unchanged record
@@ -1329,8 +1324,8 @@ needed, then prepare its structure snapshot and relay the owner's approval.
 
 | Code | Meaning | Remedy |
 | --- | --- | --- |
-| `SIGNOFF_TARGET_MISSING` | A rig-review or direction-review signature dated on or after `SIGNOFF_TARGET_SINCE` has no target, or a new signature would bind an adopted current node | For an adopted node, rebuild and use `rig-create record rig --from outputs/rig --config <rig config>` or `rig-create record direction --from outputs/direction --direction specs/direction/direction.json` before signing. For other current targets, restore or record the stage's current output and sign again. For a numbered project, preserve the reviewed inputs and sign again with `--version` |
-| `SIGNOFF_TARGET_STALE` | A current target or required current node is missing, malformed or differs from its recorded hashes or disk. A current parts signature can also predate its output record or carry numbered review fields. For a numbered target, the version, operative human accepted verdict, package inventory, imported outputs or direction binding no longer resolves, or writer selection is ambiguous | Restore the reviewed current record and outputs or record them with `rig-create record rig` or `rig-create record direction`, then sign again. For numbered selection, restore the reviewed inputs and select the accepted version with `--version` |
+| `SIGNOFF_TARGET_MISSING` | A rig-review or direction-review signature dated on or after `SIGNOFF_TARGET_SINCE` has no target, or a new signature would bind an adopted current node | For an adopted node, rebuild and use `rig-create record rig --from outputs/rig --config <rig config>` or `rig-create record direction --from outputs/direction --direction specs/direction/direction.json` before signing. For other current targets, restore or record the stage's current output and sign again. For a stored numbered signature (read-only), restore the recorded target and reviewed inputs |
+| `SIGNOFF_TARGET_STALE` | A current target or required current node is missing, malformed or differs from its recorded hashes or disk. A current parts signature can also predate its output record or carry numbered review fields. For a numbered target, the version, operative human accepted verdict, package inventory, imported outputs or direction binding no longer resolves | Restore the reviewed current record and outputs or record them with `rig-create record rig` or `rig-create record direction`, then sign again. For a stored numbered target (read-only), restore the recorded target and reviewed inputs |
 | `SIGNOFF_TARGET_MISSING_LEGACY` | A pre-contract signature has no target | Preserve history and bind the next review signature |
 | `SIGNOFF_TARGET_STALE_LEGACY` | WARN when a signature dated before `SIGNOFF_TARGET_SINCE` has a target that no longer resolves | Preserve history and use the remedy for the target format in `SIGNOFF_TARGET_STALE` |
 | `SIGNOFF_PAIR_MISMATCH` | A rig-review or direction-review sign-off predates its target verdict without a human accepted pair bound by unique immutable act receipts to the same job, publication and version. Ingest always refuses; check refuses from `SIGNOFF_PAIR_SINCE = 2026-11-13T00:00:00Z`, dated by `signoffs[].at` | Accept the intended version and sign it again in Review, then ingest both acts |
@@ -1445,13 +1440,14 @@ so its shape check refuses no earlier record and has no contract date.
 
 ## Frozen rig registration
 
-`rig-version` records explicitly declared toolchain, producer run-record and
-dated-source bindings. These codes apply only to the new writer and versions
-carrying `registration`. The existing template records carry no such field.
+`rig-create rig-version` is retired (`NUMBERED_WRITER_REMOVED`, exit 2); record
+current rig and motion builds with `rig-create record rig --from <dir> --config <file>`
+and `rig-create record motion --from <dir>`. `interview --check` continues to
+validate stored `versions[]` entries carrying `registration` (`frozen-rig/1`)
+read-only, including toolchain, producer run-record and dated-source bindings.
 `RUN_RECORD_SINCE = 2026-11-08T00:00:00Z` dates lock-only `frozen-rig/1`
 registrations by `registration.at`: before it they WARN under
 `RUN_RECORD_REQUIRED`, and from it onward they refuse under the same code.
-`interview --check` uses the same registration validator.
 
 | Code | Fires when | Remedy |
 | --- | --- | --- |
@@ -1459,45 +1455,38 @@ registrations by `registration.at`: before it they WARN under
 | `RIG_REGISTRATION_BUSY` | Retired. Earlier Create releases refused a concurrent `rig-version` lock holder with this code; `rig-version` now refuses `NUMBERED_WRITER_REMOVED`. | Record current rig and motion outputs with `rig-create record rig` and `rig-create record motion`. |
 | `RIG_PREFLIGHT_CONFIG_OUTSIDE` | Retired. Earlier Create releases refused `rig-version --preflight` when `--config` lay outside the project; `rig-version` now refuses `NUMBERED_WRITER_REMOVED`. | Record current rig outputs with `rig-create record rig --from <dir> --config <file>`. |
 | `RIG_PARTS_APPROVAL_INVALID` | the recorded parts approval identity does not resolve uniquely at registration | restore the bound parts signoff and evidence |
-| `RIG_REGISTRATION_INVALID` | the version number or registration/source-kind record is malformed | restore the retained record and register the next numbered rig |
+| `RIG_REGISTRATION_INVALID` | the version number or registration/source-kind record is malformed | restore the retained numbered registration record (numbered versions are read-only) |
 | `RIG_VERSION_ALREADY_REGISTERED` | Retired. Earlier Create releases refused retrying `rig-version <n>` for an already-recorded version with this code; `rig-version` now refuses `NUMBERED_WRITER_REMOVED`. | Record current rig outputs with `rig-create record rig --from <dir> --config <file>`. |
 | `RIG_REGISTRATION_EXISTS` | Retired. Earlier Create releases refused `rig-version` when a numbered destination already held frozen files; `rig-version` now refuses `NUMBERED_WRITER_REMOVED`. | Record current rig outputs with `rig-create record rig --from <dir> --config <file>`. |
 | `RIG_REGISTRATION_PATH_INVALID` | Retired. Earlier Create releases refused escaped, symlinked or colliding `rig-version` source or destination paths with this code; `rig-version` now refuses `NUMBERED_WRITER_REMOVED`. | Record current rig outputs with `rig-create record rig --from <dir> --config <file>`. |
-| `RIG_REGISTRATION_FILE_INVALID` | an unsupported adapter format, a required input, referenced asset, declared sha256, runtime config/requirements adaptation, producer report/manifest, complete output inventory or copied totals is missing, changed or malformed | restore the exact frozen inputs, retained source documents and producer reports before registration |
+| `RIG_REGISTRATION_FILE_INVALID` | an unsupported adapter format, a required input, referenced asset, declared sha256, runtime config/requirements adaptation, producer report/manifest, complete output inventory or copied totals is missing, changed or malformed | restore the exact frozen inputs, retained source documents and producer reports on the stored registration |
 | `RIG_REGISTRATION_SOURCE_CHANGED` | Retired. Earlier Create releases refused source or project byte drift during `rig-version` copying with this code; `rig-version` now refuses `NUMBERED_WRITER_REMOVED`. | Record current rig outputs with `rig-create record rig --from <dir> --config <file>`. |
 | `RIG_TOOLCHAIN_LOCK_INVALID` | the declared lock is absent, unreadable, differs from its hash, has an unsupported format or lacks either producer entry | retain the original Bun text lock with exact versions and integrity, or npm v3 lock with both producer versions |
 | `RIG_TOOLCHAIN_MISMATCH` | built_with disagrees with the retained lock's two package versions | restore the declared lock and matching version values |
-| `RIG_AT_SOURCE_INVALID` | the cited record/pointer lacks a valid UTC instant, differs from at or is later than registration | explicitly cite a retained dated record's UTC timestamp through --at-source and --at-pointer |
+| `RIG_AT_SOURCE_INVALID` | the cited record/pointer lacks a valid UTC instant, differs from at or is later than registration | restore the retained `at_source` record, pointer and matching `at` timestamp on the stored registration |
 | `RIG_PATH_ADAPTER_INVALID` | the adapter lacks distinct `{at,before,after}` or `{doc,pointer,before,after}` mappings, names an unknown document or non-asset pointer, or disagrees with `config-source.json` / `requirements-source.json` | retain an exact adapter matching the original `config` and `requirements` asset pointers and `before` values |
 | `RIG_PATH_ADAPTER_OUT_INVALID` | Retired. Earlier Create releases refused an unwritable or conflicting `rig-version adapter --out` path with this code; `rig-version` now refuses `NUMBERED_WRITER_REMOVED`. | Keep current rig sources under `specs/rig/` and record with `rig-create record rig`. |
 | `RIG_RUNTIME_PATH_UNRESOLVED` | Retired. Earlier Create releases refused unadapted absolute config or requirements asset paths during `rig-version` copying with this code; `rig-version` now refuses `NUMBERED_WRITER_REMOVED`. | Keep current rig sources under `specs/rig/` and record with `rig-create record rig`. |
 | `RIG_IDLE_MANIFEST_MISSING` | Retired. Earlier Create releases refused `rig-version` when `--idle` lacked `frames.json`; `rig-version` now refuses `NUMBERED_WRITER_REMOVED`. | Record current motion renders with `rig-create record motion --from <dir>`. |
-| `RIG_CHECK_REPORT_MISSING` | WARN: a frozen rig has no `registration.check_report` | run `rig-parts check --rig <rig dir> --parts <parts dir> --source <painting> --requirements <requirements file> --out <check dir>` with the original check inputs and use `--check-report <check dir>/check.json` and the same run's `--build` at registration |
-| `RIG_CHECK_REPORT_SPEC_MISSING` | WARN: the retained report has no `spec` | run `rig-parts check` and retain the report with `--check-report`. From `RIG_CHECK_REPORT_SINCE` (2026-11-19T00:00:00Z), use a Parts release carrying #1372 |
-| `RIG_CHECK_REPORT_INVALID` | the report is missing from its declared retention path, differs from its SHA-256 or spec binding, or has invalid JSON, an unsupported spec or malformed outcomes | restore the bound report or run `rig-parts check` and register its report and build together |
-| `RIG_CHECK_REPORT_MODEL_HASH_INVALID` | a `rig-parts-check/1` report lacks a valid `build.model_sha256`, at any date | use a Parts release carrying #1378 to produce a report with the model digest |
-| `RIG_CHECK_REPORT_MODEL_MISMATCH` | the report's `build.model_sha256` differs from the frozen `--build` model's SHA-256 | use `--check-report` and `--build` from the same Parts check run |
-| `RIG_CHECK_BAR_FAILED` | an unaccepted `bar_outcomes` entry is `FAIL`. WARN before `RIG_CHECK_REPORT_SINCE` by `registration.at`, refusal from that date onward | fix the bar and rerun `rig-parts check`, or relay the owner's exact words accepting this bar with `--accept-check-bar <id> --check-accepted-by <owner> --owner-chat <file> --said-at <ISO date> --relayed-by <operator>` |
-| `RIG_CHECK_LINE_UNMET` | an unaccepted `requirements.lines` entry is `FAIL` or `NOT MEASURABLE`, or the report's top-level `SOURCE_EXPOSURE` line is `FAIL` (a declared `source_exposure.max_px` exceeded or unmeasured, Parts 2.53.0; `REPORTED` and an absent line are met). WARN before `RIG_CHECK_REPORT_SINCE` by `registration.at`, refusal from that date onward | fix the line and rerun `rig-parts check`, or relay the owner's exact words accepting this line with `--accept-check-line <name>` (or `--accept-check-exposure` for `SOURCE_EXPOSURE`) `--check-accepted-by <owner> --owner-chat <file> --said-at <ISO date> --relayed-by <operator>` |
-| `RIG_CHECK_ACCEPTANCE_INVALID` | the registration has acceptance flags without a report or target, or an acceptance is duplicated, selects no failed bar or unmet line, or has a write time different from registration | select each exact failed bar ID or unmet line name once from the explicit report and relay the owner's words at registration |
-| `RUN_RECORD_REQUIRED` | a `frozen-rig/1` version has no `registration.runs` (WARN before `RUN_RECORD_SINCE` by `registration.at`, refusal from `RUN_RECORD_SINCE` onward) | retain producer `run.json` records with `--run-record` and register a new rig version |
-| `RUN_RECORD_SPEC_UNKNOWN` | a run record names an unsupported `spec` (outside `rig-run/1`, `rig-run/2`, `rigc-run/1`, `rigc-run/2`), `registration.runs[]` names a `spec` other than `rig-run/1` or `rigc-run/1`, or a draft's bound run stamp is not `rig-run/1`. Draft registration refuses. The check refuses an assemble-only stamp and retains the existing WARN for a full draft without reuse | supply the unedited producer run record and register a new draft or rig version |
-| `RUN_RECORD_HASH_MISMATCH` | a bound run record is missing, unreadable, absent from `registration.files`, or its bytes differ from its recorded `sha256` | restore the retained run record bytes or register a new rig version |
+| `RIG_CHECK_REPORT_MISSING` | WARN: a frozen rig has no `registration.check_report` | preserve the historical frozen registration; for new builds, run `rig-parts check` and record with `rig-create record rig --from <dir> --config <file>` |
+| `RIG_CHECK_REPORT_SPEC_MISSING` | WARN: the retained report has no `spec` | preserve the historical report; for new builds, use a Parts release carrying #1372 and record with `rig-create record rig --from <dir> --config <file>` |
+| `RIG_CHECK_REPORT_INVALID` | the report is missing from its declared retention path, differs from its SHA-256 or spec binding, or has invalid JSON, an unsupported spec or malformed outcomes | restore the bound report at its declared retention path (numbered registrations are read-only) |
+| `RIG_CHECK_REPORT_MODEL_HASH_INVALID` | a `rig-parts-check/1` report lacks a valid `build.model_sha256`, at any date | restore the valid retained `rig-parts-check/1` report on the stored registration, or record current builds with `rig-create record rig` |
+| `RIG_CHECK_REPORT_MODEL_MISMATCH` | the report's `build.model_sha256` differs from the frozen model's SHA-256 | restore the matching retained check report and compiled model from the same Parts check run |
+| `RIG_CHECK_BAR_FAILED` | an unaccepted `bar_outcomes` entry is `FAIL`. WARN before `RIG_CHECK_REPORT_SINCE` by `registration.at`, refusal from that date onward | numbered registrations are read-only — restore the retained check report or its recorded `check_report.accepted` owner-chat entry; for current builds, fix the bar and rerun `rig-parts check` before `rig-create record rig` |
+| `RIG_CHECK_LINE_UNMET` | an unaccepted `requirements.lines` entry is `FAIL` or `NOT MEASURABLE`, or the report's top-level `SOURCE_EXPOSURE` line is `FAIL` (a declared `source_exposure.max_px` exceeded or unmeasured, Parts 2.53.0; `REPORTED` and an absent line are met). WARN before `RIG_CHECK_REPORT_SINCE` by `registration.at`, refusal from that date onward | numbered registrations are read-only — restore the retained check report or its recorded `check_report.accepted` owner-chat entry; for current builds, fix the line and rerun `rig-parts check` before `rig-create record rig` |
+| `RIG_CHECK_ACCEPTANCE_INVALID` | the stored `registration.check_report.accepted` list is present without a report or target, or an acceptance is duplicated, selects no failed bar or unmet line, or has a write time different from registration | restore the stored `registration.check_report.accepted` entries so each failed bar ID or unmet line name matches the retained report |
+| `RUN_RECORD_REQUIRED` | a `frozen-rig/1` version has no `registration.runs` (WARN before `RUN_RECORD_SINCE` by `registration.at`, refusal from `RUN_RECORD_SINCE` onward) | restore the stored `registration.runs` entries on the numbered version, or record current builds with `rig-create record rig` and `rig-create record motion` |
+| `RUN_RECORD_SPEC_UNKNOWN` | a run record names an unsupported `spec` (outside `rig-run/1`, `rig-run/2`, `rigc-run/1`, `rigc-run/2`), `registration.runs[]` names a `spec` other than `rig-run/1` or `rigc-run/1`, or a draft's bound run stamp is not `rig-run/1`. The check refuses an assemble-only stamp and retains the existing WARN for a full draft without reuse | restore the unedited producer run record on the stored draft or version, or record current builds with `rig-create record parts|rig|motion` |
+| `RUN_RECORD_HASH_MISMATCH` | a bound run record is missing, unreadable, absent from `registration.files`, or its bytes differ from its recorded `sha256` | restore the retained run record bytes and `registration.files` binding |
 | `RUN_RECORD_ROLE_INVALID` | a `rigc-run/1` record omits a required input role (`rig` or `motion`), names an unknown role, or sorts roles outside `rig`, `motion`, `manifest`, `cuts`; or a `rigc-run/2` record omits `skeleton`, repeats or misorders roles outside `skeleton`, `atlas`, `model`, `environment`, `viewport`, `boundary` | retain the unedited `rigc-run/1` or `rigc-run/2` record with its required inputs |
-| `RUN_RECORD_MALFORMED` | a run record has invalid JSON, wrong keys or published key order, invalid package/command/timestamps/paths/hashes/argv, unsorted outputs, or duplicate specs. The assemble-only reader accepts the published optional assemble `inputs` field in its declared key and role order. Draft registration refuses malformed stamps. The check refuses an assemble-only stamp and retains the existing WARN for a full draft without reuse | retain at most one unedited producer run record per spec in its published key order |
+| `RUN_RECORD_MALFORMED` | a run record has invalid JSON, wrong keys or published key order, invalid package/command/timestamps/paths/hashes/argv, unsorted outputs, or duplicate specs. The assemble-only reader accepts the published optional assemble `inputs` field in its declared key and role order. The check refuses an assemble-only stamp and retains the existing WARN for a full draft without reuse | retain at most one unedited producer run record per spec in its published key order |
 
-`rig-version <n> [<dir>] --preflight --config <file> [--citations <file>]
-[--at-source <file> --at-pointer </pointer>]` writes nothing. It runs the
-provenance, CG-gate, setup-painting and figure-mask declaration checks over
-that config, its requirements and the citations. A visible busy-ground config
-requires `setup_painting.figure_mask` with a path and lowercase SHA-256.
-Registration verifies the mask bytes and evidence. Preflight lists each
-declaration as `carried`, `missing` or `unread` with its code, shows all
-findings at the same path and exits 1 while any refusal remains. `next` lists
-the same declarations on the move that registers a checked build. A refused
-registration names every new finding: the
-first finding's code is the refusal's, and each further finding follows on its
-own line as `<code>: <message>`, in the order the preflight prints them.
+Stored `frozen-rig/1` checks run the provenance, CG-gate, setup-painting and
+figure-mask declaration checks over the retained config, its requirements and
+citations. A visible busy-ground config requires `setup_painting.figure_mask`
+with a path and lowercase SHA-256, verified against the retained mask bytes and
+evidence.
 
 The date citation declares a completion bound, the toolchain lock declares the
 toolchain, and `registration.runs` binds the producer run stamps (`rig-run/1`
@@ -1600,22 +1589,21 @@ acceptance is narrowed, so this change introduces no SINCE date or pilot migrati
 
 ## Registered idle frames in a direction post (create#297)
 
-A rig registered with `rig-version` keeps its idle render under the ignored
-`outputs/v<N>/idle/`. `scene write` copies `registration.idle` into
+A frozen numbered rig (`versions[].registration`) keeps its idle render under the ignored
+`outputs/v<N>/idle/`. Historical `scenes[]` entries copied `registration.idle` into
 `scene.rig.animation.frames`, and the direction post reads those frames by
-binding, not as a retained file: `direction write` and `check` read the path
-only when `versions[v<R>]` of the post's rig `R` binds it, with the same path
-and sha256 (`registration.idle` for `frames.json`, `outputs` for any other idle
-file). No other `outputs/` path is admitted; it still refuses `DIRECTION_FILE`.
-Absent frames refuse `DIRECTION_FILE`, as `RIG_REGISTRATION_FILE_INVALID`
-refuses absent frozen outputs. Records that passed before keep passing, so no
-contract date is added.
+binding, not as a retained file: `check` reads the path only when `versions[v<R>]`
+of the post's rig `R` binds it, with the same path and sha256 (`registration.idle`
+for `frames.json`, `outputs` for any other idle file). No other `outputs/` path is
+admitted; it still refuses `DIRECTION_FILE`. Absent frames refuse `DIRECTION_FILE`,
+as `RIG_REGISTRATION_FILE_INVALID` refuses absent frozen outputs. Records that
+passed before keep passing, so no contract date is added.
 
 | Code | Refuses when | Remedy |
 | --- | --- | --- |
-| `DIRECTION_IDLE_VERSION` | the scene's frames are under `outputs/v<M>/idle/` and the post's rig is a different version | bind a scene written on the post's rig with `scene write --rig <R>` |
-| `DIRECTION_IDLE_UNBOUND` | the frames path and sha256 are not `versions[v<R>].registration.idle` (for `frames.json`) or a `versions[v<R>].outputs` row (for other idle files) | run `scene write` again so the frames equal the registration |
-| `DIRECTION_IDLE_HASH` | the frames bytes on disk differ from the bound sha256, including a change during `direction write` | restore the frozen `outputs/v<R>/idle/` bytes, or register a new rig version |
+| `DIRECTION_IDLE_VERSION` | the scene's frames are under `outputs/v<M>/idle/` and the post's rig is a different version | restore the stored scene or post `rig_version` binding so both reference the same numbered rig (numbered scenes and posts are read-only) |
+| `DIRECTION_IDLE_UNBOUND` | the frames path and sha256 are not `versions[v<R>].registration.idle` (for `frames.json`) or a `versions[v<R>].outputs` row (for other idle files) | restore the stored scene `animation.frames` binding to match `versions[v<R>].registration.idle` |
+| `DIRECTION_IDLE_HASH` | the frames bytes on disk differ from the bound sha256 | restore the frozen `outputs/v<R>/idle/` bytes (or record new renders on the current path with `rig-create record motion --from <dir>`) |
 
 ## Review CLI response receipts
 
@@ -1693,9 +1681,11 @@ must be quoted from that note when `ledger add` writes the row. Check does not
 re-read an older row's note: a restart retires the record it pointed into, and
 the row keeps the words it quoted.
 
-create never runs a ledger check. `draft-rig --ledger-report <file>` binds the
-project's own `rig-create/fix-ledger-report@1` report by sha256 and spec. Check
-then compares the report's rows with the ledger. It does not recompute a row.
+create never runs a ledger check. Stored `drafts[]` entries bind the
+project's own `rig-create/fix-ledger-report@1` report in `ledger_report` by
+sha256 and spec (`draft-rig` is retired; current builds use
+`record parts --ledger-report <file>` below). Check compares the report's rows
+with the ledger and does not recompute a row.
 A row is live for a draft when it was written by the draft's `at` and not
 retired by then. Assemble-only drafts carry no rig ledger report. The predecessor
 is the previous draft with a rig output. A restart clears `drafts[]`.
@@ -1707,13 +1697,12 @@ known regressions and accepted failures under `ledger` in JSON output. The
 human output shows each accepted row as FAIL with its measurement, if present,
 and the reason.
 
-`draft-rig --ledger-report <file> --accepted-fail <row id>=<reason file>`
-adds `accepted_failures[]` entries to the draft. The current bound report must
-show `result: "fail"` for each row. Create copies the report's `measured` JSON
-value when present, including an explicit `null`, and stores the reason text.
-The row can be report-only and the predecessor can lack a report.
-Accepted failures are draft annotations. Review records owner verdicts, and
-regressions still require their own `--known-regression` entries.
+Stored drafts with `accepted_failures[]` bind failing rows where the bound report
+shows `result: "fail"`, retaining the report's `measured` JSON value (including
+an explicit `null`, or omitting `measured` when absent) and the reason text.
+The row can be report-only and the predecessor can lack a report. Accepted
+failures are historical draft annotations; regressions in `drafts[]` still
+require matching `known_regressions[]` entries.
 
 `record parts --ledger-report <file>` binds the same report schema for a
 producer-backed `current.parts`. It verifies the predecessor's report against
@@ -1735,19 +1724,19 @@ Adopted parts keep the numbered ledger contract.
 | `LEDGER_ROW_UNKNOWN` | `ledger retire` names no row | name a row `ledger add` wrote |
 | `LEDGER_ROW_RETIRED` | `ledger retire` names a row already retired | keep the retirement |
 | `LEDGER_SOURCE_CHANGED` | `project.json` changed while `ledger` was validating | retry against the current record |
-| `DRAFT_LEDGER_REPORT_MISSING` | a draft with a rig output binds no report while the ledger had a live row; a refusal from `FIX_LEDGER_SINCE` or without a readable `at`, a WARN for an earlier draft | run the project's check script on the build and record the draft with `draft-rig --ledger-report <file>` |
-| `DRAFT_LEDGER_REPORT_INVALID` | the binding is not `{ path, sha256, spec }`, or the report is not a literal project path, is under an ignored root, leaves the project, is missing, changed, not JSON, has another `schema`, lacks `build.manifest_sha256` or `script_sha256`, or has a row without a unique id and a result of `pass`, `fail` or `unmeasurable` | retain the report the check script wrote under the project (for example `evidence/`) and record the draft with it |
-| `DRAFT_LEDGER_BUILD_MISMATCH` | the report's `build.manifest_sha256` is not the sha256 of the draft's bound `parts.json` | run the check script on this draft's build and record the draft with that report |
-| `DRAFT_LEDGER_INCOMPLETE` | the report has no row for a live ledger row | run the check script over every non-retired row |
-| `DRAFT_LEDGER_REGRESSION` | a live row the predecessor's report passed, or one the predecessor recorded as a known regression (it stays owed), is `fail`, `unmeasurable` or absent here, and `--known-regression` does not name it | fix the build, or record the draft with `--known-regression <row id>=<reason file>` for each row |
-| `DRAFT_LEDGER_MALFORMED` | `fixes`, `fixes_against` or `known_regressions` without a report; `known_regressions` is not a list of `{ id, reason }` with unique ids, or names a row the predecessor neither passed nor owed; `fixes_against` is not an earlier draft with a parts-review receipt or the previous draft (`null` only for the first); `fixes` differs from the rows the report passes and that draft did not | record the draft again with `draft-rig` under a new id; the old record is kept |
+| `DRAFT_LEDGER_REPORT_MISSING` | a draft with a rig output binds no report while the ledger had a live row; a refusal from `FIX_LEDGER_SINCE` or without a readable `at`, a WARN for an earlier draft | restore the bound `ledger_report` on the stored draft, or for current builds run the project's check script and record with `rig-create record parts --ledger-report <file>` |
+| `DRAFT_LEDGER_REPORT_INVALID` | the binding is not `{ path, sha256, spec }`, or the report is not a literal project path, is under an ignored root, leaves the project, is missing, changed, not JSON, has another `schema`, lacks `build.manifest_sha256` or `script_sha256`, or has a row without a unique id and a result of `pass`, `fail` or `unmeasurable` | restore the retained report and `ledger_report` binding on the stored draft (or bind current builds with `rig-create record parts --ledger-report <file>`) |
+| `DRAFT_LEDGER_BUILD_MISMATCH` | the report's `build.manifest_sha256` is not the sha256 of the draft's bound `parts.json` | restore the report matching the stored draft's `parts.json` |
+| `DRAFT_LEDGER_INCOMPLETE` | the report has no row for a live ledger row | restore the complete report on the stored draft (for current builds, run the check script over every live row before `record parts --ledger-report`) |
+| `DRAFT_LEDGER_REGRESSION` | a live row the predecessor's report passed, or one the predecessor recorded as a known regression (it stays owed), is `fail`, `unmeasurable` or absent here, and `known_regressions` does not name it | restore the stored draft's report or `known_regressions` entry; for current builds, fix the build and record with `rig-create record parts --ledger-report <file>` |
+| `DRAFT_LEDGER_MALFORMED` | `fixes`, `fixes_against` or `known_regressions` without a report; `known_regressions` is not a list of `{ id, reason }` with unique ids, or names a row the predecessor neither passed nor owed; `fixes_against` is not an earlier draft with a parts-review receipt or the previous draft (`null` only for the first); `fixes` differs from the rows the report passes and that draft did not | restore the stored draft's ledger fields (stored drafts are read-only) |
 | `CURRENT_PARTS_LEDGER_REPORT_INVALID` | `current.parts.ledger` or its report binding is malformed, the report path or bytes fail verification, or the report names a different build from the bound `outputs/parts/rig/parts.json`. The writer also verifies any predecessor binding before replacing it | restore the prior bound report and retain a report for the new build. Record with `record parts --ledger-report <file>` |
 | `CURRENT_PARTS_LEDGER_REPORT_MISSING` | producer-backed `current.parts` has live ledger rows and no report. Check WARNs before `CURRENT_PARTS_LEDGER_SINCE` and refuses from that date. The writer always refuses a missing report when live rows or a prior current report exist | run the project's check script and bind the retained report with `record parts --ledger-report <file>` |
 | `CURRENT_PARTS_LEDGER_INCOMPLETE` | the bound current report omits a row live at `current.parts.at` | run the check script over every live row and record parts with its report |
 | `CURRENT_PARTS_LEDGER_REGRESSION` | a row live at `current.parts.at` that appears in `replaced_passed_rows` is `fail`, `unmeasurable` or absent in the current report | fix the build and record parts with a passing report for the regressed rows |
-| `DRAFT_ACCEPTED_FAIL_MALFORMED` | `accepted_failures` has no bound report, is empty or is not a list, or an entry has an invalid or duplicate row id, a result other than `"fail"`, a blank or invalid reason, or unexpected keys | record a new draft with `--ledger-report` and one `--accepted-fail <row id>=<reason file>` per failing row |
-| `DRAFT_ACCEPTED_FAIL_ROW` | an accepted failure names a row that is absent, passing or unmeasurable in this draft's bound report | use `--accepted-fail` only for rows that the current report marks `fail` |
-| `DRAFT_ACCEPTED_FAIL_MISMATCH` | an accepted failure's `measured` differs from the report's JSON value or its presence, or the report's measurement contains a number outside the representable range | retain a report with a representable JSON measurement and record a new draft with `--accepted-fail` so the writer copies the measurement |
+| `DRAFT_ACCEPTED_FAIL_MALFORMED` | `accepted_failures` has no bound report, is empty or is not a list, or an entry has an invalid or duplicate row id, a result other than `"fail"`, a blank or invalid reason, or unexpected keys | restore the stored draft's `accepted_failures` and `ledger_report` entries (stored drafts are read-only) |
+| `DRAFT_ACCEPTED_FAIL_ROW` | an accepted failure names a row that is absent, passing or unmeasurable in this draft's bound report | restore the stored draft's `accepted_failures` list so every entry names a row marked `"fail"` in its bound report |
+| `DRAFT_ACCEPTED_FAIL_MISMATCH` | an accepted failure's `measured` differs from the report's JSON value or its presence, or the report's measurement contains a number outside the representable range | restore the stored draft's bound report and `accepted_failures[].measured` values |
 | `INIT_ARTWORK_EXISTS` | `init --painting`, `input add --painting` or `input painting` declares a file whose sha256 is an input of a project directly under `--projects-root` (default: the new project's parent), without `--same-artwork-reason` | continue in the existing project as a new version; restart inherits its correction ledger. A new project is only for different artwork or a different rig kind (with --same-artwork-reason); copying the artwork is not a bypass |
 | `INIT_ARTWORK_USAGE` | an init artwork option without `--painting <file> --origin <words>`, an unreadable painting or root, or a reason that is empty or names no matching project (exit 2) | give `--painting` and `--origin`; drop a reason no project needs |
 | `RESTART_USAGE` | `restart` arguments are missing, repeated or unsupported, or the reason file is empty (exit 2) | use `restart [<dir>] --by <human> --reason-file <file>` |
@@ -1771,7 +1760,7 @@ path. Recording a new output alone does not close feedback.
 restart refuses before it writes unless `project.json` is committed: tracked
 and byte-identical to `HEAD:<path>/project.json`, the path resolved from the
 repository root (create#304). `restart` by `agent` refuses with `SIGNOFF_NOT_HUMAN`. A refused `ledger`,
-`draft-rig` or `restart` write leaves `project.json` byte-identical. A
+`record` or `restart` write leaves `project.json` byte-identical. A
 restarted record carries exactly the refusals a fresh `init` record carries
 (its open interview) and no warning; `restart` refuses any other refusal.
 
@@ -1941,12 +1930,12 @@ New interviews put `turn` and `depth` on rigging waypoint `turn`.
 | Code | Meaning and remedy |
 | --- | --- |
 | `RIG_DEPTH_PLAN_MISSING` | At `rigging-interview`, before signoff, `plan.steps[turn]` is absent or ordered after the rig steps for a depth turn. Use `plan revise turn --order <before the first rigging step>`, or `plan add turn --phase rig --rests-on turn --order <before the first rigging step>` if absent, then approve it at rigging-interview. Publication and ingest both refuse an invalid depth plan. Answers before `HEAD_TURN_SINCE` WARN. |
-| `RIG_DEPTH_BINDING_MISSING` | A depth-driven rig lacks its retained producer manifests. Register a new rig version with rig's `depth_sheets.json`; for per-part depth include `--depth-manifest` and parts' `depth-report.json`. Before `HEAD_TURN_SINCE` this is a WARN. |
-| `RIG_DEPTH_MAP_BINDING_MISSING` | A per-part registered depth map has no retained Parts receipt, the same absence that Parts names `DEPTH_MAP_BINDING_ABSENT`. Refuses from `DEPTH_MAP_BINDING_SINCE = 2026-11-19T00:00:00Z`, dated by `registration.at` (falling back to version `at` for an older record); earlier registrations WARN. Re-infer changed inputs, call `rig-parts depth-bind` immediately after inference, then register with `--depth-manifest` and repeat `--depth-map-binding <map.binding.json>` per applied map. Reuse the existing map and receipt only when prepared `inputSha256` is unchanged; never bind an old map to new input. |
-| `RIG_DEPTH_BINDING_INVALID` | `versions[].registration.depth` has changed bytes, the wrong producer spec, or disagrees with its retained inventory/report manifest hash. Pre-depth accepted source parts bind the prepare manifest's parts hash; already depth-applied accepted parts bind the identical registered parts and the producer report-to-manifest chain. Restore the exact retained producer files or register a new rig version. |
+| `RIG_DEPTH_BINDING_MISSING` | A depth-driven rig lacks its retained producer manifests. On stored numbered versions (read-only), restore `depth_sheets.json` and any `registration.depth` manifest and `depth-report.json` bindings; on the current path, keep those files in tracked project paths and run `rig-create record rig --from <dir> --config <file>`. Before `HEAD_TURN_SINCE` this is a WARN. |
+| `RIG_DEPTH_MAP_BINDING_MISSING` | A per-part registered depth map has no retained Parts receipt, the same absence that Parts names `DEPTH_MAP_BINDING_ABSENT`. Refuses from `DEPTH_MAP_BINDING_SINCE = 2026-11-19T00:00:00Z`, dated by `registration.at` (falling back to version `at` for an older record); earlier registrations WARN. On stored numbered versions (read-only), restore the retained `registration.depth.map_bindings[]` receipts; for current builds, re-infer changed inputs, call `rig-parts depth-bind` immediately after inference, keep each `<map.binding.json>` in tracked project paths, and run `rig-create record rig --from <dir> --config <file>`. Reuse an existing map and receipt only when prepared `inputSha256` is unchanged; never bind an old map to new input. |
+| `RIG_DEPTH_BINDING_INVALID` | `versions[].registration.depth` has changed bytes, the wrong producer spec, or disagrees with its retained inventory/report manifest hash. Pre-depth accepted source parts bind the prepare manifest's parts hash; already depth-applied accepted parts bind the identical registered parts and the producer report-to-manifest chain. Restore the exact retained producer files on the stored numbered version (or record current builds with `rig-create record rig --from <dir> --config <file>`). |
 | `TURN_BODY_VALUE_INVALID` | The `turn` answer value (in `value`, `agent_decision.value`, or `additions[].value`) carries `body` other than `true`, or carries `body` without `mode: "depth"`. Record `{ "mode": "depth", "body": true }` for a head-and-body turn, `{ "mode": "depth" }` for a head-only turn, or `{ "mode": "fixed" }` for a fixed view. `interview-answer` and `interview-decision` always refuse before writing; check refuses records (dated by the answer's, the agent decision's or the addition's `at`) from `TURN_BODY_SINCE = 2026-11-25T00:00:00Z`, or without a readable date, and WARNs earlier ones with the same code. |
 | `RIG_TURN_EXTRA_GROUP` | WARN. On a head-only answer (`{ "mode": "depth" }` without `"body": true`), the latest registered rig's `config.turn.body` declares body roles, so the rig carries a body dial (`turn.body.slider`, default `body_yaw_dial`) the answer did not ask for. Remove `turn.body` from the working config and re-run `rig-parts depth-apply ... --groups head` (Parts refuses `DEPTH_GROUP_LEFT_OUT` if `turn.body` remains) so `depth-report.json` records `selection.leftOut` for the body group while keeping `recipeSha256` and `manifestSha256` unchanged, or record the dial as unused in a turn step note: `step-status turn <next status> --by <operator> --note-file <file naming the dial>`. `next` names the `depth-apply ... --groups head` command and the dial; the WARN clears once `depth-report.json` records `selection.leftOut` containing the body group or a `plan.steps[turn].status_history[].note` names the dial. |
-| `RIG_TURN_BODY_MISSING` | WARN. The `turn` answer asks for head and body (`{ "mode": "depth", "body": true }`), but the latest registered rig's `config.turn.body` declares no body roles. Add `turn.body` to the working config, re-run `rig-parts depth-apply` with the body group and `rig-parts rig`, and register a new rig version, or record a head-only `turn` answer. |
+| `RIG_TURN_BODY_MISSING` | WARN. The `turn` answer asks for head and body (`{ "mode": "depth", "body": true }`), but the latest registered rig's `config.turn.body` declares no body roles. Add `turn.body` to the working config, re-run `rig-parts depth-apply` with the body group and `rig-parts rig`, and record the updated rig with `rig-create record rig --from <dir> --config <file>`, or record a head-only `turn` answer. |
 
 `registration.depth.map_bindings[]` retains each Parts receipt as `part`,
 `path`, raw `sha256` and `spec: "rig-parts-depth-map-binding/1"`. Create reads
@@ -1991,20 +1980,23 @@ These findings apply only to @3; @1/@2 retain their existing rules. Existing
 `SCENE_RIG_STALE`, `SCENE_ACCEPTANCE_STALE`, `SCENE_INPUT_RECEIPT_MISSING`,
 `SCENE_PLATE_UNREGISTERED`, `SCENE_CHOICE_MISSING` and `SCENE_CITATION_MISSING`
 also apply when the moved acceptance, registration or authority checks fail.
-Use `direction write --compose-out` to record a corrected composed post.
+Numbered composed `direction write` (`--compose-out`) is retired
+(`NUMBERED_WRITER_REMOVED`, exit 2); for current builds, run
+`scene write --compose-scene <file>`, `direction write --file <intent.json>`,
+and `record direction --from <dir> --direction specs/direction/direction.json`.
 No date switch is needed. The closed Parts `rig-compose-run/1` record binds
 the retained scene and every consumed character and plate to registered bytes.
 
 | Code | Refuses when | Remedy |
 | --- | --- | --- |
-| `DIRECTION_COMPOSE_SCHEMA` | the @3 document is not closed, bindings name the wrong frozen paths, scene/report fields have the wrong shape, or a scene character carries `canvas_clip` other than `true` | author the documented @3 shape and run direction write with the selected compose output |
-| `DIRECTION_COMPOSE_FILE` | a compose or plate source is missing, unreadable, symlinked, nonregular, or an immutable destination exists | retain regular producer files and select a new post number |
-| `DIRECTION_COMPOSE_HASH` | a bound compose/model/scene file differs from its recorded raw-byte SHA256 | restore the frozen bytes or write a new composed post |
-| `DIRECTION_COMPOSE_INVENTORY` | a post does not bind its own compose tree and retained scene, or files differ from its inventory | restore the exact outputs inventory and bytes; use direction write for new output |
+| `DIRECTION_COMPOSE_SCHEMA` | the @3 document is not closed, bindings name the wrong frozen paths, scene/report fields have the wrong shape, or a scene character carries `canvas_clip` other than `true` | restore the stored @3 document or author a valid current direction spec with `direction write --file <intent.json>` and `record direction` |
+| `DIRECTION_COMPOSE_FILE` | a compose or plate source is missing, unreadable, symlinked, nonregular, or an immutable destination exists | restore the regular producer files on the stored post, or compose and record current direction with `record direction` |
+| `DIRECTION_COMPOSE_HASH` | a bound compose/model/scene file differs from its recorded raw-byte SHA256 | restore the frozen bytes on the stored post, or compose and record current direction with `record direction` |
+| `DIRECTION_COMPOSE_INVENTORY` | a post does not bind its own compose tree and retained scene, or files differ from its inventory | restore the exact `outputs` inventory and bytes on the stored post (or record new compose output with `record direction`) |
 | `DIRECTION_COMPOSE_RUN` | compose-run.json is not the closed rig-compose-run/1 shape, has invalid SHA256 bindings, duplicate character ids/file paths/plate names, unknown consumed file roles, lacks the consumed check/check.json binding, or `characters[i].placement` (`{canvas_clip,bounds,clipped_bounds}` in that key order) disagrees with the scene character's `canvas_clip: true` opt-in | retain the complete Parts compose run record with scene, characters, plate and plates; compose again |
-| `DIRECTION_COMPOSE_RUN_SCENE` | the producer scene SHA256 differs from the exact retained scene bytes | compose from that scene again and write a new post |
-| `DIRECTION_COMPOSE_RUN_RIG` | a consumed character id/build differs from the scene; the accepted review_package.from or frozen inventory is absent; mandatory parts.json, rig/rig.json or rig/motion.json entries are missing or hash-mismatched in either direction; a consumed rig/images/* entry is absent or hash-mismatched in the frozen or sealed inventory; frozen outputs differ from the sealed package or their retained bytes | restore the accepted rig's frozen build and compose again; unused accepted images may be absent from the run because Parts records only distinct default-skin images it consumed; check/check.json is recorded by Parts but is not compared to the rig record |
-| `DIRECTION_COMPOSE_RUN_PLATE` | consumed named plate names, paths or hashes differ from the registered scene plates, a plate is missing or extra, or a nonnull legacy plate does not bind registered plate bytes | compose again using the registered plate bytes and write a new post |
+| `DIRECTION_COMPOSE_RUN_SCENE` | the producer scene SHA256 differs from the exact retained scene bytes | restore the retained scene bytes, or compose again and record with `scene write --compose-scene` and `record direction` |
+| `DIRECTION_COMPOSE_RUN_RIG` | a consumed character id/build differs from the scene; the accepted review_package.from or frozen inventory is absent; mandatory parts.json, rig/rig.json or rig/motion.json entries are missing or hash-mismatched in either direction; a consumed rig/images/* entry is absent or hash-mismatched in the frozen or sealed inventory; frozen outputs differ from the sealed package or their retained bytes | restore the accepted rig's frozen build and compose outputs; unused accepted images may be absent from the run because Parts records only distinct default-skin images it consumed; check/check.json is recorded by Parts but is not compared to the rig record |
+| `DIRECTION_COMPOSE_RUN_PLATE` | consumed named plate names, paths or hashes differ from the registered scene plates, a plate is missing or extra, or a nonnull legacy plate does not bind registered plate bytes | restore the registered plate bytes on the stored post, or compose again using the registered plates and record with `record direction` |
 | `DIRECTION_COMPOSE_GREEN` | the composed check does not report PASS:true and gate_spine_html_green:true | correct the scene and produce a green Parts compose |
 | `DIRECTION_COMPOSE_CAMERA_MODEL` | a Parts `spine-parts-scene-report/2` lacks `camera.model_sha256` or its digest differs from the frozen packed model | retain the Parts camera report and packed model from the same compose run |
 | `DIRECTION_COMPOSE_PLATE_UNREGISTERED` | a scene plate has no matching registered input or complete prepared-input chain | register its bytes through input add or the prepared-input writers |

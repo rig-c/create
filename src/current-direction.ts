@@ -77,8 +77,8 @@ export function currentDirectionSource(dir: string, project: JsonObject, doc: Js
   if (sha256(sourceBytes) !== source.sha256) bad('the Parts scene changed; run scene write and direction write again');
   snapshots.set(source.path, sourceBytes);
   const scene = directionJson(sourceBytes, source.path);
-  if (hasKeyedCamera(scene) && now >= Date.parse(CAMERA_SCENE_BINDING_SINCE)) {
-    const finding = currentCameraBindingFinding(dir, project, source, snapshots);
+  if (now >= Date.parse(CAMERA_SCENE_BINDING_SINCE)) {
+    const finding = currentCameraBindingFinding(dir, project, source, hasKeyedCamera(scene), snapshots);
     if (finding) throw finding;
   }
   const characters = objects(scene.characters);
@@ -273,17 +273,21 @@ export function checkCurrentDirectionCamera(dir: string, project: JsonObject, re
   const source = authored?.compose;
   if (!sceneBinding(source)) return;
   const scene = retained(source);
-  if (!scene || !hasKeyedCamera(scene)) return;
+  if (!scene) return;
+  const keyed = hasKeyedCamera(scene);
   const at = Date.parse(String(node.at));
-  let findings: (SceneError | undefined)[];
+  let finding: SceneError | undefined;
   try {
-    findings = citedAnswerValues(dir, project, spec, 'post_composition', false, undefined, at)
-      .map(({ value, answer }) => cameraBindingFinding(source, cameraChoiceId(answer), isObject(value.compose) ? value.compose.camera_scene : undefined));
+    const [cited] = citedAnswerValues(dir, project, spec, 'post_composition', false, undefined, at)
+      .sort((a, b) => Date.parse(String(b.answer.at)) - Date.parse(String(a.answer.at)));
+    if (cited) {
+      const compose = cited.value.compose;
+      finding = cameraBindingFinding(source, keyed, cameraChoiceId(cited.answer), isObject(compose) ? compose.camera_scene : undefined);
+    }
   } catch {
-    findings = [cameraBindingFinding(source, '(missing)', undefined)];
+    finding = cameraBindingFinding(source, keyed, '(missing)', undefined);
   }
-  const first = findings[0];
-  if (!first || !findings.every(Boolean)) return;
+  if (!finding) return;
   const target = at >= Date.parse(CAMERA_SCENE_BINDING_SINCE) ? refusals : warnings;
-  target?.push({ code: first.code, path: first.path, message: first.message });
+  target?.push({ code: finding.code, path: finding.path, message: finding.message });
 }

@@ -58,16 +58,16 @@ export function currentCameraChoice(dir: string, project: JsonObject, snapshots?
   return { answer, binding: isObject(value) && isObject(value.compose) ? value.compose.camera_scene : undefined };
 }
 
-export function cameraBindingFinding(source: JsonObject, choice: string, selected: Json | undefined): SceneError | undefined {
-  if (equal(source, selected)) return;
+export function cameraBindingFinding(source: JsonObject, keyed: boolean, choice: string, selected: Json | undefined): SceneError | undefined {
   const binding = isObject(selected) ? selected : undefined;
-  return new SceneError(binding ? 'SCENE_CAMERA_CHOICE_MISMATCH' : 'SCENE_CAMERA_CHOICE_MISSING', String(source.path),
-    `post_composition choice ${choice} camera_scene path ${String(binding?.path ?? '(missing)')}, sha256 ${String(binding?.sha256 ?? '(missing)')}; authored scene sha256 ${String(source.sha256)}`,
+  if (keyed ? equal(source, binding) : !binding) return;
+  return new SceneError(keyed && binding ? 'SCENE_CAMERA_CHOICE_MISMATCH' : 'SCENE_CAMERA_CHOICE_MISSING', String(source.path),
+    `post_composition choice ${choice} camera_scene path ${String(binding?.path ?? '(missing)')}, sha256 ${String(binding?.sha256 ?? '(missing)')}; authored scene sha256 ${String(source.sha256 ?? '(missing)')}${keyed ? '' : ' has no keyed camera'}`,
     binding ? `pass ${String(binding.path)} to scene write with its originally shown bytes, or register a new option file and relay the new pick`
       : 'add camera_scene to a new post_composition option file, register it and relay the owner pick before running scene write');
 }
 
-export function currentCameraBindingFinding(dir: string, project: JsonObject, source: JsonObject, snapshots?: Map<string, Buffer>): SceneError | undefined {
+export function currentCameraBindingFinding(dir: string, project: JsonObject, source: JsonObject, keyed: boolean, snapshots?: Map<string, Buffer>): SceneError | undefined {
   const chosen = currentCameraChoice(dir, project, snapshots);
-  return cameraBindingFinding(source, cameraChoiceId(chosen?.answer), chosen?.binding);
+  return cameraBindingFinding(source, keyed, cameraChoiceId(chosen?.answer), chosen?.binding);
 }

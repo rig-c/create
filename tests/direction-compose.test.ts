@@ -57,6 +57,12 @@ test.each([
 
   expect(f.publish().exit).toBe(0);
   const project = f.load();
+  const ctx = { dir: f.dir, project, refusals: [], warnings: [] };
+  checkDirections(ctx);
+  expect(ctx.refusals).toEqual([]);
+  expect(ctx.warnings).toContainEqual(expect.objectContaining({
+    code: 'SCENE_CAMERA_CHOICE_MISSING', path: 'compose.scene.json',
+  }));
   const doc = readDirection(f.dir, project, 2);
   const reportBinding = { path: 'outputs/v2/compose/scene.json', sha256: report.sha256 };
   const modelBinding = { path: 'outputs/v2/compose/check/build/skeleton.model.json', sha256: modelSha };

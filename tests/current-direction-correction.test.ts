@@ -164,10 +164,31 @@ test('camera options bind distinct retained scene files and can include an unkey
   expect(directionCommand(['write', f.dir, '--file', 'evidence/intent-revised.json']).exit).toBe(0);
   expect(record(now).exit).toBe(0);
   expect(checkProject(f.dir).refusals.filter(finding => finding.code.startsWith('SCENE_CAMERA_CHOICE_'))).toEqual([]);
-  expect(write('specs/direction/compose-scene.json').exit).toBe(0);
+  const plainPath = 'specs/direction/compose-scene.json';
+  refusesByteIdentical(f.dir, 'SCENE_CAMERA_CHOICE_MISSING', 1, () => write(plainPath));
+  expect(read('specs/direction/scene.json').compose).toEqual(first);
   for (const value of [readFileSync(join(f.dir, setPath), 'utf8'), JSON.stringify(answer)]) {
     expect(value).not.toMatch(/"(pan|zoom|t)"\s*:/);
   }
+
+  const legacy = sceneCommand(['write', f.dir, '--compose-scene', plainPath], now - 3000);
+  expect(legacy.stderr).toContain('WARN SCENE_CAMERA_CHOICE_MISSING');
+  const intentPath = 'evidence/intent-revised.json';
+  const directionBytes = readFileSync(join(f.dir, CURRENT_DIRECTION_PATH));
+  refusesByteIdentical(f.dir, 'SCENE_CAMERA_CHOICE_MISSING', 1, () =>
+    directionCommand(['write', f.dir, '--file', intentPath]));
+  expect(readFileSync(join(f.dir, CURRENT_DIRECTION_PATH))).toEqual(directionBytes);
+  restageAndRecordDirection(f.dir, intentPath, 2, new Date(now - 2000).toISOString(), new Date(now - 1000).toISOString());
+  const legacyReport = checkProject(f.dir);
+  expect(legacyReport.warnings).toContainEqual(expect.objectContaining({ code: 'SCENE_CAMERA_CHOICE_MISSING', path: plainPath }));
+  expect(legacyReport.refusals.map(finding => finding.code)).not.toContain('SCENE_CAMERA_CHOICE_MISSING');
+  cpSync(join(f.dir, 'outputs/direction'), join(f.dir, 'outputs/direction.next'), { recursive: true });
+  refusesByteIdentical(f.dir, 'SCENE_CAMERA_CHOICE_MISSING', 1, () => record(now));
+  const recorded = f.load();
+  ((recorded.current as JsonObject).direction as JsonObject).at = CAMERA_SCENE_BINDING_SINCE;
+  expect(checkProject(f.dir, recorded).refusals).toContainEqual(expect.objectContaining({
+    code: 'SCENE_CAMERA_CHOICE_MISSING', path: plainPath,
+  }));
 });
 
 test('scene and direction writes date the missing keyed camera choice', () => {

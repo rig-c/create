@@ -260,7 +260,7 @@ export function validateComposeDirection(dir: string, project: JsonObject, doc: 
       if (rp.name !== plate.name || rp.image !== plate.image || !equal(rp.at, plate.at) || (rp.opaque_backdrop ?? false) !== (plate.opaque_backdrop ?? false) || rp.sha256 !== binding.sha256) directionFail('DIRECTION_COMPOSE_PLACEMENT', paths.report, 'plate report must bind the declared image bytes and placement');
     }
     validateAgentPlateRegistration(dir, project, registered, snapshots);
-    const compositionAnswers = citedAnswerValues(dir, project, doc, 'post_composition', currentCitations, snapshots);
+    const compositionAnswers = citedAnswerValues(dir, project, doc, 'post_composition', currentCitations, snapshots, historical ? Infinity : at);
     // The same words can also match an older scene-only choice.
     const composeAnswers = compositionAnswers.filter(({ value }) => value.compose !== undefined);
     const compositions = (composeAnswers.length ? composeAnswers : compositionAnswers)
@@ -307,14 +307,14 @@ export function validateComposeDirection(dir: string, project: JsonObject, doc: 
     }
     composeRunMatchesAcceptedRig(dir, run, [{ id: String(character.id), build: String(character.build), rig: acceptedRig }], paths.run, snapshots);
     validateComposeRunInputs(run, scene, String((compose.scene as JsonObject).sha256), producerPlates, paths.run);
-    if (hasKeyedCamera(scene)) {
-      const source = { path: sourcePath, sha256: run.scene.sha256 };
-      const findings = exact.map(({ answer, compose: chosen }) => cameraBindingFinding(source, cameraChoiceId(answer), chosen.camera_scene));
-      const first = findings[0];
-      if (first && findings.every(Boolean)) {
-        if (!historical) throw first;
-        warnings?.push({ code: first.code, path: first.path, message: first.message });
-      }
+    const source = { path: sourcePath, sha256: run.scene.sha256 };
+    const keyed = hasKeyedCamera(scene);
+    const cameraChoices = historical ? exact : exact.sort((a, b) => Date.parse(String(b.answer.at)) - Date.parse(String(a.answer.at))).slice(0, 1);
+    const findings = cameraChoices.map(({ answer, compose: chosen }) => cameraBindingFinding(source, keyed, cameraChoiceId(answer), chosen.camera_scene));
+    const first = findings[0];
+    if (first && findings.every(Boolean)) {
+      if (!historical) throw first;
+      warnings?.push({ code: first.code, path: first.path, message: first.message });
     }
   } catch (e) {
     if (e instanceof SceneError || e instanceof ComposeValueError) directionFail(e.code, e.path, e.message);

@@ -110,6 +110,7 @@ function writeCurrentScene(args: string[], now: number, hooks: SceneWriteHooks):
     if (!isObject(project) || project.schema !== 'rig-create/project@0') sceneFail('SCENE_MALFORMED', 'project.json.schema', 'expected rig-create/project@0');
     const { rig, stage } = currentSceneRig(dir, project, snapshots, opts['--animation']);
     const doc: JsonObject = { schema: CURRENT_SCENE_SPEC, rig, frame: { space: 'rig-world-y-up', stage } };
+    let keyed = false;
     if (composePath) {
       const bytes = sceneBytes(dir, composePath, 'SCENE_MALFORMED', snapshots);
       let source: JsonObject;
@@ -117,19 +118,16 @@ function writeCurrentScene(args: string[], now: number, hooks: SceneWriteHooks):
       catch { return sceneFail('SCENE_MALFORMED', composePath, 'expected a Parts spine-parts-scene/1 JSON object'); }
       if (!isObject(source) || source.spec !== 'spine-parts-scene/1') sceneFail('SCENE_MALFORMED', composePath, 'expected a Parts spine-parts-scene/1 scene');
       if (composePath === CURRENT_SCENE_PATH || composePath.startsWith('outputs/')) sceneFail('SCENE_MALFORMED', composePath, 'retain the Parts input under specs/direction/ before scene write');
-      const binding = { path: composePath, sha256: directionHash(bytes) };
-      doc.compose = binding;
-      if (hasKeyedCamera(source)) {
-        const finding = currentCameraBindingFinding(dir, project, binding, snapshots);
-        if (now >= Date.parse(CAMERA_SCENE_BINDING_SINCE)) {
-          if (finding) throw finding;
-        } else if (finding) {
-          warning = `rig-create: WARN ${finding.code}: ${finding.message}`;
-        }
-      }
+      doc.compose = { path: composePath, sha256: directionHash(bytes) };
+      keyed = hasKeyedCamera(source);
     } else {
       doc.plates = scenePlates(dir, project, opts, stage, snapshots);
       doc.layers = opts['--foreground'] ? ['background', 'rig', 'foreground'] : ['background', 'rig'];
+    }
+    const finding = currentCameraBindingFinding(dir, project, (doc.compose as JsonObject | undefined) ?? { path: CURRENT_SCENE_PATH }, keyed, snapshots);
+    if (finding) {
+      if (now >= Date.parse(CAMERA_SCENE_BINDING_SINCE)) throw finding;
+      warning = `rig-create: WARN ${finding.code}: ${finding.message}`;
     }
     validateCurrentScene(dir, project, doc, snapshots);
     if (!composePath) {

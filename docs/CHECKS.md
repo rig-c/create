@@ -1553,7 +1553,8 @@ binding use raw-byte SHA-256. Only a `scenes[]` append commits a document.
 Camera scene findings refuse new scene and direction writes from
 `CAMERA_SCENE_BINDING_SINCE = 2026-11-28T00:00:00Z`. The scene writer
 warns before the cutoff, and the project checker warns on earlier recorded
-directions with the same codes. Unkeyed takes need no camera choice binding.
+directions with the same codes. An unkeyed take is valid when the selected
+composition option has no camera scene binding.
 
 `DIRECTION_SCENE_SINCE` dates posts requiring direction@2. An earlier @1 post
 warns with `DIRECTION_SCENE_REQUIRED`. Explicitly grandfathered posts retain
@@ -1593,7 +1594,7 @@ acceptance is narrowed, so this change introduces no SINCE date or pilot migrati
 | `SCENE_CHOICE_MISSING` | agent scene lacks a retained resolved Review choice or decided delegation with an exact scene map | register a post_composition option set whose value options carry value.scene:{background:{path,rect:{x,y,width,height}},foreground?:{path,rect:{x,y,width,height}}} with rig-create interview-options post_composition [<dir>] --file <retained project-relative JSON>, have the owner answer it with rig-create interview-answer post_composition [<dir>] --set <path> --sha256 <shown sha> --by <human> --pick post_composition=<option> --owner-chat <words file> --said-at <ISO date> --relayed-by <who> (or complete a delegated agent_decision with rig-create interview-decision), and run scene write |
 | `SCENE_CHOICE_MISMATCH` | agent scene roles, paths or exact rects differ from the cited choice, or authoring cites a superseded answer | use the current post_composition Review choice and its exact scene map |
 | `INTERVIEW_CAMERA_SCENE_INVALID` | a displayed composition option's `camera_scene` fails its retained file, sha256, schema or keyed-camera check | fix the option file and regenerate its preview from the same scene |
-| `SCENE_CAMERA_CHOICE_MISSING` | a keyed Parts scene has no camera scene binding in the selected composition option | register a new option file with `camera_scene` and relay the owner's selection |
+| `SCENE_CAMERA_CHOICE_MISSING` | a keyed Parts scene has no camera scene binding in the selected option, or the selected option binds a camera and the authored scene is unkeyed | use the shown keyed scene, or register a new option file and relay the owner's selection |
 | `SCENE_CAMERA_CHOICE_MISMATCH` | the selected composition option's camera scene path or hash differs from the authored Parts scene | use the shown scene and its original bytes, or register the replacement and relay a new selection |
 | `COMPOSE_VALUE_INVALID` | a `post_composition` choice or decision `value.compose` has an invalid closed shape, invalid `canvas` `{width,height}`, duplicate/unlisted plate name, non-relative plate image path, non-integer `at`, invalid `order` or `character` offset/scale, or invalid `idle_tracks`. The track array may be empty. Each entry must use a known bone property, finite key values (`[x, y]` for vector properties or `[n]` for scalar properties), and times starting at 0, strictly increasing, and sharing one positive end across all tracks | record a post_composition choice in the Review tool (or complete its delegated agent_decision) whose value.compose binds closed {canvas,plates,order,character,idle_tracks} with empty idle_tracks or a common positive track end |
 | `SCENE_INPUT_RECEIPT_MISSING` | agent scene input candidate lacks matching input-writer metadata | register a new source name with `input add <path> --origin …` and select it through Review |

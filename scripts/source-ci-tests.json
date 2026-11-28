@@ -224,5 +224,10 @@
     "file": "tests/job-open-current.test.ts",
     "name": "#1089 job open --current direction publishes example-current direction@4 without scene, Review accepts it, and act@10 comments bind commit",
     "reason": "Exercises live Review current direction@4 publication (review#1280) and act@10 comment ingestion against the pinned Review source"
+  },
+  {
+    "file": "tests/candidate-publication.test.ts",
+    "name": "#1163 publishes a camera-free candidate and routes its attested comment to the ordinary writer",
+    "reason": "Requires the candidate selector in the sibling Review source until Review 5.1.0 is released."
   }
 ]

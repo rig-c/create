@@ -7,6 +7,10 @@ The historical refusal and warning sections still apply to retained numbered
 records and any signoff or Review act references they carry. For the current
 work order, use `rig-create next`.
 
+Current `camera_depth`, `post_timing` and `post_composition` are relayed owner
+chat choices. References to delegated values for these questions describe
+retained records. See [the interview](INTERVIEW.md#step-plans).
+
 ## Owner language
 
 The check reports declaration problems as warnings at every record date.

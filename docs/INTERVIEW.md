@@ -94,13 +94,12 @@ since acceptance, `next` offers to check its effect on the outputs and
 record the accepted boundary again. Numbered records still check approval
 against the latest proposal.
 
-Some parts and rigging values are read by code: `rig_type`, `assemble`,
+Four parts and rigging values are read by code: `rig_type`, `assemble`,
 `turn` and `meshes`. See `INTERVIEW_VALUE_READERS` in `src/stages.ts` for
-the readers. With an empty value a full-screen
-project skips its CG gates, assemble's projection is not compared with
-`config.json`, no head turn is built, or a structure delta is refused. Direction
-and scene citations use the recorded post choices. Under a step plan the agent states
-each such value in plain words in the plan, then records it as a delegation:
+the readers. These values drive CG checks, projection comparison, depth
+turns and structure checks. Direction and scene citations use the recorded
+post choices. Put each parts or rigging value in the plan in plain words
+and record it as a delegation:
 
 ```
 rig-create interview-decision <question> [<project dir>] --by agent --reasoning-file <file>
@@ -787,8 +786,10 @@ whose ask id is its question id. A waypoint uses exactly its applicable
 `WAYPOINT_ASKS` in table order. Motion's game-state asks depend on rig_type;
 assemble includes ground if any offered projection is visible. Sets offering
 both core and visible must make the ground combinations explicit. Other and
-auto are always available, never preselected. Each ask has at least two value
-options and exactly one recommended value option with a nonempty reason.
+auto are required entries in the file format. For the three reserved post
+choices, relay a concrete owner choice. The writer refuses an auto pick with
+`POST_OWNER_CHOICE_REQUIRED`. Each ask has at least two value options and
+exactly one recommended value option with a nonempty reason.
 
 The agent writes a retained file, for example `evidence/interview/motion-001.json`:
 
@@ -930,7 +931,9 @@ Registration reads an already retained authored file and records its binding
 as `pending_options`; it never rewrites the option file. Answer flags include
 repeatable `--other <ask>=<text file>` and optional
 `--other-fragment <ask>=<JSON file>`, plus `--note-file` and `--source`.
-The decision writer supplies exactly the auto fragments. To correct a recorded
+For questions that support delegation, the decision writer supplies exactly
+the auto fragments. The three reserved post choices use the owner chat relay
+above. To correct a recorded
 answer at a later stage, register a fresh option set and record the owner’s
 selection with `interview-answer`. The stage stays in place. Check reports the
 signoffs whose answer hashes are stale, and `next` offers the corresponding

@@ -649,13 +649,13 @@ and register the plate bytes as inputs or through the prepared-input chain.
 Put exactly `{take:{duration,loop:true},citations:{camera,timing,composition}}`
 in `specs/direction/intent.json`. Duration must be positive and finite and
 match the current looping `post_timing` answer, the Parts scene's idle and
-the common track end when tracks are present. Cite the current
-`post_composition` choice or decided delegation and copy its canvas, plates,
-order, character placement and idle tracks into the Parts scene. Citations
-use `camera_depth`, `post_timing` and `post_composition` respectively as both
-`guide` and the sole entry in `asks`, with an exact `quote` or
-`delegated:true`. The camera and timing steps need live post-interview
-approval with matching step hashes.
+the common track end when tracks are present. Cite the owner’s
+`post_composition` chat choice and copy its canvas, plates, order, character
+placement and idle tracks into the Parts scene. Citations use `camera_depth`,
+`post_timing` and `post_composition` respectively as both `guide` and the sole
+entry in `asks`, with the exact recorded `quote`. Follow `next` for the required
+work rows before advancing from `post-interview`. Stored citations may retain
+their original `delegated:true` evidence.
 
 ```text
 rig-create scene write . --compose-scene specs/direction/compose-scene.json
@@ -2807,8 +2807,9 @@ clip selector or Create scene record. `scene write` is not part of this route.
 Existing direction@1 and @2 documents and publications retain their contracts.
 No new SINCE applies: these rules apply only to direction@3.
 
-Record `post_composition.value.compose` through its interview choice (or resolved
-delegation), and `post_timing.value` with `seconds` and `loop: true`. The closed
+Stored `post_composition.value.compose` and `post_timing.value` can bind
+historical choices or resolved delegations. The timing value has `seconds`
+and `loop: true`. The closed
 `value.compose` shape `{canvas,plates,order,character,idle_tracks}` supplies
 `canvas:{width,height}`, named `plates:{name,image,at,opaque_backdrop?}[]`,
 `order`, `character:{offset,scale?}` and `idle_tracks:{bone,property,keys}[]` in

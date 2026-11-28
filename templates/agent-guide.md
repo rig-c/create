@@ -26,7 +26,7 @@ Write one plan per step with
 what and why, exclusions and direction questions. Tell the owner once in
 chat and proceed. Record feedback with
 `rig-create plan feedback <step> --words-file <file> --by <owner> --said-at <ISO> --relayed-by <operator>`.
-Feedback and approval never gate writes. For machine-read plan values use
+Feedback and approval never gate writes. For machine-read parts and rigging values use
 `rig-create interview-decision <question> --by agent --reasoning-file <file> --value-file <json> --plan-quote-file <file>`.
 
 1. **Parts and meshes (`parts`).** Prepare layers. Run assemble and the
@@ -82,8 +82,7 @@ for recovery and stored acts.
   `produces` and `bar` text, plus `asks[].prompt` and each option's `label`,
   `effect` and `reason`. Keep identifiers, producer data and quotes as supplied.
 - **Prior words.** Quote reused owner words with their source and date. For
-  the three chat choices, retain what was shown, give Other and delegation
-  where applicable and record the exact choice.
+  the three chat choices, retain what was shown and record the concrete pick.
 - **Readings.** Name the producer command for each measurement. Run the
   readings and inspect the report and the visible result.
 

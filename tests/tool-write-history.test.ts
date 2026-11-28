@@ -1,17 +1,20 @@
 import { expect, test } from 'bun:test';
-import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, writeFileSync } from 'node:fs';
 import { delimiter, dirname, join } from 'node:path';
+import { JOB_COMMENT_ONLY_ACT_SCHEMA } from '@rig-c/review/job-host';
 import { collectItems } from '../src/check.ts';
 import { optionContext } from '../src/choices.ts';
+import { commentCommand } from '../src/comment-act.ts';
 import { CURRENT_RIG_MODEL, sha256 } from '../src/current.ts';
-import { freshProjectRecord } from '../src/init.ts';
-import { jobPrivateRoot, readWriterBinding, type AcknowledgedPublication } from '../src/job-outbox.ts';
-import { CURRENT_LIVE_MANIFEST } from '../src/job-publication.ts';
+import { freshProjectRecord, GITIGNORE } from '../src/init.ts';
+import { JOB_BINDING_FILE, jobHash, jobPrivateRoot, readWriterBinding, writePrivateJson, type AcknowledgedPublication } from '../src/job-outbox.ts';
+import { CURRENT_LIVE_MANIFEST, currentJobIdentity } from '../src/job-publication.ts';
 import { jobRuntimeCommand, jobRuntimeExecArgv } from '../src/job-writer.ts';
 import type { NextReport } from '../src/next.ts';
 import { runningCreateVersion } from '../src/pins.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { TEST_NOW } from './clock.ts';
+import { checkpointWorkspace } from './checkpoint-evidence-fixture.ts';
 import { arr, fixture, obj } from './fixtures.ts';
 import { gitEnv, run, stagedCreateRegistry, tempDir, treeDigest, type Run } from './helpers.ts';
 
@@ -754,3 +757,343 @@ test('#1165 baseline clears a dead plan writer lock after its record was saved',
   expect(git(repo, 'status', '--porcelain')).toBe('');
   expect(historyEntries(repo)).toEqual([expect.objectContaining({ command: 'history baseline', attribution: 'unverified' })]);
 });
+
+test('#1168 baseline recovers bound assets across inputs, amendments, derived, intake, and diff_map after commit failure', () => {
+  const dir = fixture(p => {
+    p.stage = 'parts';
+    delete p.diff_map;
+  }, 'example-numbered/example-project.json');
+  const repo = fixtureRepo(dir);
+  put(repo, '.gitignore', GITIGNORE);
+  seed(repo);
+  const unrelated = plantUnrelatedChanges(repo);
+  let parent = head(repo);
+  const decoy = 'evidence/decoy-unbound.json';
+  put(repo, decoy, '{"decoy":true}\n');
+
+  const expectFailedThenBaseline = (faultWriter: string, args: string[], expectedPaths: string[]) => {
+    const failed = cli(commitFault(repo, faultWriter), ...args);
+    expect(failed.code).toBe(0);
+    expect(failed.stderr).toMatch(/WARN PROJECT_COMMIT_FAILED:.*synthetic scoped commit failure/);
+    expect(head(repo)).toBe(parent);
+
+    success(cli(repo, 'history', 'baseline', repo.dir, '--by', OPERATOR));
+    parent = step(repo, parent, /^history baseline: attribution unverified$/, [PROJECT, ...expectedPaths], unrelated);
+    expect(historyEntries(repo)[0]).toMatchObject({
+      sha: parent,
+      command: 'history baseline',
+      attribution: 'unverified',
+      operator: OPERATOR,
+      files: [PROJECT, ...expectedPaths].sort(),
+    });
+    expect(git(repo, 'status', '--porcelain', '--', decoy)).toBe(`?? ${decoy}\n`);
+  };
+
+  // 1) inputs
+  put(repo, 'inputs/extra-ref.png', 'synthetic extra input bytes');
+  expectFailedThenBaseline(
+    'input add',
+    ['input', 'add', 'inputs/extra-ref.png', repo.dir, '--origin', 'synthetic reference'],
+    ['inputs/extra-ref.png'],
+  );
+
+  // 2) amendments
+  put(repo, 'inputs/amended-panel.svg', '<svg xmlns="http://www.w3.org/2000/svg"/>\n');
+  put(repo, 'scratch/amend.txt', 'Replace the panel outline.\n');
+  expectFailedThenBaseline(
+    'amend',
+    ['amend', 'parts', repo.dir, '--kind', 'part', '--target', 'panel', '--change', 'inputs/amended-panel.svg', '--by', 'owner', '--verbatim-file', 'scratch/amend.txt'],
+    ['inputs/amended-panel.svg'],
+  );
+
+  // 3) derived
+  put(repo, 'evidence/derived-plate.png', 'synthetic derived plate');
+  expectFailedThenBaseline(
+    'derived add',
+    ['derived', 'add', repo.dir, '--source', 'inputs/painting.png', '--file', 'evidence/derived-plate.png', '--operation', 'crop plate'],
+    ['evidence/derived-plate.png'],
+  );
+
+  // 4) intake
+  const preflight = readFileSync(join(import.meta.dir, 'fixtures/intake/preflight.json'));
+  put(repo, 'evidence/intake-recovery.json', preflight);
+  expectFailedThenBaseline(
+    'intake-report',
+    ['intake-report', repo.dir, '--id', 'rec-intake-1', '--report', 'evidence/intake-recovery.json', '--sha256', sha256(preflight), '--parts-version', '2.16.0', '--by', 'agent'],
+    ['evidence/intake-recovery.json'],
+  );
+
+  // 5) diff_map
+  const diffRel = 'evidence/diff-recovery.json';
+  cpSync(join(import.meta.dir, '../templates/example-numbered/evidence/diff-components.json'), join(repo.dir, diffRel));
+  const classes = JSON.parse(success(cli(repo, 'diff-classes', repo.dir, '--diff-report', diffRel))) as { id: string; key: { coverage_band: string; border_parts: string[] } }[];
+  const triage = Object.fromEntries(classes.map(c => [c.id, { status: 'in-painting', why: `Measured ${c.key.coverage_band} border ${c.key.border_parts[0] ?? 'edge'}.` }]));
+  put(repo, 'scratch/triage.json', `${JSON.stringify({ classes: triage })}\n`);
+  expectFailedThenBaseline(
+    'diff-classes',
+    ['diff-classes', repo.dir, '--diff-report', diffRel, '--triage-file', 'scratch/triage.json', '--by', 'agent'],
+    [diffRel],
+  );
+});
+
+test('#1168 baseline recovers bound assets across checkpoint_evidence, advances parts_check, and signoffs structure', () => {
+  // 6) checkpoint_evidence
+  const cw = checkpointWorkspace();
+  const cpRepo = fixtureRepo(cw.root);
+  put(cpRepo, '.gitignore', GITIGNORE);
+  const cpAssets = [...cw.packet.tiles.map(t => t.path), cw.packet.table.path];
+  const savedCp = new Map(cpAssets.map(p => [p, bytes(cpRepo, p)]));
+  put(cpRepo, UNRELATED, 'original\n');
+  git(cpRepo, 'init', '-q');
+  git(cpRepo, 'add', '--', '.');
+  git(cpRepo, 'rm', '-f', '--cached', '--', ...cpAssets);
+  git(cpRepo, 'commit', '-qm', 'Seed checkpoint workspace');
+  for (const [p, b] of savedCp) put(cpRepo, p, b);
+  const cpUnrelated = plantUnrelatedChanges(cpRepo);
+  const cpInitial = head(cpRepo);
+
+  put(cpRepo, 'scratch/packets.json', `${JSON.stringify([cw.packet], null, 2)}\n`);
+  const cpFailed = cli(commitFault(cpRepo, 'checkpoint-evidence'), 'checkpoint-evidence', cpRepo.dir, '--file', 'scratch/packets.json');
+  expect(cpFailed.code).toBe(0);
+  expect(cpFailed.stderr).toMatch(/WARN PROJECT_COMMIT_FAILED:/);
+  expect(head(cpRepo)).toBe(cpInitial);
+
+  success(cli(cpRepo, 'history', 'baseline', cpRepo.dir, '--by', OPERATOR));
+  const cpRecovered = step(cpRepo, cpInitial, /^history baseline: attribution unverified$/, [PROJECT, ...cpAssets], cpUnrelated);
+  expect(historyEntries(cpRepo)[0]).toMatchObject({
+    sha: cpRecovered,
+    command: 'history baseline',
+    attribution: 'unverified',
+    files: [PROJECT, ...cpAssets].sort(),
+  });
+
+  // 7) advances.parts_check and 8) signoffs.structure
+  const curDir = join(tempDir(), 'cur-recovery');
+  cpSync(join(import.meta.dir, '../templates/example-current'), curDir, { recursive: true });
+  const curRepo = fixtureRepo(curDir);
+  const curRec = json(curRepo, PROJECT);
+  curRec.stage = 'parts';
+  curRec.signoffs = arr(curRec.signoffs).filter(s => ['interview', 'plan-approved'].includes(String(obj(s).stage)));
+  curRec.advances = arr(curRec.advances).slice(0, 2);
+  delete obj(curRec.current).rig;
+  delete obj(curRec.current).motion;
+  delete obj(curRec.current).direction;
+  delete curRec.scenes;
+  delete curRec.directions;
+  delete obj(curRec.interview).rigging_context;
+  for (const item of arr(obj(obj(curRec.interview).post).items).map(obj)) item.guide = null;
+  for (const wp of arr(obj(curRec.interview).waypoints).map(obj)) {
+    if (['turn', 'meshes'].includes(String(wp.id))) wp.guide = null;
+  }
+  obj(curRec.interview).step_plans = arr(obj(curRec.interview).step_plans).filter(plan => obj(plan).step === 'parts');
+  obj(curRec.plan).steps = arr(obj(curRec.plan).steps).filter(s => ['seethrough', 'assemble'].includes(String(obj(s).id)));
+  putJson(curRepo, PROJECT, curRec);
+  put(curRepo, UNRELATED, 'original\n');
+
+  const partsCheckBytes = bytes(curRepo, 'evidence/parts-check.json');
+  const structureRel = readdirSync(join(curDir, 'evidence/structure/current-parts')).map(name => `evidence/structure/current-parts/${name}`)[0]!;
+  const structureBytes = bytes(curRepo, structureRel);
+
+  git(curRepo, 'init', '-q');
+  git(curRepo, 'add', '--', '.');
+  git(curRepo, 'rm', '-f', '--cached', '--', 'evidence/parts-check.json', structureRel);
+  git(curRepo, 'commit', '-qm', 'Seed current before parts-review advance');
+  put(curRepo, 'evidence/parts-check.json', partsCheckBytes);
+  put(curRepo, structureRel, structureBytes);
+  const curUnrelated = plantUnrelatedChanges(curRepo);
+  let curParent = head(curRepo);
+
+  const advFailed = cli(commitFault(curRepo, 'advance'), 'advance', 'parts-review', curRepo.dir, '--parts-check', 'evidence/parts-check.json', '--parts', 'outputs/parts/rig');
+  expect(advFailed.code).toBe(0);
+  expect(advFailed.stderr).toMatch(/WARN PROJECT_COMMIT_FAILED:/);
+  expect(head(curRepo)).toBe(curParent);
+
+  success(cli(curRepo, 'history', 'baseline', curRepo.dir, '--by', OPERATOR));
+  curParent = step(curRepo, curParent, /^history baseline: attribution unverified$/, [PROJECT, 'evidence/parts-check.json'], curUnrelated);
+  expect(historyEntries(curRepo)[0]).toMatchObject({ sha: curParent, command: 'history baseline', files: ['evidence/parts-check.json', PROJECT] });
+
+  put(curRepo, 'scratch/sign-parts.txt', 'Parts approved.\n');
+  const signFailed = cli(
+    commitFault(curRepo, 'signoff'),
+    'signoff', 'parts-review', curRepo.dir, '--by', 'owner',
+    '--owner-chat', 'scratch/sign-parts.txt', '--said-at', new Date(TEST_NOW).toISOString(), '--relayed-by', OPERATOR,
+  );
+  expect(signFailed.code).toBe(0);
+  expect(signFailed.stderr).toMatch(/WARN PROJECT_COMMIT_FAILED:/);
+  expect(head(curRepo)).toBe(curParent);
+
+  success(cli(curRepo, 'history', 'baseline', curRepo.dir, '--by', OPERATOR));
+  curParent = step(curRepo, curParent, /^history baseline: attribution unverified$/, [PROJECT, structureRel], curUnrelated);
+  expect(historyEntries(curRepo)[0]).toMatchObject({ sha: curParent, command: 'history baseline', files: [structureRel, PROJECT].sort() });
+});
+
+test('#1168 baseline recovers bound assets across comment_closures, corrections, review_acts, and collection_binding', () => {
+  // 9) comment_closures and 10) corrections and 11) review_acts (retained act + bust_config)
+  const dir = realpathSync(fixture(p => {
+    p.stage = 'parts-review';
+    p.signoffs = arr(p.signoffs).filter(s => ['interview', 'plan-approved', 'parts'].includes(String(obj(s).stage)));
+  }, 'example-numbered/example-project.json'));
+  const repo = fixtureRepo(dir);
+  const jobId = 'rec-job-1';
+  const origin = 'http://127.0.0.1:43255';
+  const rec = json(repo, PROJECT);
+  rec.review_job = { jobId, origin };
+  putJson(repo, PROJECT, rec);
+  const modelPath = 'specs/rig/config.json';
+  put(repo, modelPath, '{"bones":[]}\n');
+  put(repo, '.gitignore', GITIGNORE);
+  seed(repo);
+  git(repo, 'config', '--local', 'user.name', 'History Fixture');
+  git(repo, 'config', '--local', 'user.email', 'fixture@example.test');
+
+  const identity = currentJobIdentity({
+    root: dir, stateDir: 'unused-private-state', fingerprint: 'rec-fp',
+    reviewer: { id: 'owner', role: 'owner' },
+  }, dir);
+  writePrivateJson(join(dir, JOB_BINDING_FILE), {
+    schema: 'rig-create/job-binding@1', identity, jobId, origin, fetchCapability: 'cap-1',
+  }, true);
+
+  let parent = head(repo);
+  const recordHash = jobHash(bytes(repo, PROJECT));
+  const initialConfigSha = sha256(bytes(repo, modelPath));
+  const actBytes = JSON.stringify({
+    schema: JOB_COMMENT_ONLY_ACT_SCHEMA,
+    actId: 'act-rec-1',
+    jobId,
+    publicationId: 'pub-1',
+    kind: 'comments',
+    at: new Date(TEST_NOW).toISOString(),
+    authority: { actor: 'human', channel: 'review-ui', reviewer: { id: 'owner', role: 'owner' } },
+    source: {
+      sourceHash: '1'.repeat(64), projectHash: recordHash,
+      package: { id: 'pkg', revision: '1' }, selector: null,
+      model: { path: modelPath, sha256: initialConfigSha },
+      direction: null, optionSet: null, appliedResult: null, plan: null, parts: null, commit: parent,
+    },
+    value: { comments: [{ text: 'Tighten config.' }] },
+  });
+  commentCommand(['--from-review', 'act-rec-1', dir], TEST_NOW, { fetch: () => ({ bytes: actBytes }) });
+  parent = head(repo);
+  const unrelated = plantUnrelatedChanges(repo);
+
+  // 9) comment_closures.after[]
+  put(repo, modelPath, '{"bones":["root"]}\n');
+  const afterSha = sha256(bytes(repo, modelPath));
+  const closeFailed = cli(
+    commitFault(repo, 'comment close'),
+    'comment', '--close', '0', dir, '--act-sha256', jobHash(actBytes), '--after', `${modelPath}=${afterSha}`, '--reason', 'Fixed', '--by', 'agent',
+  );
+  expect(closeFailed.code).toBe(0);
+  expect(closeFailed.stderr).toMatch(/WARN PROJECT_COMMIT_FAILED:/);
+  expect(head(repo)).toBe(parent);
+
+  success(cli(repo, 'history', 'baseline', dir, '--by', OPERATOR));
+  parent = step(repo, parent, /^history baseline: attribution unverified$/, [PROJECT, modelPath], unrelated);
+  expect(historyEntries(repo)[0]).toMatchObject({ sha: parent, command: 'history baseline', files: [PROJECT, modelPath].sort() });
+
+  // 10) corrections
+  success(cli(repo, 'correction', '--adopt', dir));
+  parent = head(repo);
+  const partsManifestRel = 'evidence/corr-parts/parts.json';
+  const partsImageRel = 'evidence/corr-parts/parts/body.png';
+  put(repo, partsManifestRel, '{}\n');
+  put(repo, partsImageRel, 'synthetic body part bytes');
+  const manifestBinding = { path: partsManifestRel, sha256: sha256(bytes(repo, partsManifestRel)) };
+  const imageBinding = { path: partsImageRel, sha256: sha256(bytes(repo, partsImageRel)) };
+  const sortedInv = [manifestBinding, imageBinding].sort((a, b) => (a.path < b.path ? -1 : 1));
+  put(repo, 'derived/parts-id.json', `${JSON.stringify({ kind: 'parts', manifest: manifestBinding, files: sortedInv })}\n`);
+  put(repo, 'scratch/corr-words.txt', 'Trim the body silhouette edge.\n');
+  const corrFailed = cli(
+    commitFault(repo, 'correction'),
+    'correction', 'record', dir, '--id', 'c-parts-1', '--path', 'described', '--stage', 'parts-review',
+    '--parts-file', 'derived/parts-id.json', '--by', 'owner', '--verbatim-file', 'scratch/corr-words.txt',
+  );
+  expect({ code: corrFailed.code, stderr: corrFailed.stderr }).toMatchObject({
+    code: 0,
+    stderr: expect.stringMatching(/WARN PROJECT_COMMIT_FAILED:/),
+  });
+  expect(head(repo)).toBe(parent);
+
+  success(cli(repo, 'history', 'baseline', dir, '--by', OPERATOR));
+  parent = step(repo, parent, /^history baseline: attribution unverified$/, [PROJECT, partsImageRel, partsManifestRel], unrelated);
+  expect(historyEntries(repo)[0]).toMatchObject({ sha: parent, command: 'history baseline', files: [PROJECT, partsImageRel, partsManifestRel].sort() });
+
+  // 11) review_acts retained rig act + bust_config (saved just before a failed commit)
+  const bustConfigRel = 'working/bust-config.json';
+  const bustConfigBytes = '{"meshes":{"torso":{}}}\n';
+  put(repo, bustConfigRel, bustConfigBytes);
+  const rigActObj = {
+    schema: JOB_COMMENT_ONLY_ACT_SCHEMA,
+    actId: 'act-bust-1',
+    jobId,
+    publicationId: 'pub-rig',
+    kind: 'comments',
+    at: new Date(TEST_NOW).toISOString(),
+    source: { selector: { kind: 'rig', version: 1 } },
+    value: { comments: [{ text: 'Adjust bust landmark.' }] },
+  };
+  const rigActBytes = JSON.stringify(rigActObj);
+  const rigActSha = sha256(Buffer.from(rigActBytes));
+  const rigActRel = `evidence/v1/${rigActSha}.act.json`;
+  put(repo, rigActRel, rigActBytes);
+  const savedWithBust = json(repo, PROJECT);
+  savedWithBust.review_acts = [
+    ...arr(savedWithBust.review_acts),
+    {
+      schema: 'rig-create/review-act@1',
+      kind: 'comments',
+      jobId,
+      actId: 'act-bust-1',
+      bytes: rigActBytes,
+      sha256: rigActSha,
+      comment: 1,
+      bust_config: { path: bustConfigRel, sha256: sha256(Buffer.from(bustConfigBytes)) },
+    },
+  ];
+  putJson(repo, PROJECT, savedWithBust);
+
+  success(cli(repo, 'history', 'baseline', dir, '--by', OPERATOR));
+  parent = step(repo, parent, /^history baseline: attribution unverified$/, [PROJECT, bustConfigRel, rigActRel], unrelated);
+  expect(historyEntries(repo)[0]).toMatchObject({ sha: parent, command: 'history baseline', files: [PROJECT, bustConfigRel, rigActRel].sort() });
+
+  // 12) collection_binding
+  const colRoot = join(tempDir(), 'baseline-col');
+  const colEnv = gitEnv({ name: 'History Fixture', email: 'fixture@example.test' });
+  success(run([process.execPath, ...jobRuntimeExecArgv(), CLOCKED_CLI, new Date(TEST_NOW).toISOString(), 'init', '--collection', colRoot, '--no-install'], tempDir(), colEnv));
+  const colRepo: Repo = { dir: colRoot, env: colEnv };
+  git(colRepo, 'config', '--local', 'user.name', 'History Fixture');
+  git(colRepo, 'config', '--local', 'user.email', 'fixture@example.test');
+  const memberDir = join(colRoot, 'members/alpha');
+  cpSync(join(import.meta.dir, '../templates/example-current'), memberDir, { recursive: true });
+  const memberRepo: Repo = { dir: memberDir, env: colEnv };
+  const memberRec = json(memberRepo, PROJECT);
+  memberRec.name = 'alpha';
+  delete memberRec.collection;
+  putJson(memberRepo, PROJECT, memberRec);
+  const colRec = json(colRepo, 'collection.json');
+  colRec.members = [{ name: 'alpha', project: 'members/alpha/project.json', input: null, note: null }];
+  putJson(colRepo, 'collection.json', colRec);
+  git(colRepo, 'add', '--', '.');
+  git(colRepo, 'commit', '-qm', 'Seed collection member');
+  const colInitial = head(colRepo);
+
+  const cbOut = 'evidence/recovered-binding.json';
+  const cbFailed = cli(commitFault(memberRepo, 'collection-binding'), 'collection-binding', memberDir, '--out', cbOut);
+  expect(cbFailed.code).toBe(0);
+  expect(cbFailed.stderr).toMatch(/WARN PROJECT_COMMIT_FAILED:/);
+  expect(head(colRepo)).toBe(colInitial);
+
+  success(cli(memberRepo, 'history', 'baseline', memberDir, '--by', OPERATOR));
+  const colRecovered = head(colRepo);
+  expect(colRecovered).not.toBe(colInitial);
+  expect(scope(colRepo)).toEqual([`members/alpha/${cbOut}`, 'members/alpha/project.json'].sort());
+  expect(git(colRepo, 'show', `HEAD:members/alpha/${cbOut}`)).toBe(bytes(memberRepo, cbOut).toString());
+  expect(historyEntries(memberRepo)[0]).toMatchObject({
+    sha: colRecovered,
+    command: 'history baseline',
+    attribution: 'unverified',
+    files: [cbOut, PROJECT].sort(),
+  });
+});
+

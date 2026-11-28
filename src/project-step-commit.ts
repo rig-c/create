@@ -396,11 +396,73 @@ function baselineAssetPath(path: string): boolean {
 
 type BaselineBinding = StepBinding & { question?: string };
 
+type BaselineRecordBindingSpec = {
+  readonly kind: string;
+  readonly select: (project: JsonObject) => readonly (Json | undefined)[];
+};
+
 function baselineBinding(value: Json | undefined): StepBinding | undefined {
   if (!isObject(value) || typeof value.path !== 'string' || typeof value.sha256 !== 'string'
     || !/^[a-f0-9]{64}$/.test(value.sha256)) return;
   return { path: value.path, sha256: value.sha256 };
 }
+
+function nestedBindings(value: Json | undefined, out: Json[] = []): Json[] {
+  if (Array.isArray(value)) {
+    for (const item of value) nestedBindings(item, out);
+    return out;
+  }
+  if (!isObject(value)) return out;
+  if (baselineBinding(value)) out.push(value);
+  for (const child of Object.values(value)) nestedBindings(child, out);
+  return out;
+}
+
+const BASELINE_RECORD_BINDING_SPECS: readonly BaselineRecordBindingSpec[] = [
+  { kind: 'inputs', select: project => asArray(project.inputs) },
+  {
+    kind: 'review_acts',
+    select: project => asArray(project.review_acts).filter(isObject).flatMap(row => {
+      const items: (Json | undefined)[] = [row.bust_config];
+      if (typeof row.sha256 === 'string' && typeof row.bytes === 'string') {
+        const parsed = jsonObject(Buffer.from(row.bytes, 'utf8'));
+        const selector = isObject(parsed?.source) && isObject(parsed.source.selector) ? parsed.source.selector : undefined;
+        if (selector?.kind === 'rig' && Number.isSafeInteger(selector.version)) {
+          items.push({ path: `evidence/v${String(selector.version)}/${row.sha256}.act.json`, sha256: row.sha256 });
+        }
+      }
+      return items;
+    }),
+  },
+  { kind: 'comment_closures', select: project => asArray(project.comment_closures).filter(isObject).flatMap(row => asArray(row.after)) },
+  { kind: 'corrections', select: project => nestedBindings(project.corrections) },
+  { kind: 'diff_map', select: project => (isObject(project.diff_map) ? [project.diff_map.report] : []) },
+  {
+    kind: 'derived',
+    select: project => asArray(project.derived).filter(isObject).flatMap(entry => {
+      const sources = entry.sources === undefined ? [entry.source] : asArray(entry.sources);
+      const folder = typeof entry.path === 'string' ? entry.path.replace(/\/+$/, '') : undefined;
+      const outputs = entry.kind === 'run' && folder !== undefined
+        ? asArray(entry.members).filter(isObject).map(member => ({
+          path: `${folder}/${String(member.path ?? '')}`,
+          sha256: member.sha256 ?? null,
+        }))
+        : [entry];
+      return [...sources, ...outputs, entry.receipt];
+    }),
+  },
+  { kind: 'intake', select: project => (isObject(project.intake) ? asArray(project.intake.reports).filter(isObject).map(row => row.report) : []) },
+  {
+    kind: 'checkpoint_evidence',
+    select: project => (isObject(project.plan)
+      ? asArray(project.plan.checkpoint_evidence).filter(isObject).flatMap(packet => [...asArray(packet.tiles), packet.table])
+      : []),
+  },
+  { kind: 'signoffs', select: project => asArray(project.signoffs).filter(isObject).map(row => row.structure) },
+  { kind: 'amendments', select: project => asArray(project.amendments).filter(isObject).flatMap(row => asArray(row.changes)) },
+  { kind: 'collection_binding', select: project => [project.collection_binding] },
+  { kind: 'advances', select: project => asArray(project.advances).filter(isObject).map(row => row.parts_check) },
+];
 
 function baselineRecordBindings(...records: (JsonObject | undefined)[]): Map<string, BaselineBinding[]> {
   const bindings = new Map<string, BaselineBinding[]>();
@@ -440,6 +502,9 @@ function baselineRecordBindings(...records: (JsonObject | undefined)[]): Map<str
           for (const file of asArray(node.files)) add(file);
         }
       }
+    }
+    for (const { select } of BASELINE_RECORD_BINDING_SPECS) {
+      for (const candidate of select(project)) add(candidate);
     }
   }
   return bindings;

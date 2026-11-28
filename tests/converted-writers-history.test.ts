@@ -1,4 +1,4 @@
-import { expect, test } from 'bun:test';
+import { beforeEach, expect, test } from 'bun:test';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { OPTIONS_SPEC, optionContext, sha256 } from '../src/choices.ts';
@@ -24,8 +24,17 @@ function git(repo: Repo, ...args: string[]): string {
   return success(run(['git', '--literal-pathspecs', ...args], repo.dir, repo.env));
 }
 
+let nextTick = TEST_NOW;
+beforeEach(() => {
+  nextTick = TEST_NOW;
+});
+function tick(): number {
+  nextTick += 1_000;
+  return nextTick;
+}
+
 function cli(repo: Repo, ...args: string[]): Run {
-  return run([process.execPath, ...jobRuntimeExecArgv(), CLOCKED_CLI, new Date(TEST_NOW).toISOString(), ...args], repo.dir, repo.env);
+  return run([process.execPath, ...jobRuntimeExecArgv(), CLOCKED_CLI, new Date(tick()).toISOString(), ...args], repo.dir, repo.env);
 }
 
 function bytes({ dir }: Repo, path: string): Buffer {
@@ -176,8 +185,8 @@ test('#1168 group 2: interview-answer and interview-decision commit exact paths 
     question: 'rig_type',
     stage: 'interview',
     drafted_by: 'agent',
-    drafted_at: new Date(TEST_NOW).toISOString(),
-    context: optionContext(project, 'interview', TEST_NOW, repo.dir),
+    drafted_at: new Date(nextTick).toISOString(),
+    context: optionContext(project, 'interview', nextTick, repo.dir),
     assembly: { rule: 'single' },
     asks: [{
       id: 'rig_type',
@@ -249,5 +258,139 @@ test('#1168 group 2: interview-answer and interview-decision commit exact paths 
     '--value-file', 'scratch/assemble-val.json', '--plan-quote-file', 'scratch/assemble-quote.txt',
   ));
   assertCommittedStep(repo, parent, 'interview-decision', [PROJECT], unrelated);
+});
+
+test('#1168 group 3: plan feedback and all plan step writers commit project.json with exact prefixes and preserve refused/replay states', () => {
+  const repo = makeRepo();
+  const unrelated = plantUnrelated(repo);
+  let parent = head(repo);
+
+  const source = 'inputs/painting.png';
+  put(repo, source, readFileSync(join(import.meta.dir, '..', 'templates', 'example-current', source)));
+  success(cli(repo, 'input', 'add', source, repo.dir, '--origin', 'synthetic source', '--painting'));
+  parent = assertCommittedStep(repo, parent, 'input add', [PROJECT, source], unrelated);
+
+  const planPath = 'plans/parts.md';
+  put(repo, planPath, 'Build a standing idle character. Use core projection.\n');
+  success(cli(repo, 'plan', 'propose', 'parts', repo.dir, '--file', planPath, '--by', 'agent'));
+  parent = assertCommittedStep(repo, parent, 'plan propose', [PROJECT, planPath], unrelated);
+
+  // Refused plan feedback (missing plan for motion) leaves HEAD, index and tree unchanged.
+  put(repo, 'scratch/feedback.txt', 'Looks good for parts.\n');
+  assertRefusedUnchanged(repo, [
+    'plan', 'feedback', 'motion', repo.dir, '--words-file', 'scratch/feedback.txt',
+    '--by', 'synthetic-owner', '--said-at', new Date(TEST_NOW).toISOString(), '--relayed-by', 'agent',
+  ], 'STEP_PLAN_MISSING');
+
+  success(cli(repo,
+    'plan', 'feedback', 'parts', repo.dir, '--words-file', 'scratch/feedback.txt',
+    '--by', 'synthetic-owner', '--said-at', new Date(TEST_NOW).toISOString(), '--relayed-by', 'agent',
+  ));
+  parent = assertCommittedStep(repo, parent, 'plan feedback', [PROJECT], unrelated);
+
+  // Record step-plan values so rig plan steps have answered rests_on guides.
+  put(repo, 'scratch/reason.txt', 'Follow the proposed synthetic plan.\n');
+  put(repo, 'scratch/rig-type.json', '"character.idle"\n');
+  put(repo, 'scratch/rig-quote.txt', 'Build a standing idle character.\n');
+  success(cli(repo, 'interview-decision', 'rig_type', repo.dir, '--by', 'agent', '--reasoning-file', 'scratch/reason.txt',
+    '--value-file', 'scratch/rig-type.json', '--plan-quote-file', 'scratch/rig-quote.txt'));
+  parent = assertCommittedStep(repo, parent, 'interview-decision', [PROJECT], unrelated);
+
+  put(repo, 'scratch/assemble.json', '{"project":"core"}\n');
+  put(repo, 'scratch/assemble-quote.txt', 'Use core projection.\n');
+  success(cli(repo, 'interview-decision', 'assemble', repo.dir, '--by', 'agent', '--reasoning-file', 'scratch/reason.txt',
+    '--value-file', 'scratch/assemble.json', '--plan-quote-file', 'scratch/assemble-quote.txt'));
+  parent = assertCommittedStep(repo, parent, 'interview-decision', [PROJECT], unrelated);
+
+  // Refused plan add (unknown rests-on) leaves HEAD, index and tree unchanged.
+  assertRefusedUnchanged(repo, [
+    'plan', 'add', 'assemble', repo.dir, '--by', 'agent', '--phase', 'rig', '--order', '1',
+    '--does', 'Assemble parts.', '--produces', 'Parts output.', '--rests-on', 'unknown_guide',
+    '--bar', 'Parts check passes with <= 0 refusals.', '--checkpoint-proposed', 'true',
+  ], 'STEP_BASIS_UNKNOWN');
+
+  // Dirty project.json refuses before writing.
+  const cleanProject = bytes(repo, PROJECT);
+  put(repo, PROJECT, `${cleanProject.toString().trimEnd()}\n\n`);
+  assertRefusedUnchanged(repo, [
+    'plan', 'add', 'assemble', repo.dir, '--by', 'agent', '--phase', 'rig', '--order', '1',
+    '--does', 'Assemble parts.', '--produces', 'Parts output.', '--rests-on', 'assemble',
+    '--bar', 'Parts check passes with <= 0 refusals.', '--checkpoint-proposed', 'true',
+  ], 'PROJECT_COMMIT_DIRTY');
+  put(repo, PROJECT, cleanProject);
+
+  // plan add
+  success(cli(repo,
+    'plan', 'add', 'assemble', repo.dir, '--by', 'agent', '--phase', 'rig', '--order', '1',
+    '--does', 'Assemble parts.', '--produces', 'Parts output.', '--rests-on', 'assemble',
+    '--bar', 'Parts check passes with <= 0 refusals.', '--checkpoint-proposed', 'true',
+  ));
+  parent = assertCommittedStep(repo, parent, 'plan add', [PROJECT], unrelated);
+
+  // plan revise
+  success(cli(repo, 'plan', 'revise', 'assemble', repo.dir, '--by', 'agent', '--does', 'Assemble revised synthetic parts.'));
+  parent = assertCommittedStep(repo, parent, 'plan revise', [PROJECT], unrelated);
+
+  // plan bar-amend + unchanged replay
+  put(repo, 'scratch/bar-reason.txt', 'Owner narrowed the numeric bar.\n');
+  put(repo, 'scratch/bar-quote.txt', 'Keep parts check refusals = 0.\n');
+  put(repo, 'scratch/bar-text.txt', 'Parts check exits with refusals = 0.');
+  const barAmendArgs = [
+    'plan', 'bar-amend', 'assemble', repo.dir, '--by', 'operator',
+    '--reason-file', 'scratch/bar-reason.txt', '--quote-file', 'scratch/bar-quote.txt', '--bar-file', 'scratch/bar-text.txt',
+  ];
+  success(cli(repo, ...barAmendArgs));
+  parent = assertCommittedStep(repo, parent, 'plan bar-amend', [PROJECT], unrelated);
+  const beforeBarReplay = fullState(repo);
+  success(cli(repo, ...barAmendArgs));
+  expect(fullState(repo)).toEqual(beforeBarReplay);
+
+  // plan checkpoint-withdraw refuses on an unsigned checkpoint, leaving HEAD, index and tree unchanged.
+  put(repo, 'scratch/cp-reason.txt', 'Owner asked to skip the intermediate checkpoint.\n');
+  put(repo, 'scratch/cp-quote.txt', 'Proceed without stopping at assemble checkpoint.\n');
+  assertRefusedUnchanged(repo, [
+    'plan', 'checkpoint-withdraw', 'assemble', repo.dir, '--by', 'operator',
+    '--reason-file', 'scratch/cp-reason.txt', '--quote-file', 'scratch/cp-quote.txt',
+  ], 'CHECKPOINT_WITHDRAWAL_SCOPE');
+
+  // plan replace
+  success(cli(repo,
+    'plan', 'replace', 'assemble', repo.dir, '--by', 'agent', '--phase', 'rig', '--order', '1',
+    '--does', 'Assemble replaced parts.', '--produces', 'Replaced parts output.', '--rests-on', 'assemble',
+    '--bar', 'Parts check exits with refusals = 0.', '--checkpoint-proposed', 'false',
+  ));
+  parent = assertCommittedStep(repo, parent, 'plan replace', [PROJECT], unrelated);
+
+  // plan remove
+  success(cli(repo, 'plan', 'remove', 'assemble', repo.dir, '--by', 'agent'));
+  assertCommittedStep(repo, parent, 'plan remove', [PROJECT], unrelated);
+
+  // plan checkpoint-withdraw on a seeded enabled checkpoint + unchanged replay
+  const seeded = JSON.parse(bytes(repo, PROJECT).toString('utf8')) as JsonObject;
+  const atIso = new Date(TEST_NOW - 1_000).toISOString();
+  (seeded.plan as JsonObject).steps = [{
+    id: 'assemble', phase: 'rig', order: 1, does: 'Assemble parts.', produces: 'Parts output.',
+    rests_on: ['assemble'], bar: 'Parts check exits with refusals = 0.', checkpoint_proposed: true,
+    checkpoint: { delegated: false, by: 'synthetic-owner', at: atIso, verbatim: 'Keep checkpoint.', value: true },
+    status: 'in-progress', drafted_at: atIso,
+  }];
+  const cpRepo = makeRepo(seeded);
+  put(cpRepo, source, readFileSync(join(import.meta.dir, '..', 'templates', 'example-current', source)));
+  put(cpRepo, planPath, 'Build a standing idle character. Use core projection.\n');
+  git(cpRepo, 'add', '--', source, planPath);
+  git(cpRepo, 'commit', '-qm', 'Seed inputs and plan');
+  const cpUnrelated = plantUnrelated(cpRepo);
+  const cpStart = head(cpRepo);
+  put(cpRepo, 'scratch/cp-reason.txt', 'Owner asked to skip the intermediate checkpoint.\n');
+  put(cpRepo, 'scratch/cp-quote.txt', 'Proceed without stopping at assemble checkpoint.\n');
+  const withdrawArgs = [
+    'plan', 'checkpoint-withdraw', 'assemble', cpRepo.dir, '--by', 'operator',
+    '--reason-file', 'scratch/cp-reason.txt', '--quote-file', 'scratch/cp-quote.txt',
+  ];
+  success(cli(cpRepo, ...withdrawArgs));
+  assertCommittedStep(cpRepo, cpStart, 'plan checkpoint-withdraw', [PROJECT], cpUnrelated);
+  const beforeWithdrawReplay = fullState(cpRepo);
+  success(cli(cpRepo, ...withdrawArgs));
+  expect(fullState(cpRepo)).toEqual(beforeWithdrawReplay);
 });
 

@@ -154,7 +154,7 @@ export function stepPlanCommand(args: string[], now: number): { stdout: string; 
   if (action === 'feedback' && !words.trim()) usage('--words-file must contain the nonblank words');
 
   readProject(dir);
-  const releaseJob = acquireBoundJobWrite(dir, undefined, action === 'propose');
+  const releaseJob = acquireBoundJobWrite(dir, undefined, true);
   let releasePlan: (() => void) | null = null;
   try {
     releasePlan = tryJobDirectoryLock(join(dir, '.plan.lock'));
@@ -218,8 +218,8 @@ export function stepPlanCommand(args: string[], now: number): { stdout: string; 
     const fresh = newFindings(baselineOf(checkProject(dir, project, { now })), checkProject(dir, next, { now }).refusals).filter(f => !covered(f))[0];
     if (fresh !== undefined) refuse(fresh.code, fresh.message);
     const assets = [...registered.keys()];
+    assertCleanProjectStep(dir, ['project.json']);
     if (action === 'propose') {
-      assertCleanProjectStep(dir, ['project.json']);
       assertCleanProjectStep(dir, assets, true);
       for (const [path, hash] of registered) {
         const { bytes } = readPlanFile(path, 'registered file');
@@ -227,7 +227,7 @@ export function stepPlanCommand(args: string[], now: number): { stdout: string; 
       }
     }
     writeRecord(file, original, next, 'plan', 'PLAN_WRITE_CONFLICT');
-    const warning = action === 'propose' ? commitToolWrite(dir, 'plan propose', ['project.json', ...assets]) : undefined;
+    const warning = commitToolWrite(dir, `plan ${action}`, ['project.json', ...assets]);
     return { stdout: json ? JSON.stringify(written, null, 2) : `plan: ${action} ${step} by ${opts['--by']} at ${at}`, exit: 0,
       ...(warning === undefined ? {} : { stderr: warning }) };
   } finally {

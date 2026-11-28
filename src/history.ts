@@ -62,6 +62,13 @@ const PROJECT_WRITERS = new Set([
   'interview-decision',
   'job open',
   'owner-language set',
+  'plan add',
+  'plan bar-amend',
+  'plan checkpoint-withdraw',
+  'plan feedback',
+  'plan remove',
+  'plan replace',
+  'plan revise',
   ...CURRENT_KINDS.map(kind => `record ${kind} adopt`),
 ]);
 const BINDING_WRITERS = new Set(['input add', 'interview-options', 'plan propose']);

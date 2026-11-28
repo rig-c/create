@@ -12,7 +12,7 @@ import { JOB_BINDING_FILE, writePrivateJson, jobHash } from '../src/job-outbox.t
 import { main } from '../src/cli.ts';
 import { currentJobIdentity, partsEnumerator, prepareLiveManifest, readPublished } from '../src/job-publication.ts';
 import { USAGE_EXIT } from '../src/refusal.ts';
-import { seedStoredPartsSignoff, seedStoredReviewVerdictAct, seedStoredVersionSignoff } from './historical-review-fixture.ts';
+import { seedHistoricalPendingAsk, seedStoredPartsSignoff, seedStoredReviewVerdictAct, seedStoredVersionSignoff } from './historical-review-fixture.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { seedRetainedDraft, seedRetainedRigVersion } from './numbered-seed.ts';
 
@@ -100,7 +100,7 @@ test('writer-only draft, parts approval, new producer build and verdict ingestio
       expect(result.ok).toBe(true); return result.value;
     };
     const publication = await agent('publish', { result: { path, selector: { kind: 'rig', version: 1 } }, freeze: { kind: 'producer-held', holdId: 'cycle-freeze', record: { path: 'project.json', sha256: jobHash(readFileSync(join(dir, 'project.json'))) } } });
-    const ask = await agent('ask', { publicationId: publication.publicationId, subject: historicalSubject });
+    const ask = seedHistoricalPendingAsk(host, String(publication.publicationId), historicalSubject);
     const request = (route: string, value: object): Request => new Request(`${host!.origin}/jobs/${host!.session.jobId}/ui/${route}`, {
       method: 'POST', headers: { origin: host!.origin, 'X-Review-Capability': host!.session.hostCredentials().ui, 'content-type': 'application/json' }, body: JSON.stringify(value),
     });

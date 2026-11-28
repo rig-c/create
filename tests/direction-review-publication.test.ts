@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { EXAMPLE_REOPEN_AT } from '../scripts/example-time.ts';
 import { objects } from '../src/direction.ts';
 import { readProject } from '../src/feedback.ts';
-import { askDeclaredSubjects, closeCreateJob, openCreateJob } from '../src/job-host.ts';
+import { closeCreateJob, openCreateJob } from '../src/job-host.ts';
 import { acknowledgePublication, enqueuePublication, jobHash, jobHostStateRoot, pendingPublications, readWriterBinding, reconcilePublication } from '../src/job-outbox.ts';
 import { prepareLiveManifest, readPublished } from '../src/job-publication.ts';
 import type { JsonObject } from '../src/templates.ts';
@@ -13,7 +13,7 @@ import { advanceCommand, inputCommand, testClock } from './clock.ts';
 import { seedRetainedDirectionPost, seedRetainedScene } from './numbered-seed.ts';
 import { obj } from './fixtures.ts';
 import { tempDir } from './helpers.ts';
-import { seedStoredReviewVerdictAct } from './historical-review-fixture.ts';
+import { seedHistoricalPendingAsk, seedStoredReviewVerdictAct } from './historical-review-fixture.ts';
 import { isSourceLinkedRun } from './source-only.ts';
 
 afterEach(() => testClock.reset());
@@ -95,8 +95,7 @@ test('#955 a direction post projects an ingested same-job bounce only when Revie
     await reconcilePublication(root, entry, async pending => {
       acknowledgePublication(pending, earlier.publicationId, earlier.generation, requestId, subjects);
     });
-    expect(await askDeclaredSubjects(host, earlier.publicationId, subjects, false)).toEqual([{ status: 'asked', subject: subjects[0] }]);
-    const ask = host.session.status().pending.find(row => row.subject.kind === 'review-verdict')!;
+    const ask = seedHistoricalPendingAsk(host, earlier.publicationId, subjects[0]);
     const pageId = 'synthetic-direction-owner-page';
     const request = (route: string, value: object) => new Request(`${host.origin}/jobs/${jobId}/ui/${route}`, {
       method: 'POST',

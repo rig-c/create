@@ -126,8 +126,8 @@
   },
   {
     "file": "tests/job-open-ask.test.ts",
-    "name": "an ask Review refuses is named JOB_ASK_REFUSED, and a declared subject is asked only once",
-    "reason": "Exercises published Review behavior under sibling source resolution"
+    "name": "publish and reopen send no ask or ask-batch requests and never emit JOB_ASK_REFUSED or JOB_ASK_INVALID",
+    "reason": "Exercises ask-free Review publication and reopen under sibling source resolution"
   },
   {
     "file": "tests/job-signal-ask.test.ts",
@@ -141,7 +141,7 @@
   },
   {
     "file": "tests/job-signal-ask.test.ts",
-    "name": "bound writers print concise asked/already subject lines in text mode and preserve JSON stdout in --json mode",
+    "name": "bound writers emit no asked/already subject lines in text mode and preserve JSON stdout in --json mode",
     "reason": "Exercises published Review behavior under sibling source resolution"
   },
   {

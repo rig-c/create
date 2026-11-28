@@ -13,7 +13,6 @@ const nonDiagnosticLiterals: Readonly<Record<string, readonly string[]>> = {
   'src/next.ts': ['AMENDED_STEP'], // next.move.lapse metadata
   'src/parts-sections.ts': ['CONFIG_SECTIONS'], // Parts export name
   'src/job-publication.ts': ['JOB_PREVIOUS_DRAFT_SCHEMA'], // Review export name
-  'src/job-host.ts': ['JOB_ASK_SUPERSEDED'], // nested under JOB_ASK_REFUSED
   'src/job-close.ts': [ // mapped to JOB_BINDING_INVALID
     'JOB_AUTHORITY_REFUSED', 'JOB_PARTS_ENUMERATOR_UNSUPPORTED',
     'JOB_REQUEST_INVALID', 'JOB_SOURCE_UNRETAINABLE',

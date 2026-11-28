@@ -3,7 +3,7 @@ import { cpSync, existsSync, readFileSync, realpathSync, rmSync, writeFileSync }
 import { join } from 'node:path';
 import { JOB_RECORD_ACT_SCHEMA, parseRecordAct, startJobHost, type JobOwnerHost, type RecordPlanSubject } from '@rig-c/review/job-host';
 import { checkProject } from '../src/check.ts';
-import { askDeclaredSubjects, openCreateJob, openRecordPublication, reconcileCreateJob } from '../src/job-host.ts';
+import { openCreateJob, openRecordPublication, reconcileCreateJob } from '../src/job-host.ts';
 import { agentCall, readHostActsAndAsks } from '../src/job-acts.ts';
 import { acknowledgePublication, enqueuePublication, JOB_BINDING_FILE, jobHash, jobHostStateRoot, pendingPublications, readWriterBinding } from '../src/job-outbox.ts';
 import { appendWithdrawalReceipt, buildDiscardActReceipt, matchesActProjectSource } from '../src/review-act.ts';
@@ -132,11 +132,8 @@ async function openLegacyPlan(root: string, subjects: RecordPlanSubject[]) {
       expect(reply.ok, JSON.stringify(reply.error)).toBe(true);
       const { publication, generation } = host.session.status();
       acknowledgePublication(entry, publication!.publicationId, generation, requestId, subjects);
-      const live = subjects.filter(subject => subject.kind !== 'reopen' && subject.kind !== 'signoff');
-      expect(await askDeclaredSubjects(host, publication!.publicationId, live, false)).toEqual(
-        live.map(subject => ({ subject, status: 'asked' })));
       for (const subject of subjects) {
-        if (subject.kind === 'reopen' || subject.kind === 'signoff') seedPlanAsk(host, publication!.publicationId, subject);
+        seedPlanAsk(host, publication!.publicationId, subject);
       }
     });
     return host;

@@ -24,7 +24,7 @@ import { selectSignoffTarget } from '../src/signoff-target.ts';
 import { stepHash } from '../src/step-hash.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { advanceCommand, checkProject, inputCommand, planCommand, signoffCommand, stepStatusCommand, testClock } from './clock.ts';
-import { seedStoredSignoffAct, seedStoredVerdict, seedStoredVersionSignoff, selectHistoricalSignoffTarget } from './historical-review-fixture.ts';
+import { seedHistoricalPendingAsk, seedStoredSignoffAct, seedStoredVerdict, seedStoredVersionSignoff, selectHistoricalSignoffTarget } from './historical-review-fixture.ts';
 import { seedRetainedDirectionPost, seedRetainedReviewPackage, seedRetainedRigVersion, seedRetainedScene } from './numbered-seed.ts';
 import { composeFixture, composeRunFixture } from './direction-compose-fixture.ts';
 import { plantLegacyReopen, fixture } from './fixtures.ts';
@@ -131,7 +131,7 @@ async function published(checkpoint = '3-rig-review', n = 1, role: 'owner' | 'de
     result: entry.result as Parameters<typeof readPublished>[0]['result'] })).subjects : undefined;
   acknowledgePublication(entry, String(publication.publicationId), Number(publication.generation), 'synthetic-request', subjects);
   rmSync(join(root, '.rig-create-review/outbox'), { recursive: true });
-  const ask = await agent('ask', { publicationId: publication.publicationId, subject: { kind: 'review-verdict', stage } });
+  const ask = seedHistoricalPendingAsk(host, String(publication.publicationId), { kind: 'review-verdict', stage });
   function uiRequest(route: string, value: object) {
     return new Request(`${host.origin}/jobs/${host.session.jobId}/ui/${route}`, { method: 'POST',
       headers: { origin: host.origin, 'X-Review-Capability': host.session.hostCredentials().ui, 'content-type': 'application/json' }, body: JSON.stringify(value) });

@@ -842,22 +842,9 @@ test.each(recordAsks)('%s: every retained input refuses on tamper; excluded draf
     expect(published.ok).toBe(true);
     const publicationId = published.value!.publicationId;
     const snapshot = host.session.retainedSourceV3(publicationId);
-    const subject = context.subjects[0];
-    if (subject) {
-      for (const file of context.files) {
-        const path = join(snapshot.snapshotRoot, file.path);
-        const original = readFileSync(path);
-        try {
-          writeFileSync(path, Buffer.concat([original, Buffer.from(' ')]));
-          // Review's existing immutable-seal gate runs before Create's retained check.
-          expect(await api('ask', { publicationId, subject })).toMatchObject({ ok: false, error: { code: 'JOB_SOURCE_UNRETAINABLE' } });
-        } finally { writeFileSync(path, original); }
-      }
-      expect((await api('ask', { publicationId, subject })).ok).toBe(true);
-    } else {
-      expect(['plan', 'option-set']).toContain(input.result.kind);
-      expect(context.subjects).toEqual([]);
-    }
+    expect(snapshot.subjects).toEqual([]);
+    expect(['plan', 'option-set']).toContain(input.result.kind);
+    expect(context.subjects).toEqual([]);
   } finally { host.stop(); rmSync(identity.stateDir, { recursive: true, force: true }); }
   const project = JSON.parse(readFileSync(join(input.root, 'project.json'), 'utf8'));
   const output = obj(arr(obj(arr(project.drafts)[0]).files).find(file => String(obj(file).path).endsWith('/motion.json')));

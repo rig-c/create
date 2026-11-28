@@ -4,12 +4,12 @@ import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import {
   JOB_CHEST_LANDMARKS_ACT_SCHEMA, JOB_COMMENTS_ACT_SCHEMA, JOB_RECORD_ACT_SCHEMA, parseCommentsAct, parseRecordAct,
   type JobActV3, type JobComment, type JobOwnerHost, type JobRetainedSourceV3, type JobReviewerBinding,
-  type JobSourceV3, type RecordCheckpointSubject,
+  type JobSourceV3, type JobSubject, type RecordCheckpointSubject,
 } from '@rig-c/review/job-host';
 import { asArray, checkProject, collectItems, collectionAnswer, isObject, loadCollection, type Finding } from '../src/check.ts';
 import { CHOICE_SPEC, choiceVerbatim, optionFile, selection, validateChoice } from '../src/choices.ts';
 import { INTAKE_QUESTION, intakeItem } from '../src/intake.ts';
-import { jobHash, readAcknowledgedPublication } from '../src/job-outbox.ts';
+import { jobHash, readAcknowledgedPublication, type PublicationSubject } from '../src/job-outbox.ts';
 import { overrideFindings } from '../src/overrides.ts';
 import { assertPartsActSource, currentPartsAmendment, isRiggingDraftAct, partsActDraftHash } from '../src/parts-act.ts';
 import { latestPartsVerdictFinding, recordedPartsVerdict } from '../src/parts-verdict-record.ts';
@@ -101,18 +101,21 @@ export function foldHistoricalRigSignoff(
   return signoff;
 }
 
-type PendingCheckpoint = {
+type HistoricalPendingAsk = {
   askId: string;
   publicationId: string;
-  subject: RecordCheckpointSubject;
+  subject: JobSubject | PublicationSubject;
   source: JobSourceV3;
   status: 'pending' | 'answered';
+};
+type PendingCheckpoint = HistoricalPendingAsk & {
+  subject: RecordCheckpointSubject;
 };
 type StoredJob = { data: {
   generation: number;
   reviewer: JobReviewerBinding;
   publications: Record<string, { retained: JobRetainedSourceV3 }>;
-  asks: Record<string, PendingCheckpoint>;
+  asks: Record<string, HistoricalPendingAsk>;
   acts: Record<string, JobActV3>;
 } };
 
@@ -120,8 +123,30 @@ function historicalSession(host: JobOwnerHost) {
   return host.session as unknown as {
     jobId: string;
     store: { update(jobId: string, rev: null, write: (row: StoredJob) => StoredJob): StoredJob };
-    event(data: StoredJob['data'], event: { type: 'pending'; ask: PendingCheckpoint } | { type: 'act'; act: JobActV3 }): void;
+    event(data: StoredJob['data'], event: { type: 'pending'; ask: HistoricalPendingAsk } | { type: 'act'; act: JobActV3 }): void;
+    notify(): void;
   };
+}
+
+/** Seed a historical pending ask against the retained publication without calling the removed ask verb. */
+export function seedHistoricalPendingAsk(
+  host: JobOwnerHost,
+  publicationId: string,
+  subject: JobSubject | PublicationSubject,
+): HistoricalPendingAsk {
+  const session = historicalSession(host);
+  const askId = randomUUID();
+  let ask!: HistoricalPendingAsk;
+  session.store.update(session.jobId, null, ({ data }) => {
+    const { source } = data.publications[publicationId]!.retained;
+    ask = { askId, publicationId, subject, source: structuredClone(source), status: 'pending' };
+    data.generation++;
+    data.asks[askId] = ask;
+    session.event(data, { type: 'pending', ask });
+    return { data };
+  });
+  session.notify();
+  return ask;
 }
 
 /** Seed a retired checkpoint ask against the real retained publication. */
@@ -139,6 +164,7 @@ export function seedHistoricalCheckpointAsk(host: JobOwnerHost, publicationId: s
     session.event(data, { type: 'pending', ask });
     return { data };
   });
+  session.notify();
   return askId;
 }
 
@@ -148,7 +174,7 @@ export function seedHistoricalCheckpointAct(host: JobOwnerHost, askId: string, o
   { actId = randomUUID(), at = new Date().toISOString() }: { actId?: string; at?: string } = {}) {
   const session = historicalSession(host);
   const { data } = session.store.update(session.jobId, null, ({ data }) => {
-    const ask = data.asks[askId]!;
+    const ask = data.asks[askId]! as PendingCheckpoint;
     const { publicationId, source, subject: { checkpointId } } = ask;
     const act = { actId, jobId: session.jobId, askId, publicationId, kind: 'checkpoint', source, at,
       authority: { actor: 'human', channel: 'review-ui', reviewer: data.reviewer },

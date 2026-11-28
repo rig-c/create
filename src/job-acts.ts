@@ -24,7 +24,7 @@ import type { Json, JsonObject } from './templates.ts';
 export type AgentReply = {
   ok?: boolean;
   error?: { code?: string; message?: string };
-  value?: { events?: unknown; status?: unknown; cursor?: unknown; capabilities?: { askBatch?: unknown; progress?: unknown }; asks?: unknown };
+  value?: { events?: unknown; status?: unknown; cursor?: unknown; capabilities?: { progress?: unknown } };
 };
 
 export async function agentCall(host: JobOwnerHost, body: object, send?: (request: Request) => Promise<Response>): Promise<AgentReply> {
@@ -36,8 +36,8 @@ export async function agentCall(host: JobOwnerHost, body: object, send?: (reques
   return await response.json() as AgentReply;
 }
 
-/** The shared agent-next traversal; listing is strict while existing ask retries retain their contract. */
-export async function* jobEvents(host: JobOwnerHost, strict = false, observed?: { askBatch?: boolean; cursor?: string | null }): AsyncGenerator<JobEventV3> {
+/** The shared agent-next traversal for listing live job events. */
+export async function* jobEvents(host: JobOwnerHost, strict = false, observed?: { cursor?: string | null }): AsyncGenerator<JobEventV3> {
   let after: unknown = null;
   for (let page = 0; page < 10_000; page++) {
     let reply: AgentReply;
@@ -45,9 +45,6 @@ export async function* jobEvents(host: JobOwnerHost, strict = false, observed?: 
     catch (error) {
       if (strict) refuse('JOB_ACTS_READ_REFUSED', 'project.json: live job event read failed; restore the bound host and retry job acts');
       throw error;
-    }
-    if (observed && reply.ok && reply.value?.capabilities !== null && typeof reply.value?.capabilities === 'object') {
-      observed.askBatch = reply.value.capabilities.askBatch === true;
     }
     const events = reply.ok ? reply.value?.events : undefined;
     if (!Array.isArray(events)) {

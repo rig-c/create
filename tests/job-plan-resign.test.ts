@@ -9,7 +9,7 @@ import { prepareLiveManifest, readPublished } from '../src/job-publication.ts';
 import { jobRuntimeExecArgv } from '../src/job-writer.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { arr, obj, waypoint } from './fixtures.ts';
-import { seedStoredReviewVerdictAct } from './historical-review-fixture.ts';
+import { seedHistoricalPendingAsk, seedStoredReviewVerdictAct } from './historical-review-fixture.ts';
 import { tempDir } from './helpers.ts';
 import { seedRetainedRigVersion } from './numbered-seed.ts';
 
@@ -113,17 +113,9 @@ async function routeReviewComment() {
       const pub = host.session.status().publication!;
       acknowledgePublication(pending, pub.publicationId, pub.generation, pubReqId, [historicalSubject]);
     });
-    // Recreate a historical verdict ask on the numbered view through Review's manual API.
-    const { publication, generation } = host.session.status();
-    const reply = await agentCall(host, {
-      schema: 'rig-review/job-api@2',
-      verb: 'ask',
-      publicationId: publication!.publicationId,
-      expectedGeneration: generation,
-      idempotencyKey: crypto.randomUUID(),
-      subject: historicalSubject,
-    });
-    expect(reply.ok, JSON.stringify(reply.error)).toBe(true);
+    // Recreate a historical verdict ask on the numbered view without sending an ask request.
+    const { publication } = host.session.status();
+    seedHistoricalPendingAsk(host, publication!.publicationId, historicalSubject);
     const act = await commitOwnerAct(host, 'review-verdict', {
       stage: 'rig-review', verdict: 'changes-requested', words: '', general: [comment],
     }, readFileSync(join(root, 'evidence/setup.png')));

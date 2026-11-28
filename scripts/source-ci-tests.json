@@ -66,27 +66,12 @@
   },
   {
     "file": "tests/parts-act.test.ts",
-    "name": "killed evidence staging retries the same file and commits once",
-    "reason": "Exercises published Review behavior under sibling source resolution"
-  },
-  {
-    "file": "tests/parts-act.test.ts",
-    "name": "another act at the staged deterministic path refuses with bytes identical",
-    "reason": "Exercises published Review behavior under sibling source resolution"
-  },
-  {
-    "file": "tests/parts-act.test.ts",
     "name": "standalone draft without a compiled model publishes through image references",
     "reason": "Exercises published Review behavior under sibling source resolution"
   },
   {
     "file": "tests/parts-act.test.ts",
     "name": "build-root draft binds its own parts inventory and compiled output",
-    "reason": "Exercises published Review behavior under sibling source resolution"
-  },
-  {
-    "file": "tests/parts-act.test.ts",
-    "name": "missing private receipt emits the named warning while retaining source checks",
     "reason": "Exercises published Review behavior under sibling source resolution"
   },
   {
@@ -187,38 +172,23 @@
   },
   {
     "file": "tests/job-refresh.test.ts",
-    "name": "#574 fresh rig approval folds one signature, preserves words, replays bytes and advances at check0",
-    "reason": "Exercises published Review rig-verdict approval/signature behavior under sibling source resolution."
+    "name": "#574 retained rig approval binds one signature, preserves words, replays bytes and advances at check0",
+    "reason": "Exercises retained Review rig-verdict approval/signature behavior under sibling source resolution."
   },
   {
     "file": "tests/job-refresh.test.ts",
-    "name": "#574 fresh rig changes-requested stays unsigned",
-    "reason": "Exercises published Review rig-verdict approval/signature behavior under sibling source resolution."
+    "name": "#574 retained rig changes-requested stays unsigned",
+    "reason": "Exercises retained Review rig-verdict approval/signature behavior under sibling source resolution."
   },
   {
     "file": "tests/job-refresh.test.ts",
-    "name": "#574 fresh rig pending stays unsigned",
-    "reason": "Exercises published Review rig-verdict approval/signature behavior under sibling source resolution."
+    "name": "#574 retained rig pending stays unsigned",
+    "reason": "Exercises retained Review rig-verdict approval/signature behavior under sibling source resolution."
   },
   {
     "file": "tests/job-refresh.test.ts",
     "name": "#574 folded rig ledger and replay reject changed authority, target, mapping and duplicate signatures",
     "reason": "Exercises published Review rig-verdict approval/signature behavior under sibling source resolution."
-  },
-  {
-    "file": "tests/job-refresh.test.ts",
-    "name": "#574 fresh rig approval refuses moved project bytes before creating signature or receipt",
-    "reason": "Exercises published Review rig-verdict approval/signature behavior under sibling source resolution."
-  },
-  {
-    "file": "tests/job-refresh.test.ts",
-    "name": "#574 folded rig shares live-target and retained-package refusal gates before any write",
-    "reason": "Exercises published Review rig-verdict approval/signature behavior under sibling source resolution."
-  },
-  {
-    "file": "tests/job-refresh.test.ts",
-    "name": "#574 fresh approval refuses actual reopen rigging before ingest without downgrading to legacy",
-    "reason": "Exercises a stale published Review rig approval against a retained legacy rigging reopen under sibling source resolution."
   },
   {
     "file": "tests/sign-subjects.test.ts",

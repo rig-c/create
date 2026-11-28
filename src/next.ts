@@ -1848,7 +1848,18 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
   if (recovery) {
     result = { ...result, moves: [recovery, ...result.moves], awaits: [...new Set([recovery.awaits, ...result.awaits])] };
   }
-  if (result.accepted || result.moves.length || result.awaits.length || result.refusals.length) return result;
+  if (result.accepted || result.moves.length || result.awaits.length || result.refusals.length) {
+    if (currentPath && result.accepted && result.refusals.length === 0
+      && isObject(project.current) && isObject(project.current.rig)
+      && !report.warnings.some(finding => finding.code === 'OUTPUT_STALE' && finding.path === 'current.rig')) {
+      return { ...result, moves: [...result.moves, {
+        role: 'agent', field: 'current.rig', awaits: 'current.rig',
+        command: `rig-create handoff ${shellWord(dir)} --json`,
+        act: 'Read the handed-off rig files and their sha256 hashes.',
+      }] };
+    }
+    return result;
+  }
   const code = 'NEXT_NO_FORWARD_MOVE';
   const message = `project.json.stage: no move was derived at effective stage ${result.effective_stage}; inspect the checked record and report the missing workflow route`;
   return { ...result, refusals: [{ code, field: 'project.json.stage', message, fix: remedyForFinding(code, message) }] };

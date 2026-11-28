@@ -187,11 +187,12 @@ async function replay(destination: string, skipSignoffs = false): Promise<void> 
       throw new Error('post-interview move omitted post plan.steps summary');
     }
     const finalJson = JSON.parse(nextCommand([dir, '--json'], now).stdout) as NextReport;
-    if (!finalJson.accepted || finalJson.moves.length !== 0 || finalJson.awaits.length !== 0 || finalJson.refusals.length !== 0) {
+    if (!finalJson.accepted || commands(finalJson, 'rig-create handoff').length !== 1 || finalJson.moves.length !== 1
+      || finalJson.awaits.length !== 0 || finalJson.refusals.length !== 0) {
       throw new Error(`unexpected next --json at accepted: ${JSON.stringify(finalJson)}`);
     }
     const finalText = nextCommand([dir], now).stdout;
-    if (finalText !== 'next: example-current — stage: accepted\nno remaining move (project is accepted)') {
+    if (!finalText.startsWith('next: example-current — stage: accepted\n') || !finalText.includes('rig-create handoff ')) {
       throw new Error(`unexpected next text at accepted:\n${finalText}`);
     }
   }
@@ -366,11 +367,9 @@ if (process.argv[2] === '--replay-current-example') {
       effective_stage: 'accepted',
       accepted: true,
       awaits: [],
-      moves: [],
+      moves: [{ command: `rig-create handoff ${dir} --json` }],
     });
-    expect(nextCommand([dir], now + 10_000).stdout).toBe(
-      'next: example-current — stage: accepted\nno remaining move (project is accepted)',
-    );
+    expect(nextCommand([dir], now + 10_000).stdout).toContain('rig-create handoff ');
 
     const acceptedUnsigned = stripSignoffs(full);
     const rigSignoff = structuredClone(asArray(full.signoffs).filter(isObject).find(s => s.stage === 'rig-review')!);
@@ -391,13 +390,11 @@ if (process.argv[2] === '--replay-current-example') {
     writeFileSync(recordPath, `${JSON.stringify(acceptedUnsigned, null, 2)}\n`);
     expect(checkProject(dir, undefined, { now: now + 10_000, readOnly: true }).refusals).toEqual([]);
     const acceptedNext = nextProject(dir, now + 10_000);
-    expect(acceptedNext).toMatchObject({ stage: 'accepted', effective_stage: 'accepted', accepted: true, awaits: [], moves: [] });
+    expect(acceptedNext).toMatchObject({ stage: 'accepted', effective_stage: 'accepted', accepted: true, awaits: [], moves: [{ command: `rig-create handoff ${dir} --json` }] });
     expect(acceptedNext.warnings?.map(w => w.code)).toEqual(['REOPEN_SIGNOFF_LAPSED']);
-    const acceptedLines = nextCommand([dir], now + 10_000).stdout.split('\n');
-    expect([acceptedLines[0], acceptedLines.at(-1)]).toEqual([
-      'next: example-current — stage: accepted',
-      'no remaining move (project is accepted)',
-    ]);
+    const acceptedText = nextCommand([dir], now + 10_000).stdout;
+    expect(acceptedText).toStartWith('next: example-current — stage: accepted\n');
+    expect(acceptedText).toContain('rig-create handoff ');
   });
 
   test('#1062 an unsigned current project walked to accepted recovers from amendments without signoff stops', () => {
@@ -490,7 +487,7 @@ if (process.argv[2] === '--replay-current-example') {
       effective_stage: 'accepted',
       accepted: true,
       awaits: [],
-      moves: [],
+      moves: [{ command: `rig-create handoff ${rigDir} --json` }],
     });
     expect(asArray((JSON.parse(readFileSync(join(rigDir, 'project.json'), 'utf8')) as JsonObject).signoffs)).toEqual([]);
 
@@ -524,7 +521,7 @@ if (process.argv[2] === '--replay-current-example') {
       effective_stage: 'accepted',
       accepted: true,
       awaits: [],
-      moves: [],
+      moves: [{ command: `rig-create handoff ${postDir} --json` }],
     });
   }, 120_000);
 }

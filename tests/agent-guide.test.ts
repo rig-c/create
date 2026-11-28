@@ -33,6 +33,7 @@ const reference = readFileSync(join(REPO, 'docs', AGENT_REFERENCE), 'utf8');
 const GUIDE_HEADINGS = [
   '# Agent guide',
   '## Start here',
+  '### Pause',
   '## The order, and what you may not do',
   "## The user's four steps",
   '## Before you ask, plan or show',
@@ -326,6 +327,8 @@ test('rendered guide names both painting declarations and the current Review rou
   expect(guide).toContain('project.json.painting');
   expect(guide).toContain('job open --reviewer <id> --role owner --current <parts|rig|direction>');
   expect(guide).toContain('job acts --json');
+  expect(guide).toContain('`rig-create pause --by <who>`');
+  expect(guide).toContain('Current-path pauses need no\nsignature.');
   expect(Buffer.byteLength(guide)).toBeLessThan(GUIDE_MAX_BYTES);
 });
 

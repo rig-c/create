@@ -104,7 +104,7 @@ ${INPUT_CLI}  rig-create init <dir> [--no-install]              create a project
   rig-create step-status <step> <status> --by <who> [<project dir>] [--note-file <path>]
                                                     record an audited forward step status
   rig-create pause --by <who> [--verbatim-file <file>] [<project dir>]
-                                                    stop work on a paused sign-off and record the stage it left
+                                                    pause work and record the stage it left
   rig-create resume <stage> --by <who> [--verbatim-file <file>] [<project dir>]
                                                     return a paused project to the stage it was paused from
   rig-create amend <stage> --kind <kind> --target <id> --change <file> --by <who> [<project dir>]

@@ -50,6 +50,7 @@ const guideCommands: ReadonlyArray<{ args: string[]; code: string; exit?: number
   { args: ['scene', 'write', '.', '--compose-scene', 'scene.json'], code: 'SCENE_MALFORMED' },
   { args: ['direction', 'write', '.', '--file', 'intent.json'], code: 'DIRECTION_SOURCE_CHANGED' },
   { args: ['step-status', 'assemble', 'done', '.', '--by', 'agent'], code: missingProject },
+  { args: ['pause', '.', '--by', 'owner'], code: missingProject },
   { args: ['advance', 'parts-review', '.', '--parts-check', 'report.json', '--parts', 'outputs/parts/rig'], code: missingProject },
   { args: ['advance', 'accepted', '.'], code: missingProject },
   { args: ['signoff', 'parts-review', '.', ...ownerChat], code: missingProject },

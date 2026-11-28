@@ -149,7 +149,9 @@ test('#1111 a changed input preserves the adopted rig and names the missing rebu
   const projectBytes = readFileSync(join(dir, 'project.json'));
   const modelBytes = readFileSync(join(dir, retained));
   const fresh = next(dir);
-  expect(fresh.moves.some(move => move.field === 'current.rig')).toBe(false);
+  expect(fresh.moves.filter(move => move.field === 'current.rig')).toEqual([
+    expect.objectContaining({ command: `rig-create handoff ${dir} --json` }),
+  ]);
 
   put(dir, config, { synthetic: 'changed input' });
   const changed = next(dir);

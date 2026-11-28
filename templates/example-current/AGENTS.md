@@ -1,30 +1,33 @@
 # Agent guide
 
-One painting, one current rig and its takes.
-
 ## Start here
 
 Use `rig-create init <dir> --painting <file> --origin <words> --owner-language <tag>`. In an existing project, `rig-create input add <path> --painting --origin <words>`. Keep the source bytes bound in `project.json.painting` unchanged.
 
-Read `project.json`, then run `rig-create next` from the project folder. Read next again after each writer or producer, before advancing. [Resume](https://github.com/rig-c/create/blob/main/docs/PROJECT.md#how-an-agent-resumes-a-project).
+Read `project.json` and run `rig-create next` in the project folder. Run it again after each writer or producer. [Resume](https://github.com/rig-c/create/blob/main/docs/PROJECT.md#how-an-agent-resumes-a-project).
+
+### Pause
+
+To stop work, use `rig-create pause --by <who>`. Current-path pauses need no
+signature. While paused, follow the resume move from next.
 
 ## The order, and what you may not do
 
 `interview` → `plan-approved` → `parts` → `parts-review` (parts, by eye) →
 `rigging-interview` → `rigging` → `rig-review` → `post-interview` → `post` →
-`direction-review` → `accepted`. These are progress markers ([Stages](https://github.com/rig-c/create/blob/main/docs/PROJECT.md#stages)).
-Use `rig-create advance <stage>` and `rig-create step-status <id> <status> --by agent` when next offers them.
+`direction-review` → `accepted`. See [Stages](https://github.com/rig-c/create/blob/main/docs/PROJECT.md#stages).
+Follow next for `rig-create advance <stage>` and `rig-create step-status <id> <status> --by agent`.
 
-At the end of each step run `rig-create interview --check`. Fix refusals,
-read warnings and check again. Retain producer reports and use writers for
-every record change. Relay exact owner words with attribution.
+After each step run `rig-create interview --check`. Fix refusals, read warnings
+and check again. Keep producer reports, use record writers and quote exact
+owner words with attribution.
 
 ## The user's four steps
 
-Write one plan per step with
-`rig-create plan propose <step> --file <plan.md> --by agent`. Use a summary,
-what and why, exclusions and direction questions. Tell the owner once in
-chat and proceed. Record feedback with
+One plan per step with
+`rig-create plan propose <step> --file <plan.md> --by agent`. Summarize the work,
+why, exclusions and direction questions. Tell the owner once in chat and
+proceed. Record feedback with
 `rig-create plan feedback <step> --words-file <file> --by <owner> --said-at <ISO> --relayed-by <operator>`.
 Feedback and approval never gate writes. For machine-read parts and rigging values use
 `rig-create interview-decision <question> --by agent --reasoning-file <file> --value-file <json> --plan-quote-file <file>`.

@@ -96,7 +96,7 @@ import { depthPlanMoves, turnExtraGroupMoves } from './rig-version.ts';
 import { checkRigReport, parseRigCheckReport, RIG_CHECK_REPORT_FILE } from './rig-check-report.ts';
 import { validateRunRecord } from './run-record.ts';
 import { postCompositionSetOffersScene } from './scene-authority.ts';
-import { DirectionError, directionJson, directionPath, missingDirectionStepApprovals } from './direction.ts';
+import { DirectionError, directionJson, directionPath, missingDirectionStepApprovals, missingPostPlanRows, POST_PLAN_ROWS } from './direction.ts';
 import { type NextComment, withCurrentComments } from './comment-closures.ts';
 import { adoptedRigInventoryMatches, currentOutputMove, withStaleOutputs } from './next-stale.ts';
 
@@ -626,11 +626,12 @@ function stepPlanQuestions(dir: string, project: JsonObject, stageItems: Item[],
   return { questionItems: [...(allowOptions ? uncovered : uncovered.filter(item => item.state.state !== 'silent')), ...ownerChoices], moves: [...moves, ...values] };
 }
 
-function interviewPlanMoves(dir: string, project: JsonObject, stageItems: Item[], stage: string, steps: JsonObject[]) {
-  const phase = stage === 'post-interview' ? 'post' : 'rig';
-  const planIds = phase === 'post' ? ['camera', 'timing', 'composition'] : requiredInterviewSteps(stage);
-  const guideForStep = (id: string) => id === 'camera' ? 'camera_depth' : id === 'timing' ? 'post_timing' : id === 'composition' ? 'post_composition' : id;
-  const missingPlanIds = planIds.filter(id => !steps.some(step => step.phase === phase && (step.id === id
+function interviewPlanMoves(dir: string, project: JsonObject, stageItems: Item[], stage: string, steps: JsonObject[], postRecovery = false) {
+  const phase = postRecovery || stage === 'post-interview' ? 'post' : 'rig';
+  const planIds = phase === 'post' ? POST_PLAN_ROWS.map(row => row.id) : requiredInterviewSteps(stage);
+  const guideForStep = (id: string) => POST_PLAN_ROWS.find(row => row.id === id)?.guide ?? id;
+  const missingPlanIds = postRecovery ? missingPostPlanRows(steps).map(row => row.id)
+    : planIds.filter(id => !steps.some(step => step.phase === phase && (step.id === id
     || phase === 'post' && asArray(step.rests_on).includes(guideForStep(id)))));
   const lastOrder = Math.max(0, ...steps.map(step => Number(step.order) || 0));
   const moves: NextMove[] = [];
@@ -641,7 +642,9 @@ function interviewPlanMoves(dir: string, project: JsonObject, stageItems: Item[]
     const order = lastOrder + index + 1;
     moves.push({ role: 'agent', field: 'plan.steps', awaits: 'plan.steps',
       command: `rig-create plan add ${id} ${shellWord(dir)} --by agent --phase ${phase} --order ${order} --does '<work>' --produces '<result>' --rests-on ${guideId} --bar '<acceptance bar>' --checkpoint-proposed false`,
-      act: `author the ${id} plan step for approval at ${stage}; replace the work, result and acceptance bar placeholders`,
+      act: postRecovery
+        ? `Record the ${id} plan step from the recorded ${guideId} answer; replace the work, result and acceptance bar placeholders.`
+        : `author the ${id} plan step for approval at ${stage}; replace the work, result and acceptance bar placeholders`,
       unanswered_by_record: 'plan.steps' });
   }
   return { planIds, missingPlanIds, moves };
@@ -1780,6 +1783,16 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
           moves: moves.map(move => isDirectionMove(move) ? { ...move, act: `${feedbackAct} ${move.act}` } : move),
         };
       }
+    }
+  }
+  if ((currentPath || isCurrentProject(project)) && next.stage !== PAUSED_STAGE && !next.accepted
+    && stageIndex(next.effective_stage) >= stageIndex('post') && !postNotPassed({ items: allItems })) {
+    const postItems = allItems.filter(item => item.kind === 'post' && answered(item.state));
+    const plan = interviewPlanMoves(dir, project, postItems, next.effective_stage, steps, true);
+    if (plan.moves.length > 0) {
+      const moves = next.moves.filter(move => !move.command?.startsWith('rig-create direction write '));
+      const awaits = next.awaits.filter(target => target !== CURRENT_DIRECTION_PATH || moves.some(move => move.awaits === target));
+      next = { ...next, awaits: [...new Set(['plan.steps', ...awaits])], moves: [...plan.moves, ...moves] };
     }
   }
   const languageMove = next.stage !== PAUSED_STAGE && !next.accepted

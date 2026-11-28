@@ -39,7 +39,12 @@ export const hex = (v: unknown): v is string => typeof v === 'string' && /^[a-f0
 export const closed = (v: unknown, required: string[], optional: string[] = []): v is JsonObject => isObject(v as Json) && required.every(k => k in (v as JsonObject)) && Object.keys(v as JsonObject).every(k => required.includes(k) || optional.includes(k));
 const positiveInt = (v: unknown): v is number => Number.isSafeInteger(v) && Number(v) > 0;
 const finite = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
-export class DirectionError extends Error { constructor(readonly code: string, readonly path: string, why: string) { super(`${path}: ${why}; retain the source bytes, correct this record and retry direction check`); } }
+export class DirectionError extends Error {
+  constructor(readonly code: string, readonly path: string, why: string,
+    remedy = 'retain the source bytes, correct this record and retry direction check') {
+    super(`${path}: ${why}; ${remedy}`);
+  }
+}
 export function directionFail(code: string, path: string, why: string): never { throw new DirectionError(code, path, why); }
 export function directionFinding(e: DirectionError): Finding { return { code: e.code, path: e.path, message: e.message }; }
 export function directionBytes(dir: string, path: string): Buffer { return retainedBytes(dir, path, false); }
@@ -166,20 +171,35 @@ export function validateDirectionCitations(dir: string, project: JsonObject, doc
   if (!current) return;
   if (doc.schema === CURRENT_DIRECTION_SCHEMA) {
     const invalid = invalidCurrentDirectionStep(project, items);
-    if (invalid) directionFail('DIRECTION_CITATION', `plan.steps[${invalid.id}]`, invalid.why);
+    if (invalid) throw new DirectionError('DIRECTION_CITATION', `plan.steps[${invalid.id}]`, invalid.why, invalid.remedy);
     return;
   }
   const [missing] = missingDirectionStepApprovals(project, items);
   if (missing) directionFail('DIRECTION_CITATION', `plan.steps[${missing}]`, 'live post-interview approval and matching step hash required');
 }
 
-function invalidCurrentDirectionStep(project: JsonObject, items: readonly Item[]): { id: string; why: string } | undefined {
+export const POST_PLAN_ROWS = [
+  { id: 'camera', guide: 'camera_depth' },
+  { id: 'timing', guide: 'post_timing' },
+  { id: 'composition', guide: 'post_composition' },
+] as const;
+
+export function missingPostPlanRows(steps: readonly JsonObject[]) {
+  return POST_PLAN_ROWS.filter(({ id }) => !steps.some(step => step.id === id && step.phase === 'post'));
+}
+
+function invalidCurrentDirectionStep(project: JsonObject, items: readonly Item[]): { id: string; why: string; remedy?: string } | undefined {
   const reopens = collectReopens(project, []);
   const steps = objects(isObject(project.plan) ? project.plan.steps : undefined);
   const approvals = collectSignoffs(project, []).filter(s => s.stage === 'post-interview'
     && s.checkpoint === null && liveSignoff(reopens, s.stage, s.at));
   for (const id of ['camera', 'timing'] as const) {
     const matches = steps.filter(step => step.id === id && step.phase === 'post');
+    if (matches.length === 0) {
+      const missing = missingPostPlanRows(steps).map(row => row.id).join(', ');
+      return { id, why: `missing post plan steps ${missing}`,
+        remedy: 'run rig-create next in the project, follow the post plan moves it shows, then retry direction write' };
+    }
     if (matches.length !== 1) return { id, why: 'unique post plan step required' };
     const covering = approvals.filter(s => s.steps === null || s.steps.includes(id));
     if (covering.length === 0) continue;

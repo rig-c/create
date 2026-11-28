@@ -42,7 +42,10 @@ Feedback and approval never gate writes. For machine-read plan values use
    `rig-create record rig --from <dir> --config <file>`. Look at the rig and
    its motion against the painting at a fixed view before adding direction.
 4. **Direction (`direction`).** Ask camera/depth, timing and
-   composition in chat against the recorded rig. Retain each shown set with
+   composition in chat against the recorded rig. Use `templates/example-current` option JSON as a specimen. For a new rig, refresh `drafted_at` and the `current-rig`
+   context's run and config paths and hashes. Set `target.files_sha256` from the rig
+   and `target.record_sha256` to the SHA-256 of its compact recursively key-sorted JSON.
+   Omit `signoff_at` without a signoff. Retain each shown set with
    `rig-create interview-options <question> --file <set.json>`. Relay the
    owner's actual pick with
    `rig-create interview-answer <question> --set <set.json> --sha256 <shown-hash> --pick <ask>=<option> --by <owner> --owner-chat <file> --said-at <ISO> --relayed-by <operator>`.
@@ -66,9 +69,8 @@ private URL once. Run the same invocation to publish another result into the sta
 
 `rig-create job acts --json` lists the finalized acts and their comments and
 words. Wait for a new act with `rig-create job acts --wait`, then use
-`rig-create comment --from-review <actId>` for comment-only acts. The entry binds seen
-files by hash. When the owner gives an
-optional signoff in chat, use the relay move from next for its recorded target.
+`rig-create comment --from-review <actId>` for comment-only acts. Comments bind files by hash. For an
+optional signoff in chat, use its relay move from next.
 
 If the host stops, repeat the same open with its reviewer and role, then
 run `rig-create job reconcile`. Close with `rig-create job close` when done. See the [live Review loop](https://github.com/rig-c/create/blob/main/docs/LIVE-REVIEW.md)

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test';
-import { cpSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
+import { readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { collectItems } from '../src/check.ts';
 import { applicableAsks, optionContext, sha256 } from '../src/choices.ts';
@@ -11,6 +11,7 @@ import { stepHash } from '../src/step-hash.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { plantLegacyReopen, arr, bindFixtureAnswers, fixture, obj, rehashSignoffs, retainSignoffs, retimeFixture, step } from './fixtures.ts';
 import { clockedCli, tempDir } from './helpers.ts';
+import { copyWithRunningCreatePin } from './copied-create-pin.ts';
 import { directionFixture } from './direction-fixture.ts';
 import { withPartsCheck } from './parts-check-fixture.ts';
 import { seedStoredVerdict, seedStoredVersionSignoff } from './historical-review-fixture.ts';
@@ -48,7 +49,7 @@ function partsProject(stage = 'plan-approved', split = false): string {
 function interviewArrival(stage: string): string {
   const dir = join(tempDir(), 'project');
   const checkpoint = stage === 'rigging-interview' ? '2-rigging-answers' : '3-rig-review';
-  cpSync(join(import.meta.dir, '../templates/example-chain/checkpoints', checkpoint), dir, { recursive: true });
+  copyWithRunningCreatePin(join(import.meta.dir, '../templates/example-chain/checkpoints', checkpoint), dir);
   if (stage === 'rigging-interview') {
     const project = read(dir);
     project.stage = 'parts-review';
@@ -528,7 +529,7 @@ test('a link break warns when its latest preceding event predates PROGRESS_HISTO
 
 test('a rig acceptance lapsed by a reopen is named with the reopen, not reported as missing', () => {
   const dir = join(tempDir(), 'project');
-  cpSync(join(import.meta.dir, '../templates/example-chain'), dir, { recursive: true });
+  copyWithRunningCreatePin(join(import.meta.dir, '../templates/example-chain'), dir);
   plantLegacyReopen(dir, 'rig-review', { by: 'owner', wordsFile: words(dir) });
   testClock.set(new Date('2026-11-20T00:01:00Z'));
   refused(dir, 'NUMBERED_WRITER_REMOVED', () => signoffCommand(['rig-review', dir, '--by', 'owner', '--verbatim-file', words(dir)]));

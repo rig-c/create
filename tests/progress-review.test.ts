@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from 'bun:test';
-import { cpSync, readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { EXAMPLE_NOW } from '../scripts/example-time.ts';
 import { Refusal } from '../src/refusal.ts';
@@ -7,6 +7,7 @@ import { DIRECTION_REVIEW_ADVANCE_SINCE, RIGGING_INTERVIEW_PAINTING_SINCE } from
 /** The retired stage-order contract date (#981), kept as a fixture clock anchor. */
 const STAGE_PROGRESS_SINCE = '2026-11-08T00:00:00Z';
 import { tempDir } from './helpers.ts';
+import { copyWithRunningCreatePin } from './copied-create-pin.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { plantLegacyReopen, arr, bindFixtureAnswers, fixture, obj, rehashSignoffs, retimeFixture, step } from './fixtures.ts';
 import { checkProject, advanceCommand, inputCommand, stepStatusCommand, signoffCommand, testClock } from './clock.ts';
@@ -36,7 +37,7 @@ afterEach(() => testClock.reset());
 function riggingProject(empty = false): string {
   testClock.set(new Date('2026-11-06T23:59:00Z'));
   const dir = join(tempDir(), 'project');
-  cpSync(join(import.meta.dir, '../templates/example-chain/checkpoints/3-rig-review'), dir, { recursive: true });
+  copyWithRunningCreatePin(join(import.meta.dir, '../templates/example-chain/checkpoints/3-rig-review'), dir);
   plantLegacyReopen(dir, 'rigging-interview', { by: 'owner', wordsFile: words(dir) });
   if (empty) {
     const p = read(dir);
@@ -138,7 +139,7 @@ test('review an absent frontier date retains the existing malformed-signoff refu
 
 test('#981 advancing past unfinished post meets only the post evidence rule', () => {
   const dir = join(tempDir(), 'project');
-  cpSync(join(import.meta.dir, '../templates/example-chain/checkpoints/4-direction-post'), dir, { recursive: true });
+  copyWithRunningCreatePin(join(import.meta.dir, '../templates/example-chain/checkpoints/4-direction-post'), dir);
   testClock.set(new Date('2026-11-06T23:59:00Z'));
   plantLegacyReopen(dir, 'post', { by: 'owner', wordsFile: words(dir) });
   expect(step(read(dir), 'camera').status).toBe('pending');
@@ -187,7 +188,7 @@ function progress(dir: string): { refusals: string[]; warnings: string[] } {
 }
 function checkpoint(name: string, handMove = false): string {
   const dir = join(tempDir(), 'project');
-  cpSync(join(import.meta.dir, '../templates/example-chain/checkpoints', name), dir, { recursive: true });
+  copyWithRunningCreatePin(join(import.meta.dir, '../templates/example-chain/checkpoints', name), dir);
   if (handMove) {
     // Plant the legacy hand move independently of the writer-generated checkpoint.
     const project = read(dir); delete project.advances;
@@ -201,7 +202,7 @@ function hand(dir: string, stage: string): void {
 
 test('review the advance after a pre-contract hand move records it', () => {
   const dir = join(tempDir(), 'project');
-  cpSync(join(import.meta.dir, '../templates/example-chain'), dir, { recursive: true });
+  copyWithRunningCreatePin(join(import.meta.dir, '../templates/example-chain'), dir);
   const project = read(dir);
   project.stage = 'post';
   project.signoffs = arr(project.signoffs).filter(s => obj(s).stage !== 'direction-review');
@@ -230,7 +231,7 @@ test('#503 advance direction-review from post refuses byte-identically when lack
 
   // 3. With direction_contract and scenes[n=1], still lacking versions[n=2].
   const sceneOnlyDir = join(tempDir(), 'scene-only');
-  cpSync(join(import.meta.dir, '../templates/example-chain'), sceneOnlyDir, { recursive: true });
+  copyWithRunningCreatePin(join(import.meta.dir, '../templates/example-chain'), sceneOnlyDir);
   const sceneOnly = read(sceneOnlyDir);
   sceneOnly.stage = 'post';
   sceneOnly.versions = arr(sceneOnly.versions).filter(v => obj(v).kind === 'rig');
@@ -243,7 +244,7 @@ test('#503 advance direction-review from post refuses byte-identically when lack
 test('#503 advance direction-review succeeds when current scene and live post version exist, and check warns before DIRECTION_REVIEW_ADVANCE_SINCE', () => {
   testClock.set(new Date('2026-11-20T00:00:00Z'));
   const dir = join(tempDir(), 'post-ready');
-  cpSync(join(import.meta.dir, '../templates/example-chain'), dir, { recursive: true });
+  copyWithRunningCreatePin(join(import.meta.dir, '../templates/example-chain'), dir);
   const ready = read(dir);
   ready.stage = 'post';
   obj(arr(ready.versions).at(-1)).verdicts = [];

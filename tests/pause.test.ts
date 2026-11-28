@@ -10,6 +10,7 @@ import { selectSignoffTarget } from '../src/signoff-target.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { plantLegacyReopen, arr, obj } from './fixtures.ts';
 import { cli, clockedCli, ownerChatArgs, run, tempDir } from './helpers.ts';
+import { copyWithRunningCreatePin } from './copied-create-pin.ts';
 import { advanceCommand, amendCommand, checkProject, pauseCommand, resumeCommand, signoffCommand, testClock } from './clock.ts';
 
 const CHECKPOINTS = join(import.meta.dir, '../templates/example-chain/checkpoints');
@@ -20,7 +21,7 @@ function words(dir: string): string { const path = join(dir, 'words.txt'); write
 /** A writer-built prefix of the example chain: check passes with no refusals and no warnings. */
 function chain(checkpoint: string): string {
   const dir = join(tempDir(), 'project');
-  cpSync(join(CHECKPOINTS, checkpoint), dir, { recursive: true });
+  copyWithRunningCreatePin(join(CHECKPOINTS, checkpoint), dir);
   return dir;
 }
 let minute = 0;
@@ -238,7 +239,7 @@ function parseShellWords(command: string): string[] {
 describe('next --json on a paused project', () => {
   test('emits the runnable resume command with no review_act for numbered and current projects', () => {
     const numbered = join(tempDir(), 'numbered paused');
-    cpSync(join(CHECKPOINTS, '3-rig-review'), numbered, { recursive: true });
+    copyWithRunningCreatePin(join(CHECKPOINTS, '3-rig-review'), numbered);
     expect(isCurrentProject(read(numbered))).toBe(false);
     testClock.set(EXAMPLE_ANCHOR + 5 * 60_000);
     signPaused(numbered);

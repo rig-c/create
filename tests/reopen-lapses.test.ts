@@ -1,8 +1,9 @@
 import { afterEach, expect, test } from 'bun:test';
-import { cpSync, writeFileSync } from 'node:fs';
+import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { plantLegacyReopen, fixture } from './fixtures.ts';
 import { tempDir } from './helpers.ts';
+import { copyWithRunningCreatePin } from './copied-create-pin.ts';
 import { TEST_NOW, amendCommand, checkProject, signoffCommand, testClock } from './clock.ts';
 
 const CHAIN_POST = join(import.meta.dir, '../templates/example-chain/checkpoints/4-direction-post');
@@ -14,7 +15,7 @@ afterEach(() => testClock.reset());
 
 test('a writer-built project reopened to parts past rig-review and post-interview lists exactly the lapsed approvals', () => {
   const dir = join(tempDir(), 'project');
-  cpSync(CHAIN_POST, dir, { recursive: true });
+  copyWithRunningCreatePin(CHAIN_POST, dir);
   expect(checkProject(dir)).toMatchObject({ refusals: [], warnings: [] });
   testClock.set(new Date('2026-11-06T02:00:00Z'));
   reopen(dir, 'parts');

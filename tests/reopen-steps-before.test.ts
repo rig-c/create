@@ -1,11 +1,12 @@
 import { afterEach, expect, test } from 'bun:test';
-import { cpSync, readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { EXAMPLE_NOW } from '../scripts/example-time.ts';
 import { PROGRESS_HISTORY_SINCE } from '../src/stage-progress.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { plantLegacyReopen, arr, fixture, obj, retimeFixture } from './fixtures.ts';
 import { tempDir } from './helpers.ts';
+import { copyWithRunningCreatePin } from './copied-create-pin.ts';
 import { advanceCommand, checkProject, signoffCommand, stepStatusCommand, testClock } from './clock.ts';
 
 const CHECKPOINTS = join(import.meta.dir, '../templates/example-chain/checkpoints');
@@ -26,7 +27,7 @@ const reopen = (dir: string, stage: string): void => { tick(); plantLegacyReopen
 /** A writer-built example-chain prefix: its rig steps are done with no status history. */
 function rigReview(start: number): string {
   const dir = join(tempDir(), 'project');
-  cpSync(join(CHECKPOINTS, '3-rig-review'), dir, { recursive: true });
+  copyWithRunningCreatePin(join(CHECKPOINTS, '3-rig-review'), dir);
   at(start);
   return dir;
 }

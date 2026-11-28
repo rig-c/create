@@ -15,6 +15,7 @@ import type { JsonObject } from '../src/templates.ts';
 import { checkProject, testClock, TEST_NOW } from './clock.ts';
 import { arr, obj, plantLegacyReopen, step, waypoint } from './fixtures.ts';
 import { cli, clockedCli, ownerChatArgs, run as runProcess, tempDir, treeDigest } from './helpers.ts';
+import { copyWithRunningCreatePin } from './copied-create-pin.ts';
 
 const CHECKPOINTS = join(import.meta.dir, '../templates/example-chain/checkpoints');
 const STALE = 'PLAN_STEP_PREDATES_ANSWER';
@@ -31,7 +32,7 @@ const chronology = (report: CheckReport) => [...report.refusals, ...report.warni
   .map(({ code, path }) => [code, path]);
 
 function completedRemesh(root: string): JsonObject {
-  cpSync(join(CHECKPOINTS, '../../example-remesh'), root, { recursive: true });
+  copyWithRunningCreatePin(join(CHECKPOINTS, '../../example-remesh'), root);
   const project = read(root);
   delete project.amendments;
   for (const definition of arr(obj(project.plan).steps).map(obj)) {
@@ -42,7 +43,7 @@ function completedRemesh(root: string): JsonObject {
 
 function prepare(phase: 'rig' | 'post') {
   const root = join(tempDir(), 'project');
-  cpSync(join(CHECKPOINTS, phase === 'rig' ? '2-rigging-answers' : '4-direction-post'), root, { recursive: true });
+  copyWithRunningCreatePin(join(CHECKPOINTS, phase === 'rig' ? '2-rigging-answers' : '4-direction-post'), root);
   const project = read(root);
   const id = phase === 'rig' ? 'bones' : 'camera';
   const basis = phase === 'rig' ? 'bones' : 'camera_depth';

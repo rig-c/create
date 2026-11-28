@@ -10,6 +10,7 @@ import type { JsonObject } from '../src/templates.ts';
 import { arr, fixture, obj } from './fixtures.ts';
 import { checkProject, testClock } from './clock.ts';
 import { clockedCli, tempDir } from './helpers.ts';
+import { copyWithRunningCreatePin } from './copied-create-pin.ts';
 import { sceneRig } from '../src/scene.ts';
 import { seedRetainedReviewPackage } from './numbered-seed.ts';
 
@@ -19,7 +20,7 @@ const save = (dir: string, project: JsonObject): void => writeFileSync(join(dir,
 
 function copy(checkpoint?: string): string {
   const dir = join(tempDir(), 'project');
-  cpSync(checkpoint === undefined ? chain : join(chain, 'checkpoints', checkpoint), dir, { recursive: true });
+  copyWithRunningCreatePin(checkpoint === undefined ? chain : join(chain, 'checkpoints', checkpoint), dir);
   return dir;
 }
 function run(dir: string, ...args: string[]): { exit: number; stdout: string; stderr: string } {

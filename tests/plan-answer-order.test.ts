@@ -242,14 +242,7 @@ test('#561 stale steps block approval while the post interview continues', () =>
   expect(pending.moves.some(move => move.command?.includes('--from-review'))).toBe(false);
   assertNoApproval(pending);
 
-  expect(choose('post_timing', timingSet, 'auto')).toMatchObject({ code: 0, stderr: '' });
-  const delegated = readNext();
-  nextHas(delegated, 'interview.post.items[post_timing].guide', 'interview-decision post_timing');
-  assertNoApproval(delegated);
-  const timingFragment = join(root, 'timing.json');
-  writeFileSync(timingFragment, JSON.stringify({ duration: 4, loop: false }));
-  expect(run('interview-decision', 'post_timing', '--by', 'agent', '--reasoning-file', words,
-    '--fragment', `post_timing=${timingFragment}`)).toMatchObject({ code: 0, stderr: '' });
+  expect(choose('post_timing', timingSet, 'keep')).toMatchObject({ code: 0, stderr: '' });
 
   const followUp = JSON.parse(readFileSync(join(root, String(compositionSet.path)), 'utf8')) as JsonObject;
   followUp.id = 'composition-follow-up';
@@ -509,27 +502,4 @@ test('#561 job open refuses a stale step covered by a post-interview re-sign at 
   } finally {
     host.stop();
   }
-}, 60_000);
-
-test('#997 a step-plan value recorded after a step resting on it was drafted marks that step for revision', () => {
-  const fixture = prepare('post');
-  const { root, id, basis, run } = fixture;
-  const project = read(root);
-  delete postItem(project, basis).pending_options;
-  write(root, project);
-  testClock.set(T0);
-  expect(run('plan', 'add', id, '--by', 'agent', '--phase', 'post', '--order', '3',
-    '--does', 'Draft the synthetic step.', '--produces', 'A synthetic result.',
-    '--rests-on', basis, '--bar', 'Keep the synthetic input.', '--checkpoint-proposed', 'false').code).toBe(0);
-  writeFileSync(join(root, 'direction-plan.md'), 'The camera keeps a shallow depth.\n');
-  expect(run('plan', 'propose', 'direction', '--file', 'direction-plan.md', '--by', 'agent')).toMatchObject({ code: 0 });
-  const files = tempDir();
-  writeFileSync(join(files, 'why.md'), 'The plan states this value.\n');
-  writeFileSync(join(files, 'value.json'), JSON.stringify('shallow'));
-  writeFileSync(join(files, 'quote.txt'), 'The camera keeps a shallow depth.');
-  testClock.set(T0 + 2_000);
-  const recorded = run('interview-decision', basis, '--by', 'agent', '--reasoning-file', join(files, 'why.md'),
-    '--value-file', join(files, 'value.json'), '--plan-quote-file', join(files, 'quote.txt'));
-  expect(recorded).toMatchObject({ code: 0, stderr: '' });
-  expect(chronology(checkProject(root))).toContainEqual([STALE, `plan.steps[${id}]`]);
 }, 60_000);

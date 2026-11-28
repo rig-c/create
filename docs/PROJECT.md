@@ -2668,9 +2668,12 @@ the project's next moves and whose they are from `project.json`:
 - **Work rows.** At an interview stage, `next` lists the executable rows
   still needed for the covered guides. Fill in the authored fields from
   the current step plan, record the rows and read `next` again.
+- **Pause and resume.** On the current path, `next` offers an optional pause
+  while working and a resume to the recorded stage while paused.
 - **Read-only and deterministic.** `project.json` and the project tree remain
-  byte-identical. An `accepted` project with no lapsed approvals reports
-  `accepted: true`, `moves: []` and exits `0`.
+  byte-identical. At acceptance, `next` exits `0` with `accepted: true`.
+  A current project with a fresh recorded rig gets a handoff move. A numbered
+  project gets `moves: []`.
 
 `--json` emits a `rig-create/next@1` document:
 

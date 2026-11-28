@@ -5,9 +5,11 @@ import { assertFigureMaskApproval } from './figure-mask.ts';
  * docs/PROJECT.md § Stages, § The rig review,
  * § The hand-off to post-production).
  *
- * The rig is accepted first. Post work
- * (camera, 2.5D depth, timing, composition) runs only on the rig version that
- * acceptance names. What is recorded where:
+ * On the current path, handoff reads the recorded current.rig after the
+ * project advances past rig-review.
+ *
+ * The numbered path binds post work to the rig version its verdict accepts.
+ * What is recorded where:
  *
  * - **Which rig version was accepted** is the human `accepted` verdict with
  *   `review: "rig-review"` on that `versions[]` entry (kind `rig`). The
@@ -283,8 +285,8 @@ function currentHandoff(dir: string, project: JsonObject, rig: number | null, no
 }
 
 /**
- * The hand-off: the one rig version post work may run on, or a named refusal.
- * With `rig`, also refuses when that is not the version.
+ * Read the current or numbered rig post work may run on.
+ * A numbered caller can require a particular version with `rig`.
  */
 export function handoff(projectDirArg: string, rig: number | null, now: number): Handoff {
   const dir = resolve(projectDirArg);

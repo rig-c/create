@@ -1850,14 +1850,16 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
     result = { ...result, moves: [recovery, ...result.moves], awaits: [...new Set([recovery.awaits, ...result.awaits])] };
   }
   if (result.accepted || result.moves.length || result.awaits.length || result.refusals.length) {
-    if (currentPath && result.accepted && result.refusals.length === 0) {
+    if (currentPath && result.accepted && result.refusals.length === 0
+      && isObject(project.current) && isObject(project.current.rig)
+      && !report.warnings.some(finding => finding.code === 'OUTPUT_STALE' && finding.path === 'current.rig')) {
       return { ...result, moves: [...result.moves, {
         role: 'agent', field: 'current.rig', awaits: 'current.rig',
         command: `rig-create handoff ${shellWord(dir)} --json`,
         act: 'Read the handed-off rig files and their sha256 hashes.',
       }] };
     }
-    if (currentPath && now >= Date.parse(CURRENT_PAUSE_SINCE) && pausable(result.stage)) {
+    if (currentPath && result.refusals.length === 0 && now >= Date.parse(CURRENT_PAUSE_SINCE) && pausable(result.stage)) {
       return { ...result, moves: [...result.moves, {
         role: 'human', field: 'pauses', awaits: 'project.stage',
         command: `rig-create pause --by '<who>' --verbatim-file '<file>' ${shellWord(dir)}`,

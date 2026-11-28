@@ -402,20 +402,6 @@ function plateInputMoves(dir: string, project: JsonObject, items: Item[], now: n
 
 const OWNER_CHAT_COMMAND_FLAGS = "--by '<owner>' --owner-chat '<words file>' --said-at '<ISO date>' --relayed-by '<operator>'";
 
-function checkpointOwnerChatCommand(dir: string, stage: string, stepId: string): string {
-  return `rig-create signoff ${stage} ${shellWord(dir)} --checkpoint ${shellWord(stepId)} ${OWNER_CHAT_COMMAND_FLAGS}`;
-}
-
-function checkpointSignoffMove(dir: string, stage: 'parts' | 'rigging' | 'post', stepId: string, awaits: string): NextMove {
-  return {
-    role: 'human',
-    field: `plan.steps[${stepId}].checkpoint`,
-    awaits,
-    command: checkpointOwnerChatCommand(dir, stage, stepId),
-    act: `relay the owner chat checkpoint approval for plan.steps[${stepId}] with exact words, owner date and relay identity`,
-  };
-}
-
 function currentReviewKind(stage: 'rig-review' | 'direction-review'): 'rig' | 'direction' {
   return stage === 'rig-review' ? 'rig' : 'direction';
 }
@@ -821,18 +807,17 @@ function candidateStepStatus(
   };
   if (!stepStatusFollows(entry.from_status, nextStatus, enabled)) return null;
   if (nextStatus === 'done' && enabled) {
+    const signoffs = collectSignoffs(clone, []);
     const reopens = collectReopens(clone, []);
-    const signature = collectSignoffs(clone, [])
-      .filter(
-        s =>
-          s.checkpoint === step.id &&
-          (s.stage === stage || (oldOrder && s.stage === 'rigging')) &&
-          liveSignoff(reopens, s.stage, s.at) &&
-          s.at <= Date.parse(String(entry.at)),
-      )
+    const legacy = signoffs.some(s => s.stage === 'plan-approved' && s.checkpoint === null
+      && s.at < Date.parse(PARTS_REVIEW_SINCE) && s.at <= now);
+    const stages = [stage, ...(legacy ? [stageOfStep(step.phase, '')] : [])];
+    const signature = signoffs
+      .filter(s => s.checkpoint === step.id && stages.includes(s.stage)
+        && typeof s.record.by === 'string' && s.record.by.toLowerCase() !== 'agent'
+        && liveSignoff(reopens, s.stage, s.at) && s.at <= now)
       .sort((a, b) => b.at - a.at || b.index - a.index)[0];
-    if (signature === undefined) return null;
-    entry.signoff = signoffIdentity(signature.record);
+    if (signature !== undefined) entry.signoff = signoffIdentity(signature.record);
   }
   if (step.status_history !== undefined && !Array.isArray(step.status_history)) return null;
   step.status_history = [...asArray(step.status_history), entry];
@@ -2597,14 +2582,6 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
         const checkpointEnabled = checkpointRequired(project, step, now);
         const nextStatus = nextStepStatus(currentStatus, checkpointEnabled);
         if (nextStatus === undefined) continue;
-        if (nextStatus === 'done' && checkpointEnabled && !hasLiveCheckpointSignoff('parts', stepId)) {
-          const cpAwait = `signoffs[checkpoint=${stepId}]`;
-          addAwait(cpAwait);
-          if (!recordedLapseTargets.has(cpAwait)) {
-            moves.push(checkpointSignoffMove(dir, 'parts', stepId, cpAwait));
-          }
-          continue;
-        }
         const cmd = candidateStepStatus(dir, project, stepId, nextStatus, now);
         if (cmd !== null) {
           const statusField = `plan.steps[${stepId}].status`;
@@ -2709,14 +2686,6 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
         const checkpointEnabled = checkpointRequired(project, step, now);
         const nextStatus = nextStepStatus(currentStatus, checkpointEnabled);
         if (nextStatus === undefined) continue;
-        if (nextStatus === 'done' && checkpointEnabled && !hasLiveCheckpointSignoff('rigging', stepId)) {
-          const cpAwait = `signoffs[checkpoint=${stepId}]`;
-          addAwait(cpAwait);
-          if (!recordedLapseTargets.has(cpAwait)) {
-            moves.push(checkpointSignoffMove(dir, 'rigging', stepId, cpAwait));
-          }
-          continue;
-        }
         const cmd = candidateStepStatus(dir, project, stepId, nextStatus, now);
         if (cmd !== null) {
           const statusField = `plan.steps[${stepId}].status`;
@@ -2816,14 +2785,6 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
         const checkpointEnabled = checkpointRequired(project, step, now);
         const nextStatus = nextStepStatus(currentStatus, checkpointEnabled);
         if (nextStatus === undefined) continue;
-        if (nextStatus === 'done' && checkpointEnabled && !hasLiveCheckpointSignoff('post', stepId)) {
-          const cpAwait = `signoffs[checkpoint=${stepId}]`;
-          addAwait(cpAwait);
-          if (!recordedLapseTargets.has(cpAwait)) {
-            moves.push(checkpointSignoffMove(dir, 'post', stepId, cpAwait));
-          }
-          continue;
-        }
         const cmd = candidateStepStatus(dir, project, stepId, nextStatus, now);
         if (cmd !== null) {
           const statusField = `plan.steps[${stepId}].status`;

@@ -31,6 +31,7 @@ import { seedRetainedDirectionPost, seedRetainedDraft, seedRetainedRigVersion, s
 import { recordPartsReceipt } from './parts-receipt-fixture.ts';
 import { latestPartsVerdictStatus } from '../src/parts-verdict-record.ts';
 import { selectAnswerHashes } from '../src/signoff-answers.ts';
+import { stepHash } from '../src/step-hash.ts';
 import type { JsonObject } from '../src/templates.ts';
 
 const REPO = join(import.meta.dir, '..');
@@ -1362,12 +1363,10 @@ test('P1 withdrawn checkpoint next offers executable done through the normal ent
   stepStatusCommand(['assemble', 'in-progress', dir, '--by', 'agent']);
   stepStatusCommand(['assemble', 'at-checkpoint', dir, '--by', 'agent']);
   const before = JSON.parse(runMainCapture(['next', dir, '--json'], testClock.now()).stdout) as NextReport;
-  expect(before.moves.find(move => move.field === 'plan.steps[assemble].checkpoint')).toMatchObject({
-    role: 'human',
-    awaits: 'signoffs[checkpoint=assemble]',
-    command: expect.stringContaining('--checkpoint assemble'),
+  expect(before.moves.find(move => move.field === 'plan.steps[assemble].status')).toMatchObject({
+    role: 'agent',
+    command: expect.stringContaining('rig-create step-status assemble done'),
   });
-  expect(before.moves.some(move => move.review_act?.kind === 'signoff-checkpoint')).toBe(false);
   expect(planCommand(['checkpoint-withdraw', 'assemble', dir, '--by', 'operator', '--reason-file', reason, '--quote-file', words]).exit).toBe(0);
   const bytes = readFileSync(join(dir, 'project.json'));
   const result = runMainCapture(['next', dir, '--json'], testClock.now());
@@ -1509,38 +1508,51 @@ test('#490 numbered post stays read-only even before a direction contract exists
   expect(treeDigest(dir)).toEqual(before);
 });
 
-test('#490 row56a parts checkpoint precedes the executable done move and prints owner-chat relay instead of a Review act', () => {
+test.each([
+  ['1-parts-verdict', 'parts', 'assemble', false],
+  ['1-parts-verdict', 'parts', 'assemble', true],
+  ['3-rig-review', 'rigging', 'meshes', false],
+  ['4-direction-post', 'post', 'camera', false],
+] as const)('#1136 %s offers executable done at %s/%s (signed=%p)', (waypointName, stage, id, signed) => {
   testClock.set(CHAIN_NOW);
   const dir = join(tempDir(), 'checkpoint-order');
-  cpSync(join(CHECKPOINTS_DIR, '1-parts-verdict'), dir, { recursive: true });
+  cpSync(join(CHECKPOINTS_DIR, waypointName), dir, { recursive: true });
   const file = join(dir, 'project.json');
   const project = JSON.parse(readFileSync(file, 'utf8')) as JsonObject;
-  const step = arr(obj(project.plan).steps).map(obj).find(step => step.id === 'assemble')!;
-  step.status = 'at-checkpoint'; step.status_history = arr(step.status_history).filter(row => obj(row).status !== 'done');
-  project.signoffs = arr(project.signoffs).filter(row => obj(row).checkpoint !== 'assemble');
+  project.stage = stage;
+  project.advances = arr(project.advances).filter(row => stageIndex(String(obj(row).stage)) <= stageIndex(stage));
+  const step = arr(obj(project.plan).steps).map(obj).find(step => step.id === id)!;
+  obj(step.checkpoint).value = true;
+  step.checkpoint_proposed = true;
+  for (const signoff of arr(project.signoffs).map(obj)) {
+    if (signoff.step_hashes && obj(signoff.step_hashes)[id] !== undefined) obj(signoff.step_hashes)[id] = stepHash(step);
+  }
+  const startedAt = Date.parse(String(obj(arr(project.advances).at(-1)).at)) + 1000;
+  step.status = 'at-checkpoint';
+  step.status_history = [
+    { from_status: 'pending', status: 'in-progress', by: 'agent', at: new Date(startedAt).toISOString(), checkpoint_required: true, signoff: null },
+    { from_status: 'in-progress', status: 'at-checkpoint', by: 'agent', at: new Date(startedAt + 1000).toISOString(), checkpoint_required: true, signoff: null },
+  ];
+  if (!signed) project.signoffs = arr(project.signoffs).filter(row => obj(row).checkpoint !== id);
   writeFileSync(file, JSON.stringify(project));
-  const report = nextProject(dir, CHAIN_NOW);
+  const result = runMainCapture(['next', dir, '--json'], CHAIN_NOW);
+  expect({ code: result.code, stderr: result.stderr }).toEqual({ code: 0, stderr: '' });
+  const report = JSON.parse(result.stdout) as NextReport;
   expect(report.refusals).toEqual([]);
-  const checkpointMove = report.moves.find(move => move.field === 'plan.steps[assemble].checkpoint');
-  expect(checkpointMove).toBeDefined();
-  expect(checkpointMove!.role).toBe('human');
-  expect(checkpointMove!.review_act).toBeUndefined();
-  expect(checkpointMove!.act).not.toContain('signoff-checkpoint');
-  expect(checkpointMove!.command).toContain(`rig-create signoff parts ${dir} --checkpoint assemble`);
-  for (const flag of ['--owner-chat', '--said-at', '--relayed-by', '--by']) expect(checkpointMove!.command).toContain(flag);
-  expect(nextCommand([dir], CHAIN_NOW).stdout).toContain(checkpointMove!.command!);
-  expect(report.moves.some(move => move.command?.startsWith('rig-create step-status assemble done'))).toBe(false);
-
-  const saidAt = new Date(CHAIN_NOW - 1000).toISOString();
-  const relayArgs = printedArgs(checkpointMove!.command!).slice(1).map(arg =>
-    arg === '<owner>' ? 'user'
-      : arg === '<words file>' ? join(dir, 'evidence/approval.txt')
-        : arg === '<ISO date>' ? saidAt
-          : arg === '<operator>' ? 'operator'
-            : arg);
-  expect(runMainCapture(relayArgs, CHAIN_NOW)).toMatchObject({ code: 0, stderr: '' });
-  const done = nextProject(dir, CHAIN_NOW).moves.find(move => move.command?.startsWith('rig-create step-status assemble done'))!;
-  expect(runMainCapture(printedArgs(done.command!).slice(1), CHAIN_NOW)).toMatchObject({ code: 0, stderr: '' });
+  expect(report.awaits).not.toContain(`signoffs[checkpoint=${id}]`);
+  expect(report.moves.some(move => move.command?.includes(`--checkpoint ${id}`))).toBe(false);
+  const done = report.moves.find(move => move.field === `plan.steps[${id}].status`);
+  expect(done?.role).toBe('agent');
+  expect(done?.command).toBe(`rig-create step-status ${id} done ${dir} --by agent`);
+  expect(runMainCapture(printedArgs(done!.command!).slice(1), CHAIN_NOW))
+    .toEqual({ code: 0, stdout: `step-status: ${id} done\n`, stderr: '' });
+  const saved = JSON.parse(readFileSync(file, 'utf8')) as JsonObject;
+  const completed = arr(obj(saved.plan).steps).map(obj).find(step => step.id === id)!;
+  expect(completed.status).toBe('done');
+  expect(arr(completed.status_history).at(-1)).toMatchObject({
+    checkpoint_required: true,
+    signoff: signed ? { stage, checkpoint: id } : null,
+  });
 });
 
 test('#490 agent guide remains below 10000 rendered bytes', () => {

@@ -72,15 +72,22 @@ const PROJECT_WRITERS = new Set([
   'plan replace',
   'plan revise',
   ...CURRENT_KINDS.map(kind => `record ${kind} adopt`),
+  'restart',
 ]);
 const BINDING_WRITERS = new Set([
+  'amend',
+  'checkpoint-evidence',
+  'collection-binding',
   'comment close',
   'comment ingest',
   'correction',
+  'derived add',
   'diff-classes',
   'input add',
+  'intake-report',
   'interview-options',
   'plan propose',
+  'signoff',
 ]);
 const SHARED_PATHS = new Set<string>(BASELINE_PATHS);
 

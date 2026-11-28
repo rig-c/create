@@ -1,5 +1,4 @@
 import { createHash } from 'node:crypto';
-import { writeFileSync } from 'node:fs';
 import { readFileSync, realpathSync } from './check-reads.ts';
 import { isAbsolute, relative, resolve, sep } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
@@ -8,8 +7,10 @@ import { asArray, asString, checkProject, collectItems, collectSignoffs, isObjec
 import { relativeInventory } from './draft-reuse.ts';
 import { readProject } from './feedback.ts';
 import { publicationFile } from './job-publication.ts';
+import { acquireBoundJobWrite } from './job-writer.ts';
 import { OWNER_CHAT_FLAGS, ownerChatAuthorityFinding, ownerChatFinding, readOwnerChat } from './owner-chat.ts';
-import { readVerbatim } from './record-input.ts';
+import { assertCleanProjectStep, commitToolWrite } from './project-step-commit.ts';
+import { readVerbatim, writeRecord } from './record-input.ts';
 import { refuse, USAGE_EXIT } from './refusal.ts';
 import { baselineOf, newFindings } from './refusal-baseline.ts';
 import { liveSignoff, type Reopen } from './reopen.ts';
@@ -17,6 +18,7 @@ import { staleSignoffAnswer } from './signoff-answers.ts';
 import { stageIndex, stageOfStep } from './stages.ts';
 import { latestPartsApproval } from './structure.ts';
 import type { Json, JsonObject } from './templates.ts';
+import { eligibleBoundPaths } from './writer-commit-paths.ts';
 
 /** Fixed approval-kind → step-0 gap mapping. These are missing proofs, not inferred dependencies. */
 export const AMENDMENT_APPROVAL_GAPS: Readonly<Record<string, string>> = {
@@ -222,7 +224,7 @@ export const AMEND_HELP = `amend:
   Upstream steps keep their state. An interview-answer amendment resets only
   the steps that rest on that answer and keeps the other steps' checkpoints.`;
 
-export function amendCommand(args: string[], now: number): { stdout: string; exit: number } {
+export function amendCommand(args: string[], now: number): { stdout: string; exit: number; stderr?: string } {
   const opts: Record<string, string> = {};
   const positional: string[] = [];
   const files: string[] = [];
@@ -242,84 +244,99 @@ export function amendCommand(args: string[], now: number): { stdout: string; exi
     refuse('AMENDMENT_OPTION_INVALID', 'amendments: supply an owning stage, --kind, --target, --change and --by; see amend help', USAGE_EXIT);
   }
   const dir = resolve(positional[1] ?? process.cwd());
-  const { file, project } = readProject(dir);
-  const before = structuredClone(project);
-  const errors: Finding[] = [];
-  collectAmendments(project, errors);
-  if (errors[0] !== undefined) refuse(errors[0].code, errors[0].message);
-  const entry: JsonObject = {
-    target: { stage: positional[0] as string, kind: opts['--kind'], id: opts['--target'] },
-    by: opts['--by'], at: new Date(now).toISOString(), verbatim: '', changes: [],
-  };
-  if (opts['--source'] !== undefined) entry.source = opts['--source'];
-  // A draft amendment may be recorded at any stage (#981). With a live parts approval at rigging, its changed bytes are verified.
-  const riggingDraft = opts['--kind'] === 'draft' && project.stage === 'rigging' && latestPartsApproval(project, now) !== undefined;
-  if (opts['--kind'] === 'interview-answer'
-    && !collectItems(project, { collection: loadCollection(dir, project) }).some(item => item.id === opts['--target'] || item.path === opts['--target'])) {
-    refuse('AMENDMENT_TARGET_INVALID', `amendments.target: interview-answer ${opts['--target']} names no question of this interview; name the changed answer by its question id or answer path`);
-  }
-  const chat = readOwnerChat(opts, opts['--by'], now, 'amendments');
-  if (chat) {
-    const { owner_words, ...authority } = chat;
-    Object.assign(entry, authority, { verbatim: owner_words });
-  }
-  // Check the entry before reading change files or legacy verbatim words.
-  entry.changes = files.map(path => ({ path, sha256: '0'.repeat(64) }));
-  const entryErrors: Finding[] = [];
-  collectAmendments({ drafts: project.drafts, amendments: [entry] }, entryErrors);
-  if (entryErrors[0] !== undefined) refuse(entryErrors[0].code, entryErrors[0].message);
-  entry.changes = files.map(path => {
-    try {
-      const canonical = realpathSync(resolve(dir, path));
-      const local = relative(realpathSync(dir), canonical).split(sep).join('/');
-      if (isAbsolute(path) || local === '' || local === '..' || local.startsWith('../')) throw new Error('new inputs must stay under the project');
-      return { path: local, sha256: createHash('sha256').update(readFileSync(canonical)).digest('hex') };
-    } catch (error) {
-      refuse('AMENDMENT_INPUT_UNREAD', `amendments.changes ${path}: ${error instanceof Error ? error.message : String(error)}; retain the new input under the project and amend again`);
+  readProject(dir);
+  const release = acquireBoundJobWrite(dir, undefined, true);
+  try {
+    const { file, project } = readProject(dir);
+    const original = readFileSync(file);
+    const before = structuredClone(project);
+    const errors: Finding[] = [];
+    collectAmendments(project, errors);
+    if (errors[0] !== undefined) refuse(errors[0].code, errors[0].message);
+    const entry: JsonObject = {
+      target: { stage: positional[0] as string, kind: opts['--kind'], id: opts['--target'] },
+      by: opts['--by'], at: new Date(now).toISOString(), verbatim: '', changes: [],
+    };
+    if (opts['--source'] !== undefined) entry.source = opts['--source'];
+    // A draft amendment may be recorded at any stage (#981). With a live parts approval at rigging, its changed bytes are verified.
+    const riggingDraft = opts['--kind'] === 'draft' && project.stage === 'rigging' && latestPartsApproval(project, now) !== undefined;
+    if (opts['--kind'] === 'interview-answer'
+      && !collectItems(project, { collection: loadCollection(dir, project) }).some(item => item.id === opts['--target'] || item.path === opts['--target'])) {
+      refuse('AMENDMENT_TARGET_INVALID', `amendments.target: interview-answer ${opts['--target']} names no question of this interview; name the changed answer by its question id or answer path`);
     }
-  });
-  if (riggingDraft) {
-    const draft = asArray(project.drafts).filter(isObject).find(draft => draft.id === opts['--target'])!;
-    assertDraftAmendmentChanges(draft, entry.changes, 'amendments.changes');
-    const parts = draft.parts as JsonObject;
-    const inventory = changedDraftInventory(project, draft, now);
-    const root = realpathSync(dir);
-    for (const binding of inventory) {
-      const path = `${parts.path}/${binding.path}`;
-      let bytes: Buffer;
-      try { bytes = publicationFile(root, path); }
-      catch { refuse('AMENDMENT_INPUT_UNREAD', `amendments.changes ${path}: restore the target draft's registered parts file before amending`); }
-      if (createHash('sha256').update(bytes).digest('hex') !== binding.sha256) {
-        refuse('AMENDMENT_CHANGES_INVALID', `amendments.changes ${path}: bytes differ from the registered target draft; restore them or register a new draft`);
+    const chat = readOwnerChat(opts, opts['--by'], now, 'amendments');
+    if (chat) {
+      const { owner_words, ...authority } = chat;
+      Object.assign(entry, authority, { verbatim: owner_words });
+    }
+    // Check the entry before reading change files or legacy verbatim words.
+    entry.changes = files.map(path => ({ path, sha256: '0'.repeat(64) }));
+    const entryErrors: Finding[] = [];
+    collectAmendments({ drafts: project.drafts, amendments: [entry] }, entryErrors);
+    if (entryErrors[0] !== undefined) refuse(entryErrors[0].code, entryErrors[0].message);
+    entry.changes = files.map(path => {
+      try {
+        const canonical = realpathSync(resolve(dir, path));
+        const local = relative(realpathSync(dir), canonical).split(sep).join('/');
+        if (isAbsolute(path) || local === '' || local === '..' || local.startsWith('../')) throw new Error('new inputs must stay under the project');
+        return { path: local, sha256: createHash('sha256').update(readFileSync(canonical)).digest('hex') };
+      } catch (error) {
+        refuse('AMENDMENT_INPUT_UNREAD', `amendments.changes ${path}: ${error instanceof Error ? error.message : String(error)}; retain the new input under the project and amend again`);
+      }
+    });
+    if (riggingDraft) {
+      const draft = asArray(project.drafts).filter(isObject).find(draft => draft.id === opts['--target'])!;
+      assertDraftAmendmentChanges(draft, entry.changes, 'amendments.changes');
+      const parts = draft.parts as JsonObject;
+      const inventory = changedDraftInventory(project, draft, now);
+      const root = realpathSync(dir);
+      for (const binding of inventory) {
+        const path = `${parts.path}/${binding.path}`;
+        let bytes: Buffer;
+        try { bytes = publicationFile(root, path); }
+        catch { refuse('AMENDMENT_INPUT_UNREAD', `amendments.changes ${path}: restore the target draft's registered parts file before amending`); }
+        if (createHash('sha256').update(bytes).digest('hex') !== binding.sha256) {
+          refuse('AMENDMENT_CHANGES_INVALID', `amendments.changes ${path}: bytes differ from the registered target draft; restore them or register a new draft`);
+        }
       }
     }
-  }
-  if (!chat) entry.verbatim = readVerbatim(opts['--verbatim-file'] ?? '-');
-  project.amendments = [...asArray(project.amendments), entry];
-  const target = entry.target as JsonObject;
-  const lapsed = amendmentLapsedSteps(project, target);
-  for (const step of lapsed) step.status = 'pending';
-  const asRead = checkProject(dir, before, { now });
-  const fresh = newFindings(baselineOf(asRead), checkProject(dir, project, { now }).refusals);
-  const staleSteps = new Set<string>();
-  if (target.stage === 'post-interview' && target.kind === 'interview-answer') {
-    const answerId = amendedAnswerId(target);
-    const staleSignoffIndices = new Set(asRead.refusals.flatMap(finding => {
-      const binding = staleSignoffAnswer(finding);
-      return binding?.id === answerId ? [binding.index] : [];
-    }));
-    const approvals = collectSignoffs(before, []).filter(signoff => signoff.stage === target.stage
-      && signoff.checkpoint === null && staleSignoffIndices.has(signoff.index));
-    for (const step of lapsed) {
-      const id = String(step.id);
-      const path = `plan.steps[${id}]`;
-      if (approvals.some(signoff => signoff.steps === null || signoff.steps.includes(id))) staleSteps.add(path);
+    if (!chat) entry.verbatim = readVerbatim(opts['--verbatim-file'] ?? '-');
+    project.amendments = [...asArray(project.amendments), entry];
+    const target = entry.target as JsonObject;
+    const lapsed = amendmentLapsedSteps(project, target);
+    for (const step of lapsed) step.status = 'pending';
+    const asRead = checkProject(dir, before, { now });
+    const fresh = newFindings(baselineOf(asRead), checkProject(dir, project, { now }).refusals);
+    const staleSteps = new Set<string>();
+    if (target.stage === 'post-interview' && target.kind === 'interview-answer') {
+      const answerId = amendedAnswerId(target);
+      const staleSignoffIndices = new Set(asRead.refusals.flatMap(finding => {
+        const binding = staleSignoffAnswer(finding);
+        return binding?.id === answerId ? [binding.index] : [];
+      }));
+      const approvals = collectSignoffs(before, []).filter(signoff => signoff.stage === target.stage
+        && signoff.checkpoint === null && staleSignoffIndices.has(signoff.index));
+      for (const step of lapsed) {
+        const id = String(step.id);
+        const path = `plan.steps[${id}]`;
+        if (approvals.some(signoff => signoff.steps === null || signoff.steps.includes(id))) staleSteps.add(path);
+      }
     }
+    // Lapsing the stale approval exposes draft chronology. Keep that check refusal
+    // until the step is replanned, but let the amendment that permits replanning through.
+    const rejected = fresh.find(finding => finding.code !== 'PLAN_STEP_PREDATES_ANSWER' || !staleSteps.has(finding.path));
+    if (rejected !== undefined) refuse(rejected.code, rejected.message);
+    const assets = eligibleBoundPaths((entry.changes as { path: string }[]).map(change => change.path));
+    assertCleanProjectStep(dir, ['project.json']);
+    assertCleanProjectStep(dir, assets, true);
+    writeRecord(file, original, project, 'amend', 'AMENDMENT_SOURCE_CHANGED');
+    const warning = commitToolWrite(dir, 'amend', ['project.json', ...assets]);
+    return {
+      stdout: json ? JSON.stringify(entry, null, 2) : `amend: ${String(positional[0])} ${String(opts['--target'])} by ${String(entry.by)} at ${String(entry.at)}; stage retained`,
+      exit: 0,
+      ...(warning === undefined ? {} : { stderr: warning }),
+    };
+  } finally {
+    release();
   }
-  // Lapsing the stale approval exposes draft chronology. Keep that check refusal
-  // until the step is replanned, but let the amendment that permits replanning through.
-  const rejected = fresh.find(finding => finding.code !== 'PLAN_STEP_PREDATES_ANSWER' || !staleSteps.has(finding.path));
-  if (rejected !== undefined) refuse(rejected.code, rejected.message);
-  writeFileSync(file, `${JSON.stringify(project, null, 2)}\n`);
-  return { stdout: json ? JSON.stringify(entry, null, 2) : `amend: ${String(positional[0])} ${String(opts['--target'])} by ${String(entry.by)} at ${String(entry.at)}; stage retained`, exit: 0 };
 }

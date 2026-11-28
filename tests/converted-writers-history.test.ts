@@ -11,6 +11,7 @@ import { jobRuntimeExecArgv } from '../src/job-writer.ts';
 import { Refusal } from '../src/refusal.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { TEST_NOW } from './clock.ts';
+import { checkpointWorkspace } from './checkpoint-evidence-fixture.ts';
 import { fixture } from './fixtures.ts';
 import { gitEnv, run, tempDir, type Run } from './helpers.ts';
 
@@ -80,14 +81,15 @@ function plantUnrelated(repo: Repo) {
   put(repo, UNRELATED, 'staged unrelated edit\n');
   git(repo, 'add', '--', UNRELATED);
   put(repo, UNRELATED, 'unstaged unrelated edit\n');
-  expect(git(repo, 'status', '--porcelain', '--', UNRELATED)).toBe(`MM ${UNRELATED}\n`);
+  const prefix = git(repo, 'rev-parse', '--show-prefix').replace(/\r?\n$/, '');
+  expect(git(repo, 'status', '--porcelain', '--', UNRELATED)).toBe(`MM ${prefix}${UNRELATED}\n`);
   return snapshot(repo);
 }
 
 function snapshot(repo: Repo) {
   return {
     unrelatedStage: git(repo, 'ls-files', '--stage', '--', UNRELATED),
-    unrelatedIndex: git(repo, 'show', `:${UNRELATED}`),
+    unrelatedIndex: git(repo, 'show', `:./${UNRELATED}`),
     unrelatedWorktree: bytes(repo, UNRELATED),
   };
 }
@@ -592,4 +594,232 @@ test('#1168 group 5: ledger, correction, and diff-classes commit exact paths and
   success(cli(diffRepo, 'diff-classes', diffRepo.dir, '--diff-report', reportRel, '--triage-file', 'scratch/triage.json', '--by', 'agent'));
   assertCommittedStep(diffRepo, diffParent, 'diff-classes', [PROJECT, reportRel], diffUnrelated);
 });
+
+test('#1168 group 6: restart, derived add, intake-report, checkpoint-evidence, signoff, amend, and collection-binding commit exact paths and preserve refused/replay invariants', () => {
+  // 1) restart, derived add, intake-report, signoff, and amend on a seeded numbered fixture
+  const dir = fixture(() => {}, 'example-numbered/example-project.json');
+  const repo: Repo = { dir, env: gitEnv({ name: 'Synthetic Writer', email: 'writer@example.test' }) };
+  put(repo, '.gitignore', GITIGNORE);
+  put(repo, UNRELATED, 'initial unrelated\n');
+  git(repo, 'init', '-q');
+  git(repo, 'add', '--', '.');
+  git(repo, 'commit', '-qm', 'Seed numbered fixture for group 6');
+  const unrelated = plantUnrelated(repo);
+  let parent = head(repo);
+
+  // amend: domain refusal (agent signer) + dirty project.json refusal + valid forward amendment
+  put(repo, 'inputs/replacement-panel.svg', '<svg xmlns="http://www.w3.org/2000/svg"/>\n');
+  put(repo, 'scratch/amend-words.txt', 'Replace the synthetic panel outline.\n');
+  assertRefusedUnchanged(repo, [
+    'amend', 'parts', repo.dir, '--kind', 'part', '--target', 'panel',
+    '--change', 'inputs/replacement-panel.svg', '--by', 'agent', '--verbatim-file', 'scratch/amend-words.txt',
+  ], 'SIGNOFF_NOT_HUMAN');
+
+  const cleanBeforeDirtyAmend = bytes(repo, PROJECT);
+  put(repo, PROJECT, `${cleanBeforeDirtyAmend.toString('utf8')}\n`);
+  assertRefusedUnchanged(repo, [
+    'amend', 'parts', repo.dir, '--kind', 'part', '--target', 'panel',
+    '--change', 'inputs/replacement-panel.svg', '--by', 'synthetic-owner', '--verbatim-file', 'scratch/amend-words.txt',
+  ], 'PROJECT_COMMIT_DIRTY');
+  put(repo, PROJECT, cleanBeforeDirtyAmend);
+
+  success(cli(repo,
+    'amend', 'parts', repo.dir, '--kind', 'part', '--target', 'panel',
+    '--change', 'inputs/replacement-panel.svg', '--by', 'synthetic-owner', '--verbatim-file', 'scratch/amend-words.txt',
+  ));
+  parent = assertCommittedStep(repo, parent, 'amend', [PROJECT, 'inputs/replacement-panel.svg'], unrelated);
+
+  // signoff (paused): domain refusal + valid commit of project.json
+  put(repo, 'scratch/pause-sign.txt', 'Pause work temporarily.\n');
+  assertRefusedUnchanged(repo, ['signoff', 'paused', repo.dir, '--by', 'agent', '--verbatim-file', 'scratch/pause-sign.txt'], 'SIGNOFF_NOT_HUMAN');
+  success(cli(repo, 'signoff', 'paused', repo.dir, '--by', 'synthetic-owner', '--verbatim-file', 'scratch/pause-sign.txt'));
+  parent = assertCommittedStep(repo, parent, 'signoff', [PROJECT], unrelated);
+
+  // derived add: domain refusal (missing file) + trackable derived output + ignored derived/ output
+  assertRefusedUnchanged(repo, [
+    'derived', 'add', repo.dir, '--source', 'inputs/painting.png', '--file', 'evidence/missing-prep.png', '--operation', 'crop plate',
+  ], 'DERIVED_FILE_UNREADABLE');
+
+  put(repo, 'evidence/prepared-plate.png', 'synthetic prepared plate bytes');
+  success(cli(repo, 'derived', 'add', repo.dir, '--source', 'inputs/painting.png', '--file', 'evidence/prepared-plate.png', '--operation', 'crop plate'));
+  parent = assertCommittedStep(repo, parent, 'derived add', [PROJECT, 'evidence/prepared-plate.png'], unrelated);
+
+  put(repo, 'derived/ignored-prep.png', 'synthetic ignored derived bytes');
+  success(cli(repo, 'derived', 'add', repo.dir, '--source', 'inputs/painting.png', '--file', 'derived/ignored-prep.png', '--operation', 'denoise plate'));
+  parent = assertCommittedStep(repo, parent, 'derived add', [PROJECT], unrelated);
+
+  // restart: prepare writer-dated inputs first so restart keeps them cleanly
+  const restartDir = fixture(p => {
+    const stamp = new Date(TEST_NOW).toISOString();
+    for (const raw of (p.inputs as JsonObject[])) raw.at = stamp;
+  }, 'example-numbered/example-project.json');
+  const restartRepo: Repo = { dir: restartDir, env: repo.env };
+  put(restartRepo, '.gitignore', GITIGNORE);
+  put(restartRepo, UNRELATED, 'initial unrelated\n');
+  git(restartRepo, 'init', '-q');
+  git(restartRepo, 'add', '--', '.');
+  git(restartRepo, 'commit', '-qm', 'Seed restart repo');
+  const restartUnrelated = plantUnrelated(restartRepo);
+  let restartParent = head(restartRepo);
+
+  put(restartRepo, 'scratch/restart-chat.txt', 'Start v1 fresh while keeping inputs and ledger.\n');
+  const saidAt = new Date(TEST_NOW).toISOString();
+  assertRefusedUnchanged(restartRepo, [
+    'restart', restartRepo.dir, '--by', 'agent',
+    '--owner-chat', 'scratch/restart-chat.txt', '--said-at', saidAt, '--relayed-by', 'synthetic-operator',
+  ], 'SIGNOFF_NOT_HUMAN');
+  success(cli(restartRepo,
+    'restart', restartRepo.dir, '--by', 'synthetic-owner',
+    '--owner-chat', 'scratch/restart-chat.txt', '--said-at', saidAt, '--relayed-by', 'synthetic-operator',
+  ));
+  restartParent = assertCommittedStep(restartRepo, restartParent, 'restart', [PROJECT], restartUnrelated);
+
+  // intake-report: run on a parts-stage project, verify Refusal codes (PROJECT_COMMIT_DIRTY & INTAKE_REPORT_INVALID) and bound report commit
+  const intakeDir = fixture(p => { p.stage = 'parts'; }, 'example-numbered/example-project.json');
+  const intakeRepo: Repo = { dir: intakeDir, env: repo.env };
+  put(intakeRepo, '.gitignore', GITIGNORE);
+  put(intakeRepo, UNRELATED, 'initial unrelated\n');
+  git(intakeRepo, 'init', '-q');
+  git(intakeRepo, 'add', '--', '.');
+  git(intakeRepo, 'commit', '-qm', 'Seed intake repo');
+  const intakeUnrelated = plantUnrelated(intakeRepo);
+  let intakeParent = head(intakeRepo);
+
+  const preflightBytes = readFileSync(join(import.meta.dir, 'fixtures/intake/preflight.json'));
+  put(intakeRepo, 'evidence/intake-preflight.json', preflightBytes);
+  assertRefusedUnchanged(intakeRepo, [
+    'intake-report', intakeRepo.dir, '--id', 'crop-1', '--report', 'evidence/intake-preflight.json',
+    '--sha256', '0'.repeat(64), '--parts-version', '2.16.0', '--by', 'agent',
+  ], 'INTAKE_REPORT_INVALID');
+
+  const cleanIntakeProject = bytes(intakeRepo, PROJECT);
+  put(intakeRepo, PROJECT, `${cleanIntakeProject.toString('utf8')}\n`);
+  assertRefusedUnchanged(intakeRepo, [
+    'intake-report', intakeRepo.dir, '--id', 'crop-1', '--report', 'evidence/intake-preflight.json',
+    '--sha256', sha256(preflightBytes), '--parts-version', '2.16.0', '--by', 'agent',
+  ], 'PROJECT_COMMIT_DIRTY');
+  put(intakeRepo, PROJECT, cleanIntakeProject);
+
+  success(cli(intakeRepo,
+    'intake-report', intakeRepo.dir, '--id', 'crop-1', '--report', 'evidence/intake-preflight.json',
+    '--sha256', sha256(preflightBytes), '--parts-version', '2.16.0', '--by', 'agent',
+  ));
+  intakeParent = assertCommittedStep(intakeRepo, intakeParent, 'intake-report', [PROJECT, 'evidence/intake-preflight.json'], intakeUnrelated);
+
+  // checkpoint-evidence: attach, unchanged replay, clear, and clear replay
+  const cw = checkpointWorkspace();
+  const cpRepo: Repo = { dir: cw.root, env: repo.env };
+  put(cpRepo, '.gitignore', GITIGNORE);
+  put(cpRepo, UNRELATED, 'initial unrelated\n');
+  const cpBoundAssets = [...cw.packet.tiles.map(tile => tile.path), cw.packet.table.path];
+  const savedAssets = new Map(cpBoundAssets.map(path => [path, bytes(cpRepo, path)]));
+  for (const path of cpBoundAssets) writeFileSync(join(cpRepo.dir, path), '');
+  git(cpRepo, 'init', '-q');
+  git(cpRepo, 'add', '--', '.gitignore', PROJECT, UNRELATED);
+  git(cpRepo, 'commit', '-qm', 'Seed checkpoint workspace');
+  for (const [path, content] of savedAssets) put(cpRepo, path, content);
+  const cpUnrelated = plantUnrelated(cpRepo);
+  let cpParent = head(cpRepo);
+
+  put(cpRepo, 'scratch/bad-packets.json', '{not-json');
+  assertRefusedUnchanged(cpRepo, ['checkpoint-evidence', cpRepo.dir, '--file', 'scratch/bad-packets.json'], 'CHECKPOINT_EVIDENCE_INVALID');
+
+  put(cpRepo, 'scratch/packets.json', `${JSON.stringify([cw.packet], null, 2)}\n`);
+  success(cli(cpRepo, 'checkpoint-evidence', cpRepo.dir, '--file', 'scratch/packets.json'));
+  cpParent = assertCommittedStep(cpRepo, cpParent, 'checkpoint-evidence', [PROJECT, ...cpBoundAssets], cpUnrelated);
+
+  // Unchanged replay makes no commit.
+  const beforeCpReplay = fullState(cpRepo);
+  success(cli(cpRepo, 'checkpoint-evidence', cpRepo.dir, '--file', 'scratch/packets.json'));
+  expect(fullState(cpRepo)).toEqual(beforeCpReplay);
+
+  // --clear commits project.json; repeating --clear makes no commit.
+  success(cli(cpRepo, 'checkpoint-evidence', cpRepo.dir, '--clear'));
+  cpParent = assertCommittedStep(cpRepo, cpParent, 'checkpoint-evidence', [PROJECT], cpUnrelated);
+  const beforeClearReplay = fullState(cpRepo);
+  success(cli(cpRepo, 'checkpoint-evidence', cpRepo.dir, '--clear'));
+  expect(fullState(cpRepo)).toEqual(beforeClearReplay);
+
+  // signoff parts-review on current.parts binds and commits its structure snapshot
+  const currentDir = join(tempDir(), 'current-signoff');
+  cpSync(join(import.meta.dir, '../templates/example-current'), currentDir, { recursive: true });
+  const currentRepo: Repo = { dir: currentDir, env: repo.env };
+  const currentRecord = JSON.parse(bytes(currentRepo, PROJECT).toString('utf8')) as JsonObject;
+  currentRecord.stage = 'parts-review';
+  currentRecord.signoffs = (currentRecord.signoffs as JsonObject[]).filter(s => ['interview', 'plan-approved'].includes(String(s.stage)));
+  currentRecord.advances = (currentRecord.advances as JsonObject[]).slice(0, 3);
+  delete (currentRecord.current as JsonObject).rig;
+  delete (currentRecord.current as JsonObject).motion;
+  delete (currentRecord.current as JsonObject).direction;
+  delete currentRecord.scenes;
+  delete currentRecord.directions;
+  delete (currentRecord.interview as JsonObject).rigging_context;
+  putJson(currentRepo, PROJECT, currentRecord);
+  put(currentRepo, UNRELATED, 'initial unrelated\n');
+  const structureFiles = git({ dir: import.meta.dir, env: repo.env }, 'ls-files', '../templates/example-current/evidence/structure')
+    .trim().split('\n').filter(Boolean).map(p => p.replace('../templates/example-current/', ''));
+  const structureSaved = new Map(structureFiles.map(p => [p, bytes(currentRepo, p)]));
+  git(currentRepo, 'init', '-q');
+  git(currentRepo, 'add', '--', '.');
+  for (const p of structureFiles) git(currentRepo, 'rm', '-f', '--cached', '--', p);
+  git(currentRepo, 'commit', '-qm', 'Seed current parts-review before signoff');
+  for (const [p, content] of structureSaved) put(currentRepo, p, content);
+  const currentUnrelated = plantUnrelated(currentRepo);
+  const currentParent = head(currentRepo);
+
+  put(currentRepo, 'scratch/parts-ok.txt', 'Parts look clean.\n');
+  const currentSignOut = JSON.parse(success(cli(currentRepo,
+    'signoff', 'parts-review', currentRepo.dir, '--by', 'owner',
+    '--owner-chat', 'scratch/parts-ok.txt', '--said-at', saidAt, '--relayed-by', 'example-agent', '--json',
+  ))) as { structure: { path: string } };
+  assertCommittedStep(currentRepo, currentParent, 'signoff', [PROJECT, currentSignOut.structure.path], currentUnrelated);
+
+  // collection-binding: commits member project.json and snapshot in the collection repository, and replays cleanly
+  const colRoot = join(tempDir(), 'collection');
+  const colRepo: Repo = { dir: colRoot, env: repo.env };
+  success(run([process.execPath, ...jobRuntimeExecArgv(), CLOCKED_CLI, new Date(tick()).toISOString(), 'init', '--collection', colRoot, '--no-install'], tempDir(), repo.env));
+  git(colRepo, 'config', '--local', 'user.name', 'Synthetic Writer');
+  git(colRepo, 'config', '--local', 'user.email', 'writer@example.test');
+  const memberDir = join(colRoot, 'members/alpha');
+  cpSync(join(import.meta.dir, '../templates/example-current'), memberDir, { recursive: true });
+  const memberRepo: Repo = { dir: memberDir, env: repo.env };
+  const memberRecord = JSON.parse(bytes(memberRepo, PROJECT).toString('utf8')) as JsonObject;
+  memberRecord.name = 'alpha';
+  delete memberRecord.collection;
+  putJson(memberRepo, PROJECT, memberRecord);
+  const colRecord = JSON.parse(bytes(colRepo, 'collection.json').toString('utf8')) as JsonObject;
+  colRecord.members = [{ name: 'alpha', project: 'members/alpha/project.json', input: null, note: null }];
+  putJson(colRepo, 'collection.json', colRecord);
+  put(memberRepo, UNRELATED, 'initial member unrelated\n');
+  git(colRepo, 'add', '--', '.');
+  git(colRepo, 'commit', '-qm', 'Commit member seed');
+  const memberUnrelated = plantUnrelated(memberRepo);
+  let colParent = head(colRepo);
+
+  assertRefusedUnchanged(memberRepo, ['collection-binding', memberDir, '--unknown-flag'], 'UNKNOWN_OPTION');
+  const cleanMemberProject = bytes(memberRepo, PROJECT);
+  put(memberRepo, PROJECT, `${cleanMemberProject.toString('utf8')}\n`);
+  assertRefusedUnchanged(memberRepo, ['collection-binding', memberDir, '--out', 'evidence/custom-binding.json'], 'PROJECT_COMMIT_DIRTY');
+  expect( { exists: run(['test', '-e', join(memberDir, 'evidence/custom-binding.json')], memberDir, repo.env).code }).toEqual({ exists: 1 });
+  put(memberRepo, PROJECT, cleanMemberProject);
+
+  success(cli(memberRepo, 'collection-binding', memberDir, '--out', 'evidence/custom-binding.json'));
+  const colSha = head(colRepo);
+  expect(colSha).not.toBe(colParent);
+  expect(committedPaths(colRepo)).toEqual([
+    'members/alpha/evidence/custom-binding.json',
+    'members/alpha/project.json',
+  ]);
+  expect(snapshot(memberRepo)).toEqual(memberUnrelated);
+  const memberHistory = JSON.parse(success(cli(memberRepo, 'history', memberDir, '--json'))) as HistoryRow[];
+  expect(memberHistory.find(row => row.sha === colSha)).toMatchObject({ sha: colSha, command: 'collection-binding' });
+  colParent = colSha;
+
+  // Unchanged retry makes no commit.
+  const beforeBindingRetry = fullState(memberRepo);
+  success(cli(memberRepo, 'collection-binding', memberDir, '--out', 'evidence/custom-binding.json'));
+  expect(fullState(memberRepo)).toEqual(beforeBindingRetry);
+  expect(head(colRepo)).toBe(colParent);
+});
+
 

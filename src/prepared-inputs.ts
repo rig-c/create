@@ -1,14 +1,17 @@
 import { createHash } from 'node:crypto';
-import { writeFileSync } from 'node:fs';
 import { lstatSync, readdirSync, readFileSync } from './check-reads.ts';
 import { isAbsolute, relative, resolve, sep } from 'node:path';
 
 import { asArray, isObject, readJsonObject, type Ctx } from './check.ts';
+import { acquireBoundJobWrite } from './job-writer.ts';
 import { sourceSha256, type FileBinding } from './parts-verdict.ts';
 import { checkDerivedReceipt, checkPlateRegistrations, maskReceiptSpec, MASK_RECEIPT_SPECS, readDerivedReceipt } from './plate-receipt.ts';
+import { assertCleanProjectStep, commitToolWrite } from './project-step-commit.ts';
+import { writeRecord } from './record-input.ts';
 import { refuse, USAGE_EXIT } from './refusal.ts';
 import { assertNotScratchBinding } from './scratch-bindings.ts';
 import type { Json, JsonObject } from './templates.ts';
+import { eligibleBoundPaths } from './writer-commit-paths.ts';
 
 const nonempty = (v: Json | undefined): v is string => typeof v === 'string' && v.trim() !== '';
 const hex = (v: Json | undefined): v is string => typeof v === 'string' && /^[a-f0-9]{64}$/i.test(v);
@@ -223,7 +226,7 @@ export const DERIVED_HELP = `derived add [<project dir>] --source <file> [--sour
   Records an operation already run by another tool, with the files' sha256s.
   Paths are relative to the project. No files are transformed; no stage moves.`;
 
-export function derivedCommand(args: string[], now: number): { stdout: string; exit: number } {
+export function derivedCommand(args: string[], now: number): { stdout: string; exit: number; stderr?: string } {
   if (args[0] !== 'add') refuse('DERIVED_USAGE', DERIVED_HELP, USAGE_EXIT);
   const opts: Record<string, string> = {};
   const positional: string[] = [];
@@ -250,61 +253,87 @@ export function derivedCommand(args: string[], now: number): { stdout: string; e
   }
   if (positional.length > 1 || sources.length === 0 || output === undefined || (!isRun && operation === undefined && receiptPath === undefined)) refuse('DERIVED_USAGE', DERIVED_HELP, USAGE_EXIT);
   const file = resolve(dir, 'project.json');
-  const read = readJsonObject(file);
-  if (!read.ok) refuse('PROJECT_JSON_INVALID', `${file}: ${read.error}`);
-  const project = read.value;
-  if (project.schema !== 'rig-create/project@0') refuse('SCHEMA_UNKNOWN', 'derived add reads rig-create/project@0');
-  if (project.derived !== undefined && !Array.isArray(project.derived)) refuse('DERIVED_MALFORMED', 'derived must be an array');
-  if (![...sources, output].every((p) => inside(dir, p)) || sources.some((p) => (isRun ? underFolder(dir, output, p) : resolve(dir, p) === resolve(dir, output)))) refuse('DERIVED_PATH_INVALID', 'source and derived file must be distinct project-relative files other than project.json');
-  sources.forEach((p, idx) => assertNotScratchBinding(relative(dir, resolve(dir, p)), sources.length === 1 ? 'derived[].source.path' : `derived[].sources[${idx}].path`));
-  assertNotScratchBinding(relative(dir, resolve(dir, output)), 'derived[].path');
-  if (receiptPath !== undefined) assertNotScratchBinding(relative(dir, resolve(dir, receiptPath)), 'derived[].receipt.path');
-  let receipt: ReturnType<typeof readDerivedReceipt>['binding'] | undefined;
-  if (receiptPath !== undefined) {
-    try { receipt = readDerivedReceipt(dir, receiptPath).binding; }
-    catch (error) { refuse('PLATE_RECEIPT_INVALID', `derived.receipt: ${(error as Error).message}; supply an intact project-relative producer receipt; no record written`); }
-  }
-  if (!isRun && operation === undefined && !maskReceiptSpec(receipt)) refuse('DERIVED_USAGE', DERIVED_HELP, USAGE_EXIT);
-  const inputs = sources.map((p) => {
-    try { return { path: p, sha256: readHash(dir, p) }; } catch { refuse('DERIVED_FILE_UNREADABLE', `cannot read '${p}'; no record written`); }
-  });
-  let entry: JsonObject;
-  if (isRun) {
-    let run: { members: FileBinding[]; sha256: string };
-    try { run = hashRunFolder(dir, output); }
-    catch (error) {
-      const failed = error instanceof RunMemberUnreadable ? error.memberPath : output;
-      refuse('DERIVED_FILE_UNREADABLE', `cannot read '${failed}'; no record written`);
+  const firstRead = readJsonObject(file);
+  if (!firstRead.ok) refuse('PROJECT_JSON_INVALID', `${file}: ${firstRead.error}`);
+  if (firstRead.value.schema !== 'rig-create/project@0') refuse('SCHEMA_UNKNOWN', 'derived add reads rig-create/project@0');
+  const release = acquireBoundJobWrite(dir, undefined, true);
+  try {
+    const original = readFileSync(file);
+    const read = readJsonObject(file);
+    if (!read.ok) refuse('PROJECT_JSON_INVALID', `${file}: ${read.error}`);
+    const project = read.value;
+    if (project.schema !== 'rig-create/project@0') refuse('SCHEMA_UNKNOWN', 'derived add reads rig-create/project@0');
+    if (project.derived !== undefined && !Array.isArray(project.derived)) refuse('DERIVED_MALFORMED', 'derived must be an array');
+    if (![...sources, output].every((p) => inside(dir, p)) || sources.some((p) => (isRun ? underFolder(dir, output, p) : resolve(dir, p) === resolve(dir, output)))) refuse('DERIVED_PATH_INVALID', 'source and derived file must be distinct project-relative files other than project.json');
+    sources.forEach((p, idx) => assertNotScratchBinding(relative(dir, resolve(dir, p)), sources.length === 1 ? 'derived[].source.path' : `derived[].sources[${idx}].path`));
+    assertNotScratchBinding(relative(dir, resolve(dir, output)), 'derived[].path');
+    if (receiptPath !== undefined) assertNotScratchBinding(relative(dir, resolve(dir, receiptPath)), 'derived[].receipt.path');
+    let receipt: ReturnType<typeof readDerivedReceipt>['binding'] | undefined;
+    if (receiptPath !== undefined) {
+      try { receipt = readDerivedReceipt(dir, receiptPath).binding; }
+      catch (error) { refuse('PLATE_RECEIPT_INVALID', `derived.receipt: ${(error as Error).message}; supply an intact project-relative producer receipt; no record written`); }
     }
-    entry = {
-      kind: 'run',
-      ...(inputs.length === 1 ? { source: inputs[0] as JsonObject } : { sources: inputs }),
-      path: output,
-      members: run.members,
-      sha256: run.sha256,
-      ...(operation === undefined ? {} : { operation }),
-      ...(receipt === undefined ? {} : { receipt }),
+    if (!isRun && operation === undefined && !maskReceiptSpec(receipt)) refuse('DERIVED_USAGE', DERIVED_HELP, USAGE_EXIT);
+    const inputs = sources.map((p) => {
+      try { return { path: p, sha256: readHash(dir, p) }; } catch { refuse('DERIVED_FILE_UNREADABLE', `cannot read '${p}'; no record written`); }
+    });
+    const toRel = (p: string) => relative(dir, resolve(dir, p)).split(sep).join('/');
+    let entry: JsonObject;
+    let outputPaths: string[];
+    if (isRun) {
+      let run: { members: FileBinding[]; sha256: string };
+      try { run = hashRunFolder(dir, output); }
+      catch (error) {
+        const failed = error instanceof RunMemberUnreadable ? error.memberPath : output;
+        refuse('DERIVED_FILE_UNREADABLE', `cannot read '${failed}'; no record written`);
+      }
+      const outRel = toRel(output);
+      outputPaths = run.members.map(member => joinMember(outRel, member.path));
+      entry = {
+        kind: 'run',
+        ...(inputs.length === 1 ? { source: inputs[0] as JsonObject } : { sources: inputs }),
+        path: output,
+        members: run.members,
+        sha256: run.sha256,
+        ...(operation === undefined ? {} : { operation }),
+        ...(receipt === undefined ? {} : { receipt }),
+      };
+    } else {
+      let outputHash: string;
+      try { outputHash = readHash(dir, output); } catch { refuse('DERIVED_FILE_UNREADABLE', `cannot read '${output}'; no record written`); }
+      outputPaths = [toRel(output)];
+      entry = {
+        kind: 'prepared-input',
+        ...(inputs.length === 1 ? { source: inputs[0] as JsonObject } : { sources: inputs }),
+        path: output,
+        sha256: outputHash,
+        ...(operation === undefined ? {} : { operation }),
+        ...(receipt === undefined ? {} : { receipt }),
+      };
+    }
+    const instant = new Date(now);
+    entry.at = Number.isFinite(instant.getTime()) ? instant.toISOString() : null;
+    const entries = asArray(project.derived);
+    const ctx: Pick<Ctx, 'dir' | 'refusals' | 'warnings'> = { dir, refusals: [], warnings: [] };
+    checkPreparedInput(ctx, entry, `derived[${entries.length}]`);
+    const finding = ctx.refusals[0];
+    if (finding) refuse(finding.code, finding.message);
+    project.derived = [...entries, entry];
+    const assets = eligibleBoundPaths([
+      ...sources.map(toRel),
+      ...outputPaths,
+      ...(receipt === undefined ? [] : [toRel(String(receipt.path))]),
+    ]);
+    assertCleanProjectStep(dir, ['project.json']);
+    assertCleanProjectStep(dir, assets, true);
+    writeRecord(file, original, project, 'derived add', 'DERIVED_SOURCE_CHANGED');
+    const warning = commitToolWrite(dir, 'derived add', ['project.json', ...assets]);
+    return {
+      stdout: json ? JSON.stringify(entry, null, 2) : `derived: recorded '${sources.join("', '")}' → '${output}' (${operation ?? receipt?.spec ?? 'run'}); stage unchanged`,
+      exit: 0,
+      ...(warning === undefined ? {} : { stderr: warning }),
     };
-  } else {
-    let outputHash: string;
-    try { outputHash = readHash(dir, output); } catch { refuse('DERIVED_FILE_UNREADABLE', `cannot read '${output}'; no record written`); }
-    entry = {
-      kind: 'prepared-input',
-      ...(inputs.length === 1 ? { source: inputs[0] as JsonObject } : { sources: inputs }),
-      path: output,
-      sha256: outputHash,
-      ...(operation === undefined ? {} : { operation }),
-      ...(receipt === undefined ? {} : { receipt }),
-    };
+  } finally {
+    release();
   }
-  const instant = new Date(now);
-  entry.at = Number.isFinite(instant.getTime()) ? instant.toISOString() : null;
-  const entries = asArray(project.derived);
-  const ctx: Pick<Ctx, 'dir' | 'refusals' | 'warnings'> = { dir, refusals: [], warnings: [] };
-  checkPreparedInput(ctx, entry, `derived[${entries.length}]`);
-  const finding = ctx.refusals[0];
-  if (finding) refuse(finding.code, finding.message);
-  project.derived = [...entries, entry];
-  writeFileSync(file, `${JSON.stringify(project, null, 2)}\n`);
-  return { stdout: json ? JSON.stringify(entry, null, 2) : `derived: recorded '${sources.join("', '")}' → '${output}' (${operation ?? receipt?.spec ?? 'run'}); stage unchanged`, exit: 0 };
 }

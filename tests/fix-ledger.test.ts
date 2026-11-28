@@ -527,7 +527,6 @@ test('#949: source options put a painting re-added after restart ahead of retain
   save(dir, project);
   commit(dir);
   restartCommand(restartArgs(dir), step());
-  commit(dir);
   const plate = 'evidence/scene-background.png';
   expect(arr(load(dir).inputs).map(entry => obj(entry).path)).toEqual([plate]);
 

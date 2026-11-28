@@ -1,7 +1,7 @@
-import { BASELINE_PATHS } from './project-step-commit.ts';
-
 const EXCLUDED_BOUND_PATHS = new Set<string>([
-  ...BASELINE_PATHS,
+  'project.json',
+  'package.json',
+  'bun.lock',
   '.gitignore',
   'collection.json',
   'review-live.json',

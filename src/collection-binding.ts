@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, rmdirSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
+import { isDeepStrictEqual } from 'node:util';
 import { checkProject, isObject, PROJECT_SCHEMA } from './check.ts';
 import {
   COLLECTION_BINDING_SPEC,
@@ -25,8 +26,10 @@ import {
 } from './collection-binding-reader.ts';
 import { acquireJobLock, pendingPublications, readWriterBinding } from './job-outbox.ts';
 import { acquireBoundJobWrite } from './job-writer.ts';
+import { assertCleanProjectStep, commitToolWrite } from './project-step-commit.ts';
 import { Refusal, refuse, USAGE_EXIT } from './refusal.ts';
 import type { JsonObject } from './templates.ts';
+import { eligibleBoundPaths } from './writer-commit-paths.ts';
 
 export {
   COLLECTION_BINDING_SPEC,
@@ -390,6 +393,22 @@ export function writeCollectionBinding(
 
       const hadExistingBinding = existsSync(outAbs);
       previousBindingBytes = hadExistingBinding ? readFileSync(outAbs) : null;
+      if (
+        isDeepStrictEqual(project.collection_binding, binding)
+        && previousBindingBytes !== null
+        && previousBindingBytes.equals(snapshotBytes)
+      ) {
+        return {
+          dir: realRoot,
+          collection: collectionName,
+          member: folderMemberName,
+          binding,
+        };
+      }
+
+      const assets = eligibleBoundPaths([outPath]);
+      assertCleanProjectStep(realRoot, ['project.json']);
+      assertCleanProjectStep(realRoot, assets, true);
 
       const parentDir = dirname(outAbs);
       if (!existsSync(parentDir)) {
@@ -418,6 +437,9 @@ export function writeCollectionBinding(
       writeFileSync(tmpProject, `${JSON.stringify(candidate, null, 2)}\n`, { flag: 'wx' });
       renameSync(tmpProject, projectFile);
       committed = true;
+
+      const warning = commitToolWrite(realRoot, 'collection-binding', ['project.json', ...assets]);
+      if (warning !== undefined) process.stderr.write(`${warning}\n`);
 
       return {
         dir: realRoot,

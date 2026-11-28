@@ -23,7 +23,7 @@ import { selectSignoffTarget } from '../src/signoff-target.ts';
 import { currentScene, sceneReference } from '../src/scene.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { plantLegacyReopen } from './fixtures.ts';
-import { seedHistoricalCheckpointAct, seedHistoricalCheckpointAsk, seedHistoricalPendingAsk } from './historical-review-fixture.ts';
+import { seedHistoricalVerdictAct, seedHistoricalCheckpointAct, seedHistoricalCheckpointAsk, seedHistoricalPendingAsk } from './historical-review-fixture.ts';
 import { seedRetainedDirectionPost, seedRetainedDraft, seedRetainedScene } from './numbered-seed.ts';
 
 const roots: string[] = [];
@@ -67,22 +67,6 @@ async function agent(host: JobOwnerHost, verb: string, fields: object): Promise<
     body: JSON.stringify({ schema: 'rig-review/job-api@2', verb, jobId: host.session.jobId, requestId: randomUUID(),
       expectedGeneration: host.session.status().generation, idempotencyKey: randomUUID(), ...fields }) }));
   return await response.json() as { ok: boolean; error?: { code: string }; value: JsonObject };
-}
-
-/** The person's page: one displayed acknowledgment, then each act through Review's UI port. */
-async function page(host: JobOwnerHost) {
-  const publication = host.session.status().publication!;
-  const ui = (route: string, body: object) => new Request(`${host.origin}/jobs/${host.session.jobId}/ui/${route}`, { method: 'POST',
-    headers: { origin: host.origin, 'X-Review-Capability': host.session.hostCredentials().ui, 'content-type': 'application/json' }, body: JSON.stringify(body) });
-  const pageId = randomUUID();
-  const displayed = await host.ports.ackDisplayed(host.session.jobId, ui('displayed', { publicationId: publication.publicationId, pageId, sourceHash: publication.source.sourceHash }));
-  if (!displayed.ok) throw Error(displayed.error.code);
-  return { pageId, act: async (askId: string, kind: string, value: object, extra: object = {}) => {
-    const result = await host.ports.commitUIAct(host.session.jobId, ui('acts', { publicationId: publication.publicationId, askId, pageId,
-      displayedNonce: displayed.value.displayedNonce, expectedGeneration: host.session.status().generation, submissionId: randomUUID(), kind, value, ...extra }));
-    if (!result.ok) throw Error(result.error.code);
-    return result.value;
-  } };
 }
 
 function declared(root: string, host: JobOwnerHost): readonly PublicationSubject[] | undefined {
@@ -152,10 +136,10 @@ async function historicalRigVerdict(root: string) {
   });
   historical = false;
   const verdictAsk = seedHistoricalPendingAsk(host, host.session.status().publication!.publicationId, rigVerdictSubject);
-  const { pageId, act } = await page(host);
+  const pageId = randomUUID();
   const publication = host.session.status().publication!;
   const png = readFileSync(join(root, 'evidence/setup.png'));
-  const verdict = await act(verdictAsk.askId, 'review-verdict', { stage: 'rig-review', verdict: 'approved', words: WORDS }, {
+  const verdict = seedHistoricalVerdictAct(host, verdictAsk.askId, { stage: 'rig-review', verdict: 'approved', words: WORDS }, {
     capture: { png: `data:image/png;base64,${png.toString('base64')}`, width: png.readUInt32BE(16), height: png.readUInt32BE(20),
       camera: 'fixed', framing: 'default', view: 'whole-rig', frame: 'setup', playing: false,
       binding: { publicationId: publication.publicationId, instanceKey: publication.instanceKey, sourceHash: publication.source.sourceHash,

@@ -16,7 +16,7 @@ import type { JsonObject } from '../src/templates.ts';
 import { treeDigest } from './helpers.ts';
 import { meshEdits } from './mesh-edit-fixture.ts';
 import { seedRetainedDraft, seedRetainedRigVersion } from './numbered-seed.ts';
-import { seedHistoricalPendingAsk } from './historical-review-fixture.ts';
+import { seedHistoricalVerdictAct, seedHistoricalPendingAsk } from './historical-review-fixture.ts';
 
 const subject = { kind: 'review-verdict', stage: 'rig-review' } as const;
 const draftId = 'synthetic-review';
@@ -219,28 +219,19 @@ async function page(root: string, url: URL, expectedSubject: JobSubject) {
 
 /** Post one verdict act on the displayed draft and return it with its ingest command, not yet run. */
 async function post(root: string, url: URL, verdict: 'approved' | 'changes-requested', extra?: (source: JsonObject) => JsonObject) {
-  const { base, headers, binding, head, ask, generation } = await page(root, url, subject);
+  const { base, binding, head, ask } = await page(root, url, subject);
   const source = head.source as JsonObject;
   const publicationId = String(head.publicationId);
   expect(readAcknowledgedPublication(root, binding.jobId, publicationId)?.subjects).toEqual([subject]);
   expect(ask.source).toMatchObject({ selector, projectHash: jobHash(readFileSync(join(root, 'project.json'))),
     sourceHash: source.sourceHash, model: { path: model, sha256: jobHash(readFileSync(join(root, model))) }, direction: null });
-  const send = async (route: string, body: object) => {
-    const response = await fetch(base + route, { method: 'POST', headers, body: JSON.stringify(body), signal: AbortSignal.timeout(5000) });
-    const reply: JsonObject = await response.json();
-    expect(reply).toMatchObject({ ok: true });
-    return reply.value as JsonObject;
-  };
+  const host = legacyHosts.find(candidate => candidate.ownerUrl === url.href);
+  if (!host) throw Error('Historical verdict fixture needs its owning host');
   const pageId = randomUUID();
-  const displayed = await send('ui/displayed', { publicationId, pageId, sourceHash: source.sourceHash });
-  // Supply synthetic pixels in the ordinary setup-capture envelope. The Review
-  // browser proof is responsible for obtaining such pixels from the draft page.
   const png = readFileSync(join(root, 'producer/build/rectangle.png'));
-  const act = await send('ui/acts', { publicationId, pageId, askId: ask.askId, displayedNonce: displayed.displayedNonce,
-    expectedGeneration: generation, submissionId: randomUUID(), kind: subject.kind,
-    value: { stage: subject.stage, verdict, words: '', general: [comment], ...extra?.(source) },
-    capture: { png: `data:image/png;base64,${png.toString('base64')}`, width: png.readUInt32BE(16), height: png.readUInt32BE(20),
-      camera: 'fixed', framing: 'default', view: 'whole-rig', frame: 'setup', playing: false,
+  const act = seedHistoricalVerdictAct(host, String(ask.askId),
+    { stage: subject.stage, verdict, words: '', general: [comment], ...extra?.(source) },
+    { capture: { png: `data:image/png;base64,${png.toString('base64')}`, frame: 'setup',
       binding: { publicationId, instanceKey: head.instanceKey, sourceHash: source.sourceHash, pageId, askId: ask.askId,
         drawGeneration: 1, playerGeneration: 0 } } });
   expect(act).toMatchObject({ source: { selector }, value: { stage: subject.stage, verdict, comments: [{ text: comment }] } });

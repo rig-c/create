@@ -223,7 +223,7 @@ test('#558 retires batch/from-review ingestion, seeds historical subset receipts
   expect(pendingJobActs(read(root), after.acts, root)).toEqual([]);
   expect(host.session.status().pending.map(ask => ask.subject)).toEqual([{ kind: 'interview-picks', questionId: 'seethrough', setId: 'chain-seethrough' }]);
   expect((await submit('seethrough')).error?.code).toBe('JOB_RECORD_MOVED');
-  await expect(refusePendingJobAsks(root, host.session.jobId, host, { kind: 'plan' })).rejects.toMatchObject({ code: 'JOB_ASK_PENDING' });
+  await expect(refusePendingJobAsks(root, host.session.jobId, host, { kind: 'plan' })).resolves.toBe(initial.head);
   expect(bytes(root)).toEqual(partial);
 
   await openRecordPublication(root, host, 'seethrough', false, now);
@@ -244,7 +244,7 @@ test('#558 retires batch/from-review ingestion, seeds historical subset receipts
   expect((read(root).review_acts as JsonObject[]).map(row => row.actId)).toEqual([...actIds, freshId]);
 }, 30_000);
 
-test('#558 owner chat settles only its own set, and a finalized stale act stays visible and blocks refresh', async () => {
+test('#558 owner chat records its own set while a finalized stale act stays visible and blocks refresh', async () => {
   const { root, host, now } = await open();
   const submit = await ownerPage(root, host);
   const finalized = (await submit('rig_type')).value!.actId;
@@ -264,9 +264,9 @@ test('#558 owner chat settles only its own set, and a finalized stale act stays 
   expect(bytes(root)).toEqual(before);
   await expect(refusePendingJobAsks(root, host.session.jobId, host, target('seethrough')))
     .rejects.toMatchObject({ code: 'JOB_ASK_PENDING' });
-  // The non-primary reference ask was settled by the exact bound owner-chat answer.
+  // Only the finalized act can hold a target. The two unanswered asks are historical.
   expect(pendingJobAsksForTarget(read(root), view.asks, view.acts, root, { kind: 'plan' }).map(row => row.label))
-    .toEqual(['interview-picks rig_type/chain-rig_type', 'interview-picks seethrough/chain-seethrough']);
+    .toEqual(['interview-picks rig_type/chain-rig_type']);
   expect(bytes(root)).toEqual(before);
 }, 30_000);
 
@@ -296,7 +296,7 @@ test('#785 staleInterviewAct accepts a withdraw-act discard receipt and still re
   expect(pendingJobAsksForTarget(read(root), view.asks, view.acts, root, target('seethrough'), afterWithdraw).some(row => row.staleInterviewActId)).toBe(false);
   await expect(refusePendingJobAsks(root, host.session.jobId, host, target('seethrough'))).rejects.toMatchObject({
     code: 'JOB_ASK_PENDING',
-    message: expect.stringContaining('inspect or withdraw pending acts before closing'),
+    message: expect.stringContaining('inspect the finalized acts'),
   });
   expect(bytes(root)).toEqual(afterWithdraw);
 

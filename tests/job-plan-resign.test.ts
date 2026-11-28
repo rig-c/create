@@ -9,7 +9,7 @@ import { prepareLiveManifest, readPublished } from '../src/job-publication.ts';
 import { jobRuntimeExecArgv } from '../src/job-writer.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { arr, obj, waypoint } from './fixtures.ts';
-import { seedHistoricalPendingAsk, seedStoredReviewVerdictAct } from './historical-review-fixture.ts';
+import { seedHistoricalVerdictAct, seedHistoricalPendingAsk, seedStoredReviewVerdictAct } from './historical-review-fixture.ts';
 import { tempDir } from './helpers.ts';
 import { seedRetainedRigVersion } from './numbered-seed.ts';
 
@@ -37,21 +37,10 @@ async function commitOwnerAct(host: JobOwnerHost, kind: 'review-verdict', value:
   expect(matches.map(ask => ask.subject)).toEqual([subject]);
   const { askId } = matches[0]!;
   const pageId = crypto.randomUUID();
-  const ui = (route: string, body: object) => new Request(`${host.origin}/jobs/${host.session.jobId}/ui/${route}`, {
-    method: 'POST', headers: { origin: host.origin, 'X-Review-Capability': host.session.hostCredentials().ui,
-      'content-type': 'application/json' }, body: JSON.stringify(body),
-  });
-  const displayed = await host.ports.ackDisplayed(host.session.jobId, ui('displayed', { publicationId, pageId, sourceHash }));
-  if (!displayed.ok) throw Error(displayed.error.code);
-  const act = await host.ports.commitUIAct(host.session.jobId, ui('acts', {
-    publicationId, askId, pageId, displayedNonce: displayed.value.displayedNonce,
-    expectedGeneration: generation, submissionId: crypto.randomUUID(), kind, value,
-    ...(picture ? { capture: { png: `data:image/png;base64,${picture.toString('base64')}`, width: 128, height: 128,
-      camera: 'fixed', framing: 'default', view: 'whole-rig', frame: 'setup', playing: false,
-      binding: { publicationId, instanceKey, sourceHash, pageId, askId, drawGeneration: 1, playerGeneration: 0 } } } : {}),
-  }));
-  if (!act.ok) throw Error(act.error.code);
-  return act.value;
+  return seedHistoricalVerdictAct(host, askId, value, picture ? {
+    capture: { png: `data:image/png;base64,${picture.toString('base64')}`, frame: 'setup',
+      binding: { publicationId, instanceKey, sourceHash, pageId, askId, drawGeneration: 1, playerGeneration: 0 } },
+  } : {});
 }
 
 async function routeReviewComment() {

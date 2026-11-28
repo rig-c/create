@@ -1,22 +1,19 @@
 /** Writer routing for finalized acts. No event transport or automatic ingestion. */
 import { JOB_COMMENT_ONLY_ACT_SCHEMA, type ActV3, type JobEventV3, type JobOwnerHost, type JobSelector, type PendingAskV3, type SourceV3 } from '@rig-c/review/job-host';
 import { isDeepStrictEqual } from 'node:util';
-import { recordOptionSets, type RecordPublicationResult } from './job-publication.ts';
+import type { RecordPublicationResult } from './job-publication.ts';
 import type { CreateJobSelector } from './job-outbox.ts';
-import { asArray, collectItems, collectSignoffs, isObject, loadCollection, type Finding } from './check.ts';
-import { optionFile } from './choices.ts';
+import { asArray, collectItems, isObject, loadCollection, type Finding } from './check.ts';
 import { existsSync, readFileSync } from './check-reads.ts';
 import { join } from 'node:path';
 import { LAST_NUMBERED_CREATE_RELEASE } from './numbered-retirement.ts';
 import { isRiggingDraftAct } from './parts-act.ts';
 import { refuse } from './refusal.ts';
-import { collectReopens, liveSignoff } from './reopen.ts';
-import { OWNER_CHAT_SOURCE } from './owner-chat.ts';
+import { liveSignoff } from './reopen.ts';
 import { isRecordPicksAct, matchesActProjectSource, SIGNOFF_TARGET_KINDS } from './review-act.ts';
 import { readVersions } from './review.ts';
 import { collectAmendments } from './amend.ts';
-import { stageOfStep, stepCoveredByApproval } from './stages.ts';
-import { stepHash } from './step-hash.ts';
+import { stageOfStep } from './stages.ts';
 import { checkStructure } from './structure.ts';
 import { createHash, randomUUID } from 'node:crypto';
 import type { Json, JsonObject } from './templates.ts';
@@ -384,92 +381,8 @@ function askSubjectText(subject: PendingAskV3['subject']): string {
   }
 }
 
-/** A finalized Review act still needs ingestion even if the record was signed separately. */
-function signoffSettlesAsk(project: JsonObject, ask: PendingAskV3): boolean {
-  if (ask.status !== 'pending' || ask.subject.kind !== 'signoff') return false;
-  const { stage } = ask.subject;
-  const kind = SIGNOFF_TARGET_KINDS[stage];
-  const selector = ask.source.selector;
-  const version = selector && 'version' in selector && selector.kind === kind ? selector.version : null;
-  if (kind !== undefined && version === null) return false;
-  const reopens = collectReopens(project, []);
-  const steps = asArray(isObject(project.plan) ? project.plan.steps : undefined).filter(isObject);
-  const covered = steps.filter(step => stepCoveredByApproval(project, step, stage));
-  return collectSignoffs(project, []).some(signature => {
-    const { record } = signature;
-    if (signature.stage !== stage || signature.checkpoint !== null
-      || (record.source !== undefined && record.source !== OWNER_CHAT_SOURCE)
-      || !Number.isFinite(signature.at) || !liveSignoff(reopens, stage, signature.at)) return false;
-    if (version !== null && (!isObject(record.target) || record.target.version !== version)) return false;
-    if (stage === 'parts-review' && selector?.kind === 'draft' && record.draft_id !== selector.id) return false;
-    if (covered.length === 0 && record.step_hashes === undefined) return true;
-    const hashes = record.step_hashes;
-    return isObject(hashes) && covered.every(step => {
-      const id = String(step.id);
-      return hashes[id] === stepHash(step) && (ask.source.plan?.steps.some(shown => shown.id === id) ?? false);
-    }) && Object.keys(hashes).length === covered.length;
-  });
-}
-
-type OptionSetRef = { questionId: string; setId: string };
-type OptionSetBinding = OptionSetRef & {
-  optionSet: { id: string; sha256: string };
-  optionSetFile: { path: string; sha256: string };
-};
-
 function isMultiOptionSource(source: SourceV3): boolean {
   return 'optionSets' in source && Array.isArray(source.optionSets);
-}
-
-function interviewAskBinding(ask: PendingAskV3): OptionSetBinding | undefined {
-  if (ask.subject.kind !== 'interview-picks') return;
-  const { questionId, setId } = ask.subject;
-  const source = ask.source;
-  if (!('selection' in source) || source.selection?.kind !== 'option-set' || !source.optionSet || !source.optionSetFile) return;
-  if ('optionSets' in source && Array.isArray(source.optionSets)) {
-    // An ask carries the publication source. Its singular fields name the first set.
-    const sets: readonly OptionSetBinding[] = source.optionSets;
-    return sets.find(set => set.questionId === questionId && set.setId === setId);
-  }
-  if (source.selection.questionId === questionId && source.selection.setId === setId && source.optionSet.id === setId) {
-    return { questionId, setId, optionSet: source.optionSet, optionSetFile: source.optionSetFile };
-  }
-}
-
-function interviewAskItem(project: JsonObject, root: string, questionId: string): ReturnType<typeof collectItems>[number] | undefined {
-  try {
-    return collectItems(project, { collection: loadCollection(root, project) }).find(candidate => candidate.id === questionId);
-  } catch { return undefined; }
-}
-
-function matchesInterviewBinding(root: string, binding: Json | undefined, shown: OptionSetBinding): boolean {
-  if (!isObject(binding) || binding.path !== shown.optionSetFile.path
-    || binding.sha256 !== shown.optionSetFile.sha256 || binding.sha256 !== shown.optionSet.sha256) return false;
-  try { return optionFile(root, binding).set.id === shown.setId; } catch { return false; }
-}
-
-/**
- * An owner-chat interview answer (`interview-answer --owner-chat`) creates no Review act.
- * It settles the interview-picks ask when the question's current answer is bound to the
- * same option set the ask published: path and sha256, and the set id they resolve to.
- */
-function ownerChatAnswerSettlesAsk(project: JsonObject, root: string, ask: PendingAskV3): boolean {
-  if (ask.status !== 'pending') return false;
-  const shown = interviewAskBinding(ask);
-  if (!shown) return false;
-  const item = interviewAskItem(project, root, shown.questionId);
-  if (!item || (item.state.state !== 'user' && item.state.state !== 'delegated') || item.state.answer !== item.raw) return false;
-  const answer = item.state.answer;
-  return answer.source === OWNER_CHAT_SOURCE && isObject(answer.choice) && matchesInterviewBinding(root, answer.choice.set, shown);
-}
-
-/** Refresh a multi-set page only when the replacement carries this unresolved ask's exact retained set. */
-function carriesInterviewAsk(project: JsonObject, root: string, ask: PendingAskV3, target: JobAskTarget): boolean {
-  if (target.kind !== 'option-set') return false;
-  const shown = interviewAskBinding(ask);
-  if (!shown) return false;
-  if (!recordOptionSets(target).some(set => set.questionId === shown.questionId && set.setId === shown.setId)) return false;
-  return matchesInterviewBinding(root, interviewAskItem(project, root, shown.questionId)?.record.pending_options, shown);
 }
 
 /**
@@ -500,24 +413,20 @@ export function pendingJobAsksForTarget(
   const actionableActs = acts.filter(act => act.kind !== 'reopen');
   const unIngested = pendingJobActs(project, actionableActs, root);
   const unIngestedIds = new Set(unIngested.map(act => act.actId));
-  const ingestedActs = actionableActs.filter(act => !unIngestedIds.has(act.actId));
   const unIngestedActs = actionableActs.filter(act => unIngestedIds.has(act.actId));
-  const multiTarget = target.kind === 'option-set' && recordOptionSets(target).length > 1;
   const staleInterviewAct = (act: ActV3 | undefined): string | undefined => act !== undefined
     && isRecordPicksAct(act) && isMultiOptionSource(act.source)
     && record !== undefined && !matchesActProjectSource(act, record) ? act.actId : undefined;
   const pending: PendingTargetAsk[] = [];
   for (const ask of actionableAsks) {
-    if (ingestedActs.some(act => actMatchesAsk(act, ask))) continue;
+    // An unanswered ask is historical. Only its finalized, unresolved act can hold the target.
+    const unIngestedAct = unIngestedActs.find(act => actMatchesAsk(act, ask));
+    if (!unIngestedAct) continue;
     const info = sourceTargetInfo(ask.source);
     const interview = ask.subject.kind === 'interview-picks';
     const multiInterview = interview && isMultiOptionSource(ask.source);
     if (!multiInterview && sameTarget(ask.source, target)) continue;
     if (supersededVerdictSource(project, ask.subject, ask.source)) continue;
-    const unIngestedAct = unIngestedActs.find(act => actMatchesAsk(act, ask));
-    if (!unIngestedAct && (signoffSettlesAsk(project, ask) || ownerChatAnswerSettlesAsk(project, root, ask))) continue;
-    if (!unIngestedAct && (multiInterview || multiTarget) && carriesInterviewAsk(project, root, ask, target)) continue;
-    if (!unIngestedAct && info.selector?.kind === 'draft' && target.kind === 'draft') continue;
     const label = askSubjectText(ask.subject);
     const staleInterviewActId = staleInterviewAct(unIngestedAct);
     pending.push({ label: multiInterview ? label : `${label} on ${info.label}`, version: info.version, interview,

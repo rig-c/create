@@ -24,7 +24,7 @@ import { selectSignoffTarget } from '../src/signoff-target.ts';
 import { stepHash } from '../src/step-hash.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { advanceCommand, checkProject, inputCommand, planCommand, signoffCommand, stepStatusCommand, testClock } from './clock.ts';
-import { seedHistoricalPendingAsk, seedStoredSignoffAct, seedStoredVerdict, seedStoredVersionSignoff, selectHistoricalSignoffTarget } from './historical-review-fixture.ts';
+import { seedHistoricalVerdictAct, seedHistoricalPendingAsk, seedStoredSignoffAct, seedStoredVerdict, seedStoredVersionSignoff, selectHistoricalSignoffTarget } from './historical-review-fixture.ts';
 import { seedRetainedDirectionPost, seedRetainedReviewPackage, seedRetainedRigVersion, seedRetainedScene } from './numbered-seed.ts';
 import { composeFixture, composeRunFixture } from './direction-compose-fixture.ts';
 import { plantLegacyReopen, fixture } from './fixtures.ts';
@@ -136,26 +136,17 @@ async function published(checkpoint = '3-rig-review', n = 1, role: 'owner' | 'de
     return new Request(`${host.origin}/jobs/${host.session.jobId}/ui/${route}`, { method: 'POST',
       headers: { origin: host.origin, 'X-Review-Capability': host.session.hostCredentials().ui, 'content-type': 'application/json' }, body: JSON.stringify(value) });
   }
-  const displayed = await host.ports.ackDisplayed(host.session.jobId, uiRequest('displayed', { publicationId: publication.publicationId, pageId: 'synthetic-page', sourceHash: (publication.source as JsonObject).sourceHash }));
-  expect(displayed.ok).toBe(true);
-  if (!displayed.ok) throw Error(displayed.error.code);
-  const submitted = await host.ports.commitUIAct(host.session.jobId, uiRequest('acts', {
-    publicationId: publication.publicationId, askId: ask.askId, pageId: 'synthetic-page', displayedNonce: displayed.value.displayedNonce,
-    expectedGeneration: host.session.status().generation, submissionId: 'synthetic-submission', kind: 'review-verdict',
-    value: { stage, verdict, words, ...extraValue?.(root, publication.source as JsonObject, publication) },
-    ...(n !== 1 ? {} : (() => {
+  const act = seedHistoricalVerdictAct(host, ask.askId,
+    { stage, verdict, words, ...extraValue?.(root, publication.source as JsonObject, publication) },
+    n !== 1 ? {} : (() => {
       const png = readFileSync(join(root, 'evidence/setup.png'));
-      return { capture: { png: `data:image/png;base64,${png.toString('base64')}`,
-        width: png.readUInt32BE(16), height: png.readUInt32BE(20), camera: 'fixed', framing: 'default',
-        view: 'whole-rig', frame: 'setup', playing: false,
+      return { capture: { png: `data:image/png;base64,${png.toString('base64')}`, frame: 'setup',
         binding: { publicationId: publication.publicationId, instanceKey: publication.instanceKey,
           sourceHash: (publication.source as JsonObject).sourceHash, pageId: 'synthetic-page', askId: ask.askId,
           drawGeneration: 1, playerGeneration: 0 } } };
-    })()),
-  }));
-  if (!submitted.ok) throw Error(`${submitted.error.code}: ${submitted.error.message}`);
-  testClock.set(Math.max(testClock.now(), Date.parse(submitted.value.at)));
-  return { root, host, act: submitted.value, hidden, n, agent, uiRequest, publication };
+    })());
+  testClock.set(Math.max(testClock.now(), Date.parse(act.at)));
+  return { root, host, act, hidden, n, agent, uiRequest, publication };
 }
 
 async function command(root: string, actId: string, n = 1, guarded = false, flags = ['--json'], preload?: string) {
@@ -1203,7 +1194,6 @@ function fetchAdapter(root: string, act: { jobId: string }, raw: string | (() =>
 /** A comments fixture binds the actual published files and captured still. */
 function commentsVerdict(act: Awaited<ReturnType<typeof published>>['act'], n: 1 | 2 = 1): JsonObject {
   // act@10 answers no ask; this fixture copies an ask act, so narrow by schema before reading askId.
-  if (act.schema === JOB_COMMENT_ONLY_ACT_SCHEMA) throw new Error('commentsVerdict copies an ask act');
   return {
     schema: JOB_COMMENTS_ACT_SCHEMA, kind: 'review-verdict', jobId: act.jobId, actId: 'comments-verdict',
     askId: act.askId, publicationId: act.publicationId, authority: act.authority as unknown as JsonObject,

@@ -2,8 +2,9 @@ import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import {
-  JOB_CHEST_LANDMARKS_ACT_SCHEMA, JOB_COMMENTS_ACT_SCHEMA, JOB_RECORD_ACT_SCHEMA, parseCommentsAct, parseRecordAct,
-  type JobActV3, type JobComment, type JobOwnerHost, type JobRetainedSourceV3, type JobReviewerBinding,
+  JOB_CHEST_LANDMARKS_ACT_SCHEMA, JOB_COMMENT_CONTEXT_ACT_SCHEMA, JOB_COMMENTS_ACT_SCHEMA, JOB_MESH_EDITS_ACT_SCHEMA, JOB_RECORD_ACT_SCHEMA,
+  parseChestLandmarksAct, parseCommentsAct, parseContextCommentsAct, parseMeshEditsAct, parseRecordAct,
+  type ActV3, type JobComment, type JobOwnerHost, type JobRetainedSourceV3, type JobReviewerBinding,
   type JobSourceV3, type JobSubject, type RecordCheckpointSubject,
 } from '@rig-c/review/job-host';
 import { asArray, checkProject, collectItems, collectionAnswer, isObject, loadCollection, type Finding } from '../src/check.ts';
@@ -116,14 +117,24 @@ type StoredJob = { data: {
   reviewer: JobReviewerBinding;
   publications: Record<string, { retained: JobRetainedSourceV3 }>;
   asks: Record<string, HistoricalPendingAsk>;
-  acts: Record<string, JobActV3>;
+  acts: Record<string, ActV3>;
 } };
+
+type StoredStill = {
+  actId: string;
+  pageId: string;
+  submissionId: string;
+  sha256: string;
+  binding: string;
+  png: Buffer;
+  actBytes: Buffer;
+};
 
 function historicalSession(host: JobOwnerHost) {
   return host.session as unknown as {
     jobId: string;
-    store: { update(jobId: string, rev: null, write: (row: StoredJob) => StoredJob): StoredJob };
-    event(data: StoredJob['data'], event: { type: 'pending'; ask: HistoricalPendingAsk } | { type: 'act'; act: JobActV3 }): void;
+    store: { update(jobId: string, rev: null, write: (row: StoredJob) => StoredJob & { still?: StoredStill }): StoredJob };
+    event(data: StoredJob['data'], event: { type: 'pending'; ask: HistoricalPendingAsk } | { type: 'act'; act: ActV3 }): void;
     notify(): void;
   };
 }
@@ -147,6 +158,85 @@ export function seedHistoricalPendingAsk(
   });
   session.notify();
   return ask;
+}
+
+/** Build historical wire comments and keep the archived act's source binding explicit. */
+function historicalVerdictValue(value: JsonObject, ask: HistoricalPendingAsk): JsonObject {
+  const { words, general, issues, feedback, ...rest } = value;
+  if (rest.comments !== undefined) return rest;
+  const comments: JsonObject[] = [];
+  for (const issue of asArray(issues).filter(isObject)) {
+    const { summary, ...anchor } = issue;
+    comments.push({ text: summary!, anchor });
+  }
+  if (feedback === undefined && typeof words === 'string' && words.trim()) comments.push({ text: words });
+  for (const row of asArray(feedback).filter(isObject)) {
+    const { summary, ...anchor } = row;
+    const comment: JsonObject = { text: summary!, anchor };
+    const mark = isObject(anchor.context) ? anchor.context.comment : undefined;
+    if (isObject(mark) && mark.schema === 'rig-review-comment/1') {
+      const selection = (mark.bookmark as JsonObject).selection as JsonObject;
+      comment.context = {
+        subject: { ask: ask.subject as unknown as JsonObject, sourceHash: ask.source.sourceHash, selector: ask.source.selector as JsonObject },
+        mode: mark.mode!, tab: selection.inspector!, region: mark.world!, camera: mark.camera!,
+        ...(selection.part ? { part: selection.part } : {}),
+        ...(mark.frame ? { frame: mark.frame } : {}),
+      };
+    }
+    comments.push(comment);
+  }
+  for (const text of asArray(general)) comments.push({ text });
+  return { ...rest, comments };
+}
+
+/** Seed a finalized verdict and optional still, then exercise Review's real readers. */
+type HistoricalVerdictAct = Extract<ActV3, { kind: 'parts-verdict' | 'review-verdict' }>;
+
+export function seedHistoricalVerdictAct(host: JobOwnerHost, askId: string, value: object, options: object = {}): HistoricalVerdictAct {
+  const { capture } = options as { capture?: { png: string; frame: string | number; animation?: string; binding: object } };
+  const session = historicalSession(host);
+  const actId = randomUUID();
+  let act!: HistoricalVerdictAct;
+  session.store.update(session.jobId, null, ({ data }) => {
+    const ask = data.asks[askId];
+    if (!ask || ask.status !== 'pending' || (ask.subject.kind !== 'review-verdict' && ask.subject.kind !== 'parts-verdict')) {
+      throw Error('A historical verdict fixture needs a retained verdict ask');
+    }
+    const payload = historicalVerdictValue(value as JsonObject, ask);
+    const contextual = asArray(payload.comments).some(comment => isObject(comment) && comment.context !== undefined);
+    const schema = payload.chestLandmarks !== undefined ? JOB_CHEST_LANDMARKS_ACT_SCHEMA
+      : payload.meshEdits !== undefined ? JOB_MESH_EDITS_ACT_SCHEMA
+        : contextual ? JOB_COMMENT_CONTEXT_ACT_SCHEMA : JOB_COMMENTS_ACT_SCHEMA;
+    const png = capture && Buffer.from(capture.png.slice('data:image/png;base64,'.length), 'base64');
+    const sha256 = png && jobHash(png);
+    const still = capture && sha256 ? {
+      path: `${sha256}.png`, sha256, camera: 'fixed', frame: capture.frame,
+      ...(capture.animation === undefined ? {} : { animation: capture.animation }),
+    } : undefined;
+    const stored = {
+      schema, actId, jobId: session.jobId, askId, publicationId: ask.publicationId,
+      authority: { actor: 'human', channel: 'review-ui', reviewer: data.reviewer },
+      at: new Date().toISOString(), kind: ask.subject.kind, source: ask.source, value: payload,
+      ...(still === undefined ? {} : { still }),
+    };
+    switch (schema) {
+      case JOB_CHEST_LANDMARKS_ACT_SCHEMA: parseChestLandmarksAct(stored); break;
+      case JOB_MESH_EDITS_ACT_SCHEMA: parseMeshEditsAct(stored); break;
+      case JOB_COMMENT_CONTEXT_ACT_SCHEMA: parseContextCommentsAct(stored); break;
+      case JOB_COMMENTS_ACT_SCHEMA: parseCommentsAct(stored); break;
+    }
+    act = stored as unknown as HistoricalVerdictAct;
+    data.generation++;
+    data.asks[askId] = { ...ask, status: 'answered' };
+    data.acts[actId] = act;
+    session.event(data, { type: 'act', act });
+    return { data, ...(capture && png && sha256 ? { still: {
+      actId, pageId: String((capture.binding as JsonObject).pageId), submissionId: randomUUID(),
+      sha256, binding: JSON.stringify(capture.binding), png, actBytes: Buffer.from(JSON.stringify(act)),
+    } } : {}) };
+  });
+  session.notify();
+  return act;
 }
 
 /** Seed a retired checkpoint ask against the real retained publication. */

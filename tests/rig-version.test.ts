@@ -12,7 +12,7 @@ import { plateReceiptSpec } from '../src/config-inputs.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { arr, fixture, obj, waypoint } from './fixtures.ts';
 import { clockedCli, run } from './helpers.ts';
-import { seedHistoricalPendingAsk, seedStoredReviewVerdictAct, seedStoredVerdict } from './historical-review-fixture.ts';
+import { seedHistoricalVerdictAct, seedHistoricalPendingAsk, seedStoredReviewVerdictAct, seedStoredVerdict } from './historical-review-fixture.ts';
 import { framedRigPin } from './comment-anchor-shapes.ts';
 import { openCreateJob, reconcileCreateJob } from '../src/job-host.ts';
 import { acknowledgePublication, enqueuePublication, jobHash, jobHostStateRoot, jobPrivateRoot, pendingPublications, readWriterBinding, reconcilePublication } from '../src/job-outbox.ts';
@@ -1167,41 +1167,25 @@ describe('#812/#929 historical live rig feedback and citation check', () => {
       const general = mode === 'pinned comment' ? [] : [words];
       const ask = seedHistoricalPendingAsk(host, publication.publicationId, { kind: 'review-verdict', stage: 'rig-review' });
       const pageId = 'synthetic-page';
-      const ui = (route: string, body: object) => new Request(`${host.origin}/jobs/${host.session.jobId}/ui/${route}`, {
-        method: 'POST',
-        headers: { origin: host.origin, 'X-Review-Capability': host.session.hostCredentials().ui, 'content-type': 'application/json' }, body: JSON.stringify(body),
+      const act = seedHistoricalVerdictAct(host, ask.askId, {
+        stage: 'rig-review', verdict: 'changes-requested', words: '',
+        general, ...(pin ? { feedback: [{ ...obj(pin.anchor), summary: pin.text }] } : {}),
+      }, {
+        capture: { png: `data:image/png;base64,${painting.toString('base64')}`, frame: 'setup',
+          binding: { publicationId: publication.publicationId, instanceKey: publication.instanceKey,
+            sourceHash: publication.source.sourceHash, pageId, askId: ask.askId, drawGeneration: 1, playerGeneration: 0 } },
       });
-      const displayed = await host.ports.ackDisplayed(host.session.jobId, ui('displayed', { publicationId: publication.publicationId, pageId, sourceHash: publication.source.sourceHash }));
-      if (!displayed.ok) throw Error(displayed.error.code);
-      const act = await host.ports.commitUIAct(host.session.jobId, ui('acts', {
-        publicationId: publication.publicationId,
-        askId: ask.askId, pageId, displayedNonce: displayed.value.displayedNonce, expectedGeneration: host.session.status().generation,
-        submissionId: 'synthetic-submission', kind: 'review-verdict', value: {
-          stage: 'rig-review',
-          verdict: 'changes-requested', words: '',
-          general, ...(pin ? { feedback: [{ ...obj(pin.anchor), summary: pin.text }] } : {}),
-        },
-        capture: {
-          png: `data:image/png;base64,${painting.toString('base64')}`, width: 8, height: 16,
-          camera: 'fixed', framing: 'default', view: 'whole-rig', frame: 'setup', playing: false,
-          binding: {
-            publicationId: publication.publicationId, instanceKey: publication.instanceKey, sourceHash: publication.source.sourceHash,
-            pageId, askId: ask.askId, drawGeneration: 1, playerGeneration: 0,
-          },
-        },
-      }));
-      if (!act.ok) throw Error(act.error.code);
-      testClock.set(act.value.at);
+      testClock.set(act.at);
       const projectFile = join(dir, 'project.json');
       const beforeRetired = readFileSync(projectFile);
-      const retiredCli = await runCli('review', '1', dir, '--from-review', act.value.actId, '--json');
+      const retiredCli = await runCli('review', '1', dir, '--from-review', act.actId, '--json');
       expect(retiredCli.exit).toBe(2);
       expect(retiredCli.stderr).toContain('NUMBERED_WRITER_REMOVED:');
       expect(readFileSync(projectFile)).toEqual(beforeRetired);
 
-      const exported = host.session.readActExport(act.value.actId, false).toString('utf8');
+      const exported = host.session.readActExport(act.actId, false).toString('utf8');
       const seeded = seedStoredReviewVerdictAct(dir, 1, exported, { now: testClock.now() });
-      const receipt = () => arr(load().review_acts).map(obj).find(row => row.actId === act.value.actId)!;
+      const receipt = () => arr(load().review_acts).map(obj).find(row => row.actId === act.actId)!;
       if (mode === 'pinned comment') {
         expect(seeded.verdict).toMatchObject({ verdict: 'bounced', on_items: [] });
         expect(String(seeded.verdict.verbatim)).toContain(pinnedWords);
@@ -1231,7 +1215,7 @@ describe('#812/#929 historical live rig feedback and citation check', () => {
       const routedAt = testClock.iso();
       const route = { by: 'agent', at: routedAt, item: 'motion', comment_index: 0, verbatim: words };
       const currentRecord = load();
-      arr(currentRecord.review_acts).map(obj).find(row => row.actId === act.value.actId)!.feedback_route = route;
+      arr(currentRecord.review_acts).map(obj).find(row => row.actId === act.actId)!.feedback_route = route;
       const motionGuide = obj(waypoint(currentRecord, 'motion').guide);
       motionGuide.additions = [...arr(motionGuide.additions ?? []), {
         by: 'user', at: routedAt, verbatim: words, value: null,
@@ -1241,7 +1225,7 @@ describe('#812/#929 historical live rig feedback and citation check', () => {
 
       expect(checkProject(dir).feedback).toMatchObject([{ items: { user: 0, delegated: 0, not_asked: 1 } }]);
       const changedRoute = load();
-      obj(arr(changedRoute.review_acts).map(obj).find(row => row.actId === act.value.actId)!.feedback_route).verbatim = 'Edited owner words';
+      obj(arr(changedRoute.review_acts).map(obj).find(row => row.actId === act.actId)!.feedback_route).verbatim = 'Edited owner words';
       expect(checkProject(dir, changedRoute).refusals.map(f => f.code)).toContain('REVIEW_FEEDBACK_ROUTE_INVALID');
       const changedGuide = load();
       arr(obj(waypoint(changedGuide, 'motion').guide).additions).pop();

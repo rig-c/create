@@ -22,7 +22,7 @@ import { JOB_COMMENTS_ACT_SCHEMA, JOB_RECORD_ACT_SCHEMA, parseCommentsAct, parse
 import { interviewAnswerCommand } from '../src/choice-writers.ts';
 import { decodeReviewAct, reviewActFindings, reviewActTransport } from '../src/review-act.ts';
 import { sorted, stepHash } from '../src/step-hash.ts';
-import { seedHistoricalPendingAsk, seedStoredInterviewPicks, seedStoredInterviewPicksAnswer, seedStoredVersionSignoff } from './historical-review-fixture.ts';
+import { seedHistoricalVerdictAct, seedHistoricalPendingAsk, seedStoredInterviewPicks, seedStoredInterviewPicksAnswer, seedStoredVersionSignoff } from './historical-review-fixture.ts';
 import type { Json, JsonObject } from '../src/templates.ts';
 import { testClock } from './clock.ts';
 import { EXAMPLE_NOW } from '../scripts/example-time.ts';
@@ -176,6 +176,17 @@ async function page(root: string, url: URL, expectedAsks = 2, requiredSubject?: 
   let expectedGeneration = Number(events.at(-1)!.generation);
   return {
     pageId,
+    retainedVerdict: (host: JobOwnerHost, value: object, capture: object = {}): JsonObject => {
+      const ask = asks.find(item => obj(item.subject).kind === 'review-verdict')!;
+      const act = seedHistoricalVerdictAct(host, String(ask.askId), value, capture);
+      testClock.set(Math.max(testClock.now(), Date.parse(act.at)));
+      return act as unknown as JsonObject;
+    },
+    invalidCommentNonce: () => post('ui/acts', {
+      publicationId: head!.publicationId, pageId, displayedNonce: '0'.repeat(64),
+      expectedGeneration, submissionId: randomUUID(), kind: 'comments',
+      value: { comments: [{ text: WORDS }] },
+    }),
     head: head!,
     asks,
     tryAct: async (subject: string, kind: string, value: object, extra: object = {}): Promise<JsonObject> => {
@@ -291,7 +302,7 @@ test('job acts lists a retained rig verdict with adoption guidance and no writer
   try {
     const view = await page(root, url, 1, 'review-verdict');
     const ask = view.asks.find(item => obj(item.subject).kind === 'review-verdict')!;
-    const verdict = await view.act('review-verdict', 'review-verdict', { stage: 'rig-review', verdict: 'approved', words: WORDS },
+    const verdict = await view.retainedVerdict(host, { stage: 'rig-review', verdict: 'approved', words: WORDS },
       rigCapture(root, view, String(ask.askId)));
     const before = snapshot(root);
     const listed = await cli(root, ['job', 'acts', root, '--json']);
@@ -322,7 +333,7 @@ test('#756 job acts shows a pending act verdict and comments byte-equal to the h
   try {
     const view = await page(root, url, 1, 'review-verdict');
     const ask = view.asks.find(item => (item.subject as JsonObject).kind === 'review-verdict')!;
-    const verdict = await view.act('review-verdict', 'review-verdict', {
+    const verdict = await view.retainedVerdict(host, {
       stage: 'rig-review',
       verdict: 'approved',
       words: 'First synthetic owner comment.',
@@ -544,7 +555,7 @@ test('#760 a rig verdict ask and its un-ingested act on a rig the amendment supe
   const pending = () => pendingJobAsksForTarget(read(dir), [ask, signoff], [act], dir, question).map(row => row.label);
   const orphan = () => pendingJobAsksForTarget(read(dir), [], [act], dir, question).map(row => row.label);
   // Control: on the live rig the approved verdict holds the job until it is ingested.
-  expect(pending()).toEqual(['review-verdict rig-review on rig v2', 'signoff rig-review on rig v1']);
+  expect(pending()).toEqual(['review-verdict rig-review on rig v2']);
   expect(orphan()).toEqual(['review-verdict (act-rig) on rig v2']);
   writeFileSync(join(dir, 'direction.txt'), 'Synthetic new direction.\n');
   amendCommand(['rigging-interview', dir, '--kind', 'interview-answer', '--target', 'bones', '--change', 'direction.txt', '--by', 'owner', '--verbatim-file', join(dir, 'direction.txt')]);
@@ -1335,7 +1346,7 @@ test('merged record-mode host lists finalized picks and its printed writer comma
   expectExit0(await cli(root, ['interview', '--check', root]));
 }, 30_000);
 
-test('#737 a second --question refuses JOB_ASK_PENDING while the first ask is open, keeps its answer, and publishes after ingest', async () => {
+test('#737 a second --question preserves a finalized historical answer and publishes after ingest', async () => {
   const root = riggingInterviewRoot();
   const value = await registerQuestion(root, 'motion');
   await registerQuestion(root, 'bones');
@@ -1348,14 +1359,6 @@ test('#737 a second --question refuses JOB_ASK_PENDING while the first ask is op
   expect(same.stdout.trimEnd().split('\n')).toContain(`job: option-set motion/pending-acts-motion already published (publication ${initialView.head.publicationId})`);
   const view = seedLegacyPicksPage(root);
   const before = snapshot(root);
-  const second = await cli(root, ['job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner', '--question', 'bones']);
-  expect(second.exit).toBe(1);
-  expect(second.stderr).toMatch(/^JOB_ASK_PENDING: /);
-  expect(second.stderr).toContain('interview-picks motion/pending-acts-motion');
-  expect(second.stderr).toContain(`rig-create job acts ${shellWord(root)} --wait`);
-  expect(snapshot(root)).toEqual(before);
-
-  // The first page still holds its ask: the owner's answer arrives as an act.
   const act = await view.act('interview-picks', 'interview-picks', value);
   const unIngested = await cli(root, ['job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner', '--question', 'bones']);
   expect(unIngested.exit).toBe(1);
@@ -1385,7 +1388,7 @@ function ownerChatAnswerArgs(root: string, value: { questionId: string; selectio
     ...value.selections.flatMap(row => ['--pick', `${String(row.itemId)}=${String(row.optionId)}`])];
 }
 
-test('#826 record-only writers preserve an open interview ask and its finalized answer until Review ingest', async () => {
+test('#826 record-only writers preserve a finalized historical interview answer', async () => {
   const { root, view, value } = await openMotionQuestion();
   const path = 'inputs/synthetic-source.txt';
   writeFileSync(join(root, path), 'Synthetic source bytes.\n');
@@ -1415,7 +1418,6 @@ test('#826 record-only writers preserve an open interview ask and its finalized 
       expect(snapshot(jobHostStateRoot(root))).toEqual(beforeHost);
     }
   };
-  await refuses();
   const act = await view.act('interview-picks', 'interview-picks', value);
   await refuses();
   seedStoredInterviewPicksAnswer(root, act, { now: testClock.now() });
@@ -1444,13 +1446,12 @@ test('#833 draft and owner-language writers refuse until the finalized Review an
       expect(result.stdout).toBe('');
       expect(result.stderr).toStartWith('rig-create: JOB_ASK_PENDING: ');
       expect(result.stderr).toContain('interview-picks motion/pending-acts-motion on option-set motion/pending-acts-motion');
-      expect(result.stderr).toContain(`rig-create job acts ${shellWord(root)} --wait`);
+      expect(result.stderr).toContain(`rig-create job acts ${shellWord(root)} to inspect the finalized acts`);
       expect(readFileSync(projectFile)).toEqual(before);
       expect(snapshot(jobPrivateRoot(root))).toEqual(beforeJob);
       expect(snapshot(jobHostStateRoot(root))).toEqual(beforeHost);
     }
   };
-  await refuses();
   const act = await view.act('interview-picks', 'interview-picks', value);
   await refuses();
   seedStoredInterviewPicksAnswer(root, act, { now: testClock.now() });
@@ -1462,7 +1463,7 @@ test('#833 draft and owner-language writers refuse until the finalized Review an
   expect(arr(project.review_acts).at(-1)).toMatchObject({ kind: 'interview-picks', actId: act.actId });
 }, 60_000);
 
-test.each(['matching', 'different'])('#737 a %s owner-chat answer is compared against the retained ask binding', async binding => {
+test.each(['matching', 'different'])('#737 a %s owner-chat answer can be written regardless of the retired ask binding', async binding => {
   const { root, value, view } = await openMotionQuestion();
   const [ask] = view.asks as unknown as PendingAskV3[];
   // Retain the ask for the classifier control and exercise the writers on the unbound record.
@@ -1481,8 +1482,7 @@ test.each(['matching', 'different'])('#737 a %s owner-chat answer is compared ag
   }
   expectExit0(await cli(root, ownerChatAnswerArgs(root, value)));
   const pending = pendingJobAsksForTarget(read(root), [ask!], [], root, { kind: 'record-only' });
-  expect(pending.map(row => row.label)).toEqual(binding === 'matching' ? []
-    : ['interview-picks motion/pending-acts-motion on option-set motion/pending-acts-motion']);
+  expect(pending).toEqual([]);
 }, 60_000);
 
 test('#558 next at the rigging interview groups the question loop and prints one batch ingest', async () => {
@@ -1509,7 +1509,7 @@ test('#558 next at the rigging interview groups the question loop and prints one
 test.each([
   { label: '--draft', selector: ['--draft', 'chain'], expected: /\njob: draft chain published \(publication [A-Za-z0-9][A-Za-z0-9._-]{0,127}\)\n/ },
   { label: '--rig', selector: ['--rig', '1'], expected: /\njob: rig v1 published \(publication [A-Za-z0-9][A-Za-z0-9._-]{0,127}\)\n/ },
-])('#740 job open $label refuses JOB_ASK_PENDING while an interview ask is open, keeps its answer, and publishes after ingest', async ({ selector, expected }) => {
+])('#740 job open $label preserves a finalized historical interview answer before publishing', async ({ selector, expected }) => {
   testClock.set(Date.now());
   const root = copy('3-rig-review', project => {
     project.stage = 'rigging-interview';
@@ -1526,15 +1526,6 @@ test.each([
   const before = snapshot(root);
   const beforePrivate = snapshot(jobPrivateRoot(root));
   const beforeJobState = snapshot(jobHostStateRoot(root));
-
-  const refused = await cli(root, ['job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner', ...selector]);
-  expect(refused.exit).toBe(1);
-  expect(refused.stderr).toMatch(/^JOB_ASK_PENDING: /);
-  expect(refused.stderr).toContain('interview-picks motion/pending-acts-motion on option-set motion/pending-acts-motion');
-  expect(refused.stderr).toContain(`rig-create job acts ${shellWord(root)} --wait`);
-  expect(snapshot(root)).toEqual(before);
-  expect(snapshot(jobPrivateRoot(root))).toEqual(beforePrivate);
-  expect(snapshot(jobHostStateRoot(root))).toEqual(beforeJobState);
 
   const act = await view.act('interview-picks', 'interview-picks', value);
   const beforeUnIngestedJobState = snapshot(jobHostStateRoot(root));
@@ -1603,13 +1594,13 @@ test('#698 wait wakes on a finalized retained verdict and reuses the strict atta
     expect(beforeWait[2]!.after).toBe(beforeWait[1]!.after);
     expect(beforeWait[2]!.after).not.toBeNull();
 
-    const refused = await view.tryAct('review-verdict', 'review-verdict', value, { ...capture, displayedNonce: '0'.repeat(64) });
+    const refused = await view.invalidCommentNonce();
     expect(obj(refused.error).code).toBe('JOB_DISPLAY_MISMATCH');
     await page(root, url, 1, 'review-verdict');
     await Bun.sleep(600);
     expect(requests).toEqual(beforeWait);
 
-    const act = await view.act('review-verdict', 'review-verdict', value, capture);
+    const act = await view.retainedVerdict(host, value, capture);
     const result = await waiting;
     expect(result.acts).toHaveLength(1);
     expect(result.acts[0]).toMatchObject({ actId: act.actId, kind: 'review-verdict', args: null, command: null, unavailable: { code: 'NUMBERED_ACT_RETIRED' } });
@@ -1818,7 +1809,7 @@ function unsignedRiggingInterview(): string {
   });
 }
 
-test('#711 relayed rigging-interview signoff unblocks draft publication on the same Review host', async () => {
+test('#711 relayed rigging-interview signoff and draft publication share the host with a retired ask', async () => {
   const root = unsignedRiggingInterview();
   const fixture = read(root);
   const bones = arr(obj(fixture.plan).steps).map(obj).find(step => step.id === 'bones')!;
@@ -1880,7 +1871,7 @@ test('#711 relayed rigging-interview signoff unblocks draft publication on the s
   const signoff = read(root).signoffs;
   expect(arr(signoff).map(obj).some(row => row.stage === 'plan-approved')).toBe(true);
   const draft = { kind: 'draft', id: 'next' } as const;
-  await expect(assertNoPendingJobAsk(root, draft)).rejects.toMatchObject({ code: 'JOB_ASK_PENDING' });
+  await expect(assertNoPendingJobAsk(root, draft)).resolves.toBe(planPublicationId);
 
   const words = join(root, 'signoff-words.txt');
   writeFileSync(words, WORDS);
@@ -1893,7 +1884,7 @@ test('#711 relayed rigging-interview signoff unblocks draft publication on the s
   hashes[Object.keys(hashes)[0]!] = '0'.repeat(64);
   write(root, lapsed);
   try {
-    await expect(assertNoPendingJobAsk(root, draft)).rejects.toMatchObject({ code: 'JOB_ASK_PENDING' });
+    await expect(assertNoPendingJobAsk(root, draft)).resolves.toBe(planPublicationId);
   } finally {
     write(root, project);
   }
@@ -2179,7 +2170,7 @@ test('#1136 job acts --json preserves a direction pin anchor as Review wrote it'
     const target = String(obj(source.package ?? {}).id ?? 'synthetic-post');
     const comments = [directionPin(String(source.sourceHash), String(obj(source.model).sha256), 1.25, 'Hold the lantern here.', target),
       { text: 'Overall direction note.' }];
-    const act = await view.act('review-verdict', 'review-verdict', { stage: 'direction-review', verdict: 'approved', comments });
+    const act = await view.retainedVerdict(host, { stage: 'direction-review', verdict: 'approved', comments });
     expect(act.schema).toBe(JOB_COMMENTS_ACT_SCHEMA);
     expect(obj(act.value).comments).toEqual(comments);
     const anchor = obj(arr(obj(act.value).comments)[0]).anchor as JsonObject;

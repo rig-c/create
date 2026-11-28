@@ -4,6 +4,7 @@ import { PROJECT_SCHEMA } from './check.ts';
 import { readProject } from './feedback.ts';
 import { acquireBoundJobWrite } from './job-writer.ts';
 import { parseOwnerLanguage, withOwnerLanguage } from './owner-language.ts';
+import { assertCleanProjectStep, commitToolWrite } from './project-step-commit.ts';
 import { writeRecord } from './record-input.ts';
 import { refuse, USAGE_EXIT } from './refusal.ts';
 import type { JsonObject } from './templates.ts';
@@ -16,7 +17,7 @@ export function ownerLanguageCommand(args: string[]): string {
   const language = parseOwnerLanguage(tag);
   const dir = resolve(target ?? process.cwd());
   const { file } = readProject(dir);
-  const release = acquireBoundJobWrite(dir, { kind: 'record-only' });
+  const release = acquireBoundJobWrite(dir, { kind: 'record-only' }, true);
   try {
     const original = readFileSync(file);
     const project = JSON.parse(original.toString('utf8')) as JsonObject;
@@ -26,7 +27,10 @@ export function ownerLanguageCommand(args: string[]): string {
     if (project.owner && typeof project.owner === 'object' && !Array.isArray(project.owner) && project.owner.language === language) {
       return `owner.language: ${language} (already set)`;
     }
+    assertCleanProjectStep(dir, ['project.json']);
     writeRecord(file, original, withOwnerLanguage(project, language), 'owner-language', 'OWNER_LANGUAGE_SOURCE_CHANGED');
+    const warning = commitToolWrite(dir, 'owner-language set', ['project.json']);
+    if (warning !== undefined) process.stderr.write(`${warning}\n`);
     return `owner.language: ${language}`;
   } finally { release(); }
 }

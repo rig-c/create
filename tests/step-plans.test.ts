@@ -329,11 +329,12 @@ test('#1054 a fresh project records current parts and advances with a retained c
   const source = join(dir, 'inputs/source');
   const env = gitEnv({ name: 'Synthetic author', email: 'synthetic@example.test' });
   expect(spawnCli(['init', dir, '--no-install'], root, env).code).toBe(0);
+  expect(run(['git', 'config', '--local', 'user.name', 'Synthetic author'], dir, env).code).toBe(0);
+  expect(run(['git', 'config', '--local', 'user.email', 'synthetic@example.test'], dir, env).code).toBe(0);
   cpSync(join(REPO, 'templates/example-composed-direction/inputs/source'), source, { recursive: true });
-  expect(cli(['input', 'add', 'inputs/source/painting.png', dir, '--origin', 'synthetic source']).code).toBe(0);
+  expect(cli(['input', 'add', 'inputs/source/painting.png', dir, '--origin', 'synthetic source'])).toEqual({ code: 0, stderr: '' });
   const baseline = () => expect(spawnCli(['history', 'baseline', dir, '--by', 'synthetic-operator'], root, env))
     .toMatchObject({ code: 0, stdout: expect.stringContaining('attribution unverified') });
-  baseline();
   approvePartsPlan(dir);
   expect(cli(['advance', 'parts', dir]).code).toBe(0);
   for (const id of ['seethrough', 'assemble']) {

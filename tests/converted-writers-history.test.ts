@@ -1,5 +1,5 @@
 import { beforeEach, expect, test } from 'bun:test';
-import { cpSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdirSync, readdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { JOB_COMMENT_ONLY_ACT_SCHEMA, type JobOwnerHost } from '@rig-c/review/job-host';
 import { OPTIONS_SPEC, optionContext, sha256 } from '../src/choices.ts';
@@ -757,8 +757,8 @@ test('#1168 group 6: restart, derived add, intake-report, checkpoint-evidence, s
   delete (currentRecord.interview as JsonObject).rigging_context;
   putJson(currentRepo, PROJECT, currentRecord);
   put(currentRepo, UNRELATED, 'initial unrelated\n');
-  const structureFiles = git({ dir: import.meta.dir, env: repo.env }, 'ls-files', '../templates/example-current/evidence/structure')
-    .trim().split('\n').filter(Boolean).map(p => p.replace('../templates/example-current/', ''));
+  const structureFiles = readdirSync(join(currentDir, 'evidence/structure/current-parts'))
+    .map(name => `evidence/structure/current-parts/${name}`);
   const structureSaved = new Map(structureFiles.map(p => [p, bytes(currentRepo, p)]));
   git(currentRepo, 'init', '-q');
   git(currentRepo, 'add', '--', '.');

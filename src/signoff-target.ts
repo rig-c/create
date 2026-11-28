@@ -184,8 +184,8 @@ export function selectSignoffTarget(dir: string, project: JsonObject, stage: str
     if (requested !== undefined) refuse('SIGNOFF_OPTION_INVALID', 'signoffs.target: --version requires rig-review or direction-review; remove --version');
     return undefined;
   }
+  const kind: CurrentTargetKind = currentParts ? 'parts' : SIGNOFF_TARGET_KINDS[stage] === 'rig' ? 'rig' : 'direction';
   if (project.current !== undefined) {
-    const kind = currentParts ? 'parts' : SIGNOFF_TARGET_KINDS[stage] === 'rig' ? 'rig' : 'direction';
     const path = `signoffs[${asArray(project.signoffs).length}].target`;
     if (requested !== undefined) refuse('SIGNOFF_OPTION_INVALID', `${path}: current.${kind} selects the target; remove --version`, USAGE_EXIT);
     const node = isObject(project.current) ? project.current[kind] : undefined;
@@ -208,7 +208,7 @@ export function selectSignoffTarget(dir: string, project: JsonObject, stage: str
   const candidates = versions.filter((v): v is JsonObject => isObject(v) && v.kind === SIGNOFF_TARGET_KINDS[stage]
     && acceptedReviewVerdict(v, stage) >= 0 && !history.has(v.n as number)
     && !signed.some(s => isObject(s.record.target) && s.record.target.version === v.n));
-  const fail = (reason: string): never => refuse('SIGNOFF_TARGET_STALE', `signoffs[${asArray(project.signoffs).length}].target: ${reason}; candidates [${candidates.map(v => String(v.n)).join(', ')}]; numbered ${stage} targets are read-only — restore the accepted version's reviewed inputs, or record current.${SIGNOFF_TARGET_KINDS[stage]} with rig-create record ${SIGNOFF_TARGET_KINDS[stage]}`);
+  const fail = (reason: string): never => refuse('SIGNOFF_TARGET_STALE', `signoffs[${asArray(project.signoffs).length}].target: ${reason}; candidates [${candidates.map(v => String(v.n)).join(', ')}]; numbered ${stage} targets are read-only and current.${kind} is absent, so no signable ${stage} target resolves`);
   let version: JsonObject;
   if (requested === undefined) {
     if (candidates.length !== 1) fail('exactly one unsigned accepted candidate is required');

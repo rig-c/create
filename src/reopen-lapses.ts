@@ -22,10 +22,13 @@ function voidingReopen(project: JsonObject, events: readonly Reopen[], stage: st
 
 function signoffRemedy(stage: string, checkpoint: string | null): string {
   if (checkpoint !== null) return `ask the person to approve checkpoint ${checkpoint} again and record it with rig-create signoff ${stage} --checkpoint ${checkpoint} --by <owner> --owner-chat <words file> --said-at <ISO date> --relayed-by <operator>`;
-  if (stage === PARTS_REVIEW) return 'numbered parts approvals are read-only; record or adopt current parts with rig-create record parts --from <producer out> --config <rig config> (or --adopt), run rig-create structure-snapshot, and relay the owner chat sign-off with rig-create signoff parts-review --by <owner> --owner-chat <words file> --said-at <ISO date> --relayed-by <operator>';
+  if (stage === PARTS_REVIEW) return 'record current parts with rig-create record parts --from <producer out> --config <rig config>, run rig-create structure-snapshot, and relay the owner chat sign-off with rig-create signoff parts-review --by <owner> --owner-chat <words file> --said-at <ISO date> --relayed-by <operator>';
   if (stage === RIG_REVIEW || stage === DIRECTION_REVIEW) {
+    const recordCmd = stage === RIG_REVIEW
+      ? 'rig-create record rig --from <producer out> --config <rig config>'
+      : 'rig-create record direction --from <compose out> --direction specs/direction/direction.json';
     const kind = stage === RIG_REVIEW ? 'rig' : 'direction';
-    return `numbered ${stage} approvals are read-only; record or adopt current ${kind} with rig-create record ${kind} (or --adopt) and relay the owner chat sign-off with rig-create signoff ${stage} --by <owner> --owner-chat <words file> --said-at <ISO date> --relayed-by <operator>`;
+    return `record current ${kind} with ${recordCmd} and relay the owner chat sign-off with rig-create signoff ${stage} --by <owner> --owner-chat <words file> --said-at <ISO date> --relayed-by <operator>`;
   }
   return `ask the person to sign ${stage} again and record it with rig-create signoff ${stage}`;
 }
@@ -60,7 +63,7 @@ export function reopenLapseWarnings(project: JsonObject): Finding[] {
     const by = rig === null ? null : voidingReopen(project, events, RIG_REVIEW, Date.parse(rig.at ?? ''));
     if (rig !== null && rig.accepted !== null && by !== null) {
       const path = `${rig.path}.verdicts[${rig.accepted.verdict}]`;
-      out.push({ code: 'REOPEN_VERDICT_LAPSED', path, message: `${path}: the rig-review acceptance of rig v${rig.n} was voided by ${by}; numbered rig versions and verdicts are read-only — migrate to current outputs with rig-create record rig --from <producer out> --config <rig config> (or --adopt) and rig-create record motion --from <render out>, then relay the owner chat sign-off with rig-create signoff rig-review --by <owner> --owner-chat <words file> --said-at <ISO date> --relayed-by <operator>` });
+      out.push({ code: 'REOPEN_VERDICT_LAPSED', path, message: `${path}: the rig-review acceptance of rig v${rig.n} was voided by ${by}; numbered rig versions and verdicts are read-only, so no live numbered rig acceptance remains` });
     }
   }
 
@@ -77,7 +80,7 @@ export function reopenLapseWarnings(project: JsonObject): Finding[] {
   }
   const by = direction === null || directionLive ? null : voidingReopen(project, events, DIRECTION_REVIEW, direction.at);
   if (direction !== null && by !== null) {
-    out.push({ code: 'REOPEN_VERDICT_LAPSED', path: direction.path, message: `${direction.path}: the direction-review acceptance of post v${direction.n} was voided by ${by}; numbered post versions and verdicts are read-only — migrate to current direction with rig-create record direction --from <compose out> --direction specs/direction/direction.json (or --adopt), then relay the owner chat sign-off with rig-create signoff direction-review --by <owner> --owner-chat <words file> --said-at <ISO date> --relayed-by <operator>` });
+    out.push({ code: 'REOPEN_VERDICT_LAPSED', path: direction.path, message: `${direction.path}: the direction-review acceptance of post v${direction.n} was voided by ${by}; numbered post versions and verdicts are read-only, so no live numbered direction acceptance remains` });
   }
   return out;
 }

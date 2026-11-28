@@ -680,7 +680,7 @@ Exit `0`. Bookkeeping that names no missing decision.
 | `CG_GATES_PREDATE` | a CG project's `rig` version was built with `@rig-c/parts` older than 2.4.0, before the CG gates existed (§ CG gates) | nothing for that version; the next CG version declares the gates |
 | `CG_GATE_UNDECLARED`, `CG_BEHIND_SEAMS_THRESHOLD_RAISED` (behind-part seams) | the same missing/invalid or raised behind-part seam threshold on a CG rig version dated before `CG_BEHIND_SEAMS_SINCE` | preserve history; declare the gate with threshold at most 12 on the next CG rig |
 | `REOPEN_SIGNOFF_LAPSED` | a human sign-off (stage or checkpoint) is history because of a `reopens[]` entry, and no live sign-off of the same stage and checkpoint exists; one per approval, at its latest lapsed record, naming the reopen (§ Reopening stages) | relay the owner's renewed approval with `signoff` and `--owner-chat` (with `--checkpoint <id>` for a checkpoint; record `current.<kind>` first for a review stage) |
-| `REOPEN_VERDICT_LAPSED` | the latest human rig-review or direction-review acceptance is history because of a `reopens[]` entry, and no live acceptance of that review exists; the message names the verdict and the reopen | record the current output with `record <kind>` (or `--adopt`) and relay any owner chat sign-off with `signoff <stage> --owner-chat` |
+| `REOPEN_VERDICT_LAPSED` | the latest human rig-review or direction-review acceptance is history because of a `reopens[]` entry, and no live acceptance of that review exists; the message names the verdict and the reopen | numbered versions and verdicts are read-only, so no live numbered acceptance remains on that review |
 
 ## Collections
 

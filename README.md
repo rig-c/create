@@ -1,211 +1,60 @@
-<p align="center">
-  <img src="assets/banner.svg" alt="@rig-c/create — Project direction, an interview and a signed plan before rigging" width="100%" />
-</p>
-
-<p align="center">
-  <a href="https://www.npmjs.com/package/@rig-c/create"><img src="https://img.shields.io/npm/v/@rig-c/create.svg?style=flat-square&color=FF6B4A" alt="npm version" /></a>
-  <a href="https://www.npmjs.com/package/@rig-c/create"><img src="https://img.shields.io/npm/dm/@rig-c/create.svg?style=flat-square&color=EC4899" alt="npm downloads" /></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-38BDF8.svg?style=flat-square" alt="license" /></a>
-</p>
-
 # @rig-c/create
 
-**A painting goes in. A rigged, directed animation comes out. An agent does the
-work, and you judge it at four steps on a local review page.**
+Bring a painting and your direction. Your agent uses Create to build a rig
+and a directed animation. [See where Create fits in the rig-c toolchain.](https://github.com/rig-c/getting-started#the-whole-thing-in-one-glance)
 
-You do not rig anything yourself. The agent asks you questions before it works
-and shows you each result. Nothing moves to the next step until you approve it.
+## Install and start
 
-create runs the whole cycle. The cutting, rigging and review page come from
-[rig-c/parts](https://github.com/rig-c/parts),
-[rig-c/core](https://github.com/rig-c/core) and
-[rig-c/review](https://github.com/rig-c/review). The
-[getting-started guide](https://github.com/rig-c/getting-started#the-whole-thing-in-one-glance)
-shows what each rig-c package takes and gives.
+You need [Bun](https://bun.sh/) 1.4.0 or newer and Git. From the folder with
+your painting, run the following commands. Bun fetches Create on first use.
+
+```sh
+bunx --package @rig-c/create rig-create init p1 --painting ./painting.png --origin "My original painting" --owner-language en
+bunx --package @rig-c/create rig-create next p1
+```
+
+The first line of output from each command looks like this.
+
+```text
+Created project p1 at /path/to/p1
+next: p1 — stage: interview
+```
+
+The folder contains the registered painting, the project record and pinned
+tools. Open `p1` with your agent and have it read the generated `AGENTS.md`.
 
 ## The four steps
 
-1. **Parts and meshes.** The agent asks what kind of rig this is and how the
-   painting should be split, then cuts it into parts. You judge the parts and
-   their meshes by eye.
-2. **Rigging interview.** With the approved parts in front of you, the agent
-   asks about bones, what deforms, physics and motions. You answer each
-   question and sign the plan built from your answers.
-3. **Rig and animation.** The agent builds the rig and its motions. You judge
-   the rig alone on a fixed camera: seams, cuts, physics and the motions played
-   in place.
-4. **Direction.** The agent asks about camera, timing and what is around the
-   figure, then composes the take. You judge the finished take and accept it.
+1. **Parts and meshes.** The agent prepares the layers, assembles the parts
+   and shows the checked result.
+2. **Rigging interview.** The agent explains how the character will be rigged
+   and how it will deform.
+3. **Rig and animation.** The agent builds the rig and shows its motion.
+4. **Direction.** Choose camera, timing and composition in chat. The agent
+   composes and shows the take.
 
-Each question is multiple choice. It comes with the agent's recommendation and
-its reason, an Other for your own words, and "auto". Auto is recorded as you
-handing that decision to the agent. It is never left blank.
+<a id="recording-approvals"></a>
 
-## Start
-
-You need [Bun](https://bun.sh) 1.4.0 or newer and Git.
-
-```sh
-bunx rig-create init p1 --painting <your painting> --origin "<where it came from>"
-bunx rig-create next p1
-```
-
-`init` wants a new or empty folder. It creates the project, copies the
-painting into `inputs/`, installs the pinned rig-c packages and makes the first
-Git commit. If the install fails the project is still there; run `bun install`
-inside `p1`. `next` lists the moves that are open and whose they are.
-
-To use the scoped name, run `bunx --package @rig-c/create rig-create …`. To
-install globally, run `bun add -g @rig-c/create` and then `rig-create …`.
-
-Now open `p1` with your agent. The folder holds its guide (`AGENTS.md`), and
-the agent starts from there. Its first job is the review page:
-
-```sh
-rig-create job open p1 --reviewer <your id> --role owner
-rig-create job acts p1 --wait
-```
-
-`job open` prints a private URL. Open it once and keep the page open. It
-updates in place. `job acts --wait` is how the agent waits for you: it returns
-when you submit something on the page and prints the command that records it,
-or stops when its wait runs out.
-
-## What the agent does, and what you do
-
-The agent runs every command. It asks, drafts the plan, cuts, rigs, composes,
-and publishes each result to your page. You look, answer, comment and approve
-on that page.
-
-Approval works the same way at every step. The agent keeps one `job open`
-running in the background and shares its URL once. For each new ask it
-publishes to the same page with `job open` and a selector (`--question`,
-`--questions`, `--draft`, `--rig` or `--plan`). Then it runs `job acts --wait`,
-and records what you submitted with the command that prints. Your words are
-kept exactly as you gave them. If you ask for changes, the agent corrects the
-work and shows you a new draft or version at the same step. Only your sign-off
-moves a project forward. If you answer in chat, the agent can relay an
-interview answer or a sign-off with your exact words, but a verdict on parts, a
-rig or a take is given on the page. After an accepted take is sent back, the
-agent records your correction with `amend direction-review`.
-
-The full procedure, with recovery when the page stops, is in
-[the live Review loop](docs/LIVE-REVIEW.md#the-live-review-loop).
+The agent tells you its plan once per step in chat and proceeds. Use Review
+to look at the current result and comment on what you see. Your project
+holds one current result per kind and uses Git for history. When earlier
+work changes, the agent rebuilds the results that depend on it.
+[Step plans and chat choices](docs/INTERVIEW.md) · [Live Review](docs/LIVE-REVIEW.md)
 
 ## Commands
 
-`rig-create --help` prints every command with its flags. One line each:
+- `init` creates a project and registers its starting painting. [Initialization](docs/CHECKS.md#initialization)
+- `next` lists available moves and who takes them. [Project reference](docs/PROJECT.md)
+- `plan propose` records a plan for a whole step. [Step plans](docs/INTERVIEW.md#step-plans)
+- `plan feedback` attaches the owner's feedback to a plan. [Feedback](docs/INTERVIEW.md#step-plans)
+- `interview-answer` records the owner's choice and words from chat. [Interview](docs/INTERVIEW.md)
+- `record parts|rig|motion|direction` records a checked producer output. [Current outputs](docs/CHECKS.md#current-outputs-record-parts-record-rig-record-motion-record-direction)
+- `job open` publishes the current result for looking and comments. [Job commands](docs/LIVE-REVIEW.md#job-commands)
+- `comment` records a Review comment or the work that addressed it. [Live Review loop](docs/LIVE-REVIEW.md#the-live-review-loop)
+- `interview --check` reports missing data and invalid bindings. [Checks](docs/CHECKS.md)
+- `advance` records progress. [Stages](docs/PROJECT.md#stages)
+- `history` lists project step-data commits and their restore commands. [Project layout](docs/PROJECT.md#layout)
 
-**The project**
-
-- `init <dir>`: create a project folder, its Git repository and pinned packages.
-- `input add <path> --origin <words>`: register a source file. A changed input needs a new file name.
-- `owner-language set <tag>`: declare the language you are asked in.
-- `next`: list the next moves and whose they are. It writes nothing.
-- `interview --check`: name every hole the interview and plan still have. It exits nonzero until they are filled.
-- `pause`, `resume <stage>`: stop work on your sign-off, and return to the stage it left.
-- `restart`: start the record again at its first version, keeping the inputs and the fix ledger.
-- `ledger add|retire <id>`: record or retire a fix of yours that every later version inherits.
-- `packages upgrade`: update the project's pinned packages.
-
-**The review page**
-
-- `job open`: start the page, or publish a draft, rig, question or plan to it.
-- `job acts`: list what you submitted and the command that records each. `--wait` waits for the next one.
-- `job reconcile`: finish pending publications after a stopped page is opened again.
-- `job withdraw-act <actId>`: take back a submitted act on your recorded words, keeping the page.
-- `job close`: end the job.
-
-**Questions, plan and sign-offs**
-
-- `interview-options <question>`: register the choices shown for one question.
-- `interview-answer <question>`: record your pick.
-- `interview-decision <question>`: record the agent's decision on a question you delegated.
-- `plan add|revise|remove|replace <id>`: draft plan steps, keeping what they replace.
-- `signoff <stage>`: record your signature without moving the stage.
-- `advance <stage>`: move to the next stage a sign-off allows.
-- `step-status <step> <status>`: record a plan step's progress.
-- `amend <stage>`: record a change to something already approved, and name the approvals that lapse.
-- `checkpoint-evidence`: attach sealed evidence to the plan's checkpoints.
-- `checkpoint-table`: lay out a producer report's rows as a table, without changing them.
-
-**Parts and meshes**
-
-- `intake-report`, `intake`: record a preflight report from parts and show its counts. It advises and never blocks approval.
-- `derived add`: record preparation another tool already ran, with the files' hashes.
-- `split-captions`: generate caption data for the split.
-- `draft-rig <id>`: record a labelled draft without building or promoting it.
-- `structure-snapshot`: prepare the structure snapshot for recorded parts.
-- `diff-classes`: read measured component classes, or record the agent's classification.
-- `record parts|rig|motion|direction`: record verified producer outputs under `current.<kind>`.
-- `comment --from-review <actId>`: record an owner comment act from the live review page, or close an addressed comment.
-- `correction record|resolve`: record a correction you described or made, and how the agent resolved it.
-
-**Rig and animation**
-
-- `rig-version <n>`: register a frozen rig build.
-- `review-package <n>`: copy the build's inputs for review and record the command that opens it.
-- `handoff`: name the accepted rig version that direction work runs on, or refuse.
-
-**Direction**
-
-- `direction write|check <N>`: author camera and timing as a document that never changes, and check it.
-- `scene write`: record the background and foreground around the figure.
-
-## Collections and scenes
-
-Several rigs that belong together are a collection: shared answers are given
-once, and each collection version pins exact member builds. Start one with
-`init --collection <dir>` and `init --member <collection dir> <name>`, then use
-`collection answer|pin|--check` and `collection-binding`
-([docs/COLLECTIONS.md](docs/COLLECTIONS.md)).
-
-A scene puts a background, and optionally a foreground, around an accepted rig
-([scene composition](docs/PROJECT.md#scene-composition-and-direction2)).
-
-## Docs
-
-- [docs/PROJECT.md](docs/PROJECT.md): the project folder, data by lifetime,
-  stages and sign-offs, the plan, versions.
-- [docs/INTERVIEW.md](docs/INTERVIEW.md): the four user steps, answer states
-  and shape, waypoints, post-production, provenance, polish feedback.
-- [docs/LIVE-REVIEW.md](docs/LIVE-REVIEW.md): the review page loop, job
-  commands, verdicts, sign-off routes and recovery.
-- [docs/JOB-RETIREMENT.md](docs/JOB-RETIREMENT.md): closing a review job when
-  the pinned packages change.
-- [docs/CHECKS.md](docs/CHECKS.md): `rig-create interview --check`: every
-  refusal code, what fires it, how to clear it.
-- [docs/COLLECTIONS.md](docs/COLLECTIONS.md): several rigs that belong together:
-  inherited answers, the reference member, composition, pins.
-- [docs/AGENT-REFERENCE.md](docs/AGENT-REFERENCE.md): what an agent reads before
-  it asks, plans or shows.
-- [docs/CRAFT.md](docs/CRAFT.md): craft notes: the default proposed at each
-  waypoint, and execution defects handed to rig-c/parts gates.
-- [docs/SOURCE.md](docs/SOURCE.md): the layer split and the cut: what to do, in
-  what order and why, read before `seethrough` and `assemble`.
-- [docs/LESSONS.md](docs/LESSONS.md): the self-check every version passes
-  before anyone looks, and the review lessons behind it.
-- [docs/INVARIANTS.md](docs/INVARIANTS.md):
-  how guide sentences translate into checks the rig must keep.
-- [RELEASING.md](RELEASING.md):
-  preparing and publishing a release.
-- [templates/](templates/): the empty `project.json` and `collection.json`
-  skeletons and the [worked example](templates/example-current/project.json),
-  which takes a fresh synthetic project through all four steps.
-  The [frozen numbered example](templates/example-numbered/example-project.json)
-  retains the [historical interview](templates/example-interview.md) and its synthetic sign-offs.
-  The remesh example records a request for a finer torso mesh as a forward
-  amendment. [Remesh record](templates/example-remesh/project.json)
-
-`init` creates projects from the empty templates; it does not copy the worked
-examples. To check the installed examples against their recorded hashes, run
-this from a project that has `@rig-c/create` installed. It names missing files
-and hash mismatches, exits nonzero on either, and reads installed bytes only:
-
-```sh
-bun node_modules/@rig-c/create/scripts/verify-example-seals.ts
-```
-
-## Licence
-
-[MIT](LICENSE).
+See the [worked project](templates/example-current/project.json) or
+[adopt retained outputs from a numbered project](docs/PROJECT.md#adopting-existing-numbered-outputs).
+[MIT licence](LICENSE)

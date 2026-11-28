@@ -68,7 +68,7 @@ function scenePlates(dir: string, project: JsonObject, opts: Record<string, stri
             SCENE_CHOICE_MISMATCH,
             'scene.plates[1]',
             'scene declares a foreground plate not present in post_composition value.scene',
-            'match the exact roles, paths and rects from the cited post_composition choice in the Review tool (or record a new post_composition choice in the Review tool) and run scene write',
+            'match the exact roles, paths and rects from the cited post_composition choice (or register a fresh set with rig-create interview-options post_composition and relay a new choice with rig-create interview-answer post_composition --owner-chat) and run scene write',
           );
         }
         rect = spec.foreground.rect;
@@ -95,7 +95,7 @@ function writeCurrentScene(args: string[], now: number, hooks: SceneWriteHooks):
     } else if (arg.startsWith('-')) return usage();
     else positional.push(arg);
   }
-  if (opts['--by'] !== undefined) sceneFail('SCENE_AUTHOR_TYPED', 'scene.by', 'typed scene authority is not supported', 'omit --by and cite the current post_composition Review choice');
+  if (opts['--by'] !== undefined) sceneFail('SCENE_AUTHOR_TYPED', 'scene.by', 'typed scene authority is not supported', 'omit --by and cite the current recorded post_composition choice');
   const composePath = opts['--compose-scene'];
   const plateArgs = ['--background', '--foreground', '--background-rect', '--foreground-rect', '--citations-file'];
   if (positional.length > 1 || (composePath ? plateArgs.some(key => opts[key] !== undefined)

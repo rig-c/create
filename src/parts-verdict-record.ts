@@ -20,7 +20,7 @@ export const PARTS_CLI_RECEIPT = 'rig-create/parts-verdict-cli@1';
 export const PARTS_VERDICT_LATEST_SINCE = '2026-11-08T00:00:00Z';
 const object = (value: unknown): value is JsonObject => value !== null && typeof value === 'object' && !Array.isArray(value);
 const sha = (value: unknown): value is string => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
-const fail = (code: string, detail: string): never => refuse(code, `project.json.review_acts: ${detail}; query the labelled draft with rig-review parts --format json and record its response again`);
+const fail = (code: string, detail: string): never => refuse(code, `project.json.review_acts: ${detail}; numbered parts verdicts are historical — restore the retained parts-verdict receipt and response, or record current parts with rig-create record parts and relay any owner chat sign-off`);
 
 export function decodePartsRead(bytes: Buffer): JsonObject {
   let value: unknown;

@@ -2302,7 +2302,7 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
           field: reopenField,
           awaits: awaitTarget,
           command: null,
-          act: `re-approve lapsed stage ${lapsedStage} (${warning.path}, lapsed by ${reopenField}${reopenId ? ` ${reopenId}` : ''}: ${warning.code})`,
+          act: `numbered stage ${lapsedStage} approval lapsed (${warning.path}, lapsed by ${reopenField}${reopenId ? ` ${reopenId}` : ''}: ${warning.code}); use Create 1.27.x to keep writing, or adopt (docs/PROJECT.md#adopting-existing-numbered-outputs)`,
           review_act: {
             kind: 'signoff',
             stage: lapsedStage,
@@ -2403,7 +2403,7 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
           field: amendField,
           awaits: awaitTarget,
           command: null,
-          act: `re-approve ${lapsedApproval.path} (${targetStage}) lapsed by ${amendField}${targetId ? ` (${targetId})` : ''}`,
+          act: `numbered stage ${targetStage} approval lapsed (${lapsedApproval.path}, lapsed by ${amendField}${targetId ? ` (${targetId})` : ''}); use Create 1.27.x to keep writing, or adopt (docs/PROJECT.md#adopting-existing-numbered-outputs)`,
           review_act: {
             kind: 'signoff',
             stage: targetStage,
@@ -2529,13 +2529,13 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
           command: null,
           act: needsPlanSteps
             ? effectiveStage === 'rigging-interview'
-              ? `review-tool act signoff for stage rigging-interview (unanswered by record: ${missingPlanReason} approved at rigging-interview)`
-              : `review-tool act signoff for stage ${effectiveStage} (unanswered by record: ${effectiveStage === 'post-interview' ? missingPlanReason : steps.length === 0 ? 'plan.steps is empty' : 'plan.steps has uncovered parts guides'} in project.json)`
+              ? `numbered stage rigging-interview signs only on Create 1.27.x (unanswered by record: ${missingPlanReason} approved at rigging-interview); use Create 1.27.x to keep writing, or adopt (docs/PROJECT.md#adopting-existing-numbered-outputs)`
+              : `numbered stage ${effectiveStage} signs only on Create 1.27.x (unanswered by record: ${effectiveStage === 'post-interview' ? missingPlanReason : steps.length === 0 ? 'plan.steps is empty' : 'plan.steps has uncovered parts guides'} in project.json); use Create 1.27.x to keep writing, or adopt (docs/PROJECT.md#adopting-existing-numbered-outputs)`
             : pendingOtherFields.length > 0
-              ? `review-tool act signoff for stage ${effectiveStage} (unanswered by record: ${pendingOtherFields.join(', ')} has pending Other; resolve INTERVIEW_CHOICE_REQUIRED before approval)`
+              ? `numbered stage ${effectiveStage} signs only on Create 1.27.x (unanswered by record: ${pendingOtherFields.join(', ')} has pending Other; resolve INTERVIEW_CHOICE_REQUIRED before approval); use Create 1.27.x to keep writing, or adopt (docs/PROJECT.md#adopting-existing-numbered-outputs)`
               : undecidedFields.length > 0
-                ? `review-tool act signoff for stage ${effectiveStage} (unanswered by record: ${undecidedFields.join(', ')} requires agent decision before approval)`
-                : `review-tool act signoff for stage ${effectiveStage}`,
+                ? `numbered stage ${effectiveStage} signs only on Create 1.27.x (unanswered by record: ${undecidedFields.join(', ')} requires agent decision before approval); use Create 1.27.x to keep writing, or adopt (docs/PROJECT.md#adopting-existing-numbered-outputs)`
+                : `numbered stage ${effectiveStage} signs only on Create 1.27.x; use Create 1.27.x to keep writing, or adopt (docs/PROJECT.md#adopting-existing-numbered-outputs)`,
           review_act: {
             kind: 'signoff',
             stage: effectiveStage,
@@ -2583,7 +2583,7 @@ function deriveNextProject(dir: string, project: JsonObject, report: CheckReport
           field: 'signoffs',
           awaits: signoffAwait,
           command: null,
-          act: 'review-tool act signoff for stage plan-approved',
+          act: 'numbered stage plan-approved signs only on Create 1.27.x; use Create 1.27.x to keep writing, or adopt (docs/PROJECT.md#adopting-existing-numbered-outputs)',
           review_act: {
             kind: 'signoff',
             stage: 'plan-approved',

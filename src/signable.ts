@@ -12,14 +12,14 @@ import type { JsonObject } from './templates.ts';
 /** Record-mode interview approval uses the full interview check, before any write. */
 export function assertInterviewRecordSignable(project: JsonObject, report: CheckReport): void {
   if (project.stage !== 'interview' || report.effective_stage !== 'interview') {
-    refuse('REVIEW_ACT_TARGET_MISMATCH', 'project.json.stage: the displayed interview sign-off requires stage interview; publish and sign the current stage in Review');
+    refuse('REVIEW_ACT_TARGET_MISMATCH', 'project.json.stage: historical interview pick sign-off applies only at stage interview; nothing to sign in Review — relay any owner chat sign-off for the current stage with rig-create signoff <stage> --by <owner> --owner-chat <words file> --said-at <ISO date> --relayed-by <operator>');
   }
   if (!asArray(isObject(project.plan) ? project.plan.steps : undefined).length) {
-    refuse('INTERVIEW_SIGNOFF_PLAN_REQUIRED', 'project.json.plan.steps: interview record sign-off needs displayed plan steps; draft the plan through the writers and publish it with job open --plan');
+    refuse('INTERVIEW_SIGNOFF_PLAN_REQUIRED', 'project.json.plan.steps: interview pick sign-off needs plan steps; draft the plan steps through the plan writers before recording signoff interview');
   }
   if (report.refusals.length || report.holes?.length) {
     const finding = report.refusals[0] ?? report.holes![0]!;
-    refuse('INTERVIEW_SIGNOFF_NOT_CLEAN', `project.json: interview --check reports ${finding.code} at ${finding.path}; resolve the interview check and publish the current record again`);
+    refuse('INTERVIEW_SIGNOFF_NOT_CLEAN', `project.json: interview --check reports ${finding.code} at ${finding.path}; resolve the interview check before recording signoff interview`);
   }
 }
 

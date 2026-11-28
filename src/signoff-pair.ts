@@ -55,6 +55,9 @@ export function signoffPairFinding(project: JsonObject, signoff: JsonObject, pat
     || samePublicationReviewPair(project, signoff, version, verdictIndex)) return;
   const legacy = !ingest && Date.parse(String(signoff.at)) < Date.parse(SIGNOFF_PAIR_SINCE);
   const at = `${path}.target.verdict`;
+  const remedy = legacy
+    ? 'this is a historical record; nothing to do'
+    : 'numbered verdicts and signoffs are historical — restore the original matching signoff and verdict records';
   return { code: `SIGNOFF_PAIR_MISMATCH${legacy ? '_LEGACY' : ''}`, path: at,
-    message: `${at}: the verdict follows this signoff without a same-publication, same-version human accepted pair; accept the intended version and sign it again in Review, then ingest both acts` };
+    message: `${at}: the verdict follows this signoff without a same-publication, same-version human accepted pair; ${remedy}` };
 }

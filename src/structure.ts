@@ -19,7 +19,7 @@ import type { Json, JsonObject } from './templates.ts';
 export const STRUCTURE_SCHEMA = 'rig-create/structure-decisions@0';
 const hash = (b: Buffer): string => createHash('sha256').update(b).digest('hex');
 const add = (out: Finding[], code: string, path: string, why: string): void => {
-  out.push({ code, path, message: `${path}: ${why}; review the labelled draft, retain its exact structure decisions, and sign again` });
+  out.push({ code, path, message: `${path}: ${why}; numbered draft structure snapshots are historical — restore the retained snapshot and draft config, or record current.parts with rig-create record parts and run rig-create structure-snapshot` });
 };
 
 export function retainedJson(dir: string, binding: Json | undefined): JsonObject {

@@ -198,7 +198,7 @@ function recordSignoff(stage: string, positional: string[], opts: Record<string,
     const split = hasStageOrder(project);
     const pending = collectItems(project, { collection: loadCollection(dir) }).find(item =>
       interviewStageOfGuide(item.id, item.kind === 'post', split) === stage && pendingInterviewOptions(item));
-    if (pending) refuse('SIGNOFF_REASK_PENDING', `project.json.${pendingInterviewOptionsPath(pending)}: ${stage} has a pending option set for ${pending.id}; open it with rig-create job open --question ${pending.id} and record the owner's pick with interview-answer before signing`);
+    if (pending) refuse('SIGNOFF_REASK_PENDING', `project.json.${pendingInterviewOptionsPath(pending)}: ${stage} has a pending option set for ${pending.id}; ask the owner in chat (optionally showing images with rig-create job open --question ${pending.id}) and relay the owner's pick with rig-create interview-answer ${pending.id} --owner-chat before signing`);
   }
   // The record as read: its refusals are the baseline the candidate is judged against below.
   const asRead = preview?.resign?.baseline ?? checkProject(dir, project, { now, readOnly: preview !== undefined });

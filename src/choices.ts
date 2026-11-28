@@ -696,7 +696,7 @@ export function checkChoices(ctx: Ctx): void {
     if (pendingInterviewOptions(item) && answered(item.state) && !isUndecidedDelegation(item) && !hasPendingOther(item)) {
       const path = pendingInterviewOptionsPath(item);
       ctx.warnings.push({ code: 'INTERVIEW_REASK_PENDING', path,
-        message: `${path}: re-ask pending over a decided answer for ${item.id}; have the owner pick from the registered set with rig-create job open --question ${item.id}, then record the pick with interview-answer` });
+        message: `${path}: re-ask pending over a decided answer for ${item.id}; ask the owner in chat (optionally showing images with rig-create job open --question ${item.id}) and relay the pick with rig-create interview-answer ${item.id} --owner-chat` });
     }
     const answers: { answer: JsonObject; path: string; current: boolean }[] = objects(item.record.history).map((answer,i) => ({ answer, path: `${item.path}.history[${i}]`, current: false }));
     if (item.state.state === 'user' || item.state.state === 'delegated') answers.push({ answer: item.state.answer, path: item.path, current: true });

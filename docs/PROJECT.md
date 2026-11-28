@@ -261,10 +261,15 @@ rig-create amend parts-review --kind draft --target d1 --change evidence/correct
 rig-create job open --draft d1 --reviewer owner --role owner
 ```
 
-The amendment lists the previous approval in `amendments[].lapsed`. Review
-asks for a fresh verdict on the registered draft. A new approval signs after
-the amendment, and a changes request leaves parts-review unsigned.
-For changed parts at `rigging`, see the
+The amendment lists the previous approval in `amendments[].lapsed`. `job open
+--draft d1` opens the retained draft view-only for inspection and comments;
+Review 5.x refuses new `parts-verdict` submissions, and numbered draft
+sign-offs are retired. To continue on the current path, record current parts
+with `rig-create record parts --from <producer out> --config <rig config>` (or
+adopt with `rig-create record parts --adopt`), prepare `structure-snapshot`,
+and relay any owner chat sign-off with `rig-create signoff parts-review
+--owner-chat`.
+For historical changed-parts signatures recorded at `rigging`, see the
 [recorded approval exception](#signing-amended-parts-at-rigging).
 
 An amendment invalidates every approval at its owning stage or later, using
@@ -2221,7 +2226,8 @@ Register a plate with `input add` before `scene write` names it. New agent
 scenes require input-writer metadata `{path,sha256,bytes,origin,at}` for raw input
 candidates, or a bound `rig-parts-plate-receipt/1` for derived candidates. A
 legacy input must be registered under a new source name with
-`input add <path> --origin …`, then selected through Review. Missing, stale or
+`input add <path> --origin …`, then selected in a `post_composition` choice
+recorded with `interview-answer post_composition --owner-chat`. Missing, stale or
 mismatched authority refuses before the project append. Quotes must cite the
 current ingested answer; historical answers remain available to historical
 scene readers. Composite preview presentation remains tracked in
@@ -2863,7 +2869,7 @@ registered project-relative paths from the cited owner value.
 The source scene, report and model must agree with the cited canvas and
 placement. Each plate's bytes must pass `plateRegistration`, including input
 writer metadata or a complete prepared-input/plate receipt chain. Composition
-must come from the recorded Review choice or decided delegation. For cited
+must come from the recorded `post_composition` choice or historical decided delegation. For cited
 offset `[ox,oy]`, scale `s` (default `1`) and canvas `Cw×Ch`, Create uses Parts'
 reported `rig_size` (`W×H`) to check the reported shift in Spine axes against
 `[ox + (s·W − Cw)/2, Ch − oy − s·H]`. If the rest of the scene identifies a

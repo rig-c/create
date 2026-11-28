@@ -22,7 +22,7 @@ import type { Json, JsonObject } from './templates.ts';
 export const COMPOSE_VALUE_INVALID = 'COMPOSE_VALUE_INVALID';
 
 const COMPOSE_VALUE_REMEDY =
-  'record a post_composition choice in the Review tool (or complete its delegated agent_decision) whose value.compose binds closed {canvas,plates,order,character,idle_tracks} with empty idle_tracks or a common positive track end';
+  'register a fresh option set with rig-create interview-options post_composition and relay a post_composition choice with rig-create interview-answer post_composition --owner-chat (or complete a historical delegated agent_decision) whose value.compose binds closed {canvas,plates,order,character,idle_tracks} with empty idle_tracks or a common positive track end';
 
 /**
  * Vector and scalar bone track properties from `@rig-c/core`:

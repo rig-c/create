@@ -1,6 +1,7 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
+import { renameSync, rmSync, writeFileSync } from 'node:fs';
 import { readFileSync, realpathSync } from './check-reads.ts';
-import { isAbsolute, relative, resolve, sep } from 'node:path';
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 
 import { asArray, asString, checkProject, collectItems, collectSignoffs, isObject, loadCollection, type Finding } from './check.ts';
@@ -10,7 +11,7 @@ import { publicationFile } from './job-publication.ts';
 import { acquireBoundJobWrite } from './job-writer.ts';
 import { OWNER_CHAT_FLAGS, ownerChatAuthorityFinding, ownerChatFinding, readOwnerChat } from './owner-chat.ts';
 import { assertCleanProjectStep, commitToolWrite } from './project-step-commit.ts';
-import { readVerbatim, writeRecord } from './record-input.ts';
+import { readVerbatim } from './record-input.ts';
 import { refuse, USAGE_EXIT } from './refusal.ts';
 import { baselineOf, newFindings } from './refusal-baseline.ts';
 import { liveSignoff, type Reopen } from './reopen.ts';
@@ -246,9 +247,9 @@ export function amendCommand(args: string[], now: number): { stdout: string; exi
   const dir = resolve(positional[1] ?? process.cwd());
   readProject(dir);
   const release = acquireBoundJobWrite(dir, undefined, true);
+  const tmp = join(dirname(resolve(dir, 'project.json')), `.amend-${process.pid}-${randomUUID()}.tmp`);
   try {
     const { file, project } = readProject(dir);
-    const original = readFileSync(file);
     const before = structuredClone(project);
     const errors: Finding[] = [];
     collectAmendments(project, errors);
@@ -329,7 +330,8 @@ export function amendCommand(args: string[], now: number): { stdout: string; exi
     const assets = eligibleBoundPaths((entry.changes as { path: string }[]).map(change => change.path));
     assertCleanProjectStep(dir, ['project.json']);
     assertCleanProjectStep(dir, assets, true);
-    writeRecord(file, original, project, 'amend', 'AMENDMENT_SOURCE_CHANGED');
+    writeFileSync(tmp, `${JSON.stringify(project, null, 2)}\n`, { flag: 'wx' });
+    renameSync(tmp, file);
     const warning = commitToolWrite(dir, 'amend', ['project.json', ...assets]);
     return {
       stdout: json ? JSON.stringify(entry, null, 2) : `amend: ${String(positional[0])} ${String(opts['--target'])} by ${String(entry.by)} at ${String(entry.at)}; stage retained`,
@@ -337,6 +339,7 @@ export function amendCommand(args: string[], now: number): { stdout: string; exi
       ...(warning === undefined ? {} : { stderr: warning }),
     };
   } finally {
+    rmSync(tmp, { force: true });
     release();
   }
 }

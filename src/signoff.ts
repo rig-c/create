@@ -6,12 +6,13 @@ import { selectAnswerHashes, staleSignoffAnswer } from './signoff-answers.ts';
 import { selectSignoffTarget } from './signoff-target.ts';
 import { signoffPairFinding } from './signoff-pair.ts';
 import { assertCorrectionApproval } from './correction-writers.ts';
-import { writeFileSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
+import { renameSync, rmSync, writeFileSync } from 'node:fs';
 import { readFileSync, recordCheckReads, type CheckRead } from './check-reads.ts';
 import { acquireBoundJobWrite } from './job-writer.ts';
 import { assertInterviewRecordSignable, checkpointProblem } from './signable.ts';
 import { commitIngestedSignoff } from './signoff-checkpoint-act.ts';
-import { resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { jobHash } from './job-outbox.ts';
 import { SIGNOFF_TARGET_KINDS } from './review-act.ts';
 import { refuseNumberedWriter } from './numbered-retirement.ts';
@@ -20,7 +21,7 @@ import { asArray, checkProject, classify, collectItems, isObject, loadCollection
 import { readProject } from './feedback.ts';
 import { assertCleanProjectStep, commitToolWrite } from './project-step-commit.ts';
 import { assertCurrentPartsStructure, riggingContext } from './structure.ts';
-import { readVerbatim, writeRecord } from './record-input.ts';
+import { readVerbatim } from './record-input.ts';
 import { refuse, USAGE_EXIT } from './refusal.ts';
 import { findingKey } from './refusal-baseline.ts';
 import { approvalStageOfStep, hasStageOrder, interviewStageOfGuide, isOpenInterviewStage, PARTS_REVIEW, STAGE_ORDER_SPEC, STAGE_VALUES } from './stages.ts';
@@ -304,7 +305,15 @@ function recordSignoff(stage: string, positional: string[], opts: Record<string,
     assertCleanProjectStep(dir, ['project.json']);
     assertCleanProjectStep(dir, assets, true);
     if (picks) commitIngestedSignoff(file, original!, project);
-    else writeRecord(file, original!, project, 'signoff', 'SIGNOFF_SOURCE_CHANGED');
+    else {
+      const tmp = join(dirname(file), `.signoff-${process.pid}-${randomUUID()}.tmp`);
+      try {
+        writeFileSync(tmp, `${JSON.stringify(project, null, 2)}\n`, { flag: 'wx' });
+        renameSync(tmp, file);
+      } finally {
+        rmSync(tmp, { force: true });
+      }
+    }
     const warning = commitToolWrite(dir, 'signoff', ['project.json', ...assets]);
     return {
       stdout: json ? JSON.stringify(signoff, null, 2) : `signoff: recorded ${stage} by ${by} at ${at}; stage unchanged`,

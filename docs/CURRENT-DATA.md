@@ -434,27 +434,26 @@ green. Green means three things:
 The writer never asks. Reason: the HQ bar, and that the comment and act bindings (§3.2
 rows 13, 19) need the published bytes to be in history.
 
-Commit scopes today:
+Commit scopes:
 
 | Writer | Commits |
 | --- | --- |
 | `init`, `init --collection`, `init --member` | the initial project or collection files (or the new member's files and `collection.json`) |
 | `record parts`, `record rig`, `record motion`, `record direction` | `project.json`, eligible verified output paths and removals from the prior recorded output, `.gitignore` when first rewritten |
-| `record --adopt` | `project.json` |
+| `record --adopt`, `direction --adopt` | `project.json` |
 | `scene write`, `direction write` | each writer's generated spec (`specs/direction/scene.json` or `specs/direction/direction.json`) |
-| `job open` | `project.json` when the live job binding changes |
+| `job open`, `job withdraw-act`, `job close` (with disposition) | `project.json` when the live job binding or act disposition changes |
 | `job open --current` | its generated manifest when HEAD already contains the exact record and trackable inputs |
 | `packages upgrade` | `project.json`, `package.json` and `bun.lock` |
-| `plan propose`, `interview-options` | `project.json` and explicitly registered, trackable files |
-| `plan feedback` / `add` / `revise`, `comment --from-review` / `--close`, `input add`, `ledger add` / `retire`, `derived add`, `correction`, `owner-language set` | working-tree writes |
+| `input add`, `plan propose`, `interview-options`, `comment --from-review`, `comment --close`, `correction`, `diff-classes`, `derived add`, `intake-report`, `checkpoint-evidence`, `signoff`, `amend`, `collection-binding`, `advance` | `project.json` and any eligible trackable files registered or bound by that step |
+| `input painting`, `owner-language set`, `interview-answer`, `interview-decision`, `plan feedback` / `add` / `revise` / `remove` / `replace` / `checkpoint-withdraw` / `bar-amend`, `ledger add` / `retire`, `restart`, `pause`, `resume`, `step-status` | `project.json` |
 
-Converted record writers check their shared paths before mutation. Review any
+Every record and package writer checks its shared paths before mutation. Review any
 pre-existing edits to `project.json`, `package.json` and `bun.lock` and run
 `rig-create history baseline <dir> --by <operator>` to commit the pending record
 as a baseline with unverified attribution. The same route can recover a record
 saved just before Git failed or the process stopped, including trackable
-option documents, step plans and their inputs, and current output files
-whose bytes match their recorded hashes. Other staged paths stay staged.
+bound assets whose bytes match their recorded hashes. Other staged paths stay staged.
 If Git cannot inspect the project, `next` still offers workflow moves and Review
 can serve its hash-bound view without a commit pointer.
 

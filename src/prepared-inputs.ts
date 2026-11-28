@@ -1,13 +1,13 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
+import { renameSync, rmSync, writeFileSync } from 'node:fs';
 import { lstatSync, readdirSync, readFileSync } from './check-reads.ts';
-import { isAbsolute, relative, resolve, sep } from 'node:path';
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 
 import { asArray, isObject, readJsonObject, type Ctx } from './check.ts';
 import { acquireBoundJobWrite } from './job-writer.ts';
 import { sourceSha256, type FileBinding } from './parts-verdict.ts';
 import { checkDerivedReceipt, checkPlateRegistrations, maskReceiptSpec, MASK_RECEIPT_SPECS, readDerivedReceipt } from './plate-receipt.ts';
 import { assertCleanProjectStep, commitToolWrite } from './project-step-commit.ts';
-import { writeRecord } from './record-input.ts';
 import { refuse, USAGE_EXIT } from './refusal.ts';
 import { assertNotScratchBinding } from './scratch-bindings.ts';
 import type { Json, JsonObject } from './templates.ts';
@@ -257,8 +257,8 @@ export function derivedCommand(args: string[], now: number): { stdout: string; e
   if (!firstRead.ok) refuse('PROJECT_JSON_INVALID', `${file}: ${firstRead.error}`);
   if (firstRead.value.schema !== 'rig-create/project@0') refuse('SCHEMA_UNKNOWN', 'derived add reads rig-create/project@0');
   const release = acquireBoundJobWrite(dir, undefined, true);
+  const tmp = join(dirname(file), `.derived-${process.pid}-${randomUUID()}.tmp`);
   try {
-    const original = readFileSync(file);
     const read = readJsonObject(file);
     if (!read.ok) refuse('PROJECT_JSON_INVALID', `${file}: ${read.error}`);
     const project = read.value;
@@ -326,7 +326,8 @@ export function derivedCommand(args: string[], now: number): { stdout: string; e
     ]);
     assertCleanProjectStep(dir, ['project.json']);
     assertCleanProjectStep(dir, assets, true);
-    writeRecord(file, original, project, 'derived add', 'DERIVED_SOURCE_CHANGED');
+    writeFileSync(tmp, `${JSON.stringify(project, null, 2)}\n`, { flag: 'wx' });
+    renameSync(tmp, file);
     const warning = commitToolWrite(dir, 'derived add', ['project.json', ...assets]);
     return {
       stdout: json ? JSON.stringify(entry, null, 2) : `derived: recorded '${sources.join("', '")}' → '${output}' (${operation ?? receipt?.spec ?? 'run'}); stage unchanged`,
@@ -334,6 +335,7 @@ export function derivedCommand(args: string[], now: number): { stdout: string; e
       ...(warning === undefined ? {} : { stderr: warning }),
     };
   } finally {
+    rmSync(tmp, { force: true });
     release();
   }
 }

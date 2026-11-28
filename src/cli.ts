@@ -300,6 +300,9 @@ const COMMANDS: Record<string, Command> = {
   'split-captions': splitCaptionsCommand,
 };
 
+export const CLI_COMMAND_NAMES = Object.freeze(Object.keys(COMMANDS));
+export const JOB_SUBCOMMANDS = ['open', 'acts', 'reconcile', 'withdraw-act', 'close'] as const;
+
 /** Retired numbered subcommands and their current-path replacements, checked before UNKNOWN_COMMAND. */
 export const RETIRED_NUMBERED_COMMANDS: Record<string, string | NumberedWriterRetirement> = {
   review: 'use rig-create job open --current rig|direction to inspect in Review, rig-create comment --from-review <actId> to record comments, and rig-create record <kind> --adopt or rig-create correction --adopt to migrate existing numbered outputs',
@@ -328,7 +331,7 @@ export function main(argv: string[], now: number): number {
   try {
     if (first === 'job') {
       const [action, ...args] = rest;
-      if (!['open', 'acts', 'reconcile', 'withdraw-act', 'close'].includes(action ?? '')) refuse('JOB_BINDING_INVALID', 'project.json: use job open|acts|reconcile|withdraw-act|close', USAGE_EXIT);
+      if (!JOB_SUBCOMMANDS.includes(action as typeof JOB_SUBCOMMANDS[number])) refuse('JOB_BINDING_INVALID', 'project.json: use job open|acts|reconcile|withdraw-act|close', USAGE_EXIT);
       const positional: string[] = [];
       const options: Record<string, string> = {};
       const questions: string[] = [];

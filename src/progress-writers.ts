@@ -1,13 +1,12 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { checkpointRequired } from './plan-history.ts';
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
 import { asArray, checkProject, collectItems, collectSignoffs, isObject, loadCollection, postNotPassed, type Finding } from './check.ts';
 import { readProject } from './feedback.ts';
 import { acquireAdvanceJobWrite, commitAdvance, isPublishAdvanceStage } from './job-advance.ts';
 import { acquireBoundJobWrite, beginJobProgress } from './job-writer.ts';
 import { assertCleanProjectStep, commitToolWrite } from './project-step-commit.ts';
-import { writeRecord } from './record-input.ts';
 import { collectReopens, liveSignoff } from './reopen.ts';
 import { refuse, USAGE_EXIT } from './refusal.ts';
 import { findingKey, newFindings, carriedRefusals } from './refusal-baseline.ts';
@@ -81,7 +80,13 @@ function save(
   if (first !== undefined) refuse(first.code, first.message);
   if (forwardWrite) return commitAdvance(dir, file, project, undefined, assets);
   assertCleanProjectStep(dir, ['project.json']);
-  writeRecord(file, original!, project, 'step-status', 'STEP_STATUS_SOURCE_CHANGED');
+  const tmp = join(dirname(file), `.step-status-${process.pid}-${randomUUID()}.tmp`);
+  try {
+    writeFileSync(tmp, `${JSON.stringify(project, null, 2)}\n`, { flag: 'wx' });
+    renameSync(tmp, file);
+  } finally {
+    rmSync(tmp, { force: true });
+  }
   return commitToolWrite(dir, 'step-status', ['project.json']);
 }
 

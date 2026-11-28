@@ -740,6 +740,7 @@ test('Review carries completed scene-answer diagnostics on publication and refus
   const generationBeforeInvalid = status.generation;
   project.interview = { post: { items: [{ id: 'post_timing', pending_options: setRef }] } };
   writeFileSync(join(root, 'project.json'), JSON.stringify(project));
+  writeFileSync(join(root, setRef.path), Buffer.concat([optionBytes, Buffer.from('\n')]));
   const invalidEntry = enqueuePublication(root, readWriterBinding(root)!, { path: 'review-live-v1.json', selector: { kind: 'rig', version: 1 } });
   await expect(publishPending(invalidEntry)).rejects.toMatchObject({ code: 'JOB_RECORD_INCOMPLETE' });
   expect(host.session.status().generation).toBe(generationBeforeInvalid);

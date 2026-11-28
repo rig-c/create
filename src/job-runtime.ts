@@ -3,7 +3,7 @@ import { readFileSync, realpathSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { startJobHost } from '@rig-c/review/job-host';
 import { assertNoPendingJobAsk, attachCreateJobForClose, closeCreateJob, withdrawCreateJobAct } from './job-close.ts';
-import { askOutcomeLines, subjectLabel, assertRequestedCurrent, assertRequestedDraft, assertRequestedRig, listCreateJobActs, openCreateJob, openCurrentPublication, openDraftPublication, openRecordPublication, requestedRecordResult, publishPending, reconcileCreateJob, refuseAskOutcomes, type AskOutcome } from './job-host.ts';
+import { assertRequestedCurrent, assertRequestedDraft, assertRequestedRig, listCreateJobActs, openCreateJob, openCurrentPublication, openDraftPublication, openRecordPublication, requestedRecordResult, publishPending, reconcileCreateJob } from './job-host.ts';
 import { failPublication, pendingPublications, readWriterBinding, reconcilePublication } from './job-outbox.ts';
 import { postJobProgress, type JobProgressUpdate } from './job-progress.ts';
 import { jobActsText, shellWord, type JobWriteAskTarget } from './job-acts.ts';
@@ -47,11 +47,10 @@ async function run(): Promise<void> {
     case 'publish': {
       const entry = pendingPublications(root).find(entry => entry.id === input.id);
       if (!entry) refuse('JOB_OUTBOX_INVALID', 'project.json: pending writer receipt is absent; restore the private outbox');
-      let outcomes: AskOutcome[] = [];
       let update: { publicationId: string; replaced: boolean } | undefined;
       try {
         await reconcilePublication(root, entry, async item => {
-          outcomes = await publishPending(item, undefined, undefined, undefined, published => { update = published; });
+          await publishPending(item, undefined, undefined, undefined, published => { update = published; });
         });
       }
       catch (error) {
@@ -61,13 +60,9 @@ async function run(): Promise<void> {
         failPublication(root, entry, failure);
         throw new Refusal('JOB_PUBLISH_PENDING', 'project.json: committed publication is pending; run rig-create job reconcile');
       }
-      const lines = askOutcomeLines(outcomes);
-      if (lines.length) console.log(lines.join('\n'));
-      const asks = outcomes.filter(outcome => outcome.status !== 'refused').map(outcome => subjectLabel(outcome.subject));
       if (update?.replaced) {
-        console.log(`job: updated the open page: publication ${update.publicationId}${asks.length ? `, ask ${asks.join(', ')}` : ''}`);
+        console.log(`job: updated the open page: publication ${update.publicationId}`);
       }
-      refuseAskOutcomes(outcomes);
       break;
     }
     case 'acts': {

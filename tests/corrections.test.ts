@@ -18,6 +18,7 @@ import type { JsonObject } from '../src/templates.ts';
 import { correctionFixture, correctionCommentsFixture, commentsReviewRunner, COMMENTS_APPLY_ID } from './correction-fixture.ts';
 import { advanceCommand, checkCorrections, checkProject, assertCorrectionApproval, correctionCommand, derivedCommand, diffClassesCommand, signoffCommand, testClock } from './clock.ts';
 import { clockedCli } from './helpers.ts';
+import { copyWithRunningCreatePin } from './copied-create-pin.ts';
 import { seedRetainedDraft } from './numbered-seed.ts';
 import { nextProject } from '../src/next.ts';
 
@@ -194,7 +195,7 @@ function partImageFixture(opts: { modelless?: boolean; legacyOrder?: boolean; ed
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'part-image-')));
   roots.push(root);
   const dir = join(root, 'project');
-  cpSync(join(import.meta.dir, '../templates/example-chain/checkpoints/1-parts-verdict'), dir, { recursive: true });
+  copyWithRunningCreatePin(join(import.meta.dir, '../templates/example-chain/checkpoints/1-parts-verdict'), dir);
   const pristine = load(dir);
   if (opts.legacyOrder) {
     const interview = pristine.interview as JsonObject;

@@ -6,6 +6,8 @@ import { join } from 'node:path';
 import { EXAMPLE_NOW } from '../scripts/example-time.ts';
 import { asArray, checkProject, isObject } from '../src/check.ts';
 import type { JsonObject } from '../src/templates.ts';
+import { tempDir } from './helpers.ts';
+import { copyWithRunningCreatePin } from './copied-create-pin.ts';
 
 const templateRoot = join(import.meta.dir, '../templates/example-remesh');
 const sha256 = (bytes: Buffer): string => createHash('sha256').update(bytes).digest('hex');
@@ -99,10 +101,12 @@ describe('five-version amended example with a producer mesh', () => {
       const last = asArray(step.status_history).filter(isObject).at(-1);
       if (last?.status !== undefined) step.status = last.status;
     }
-    const beforeReport = checkProject(templateRoot, before, { now: EXAMPLE_NOW, readOnly: true });
+    const projectDir = join(tempDir(), 'project');
+    copyWithRunningCreatePin(templateRoot, projectDir);
+    const beforeReport = checkProject(projectDir, before, { now: EXAMPLE_NOW, readOnly: true });
     expect(beforeReport).toMatchObject({ refusals: [], warnings: [], effective_stage: 'accepted' });
 
-    const afterReport = checkProject(templateRoot, undefined, { now: EXAMPLE_NOW, readOnly: true });
+    const afterReport = checkProject(projectDir, undefined, { now: EXAMPLE_NOW, readOnly: true });
     expect(afterReport).toMatchObject({ refusals: [], warnings: [], effective_stage: 'parts-review' });
     expect(afterReport.amendments?.[0]?.lapsed.map(approval => approval.path)).toEqual([
       'signoffs[3]', 'signoffs[4]', 'signoffs[5]', 'signoffs[6]', 'signoffs[7]',

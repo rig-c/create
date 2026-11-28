@@ -29,6 +29,7 @@ import { seedRetainedDirectionPost, seedRetainedReviewPackage, seedRetainedRigVe
 import { composeFixture, composeRunFixture } from './direction-compose-fixture.ts';
 import { plantLegacyReopen, fixture } from './fixtures.ts';
 import { clockedCli, staleRecordPlant, treeDigest } from './helpers.ts';
+import { copyWithRunningCreatePin } from './copied-create-pin.ts';
 import { meshEdits } from './mesh-edit-fixture.ts';
 import { retainRigPublicationGeneration } from './publication-generation-fixture.ts';
 import { EXAMPLE_NOW, EXAMPLE_REOPEN_AT } from '../scripts/example-time.ts';
@@ -63,7 +64,7 @@ async function published(checkpoint = '3-rig-review', n = 1, role: 'owner' | 'de
   if (!existing) testClock.set(EXAMPLE_REOPEN_AT);
   const root = existing?.root ?? temporary('create-act-project-');
   const versionNumber = n === 1 ? existing?.rigVersion ?? 1 : n;
-  if (!existing) cpSync(join(import.meta.dir, '../templates/example-chain/checkpoints', checkpoint), root, { recursive: true });
+  if (!existing) copyWithRunningCreatePin(join(import.meta.dir, '../templates/example-chain/checkpoints', checkpoint), root);
   if (n === 2 && !existing) {
     mkdirSync(join(root, 'inputs'), { recursive: true });
     for (const path of ['inputs/background.png', 'evidence/scene-citations.json', 'evidence/direction-input.json']) {
@@ -225,7 +226,7 @@ Bun.spawnSync = (args, options) => original([args[0], '--preload', import.meta.p
 test('#888 signoff rig-review and handoff require acceptance of the latest live rig', async () => {
   const root = temporary('create-latest-rig-');
   const checkpoint = join(import.meta.dir, '../templates/example-chain/checkpoints/3-rig-review');
-  cpSync(checkpoint, root, { recursive: true });
+  copyWithRunningCreatePin(checkpoint, root);
   // Start from the retained earlier approvals and produce both rig entries with rig-version.
   const prefix = projectAt(root);
   const provenance = (prefix.versions as JsonObject[])[0]!.provenance as JsonObject;
@@ -832,7 +833,7 @@ test('#664 keeps the context Review emits in act@7 while recording the signed sc
 test('#664 ingests Review mesh-only Request changes with a sized provenance config and replays without a second revision', async () => {
   testClock.set(EXAMPLE_REOPEN_AT);
   const root = temporary('create-mesh-act-project-');
-  cpSync(join(import.meta.dir, '../templates/example-chain/checkpoints/3-rig-review'), root, { recursive: true });
+  copyWithRunningCreatePin(join(import.meta.dir, '../templates/example-chain/checkpoints/3-rig-review'), root);
   const initial = projectAt(root);
   const provenance = (initial.versions as JsonObject[])[0]!.provenance as JsonObject;
   const { path, sha256 } = provenance.config as JsonObject;
@@ -903,7 +904,7 @@ const portableConfig = 'derived/review/v1/config.json';
 async function publishedChest(mixed = false, mode: 'package-only' | 'record-and-package' = 'package-only') {
   testClock.set(EXAMPLE_REOPEN_AT);
   const root = temporary('create-chest-act-');
-  cpSync(join(import.meta.dir, '../templates/example-chain/checkpoints/3-rig-review'), root, { recursive: true });
+  copyWithRunningCreatePin(join(import.meta.dir, '../templates/example-chain/checkpoints/3-rig-review'), root);
   const project = projectAt(root);
   const version = (project.versions as JsonObject[])[0]!;
   const pkg = version.review_package as JsonObject;
@@ -1442,7 +1443,7 @@ test('a retained g1 identity still selects its exact manifest when g2 exists', a
 
 test('a historical rig with config_lost and a retained g2 still checks and ingests the stored verdict', async () => {
   const root = temporary('create-act-config-lost-');
-  cpSync(join(import.meta.dir, '../templates/example-chain/checkpoints/3-rig-review'), root, { recursive: true });
+  copyWithRunningCreatePin(join(import.meta.dir, '../templates/example-chain/checkpoints/3-rig-review'), root);
   testClock.set(EXAMPLE_REOPEN_AT);
   const project = projectAt(root);
   const version = objects(project.versions)[0]!;
@@ -1787,7 +1788,7 @@ function commentOnlyAct(view: { act: { jobId: string; publicationId: string; at:
 test('#982 a comment act carrying mesh edits records the corrections with no verdict', async () => {
   testClock.set(EXAMPLE_REOPEN_AT);
   const root = temporary('create-comment-mesh-');
-  cpSync(join(import.meta.dir, '../templates/example-chain/checkpoints/3-rig-review'), root, { recursive: true });
+  copyWithRunningCreatePin(join(import.meta.dir, '../templates/example-chain/checkpoints/3-rig-review'), root);
   const initial = projectAt(root);
   const provenance = (initial.versions as JsonObject[])[0]!.provenance as JsonObject;
   const { path, sha256 } = provenance.config as JsonObject;

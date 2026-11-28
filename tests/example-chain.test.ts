@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test';
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { applyChainSeed, checkExampleChain, validateChainSteps, type ChainStep } from '../scripts/generate-example-chain.ts';
@@ -8,8 +8,11 @@ import { collectItems } from '../src/check.ts';
 import { nextProject } from '../src/next.ts';
 import { optionContext, sha256 } from '../src/choices.ts';
 import { stepHash } from '../src/step-hash.ts';
+import { LAST_NUMBERED_CREATE_RELEASE } from '../src/numbered-retirement.ts';
+import { runningCreateVersion } from '../src/pins.ts';
 import { checkProject, interviewAnswerCommand, interviewOptionsCommand, signoffCommand, testClock } from './clock.ts';
 import { clockedCli, ownerChatArgs } from './helpers.ts';
+import { copyWithRunningCreatePin } from './copied-create-pin.ts';
 
 const hash = 'a'.repeat(64);
 function receipt(): ChainStep[] {
@@ -134,7 +137,7 @@ function readProject(): JsonObject {
 test('the finished chain binds its own approved parts, package model and signed direction', () => {
   const checked = checkExampleChain(shipped, testClock.now());
   expect(checked.refusals).toEqual([]);
-  expect(checked.warnings).toEqual([]);
+  expect(checked.warnings).toEqual([numberedPinWarning]);
   const project = readProject();
   const versions = project.versions as JsonObject[];
   const rig = versions[0]!;
@@ -255,7 +258,13 @@ test('generator --check verifies every frozen file hash, reader result and check
     expect(command.exitCode).toBe(0);
     expect(command.stdout.toString()).toContain('example chain: 439 file hashes, 5 reader results and 6 checkpoints match');
     const expected = inventory(shipped);
-    expected['package.json'] = inventory(join(root, 'checked'))['package.json']!;
+    const checkpoints = JSON.parse(readFileSync(join(shipped, 'chain.json'), 'utf8')).checkpoints as { name: string }[];
+    for (const path of ['package.json', ...checkpoints.map(({ name }) => `checkpoints/${name}/package.json`)]) {
+      const frozen = readFileSync(join(shipped, path), 'utf8');
+      const pin = `"@rig-c/create": "${LAST_NUMBERED_CREATE_RELEASE}"`;
+      expect(frozen).toContain(pin);
+      expected[path] = sha256(Buffer.from(frozen.replace(pin, `"@rig-c/create": "${runningCreateVersion()}"`)));
+    }
     expect(inventory(join(root, 'checked'))).toEqual(expected);
   } finally { rmSync(root, { recursive: true }); }
 }, 60_000);
@@ -270,6 +279,12 @@ interface CheckpointDeclaration {
   project_sha256: string;
   files: { path: string; sha256: string }[];
 }
+
+const numberedPinWarning = expect.objectContaining({
+  code: 'CREATE_PIN_MISMATCH',
+  path: 'package.json.dependencies[@rig-c/create]',
+  message: expect.stringContaining(`(@rig-c/create@${LAST_NUMBERED_CREATE_RELEASE}) to keep writing on the numbered path`),
+});
 
 function fileInventory(dir: string, prefix = ''): Record<string, string> {
   const result: Record<string, string> = {};
@@ -302,11 +317,14 @@ test.each([
   expect(declaration.project_sha256).toBe(sha256(readFileSync(join(root, 'project.json'))));
   expect(fileInventory(root)).toEqual(Object.fromEntries(declaration.files.map(file => [file.path, file.sha256])));
   expect(declaration.files.every(file => !file.path.startsWith('checkpoints/') && file.path !== 'chain.json')).toBe(true);
-  const report = checkProject(root);
+  const report = checkProject(root, undefined, { runningCreateVersion: LAST_NUMBERED_CREATE_RELEASE });
   expect(report.stage).toBe(projectStage);
   expect(report.refusals).toHaveLength(count);
   expect(report.warnings).toEqual([]);
   expect(declaration.expected_findings).toEqual({ refusals: report.refusals, warnings: report.warnings });
+  const live = checkProject(root);
+  expect(live.refusals).toEqual(report.refusals);
+  expect(live.warnings).toEqual([numberedPinWarning]);
   expect(declaration.pending.commands[0].split(' --sha256 ')[0]).toBe(chain.steps[index]!.command.join(' ').split(' --sha256 ')[0]!);
   expect(declaration.pending.command_roles).toHaveLength(declaration.pending.commands.length);
   const project = JSON.parse(readFileSync(join(root, 'project.json'), 'utf8')) as JsonObject;
@@ -453,7 +471,7 @@ test.each(['0a-interview-options', '0b-plan-pending', '2-rigging-answers'])('%s 
   const chain = JSON.parse(readFileSync(join(shipped, 'chain.json'), 'utf8')) as { steps: ChainStep[] };
   const acts = chain.steps.slice(declaration.chain_step, declaration.chain_step + declaration.pending.commands.length);
   try {
-    cpSync(join(shipped, 'checkpoints', name), dir, { recursive: true });
+    copyWithRunningCreatePin(join(shipped, 'checkpoints', name), dir);
     for (const step of acts) {
       if (step.kind === 'producer') {
         for (const [path, hash] of Object.entries(step.outputs!)) {
@@ -491,7 +509,7 @@ test.each(['1-parts-verdict', '3-rig-review', '4-direction-post'])('%s retired n
   ));
   expect(retired.length).toBeGreaterThan(0);
   try {
-    cpSync(join(shipped, 'checkpoints', name), dir, { recursive: true });
+    copyWithRunningCreatePin(join(shipped, 'checkpoints', name), dir);
     const before = readFileSync(join(dir, 'project.json'));
     for (const step of retired) {
       const result = Bun.spawnSync([process.execPath, ...clockedCli(), ...step.command.slice(1)], { cwd: dir, stdout: 'pipe', stderr: 'pipe' });
@@ -531,7 +549,7 @@ test.each([
   try {
     const source = stage === 'accepted' ? shipped : join(shipped, 'checkpoints',
       stage === 'parts' ? '1-parts-verdict' : '0b-plan-pending');
-    cpSync(source, dir, { recursive: true });
+    copyWithRunningCreatePin(source, dir);
     const project = JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')) as JsonObject;
     const baseline = checkProject(dir);
     expect(baseline.refusals).toEqual([]);

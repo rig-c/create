@@ -15,6 +15,7 @@ import type { Json, JsonObject } from '../src/templates.ts';
 import { testClock, interviewOptionsCommand, interviewAnswerCommand } from './clock.ts';
 import { optionContext } from '../src/choices.ts';
 import { clockedCli } from './helpers.ts';
+import { copyWithRunningCreatePin } from './copied-create-pin.ts';
 import { OWNER_CHAT_SOURCE } from '../src/owner-chat.ts';
 import { nextCommand, nextProject, type NextReport } from '../src/next.ts';
 import { locateParts } from '../src/parts-sections.ts';
@@ -62,7 +63,7 @@ function copy(checkpoint: string, edit?: (project: JsonObject) => void): string 
   const src = checkpoint === 'example-chain'
     ? join(import.meta.dir, '../templates/example-chain')
     : join(import.meta.dir, '../templates/example-chain/checkpoints', checkpoint);
-  cpSync(src, root, { recursive: true });
+  copyWithRunningCreatePin(src, root);
   if (edit) {
     const project = read(root);
     edit(project);

@@ -29,6 +29,11 @@ publisher for the convenience alias `rig-create`.
    paths and module references, following the current validation policy. Review
    every command's exit and first error. Required PR checks and the cross-family
    review in `AGENTS.md` must pass at the candidate head before release.
+   Any full-suite census run ahead of the release PR runs with the version
+   already bumped in `package.json`. Running Create's version feeds checks such
+   as `CREATE_PIN_MISMATCH`, so a census at the old version cannot see what the
+   bump changes: the 2.0.0 candidate went red on 49 tests that a census at
+   1.27.0 passed.
 5. Follow [Verify the release candidate](#verify-the-release-candidate): stage
    the package outside the repository, run native `npm pack` in that directory,
    verify the exact resulting tarball, then try publication with `--dry-run`.
@@ -226,6 +231,18 @@ packing it from the reviewed scoped tarball and verifying byte equality with
 A dispatch on a branch is refused. Do not move the cut tag or dispatch on main:
 npm provenance records the run's `GITHUB_SHA`. A failed registry confirmation
 does not undo a publication; inspect npm before attempting recovery.
+
+### A maintenance release on an older major
+
+`release.yml` publishes both names without `--tag`, so npm moves `latest` to
+whatever version it publishes. A later 1.x hotfix (for numbered projects that
+stay on Create 1.27.x) would therefore take `latest` away from 2.x. Before such
+a hotfix is cut, the release workflow needs a dist-tag input (for example
+`--tag v1-maintenance`) for both publish steps, reviewed in its own PR. No
+workflow change is made until a hotfix is needed. If a 1.x version is ever
+published as `latest` by mistake, restore the tag with
+`npm dist-tag add @rig-c/create@<2.x version> latest` and the same for
+`rig-create`.
 
 ## Manual fallback
 

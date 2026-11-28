@@ -163,7 +163,7 @@ test('current parts requires every owner relay flag, refuses a draft, and signs 
   expect(check(dir, signedAt)).toEqual({ exit: 0, refusals: [] });
 });
 
-test('replacing approved current parts stales only its active signature and blocks new numbered options until reapproval', () => {
+test('replacing approved current parts keeps its signature and uses a new structure snapshot without reapproval', () => {
   const dir = partsReviewProject();
   approveNumberedParts(dir);
   const firstAt = EXAMPLE_NOW + 5000;
@@ -179,13 +179,12 @@ test('replacing approved current parts stales only its active signature and bloc
 
   const approved = project(dir);
   const signoffs = arr(approved.signoffs);
-  const stalePath = `signoffs[${signoffs.length - 1}].target`;
   const rebuiltAt = firstAt + 1000;
   const current = recordParts(dir, 2, rebuiltAt);
   expect(current.record_sha256).not.toBe(first.record_sha256);
   expect(current.files_sha256).not.toBe(first.files_sha256);
   expect(project(dir).signoffs).toEqual(signoffs);
-  expect(check(dir, rebuiltAt)).toEqual({ exit: 1, refusals: [{ code: 'SIGNOFF_TARGET_STALE', path: stalePath }] });
+  expect(check(dir, rebuiltAt)).toEqual({ exit: 0, refusals: [] });
   expect(() => optionContext(project(dir), rigging, rebuiltAt, dir)).toThrow(expect.objectContaining({ code: 'INTERVIEW_OPTIONS_STALE' }));
 
   const optionPath = 'evidence/interview/synthetic-numbered-after-rebuild.json';
@@ -195,6 +194,7 @@ test('replacing approved current parts stales only its active signature and bloc
   refusesUnchanged(dir, 'INTERVIEW_OPTIONS_STALE', () => interviewOptionsCommand(['meshes', dir, '--file', optionPath], rebuiltAt));
 
   const structure = snapshot(dir, current);
+  expect(optionContext(project(dir), rigging, rebuiltAt, dir)).toMatchObject({ kind: 'current-parts', target: current, structure });
   const signedAt = rebuiltAt + 1000;
   const chat = relay(dir, structure.path, signedAt, 'Approve synthetic parts revision two.');
   const result = signoffCommand(chat.args(), signedAt);

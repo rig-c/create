@@ -1,7 +1,9 @@
 import { renameSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { isObject, type CheckReport, type Finding } from './check.ts';
-import { currentFindings, currentHash, isCurrentProject, outputRoot } from './current.ts';
+import { asArray, isObject, type CheckReport, type Finding } from './check.ts';
+import { readFileSync } from './check-reads.ts';
+import { literalFile } from './choices.ts';
+import { currentFindings, currentHash, isCurrentProject, outputRoot, sha256 } from './current.ts';
 import { readWriterBinding } from './job-outbox.ts';
 import { acquireBoundJobWrite } from './job-writer.ts';
 import { refuse } from './refusal.ts';
@@ -36,8 +38,15 @@ export function currentAdvanceOutputFinding(
   if (invalid) return invalid;
   const stale = (checked?.warnings ?? warnings).find(finding => finding.code === 'OUTPUT_STALE' && finding.path === path);
   if (stale) return { ...stale, code: 'JOB_PUBLICATION_INVALID' };
-  // The current checker binds adopted nodes to their retained numbered inventory.
-  if (isObject(node.adopted)) return;
+  if (isObject(node.adopted)) {
+    const drift = asArray(node.files).filter(isObject).find(file => {
+      try { return sha256(readFileSync(literalFile(dir, String(file.path)))) !== file.sha256; }
+      catch { return true; }
+    });
+    if (drift) return { code: 'JOB_PUBLICATION_INVALID', path,
+      message: `${path}: ${String(drift.path)} is missing or differs from the adopted output; restore the retained file before advancing` };
+    return;
+  }
   const root = outputRoot(kind);
   if (currentHash(dir, root) !== node.files_sha256) {
     return { code: 'JOB_PUBLICATION_INVALID', path,

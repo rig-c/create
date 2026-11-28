@@ -6,6 +6,7 @@ import { interviewAnswerCommand, interviewOptionsCommand } from '../src/choice-w
 import { checkProject, collectItems } from '../src/check.ts';
 import { optionContext, sha256 } from '../src/choices.ts';
 import { interviewCommand } from '../src/interview.ts';
+import { currentAdvanceOutputFinding } from '../src/job-advance.ts';
 import { nextProject } from '../src/next.ts';
 import { recordCommand } from '../src/record.ts';
 import { sorted } from '../src/step-hash.ts';
@@ -67,11 +68,13 @@ test('#1127 registers fresh post-composition options against the adopted rig', (
 });
 
 test.each(['files', 'built_from'] as const)('#1127 rejects changed adopted rig %s before writing', field => {
-  const { dir, rig, projectFile } = adoptedProject();
+  const { dir, rig, projectFile, read } = adoptedProject();
+  expect(currentAdvanceOutputFinding(dir, read(), 'rig-review')).toBeUndefined();
   const before = readFileSync(projectFile);
   const binding = (rig[field] as JsonObject[])[0]!;
   const file = join(dir, String(binding.path));
   writeFileSync(file, Buffer.concat([readFileSync(file), Buffer.from('\n')]));
+  expect(currentAdvanceOutputFinding(dir, read(), 'rig-review')).toMatchObject({ path: 'current.rig' });
   expect(() => interviewOptionsCommand(['post_composition', dir, '--file', newSet], EXAMPLE_NOW))
     .toThrow(expect.objectContaining({ code: 'INTERVIEW_OPTIONS_STALE', message: expect.stringContaining(binding.path as string) }));
   expect(readFileSync(projectFile)).toEqual(before);

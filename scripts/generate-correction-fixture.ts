@@ -1,7 +1,7 @@
 import { syntheticReviewRunner } from '../tests/review-read-fixture.ts';
 import { generatorArgs } from './generator-args.ts';
 /** Consumer writer fixtures. Applied-and-checked is synthetic shape-only, never producer-gate proof. */
-import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, unlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { correctionCommand } from '../src/correction-writers.ts';
 import { correctionFixture } from '../tests/correction-fixture.ts';
@@ -20,9 +20,31 @@ export function generateCorrectionFixture(dir:string): Record<string,Buffer> {
   }
   return result;
 }
-if(import.meta.main){
+function reconcileReviewReads(root: string, files: Record<string, Buffer>, check: boolean, directory: string): void {
+  for (const entry of readdirSync(join(root, directory), { withFileTypes: true })) {
+    const path = `${directory}/${entry.name}`;
+    if (entry.isDirectory()) {
+      reconcileReviewReads(root, files, check, path);
+    } else if (!Object.hasOwn(files, path)) {
+      if (check) throw Error(`${path}: unexpected file in correction fixture`);
+      unlinkSync(join(root, path));
+    }
+  }
+}
+
+if (import.meta.main) {
   const { destination, check } = generatorArgs(import.meta.file, 'usage: generate-correction-fixture.ts <fresh directory> [--check]');
-  const files=generateCorrectionFixture(resolve(destination));const root=join(import.meta.dir,'../tests/fixtures/correction-api-path');
-  for(const[path,bytes]of Object.entries(files)){const file=join(root,path);if(check){if(!readFileSync(file).equals(bytes))throw Error(`${path}: correction fixture differs`);}else{mkdirSync(dirname(file),{recursive:true});writeFileSync(file,bytes);}}
+  const files = generateCorrectionFixture(resolve(destination));
+  const root = join(import.meta.dir, '../tests/fixtures/correction-api-path');
+  for (const [path, bytes] of Object.entries(files)) {
+    const file = join(root, path);
+    if (check) {
+      if (!readFileSync(file).equals(bytes)) throw Error(`${path}: correction fixture differs`);
+    } else {
+      mkdirSync(dirname(file), { recursive: true });
+      writeFileSync(file, bytes);
+    }
+  }
+  reconcileReviewReads(root, files, check, 'rig/evidence/review-reads');
   console.log('correction consumer records reproduce through writers; checked fixture is synthetic shape-only');
 }

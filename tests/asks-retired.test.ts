@@ -467,7 +467,7 @@ test('a stored interview-picks act from before still ingests', async () => {
   expect(() => interviewAnswerCommand(['rig_type', picksRoot, '--from-review', picksActId], now + 1000))
     .toThrow(expect.objectContaining({ code: 'SIGNOFF_FROM_REVIEW_REMOVED', exitCode: 2 }));
   expect(readFileSync(join(picksRoot, 'project.json'))).toEqual(beforePicksBytes);
-  seedStoredInterviewPicks(picksRoot, fetchedPicks.bytes);
+  seedStoredInterviewPicks(picksRoot, fetchedPicks.bytes, { now: now + 1000 });
   expect(arr(read(picksRoot).review_acts).at(-1)).toMatchObject({
     kind: 'interview-picks',
     jobId: picksBinding.jobId,

@@ -3,6 +3,7 @@ import { plantLegacyReopen } from './fixtures.ts';
 import { afterEach, expect, test } from 'bun:test';
 import { appendFileSync, existsSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
+import type { Finding } from '../src/check.ts';
 import { directionHash, directionPostIdentity, objects, readDirection, validateDirectionShape } from '../src/direction.ts';
 import { composeInventory, composeRunMatchesAcceptedRig, composeScenePath, readComposeRun } from '../src/direction-compose.ts';
 import { prepareLiveManifest, readPublished, REVIEW_REFUSED_JOB_PATH } from '../src/job-publication.ts';
@@ -57,7 +58,7 @@ test.each([
 
   expect(f.publish().exit).toBe(0);
   const project = f.load();
-  const ctx = { dir: f.dir, project, refusals: [], warnings: [] };
+  const ctx = { dir: f.dir, project, refusals: [], warnings: [] as Finding[] };
   checkDirections(ctx);
   expect(ctx.refusals).toEqual([]);
   expect(ctx.warnings).toContainEqual(expect.objectContaining({

@@ -185,10 +185,10 @@ export function assertCurrentPartsStructure(dir: string, project: JsonObject, bi
 }
 
 export function currentPartsReviewContext(dir: string, project: JsonObject, at: number) {
-  const approval = currentPartsApproval(project, at);
+  const latest = currentPartsApproval(project, at);
+  const approval = latest && !currentOutputSupersedesSignoff(project, 'parts', latest.at) ? latest : undefined;
   const subject = readCurrentPartsSubject(dir, project);
   const { target } = subject;
-  if (approval && currentOutputSupersedesSignoff(project, 'parts', approval.at)) return null;
   if (approval && (approval.at < Date.parse(String(subject.parts.at)) || !isDeepStrictEqual(approval.target, target))) {
     refuse('SIGNOFF_TARGET_STALE', `signoffs[${approval.index}].target: approval binds a different current.parts. Relay approval for the current output.`);
   }

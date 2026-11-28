@@ -15,6 +15,7 @@ import { advanceCommand } from '../src/progress-writers.ts';
 import { recordCommand } from '../src/record.ts';
 import { signoffCommand } from '../src/signoff.ts';
 import { sorted } from '../src/step-hash.ts';
+import { currentPartsReviewContext } from '../src/structure.ts';
 import { structureSnapshotCommand } from '../src/structure-snapshot.ts';
 import { TEMPLATES_DIR, type JsonObject } from '../src/templates.ts';
 import { arr, obj } from './fixtures.ts';
@@ -236,6 +237,13 @@ test('current parts options use the replacement and the historical signature sti
   const context = optionContext(project(dir), 'rigging-interview', replacedAt, dir);
   expect(context).toMatchObject({ kind: 'current-parts', target: current, structure });
   expect(context).not.toHaveProperty('signoff_at');
+  expect(currentPartsReviewContext(dir, project(dir), replacedAt)).toBeNull();
+  const runPath = join(dir, 'outputs/parts/run.json');
+  const run = readFileSync(runPath);
+  writeFileSync(runPath, '{}');
+  expect(() => currentPartsReviewContext(dir, project(dir), replacedAt))
+    .toThrow(expect.objectContaining({ code: 'STRUCTURE_DECISIONS_INVALID' }));
+  writeFileSync(runPath, run);
 
   put(dir, firstStructure.path, '{}');
   expect(check(dir, replacedAt)).toEqual({ exit: 1, refusals: [{

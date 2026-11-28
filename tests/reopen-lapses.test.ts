@@ -33,7 +33,8 @@ test('a writer-built project reopened to parts past rig-review and post-intervie
   for (const message of byPath.values()) expect(message).toContain('the reopen to parts at 2026-11-06T02:00:00.000Z (reopens[0])');
   expect(byPath.get('signoffs[5]')).toContain('rig-create signoff rig-review');
   expect(byPath.get('signoffs[6]')).toContain('rig-create signoff post-interview');
-  expect(byPath.get('versions[v1].verdicts[0]')).toContain('rig-create review <n> --verdict accepted --review rig-review');
+  expect(byPath.get('versions[v1].verdicts[0]')).toContain('numbered rig versions and verdicts are read-only');
+  expect(byPath.get('versions[v1].verdicts[0]')).toContain('rig-create record rig');
 });
 
 test('an unreopened project lists no lapsed approvals', () => {

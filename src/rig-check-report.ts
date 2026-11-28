@@ -6,7 +6,7 @@ export const RIG_CHECK_REPORT_SINCE = '2026-11-19T00:00:00Z';
 export const RIG_CHECK_REPORT_FILE = 'check.json';
 const CHECK_SPEC = 'rig-parts-check/1';
 const PRODUCE = 'run rig-parts check --rig <rig dir> --parts <parts dir> --source <painting> --requirements <requirements file> --out <check dir> with the build’s original check inputs and options';
-const REGISTER = `pass <check dir>/${RIG_CHECK_REPORT_FILE} with --check-report and its build directory with --build`;
+const RECORD_CURRENT_RIG = 'record current rig outputs with rig-create record rig --from <dir> --config <file>';
 
 export interface RigCheckTarget {
   kind: 'bar' | 'line' | 'exposure';
@@ -59,11 +59,11 @@ function modelFinding(report: JsonObject, frozenSha256: Json | undefined, path: 
   const reported = isObject(report.build) ? report.build.model_sha256 : undefined;
   if (typeof reported !== 'string' || !/^[a-f0-9]{64}$/.test(reported)) {
     return { code: 'RIG_CHECK_REPORT_MODEL_HASH_INVALID', path,
-      message: `${path}: ${CHECK_SPEC} requires build.model_sha256 as a lowercase SHA-256 digest (Parts #1378); ${PRODUCE} with a Parts release carrying #1378, then ${REGISTER}` };
+      message: `${path}: ${CHECK_SPEC} requires build.model_sha256 as a lowercase SHA-256 digest (Parts #1378); numbered rig registrations are read-only — restore the retained report, or ${PRODUCE} with a Parts release carrying #1378 and ${RECORD_CURRENT_RIG}` };
   }
   if (reported !== frozenSha256) {
     return { code: 'RIG_CHECK_REPORT_MODEL_MISMATCH', path,
-      message: `${path}: report build.model_sha256 ${reported} differs from frozen --build skeleton.model.json SHA-256 ${String(frozenSha256)}; ${REGISTER} from the same run` };
+      message: `${path}: report build.model_sha256 ${reported} differs from frozen skeleton.model.json SHA-256 ${String(frozenSha256)}; numbered rig registrations are read-only — restore the matching retained check report and model, or ${RECORD_CURRENT_RIG}` };
   }
 }
 
@@ -71,7 +71,7 @@ export function checkRigReport(record: JsonObject, path: string, retainedPath: s
   read: (binding: JsonObject) => Buffer, warnings: Finding[]): Finding[] {
   const binding = record.check_report;
   if (binding === undefined) {
-    warnings.push({ code: 'RIG_CHECK_REPORT_MISSING', path, message: `${path}: no check report was registered; ${PRODUCE}, then ${REGISTER} at registration` });
+    warnings.push({ code: 'RIG_CHECK_REPORT_MISSING', path, message: `${path}: no check report was registered; numbered rig registrations are read-only — ${PRODUCE} and ${RECORD_CURRENT_RIG}` });
     return [];
   }
   const legacy = Date.parse(String(record.at)) < Date.parse(RIG_CHECK_REPORT_SINCE);
@@ -83,7 +83,7 @@ export function checkRigReport(record: JsonObject, path: string, retainedPath: s
     if (report.spec === undefined) {
       const upgrade = legacy ? '' : 'upgrade to a Parts release carrying #1372 and ';
       warnings.push({ code: 'RIG_CHECK_REPORT_SPEC_MISSING', path,
-        message: `${path}: retained report has no spec; ${upgrade}${PRODUCE}, then ${REGISTER}` });
+        message: `${path}: retained report has no spec; numbered rig registrations are read-only — ${upgrade}${PRODUCE} and ${RECORD_CURRENT_RIG}` });
       if (binding.acceptances === undefined) return [];
       throw Error('per-item acceptances require a spec’d report');
     }
@@ -99,7 +99,7 @@ export function checkRigReport(record: JsonObject, path: string, retainedPath: s
         const target = isObject(row) && unmet.find(item => item.kind === row.kind && item.id === row.id);
         if (!isObject(row) || !target || accepted.has(target) || row.at !== record.at) {
           findings.push({ code: 'RIG_CHECK_ACCEPTANCE_INVALID', path: acceptancePath,
-            message: `${acceptancePath}: select a distinct failed bar, unmet line or failed ${SOURCE_EXPOSURE_ID} from this report with --accept-check-bar, --accept-check-line or --accept-check-exposure and relay the owner’s words at registration` });
+            message: `${acceptancePath}: numbered rig registrations are read-only — restore a valid check_report.acceptances entry naming a distinct failed bar, unmet line or failed ${SOURCE_EXPOSURE_ID} from this report at registration.at` });
           continue;
         }
         const authority = ownerChatAuthorityFinding(row, acceptancePath, row.owner_words ?? null);
@@ -111,13 +111,12 @@ export function checkRigReport(record: JsonObject, path: string, retainedPath: s
       if (accepted.has(item)) continue;
       const itemPath = item.kind === 'exposure' ? `${path}.${SOURCE_EXPOSURE_ID}`
         : `${path}.${item.kind === 'bar' ? 'bar_outcomes' : 'requirements.lines'}[${JSON.stringify(item.id)}]`;
-      const flag = item.kind === 'bar' ? '--accept-check-bar' : item.kind === 'line' ? '--accept-check-line' : '--accept-check-exposure';
       const what = item.kind === 'exposure' ? 'shown source material within the declared source_exposure.max_px, or the unmeasured reading,' : `the ${item.kind}`;
       (legacy ? warnings : findings).push({ code: item.kind === 'bar' ? 'RIG_CHECK_BAR_FAILED' : 'RIG_CHECK_LINE_UNMET', path: itemPath,
-        message: `${itemPath}: Parts reports ${item.status}; fix ${what} and ${PRODUCE}, or record explicit owner acceptance using ${flag} with --check-accepted-by --owner-chat --said-at --relayed-by` });
+        message: `${itemPath}: Parts reports ${item.status}; numbered rig registrations are read-only — restore any recorded owner acceptance in check_report.acceptances, or fix ${what}, ${PRODUCE}, and ${RECORD_CURRENT_RIG}` });
     }
   } catch (error) {
-    findings.push({ code: 'RIG_CHECK_REPORT_INVALID', path, message: `${path}: ${String(error)}; restore the bound Parts check report or ${PRODUCE} and ${REGISTER}` });
+    findings.push({ code: 'RIG_CHECK_REPORT_INVALID', path, message: `${path}: ${String(error)}; numbered rig registrations are read-only — restore the bound Parts check report, or ${PRODUCE} and ${RECORD_CURRENT_RIG}` });
   }
   return findings;
 }

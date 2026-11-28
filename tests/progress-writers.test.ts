@@ -544,8 +544,8 @@ test('a rig acceptance lapsed by a reopen is named with the reopen, not reported
   const message = refused(dir, 'RIG_VERSION_UNACCEPTED', () => handoff(dir, null));
   expect(message).toContain('versions[v1].verdicts[0]');
   expect(message).toContain('(reopens[0])');
-  expect(message).toContain('rig-create rig-version <n>');
-  expect(message).toContain('rig-create review <n> --verdict accepted');
+  expect(message).toContain('numbered rig versions and verdicts are read-only');
+  expect(message).toContain('rig-create record rig');
 });
 
 test('a skipped or finished step status names the next writer call', () => {

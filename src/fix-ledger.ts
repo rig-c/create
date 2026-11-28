@@ -120,7 +120,7 @@ function readReportBytes(dir: string, path: Json | undefined, invalid: InvalidRe
 }
 
 function reportBytes(dir: string, path: Json | undefined, at: string): Buffer | Finding {
-  return readReportBytes(dir, path, why => finding('DRAFT_LEDGER_REPORT_INVALID', at, `${why}; retain the report the project's check script wrote under the project (for example evidence/) and record the draft with --ledger-report`));
+  return readReportBytes(dir, path, why => finding('DRAFT_LEDGER_REPORT_INVALID', at, `${why}; drafts[] is read-only — restore the retained report under the project (for example evidence/), or bind a current report with rig-create record parts --from <producer out> --config <rig config> --ledger-report <file>`));
 }
 
 interface LedgerReport { readonly manifest: string; readonly rows: Map<string, ReportRow> }
@@ -144,7 +144,7 @@ function decodeLedgerReport(bytes: Buffer, invalid: InvalidReport): LedgerReport
 }
 
 function decodeReport(bytes: Buffer, at: string): LedgerReport | Finding {
-  return decodeLedgerReport(bytes, why => finding('DRAFT_LEDGER_REPORT_INVALID', at, `${why}; record the draft with the ${FIX_LEDGER_REPORT_SPEC} JSON the project's check script wrote`));
+  return decodeLedgerReport(bytes, why => finding('DRAFT_LEDGER_REPORT_INVALID', at, `${why}; drafts[] is read-only — restore the ${FIX_LEDGER_REPORT_SPEC} JSON the project's check script wrote for this draft`));
 }
 
 /** The report a draft binds, checked against its binding; null when the draft binds none. */
@@ -153,7 +153,7 @@ function draftReport(dir: string, draft: JsonObject, path: string): LedgerReport
   if (binding === undefined) return null;
   const at = `${path}.ledger_report`;
   if (!isObject(binding) || binding.spec !== FIX_LEDGER_REPORT_SPEC || !hex(binding.sha256) || !literal(binding.path)) {
-    return finding('DRAFT_LEDGER_REPORT_INVALID', at, `needs { path, sha256, spec: ${FIX_LEDGER_REPORT_SPEC} }; record the draft with --ledger-report`);
+    return finding('DRAFT_LEDGER_REPORT_INVALID', at, `needs { path, sha256, spec: ${FIX_LEDGER_REPORT_SPEC} }; drafts[] is read-only — restore the recorded ledger_report binding, or bind a current report with rig-create record parts --from <producer out> --config <rig config> --ledger-report <file>`);
   }
   const bytes = reportBytes(dir, binding.path, at);
   if (!Buffer.isBuffer(bytes)) return bytes;
@@ -285,7 +285,7 @@ function reportMeasurement(value: Json | undefined): { measured?: Json } | null 
 
 function checkAcceptedFailures(raw: Json | undefined, report: LedgerReport | null, path: string, refusals: Finding[]): AcceptedFailure[] {
   if (raw === undefined) return [];
-  const remedy = 'record a new draft with --ledger-report and --accepted-fail for each failing row';
+  const remedy = "drafts[] is read-only — restore the draft's recorded ledger_report and accepted_failures";
   const malformed = (at: string, why: string): void => {
     refusals.push(finding('DRAFT_ACCEPTED_FAIL_MALFORMED', at, `${why}; ${remedy}`));
   };
@@ -392,14 +392,14 @@ export function checkFixLedger(dir: string, project: JsonObject, refusals: Findi
     if (!isObject(raw) || typeof raw.id !== 'string') return; // DRAFT_RIG_MALFORMED reports it.
     const at = time(raw.at);
     const live = liveRows(rows ?? [], at);
-    const malformed = (why: string): void => { refusals.push(finding('DRAFT_LEDGER_MALFORMED', path, `${why}; record the draft again with draft-rig under a new id; the old record is kept`)); };
+    const malformed = (why: string): void => { refusals.push(finding('DRAFT_LEDGER_MALFORMED', path, `${why}; drafts[] is read-only — restore the recorded draft ledger fields, or record current parts with rig-create record parts --from <producer out> --config <rig config> --ledger-report <file>`)); };
     const report = draftReport(dir, raw, path);
     if (report === null) {
       checkAcceptedFailures(raw.accepted_failures, null, `${path}.accepted_failures`, refusals);
       if (raw.fixes !== undefined || raw.fixes_against !== undefined || raw.known_regressions !== undefined) malformed('fixes, fixes_against and known_regressions need a ledger_report');
       if (live.length > 0) {
         const legacy = !Number.isFinite(at) || at < Date.parse(FIX_LEDGER_SINCE);
-        (legacy ? warnings : refusals).push(finding('DRAFT_LEDGER_REPORT_MISSING', `${path}.ledger_report`, `the ledger had ${live.length} live row(s) (${live.map(r => r.id).join(', ')}) when the draft was recorded, and it binds no ledger report${legacy ? '; legacy record kept' : ''}; run the project's check script on the build and record the draft with draft-rig --ledger-report <file>`));
+        (legacy ? warnings : refusals).push(finding('DRAFT_LEDGER_REPORT_MISSING', `${path}.ledger_report`, `the ledger had ${live.length} live row(s) (${live.map(r => r.id).join(', ')}) when the draft was recorded, and it binds no ledger report${legacy ? '; legacy record kept' : ''}; drafts[] is read-only — restore the recorded ledger_report on this draft, or run the project's check script on a current parts build and bind the report with rig-create record parts --from <producer out> --config <rig config> --ledger-report <file>`));
       }
       return;
     }
@@ -407,14 +407,14 @@ export function checkFixLedger(dir: string, project: JsonObject, refusals: Findi
     reports[index] = report;
     const manifest = manifestOf(raw);
     if (manifest !== report.manifest) {
-      refusals.push(finding('DRAFT_LEDGER_BUILD_MISMATCH', `${path}.ledger_report`, `the report's build.manifest_sha256 ${report.manifest} is not the draft's parts.json (${manifest ?? 'unbound'}); run the check script on this draft's build and record the draft with that report`));
+      refusals.push(finding('DRAFT_LEDGER_BUILD_MISMATCH', `${path}.ledger_report`, `the report's build.manifest_sha256 ${report.manifest} is not the draft's parts.json (${manifest ?? 'unbound'}); drafts[] is read-only — restore the report matching this draft's parts.json, or bind a current build's report with rig-create record parts --from <producer out> --config <rig config> --ledger-report <file>`));
     }
     const accepted = manifest === report.manifest
       ? checkAcceptedFailures(raw.accepted_failures, report, `${path}.accepted_failures`, refusals)
       : [];
     const missing = live.filter(r => !report.rows.has(r.id)).map(r => r.id);
     if (missing.length) {
-      refusals.push(finding('DRAFT_LEDGER_INCOMPLETE', `${path}.ledger_report`, `the report has no row for ${missing.join(', ')}; run the check script over every non-retired fix_ledger row and record the draft with that report`));
+      refusals.push(finding('DRAFT_LEDGER_INCOMPLETE', `${path}.ledger_report`, `the report has no row for ${missing.join(', ')}; drafts[] is read-only — restore the complete report recorded for this draft, or run the check script over every non-retired fix_ledger row and bind it with rig-create record parts --from <producer out> --config <rig config> --ledger-report <file>`));
     }
     const known = asArray(raw.known_regressions);
     if (raw.known_regressions !== undefined && (!Array.isArray(raw.known_regressions) || known.length === 0
@@ -431,7 +431,7 @@ export function checkFixLedger(dir: string, project: JsonObject, refusals: Findi
     const regressed = predecessor ? live.filter(r => (predecessor.rows.get(r.id)?.result === 'pass' || debt.has(r.id)) && report.rows.get(r.id)?.result !== 'pass').map(r => r.id) : [];
     const unnamed = regressed.filter(id => !knownIds.includes(id));
     if (unnamed.length) {
-      refusals.push(finding('DRAFT_LEDGER_REGRESSION', `${path}.ledger_report`, `${unnamed.map(id => `${id} (${report.rows.get(id)?.result ?? 'absent'})`).join(', ')} passed in ${String((drafts[previousIndex] as JsonObject).id)}, or are known regressions it still owes, and do not pass here; fix the build, or record it with --known-regression <row id>=<reason file> for each row`));
+      refusals.push(finding('DRAFT_LEDGER_REGRESSION', `${path}.ledger_report`, `${unnamed.map(id => `${id} (${report.rows.get(id)?.result ?? 'absent'})`).join(', ')} passed in ${String((drafts[previousIndex] as JsonObject).id)}, or are known regressions it still owes, and do not pass here; drafts[] is read-only — restore the recorded draft and known_regressions, or fix the build and bind the passing report with rig-create record parts --from <producer out> --config <rig config> --ledger-report <file>`));
     }
     const stray = knownIds.filter(id => !regressed.includes(id));
     if (stray.length) malformed(`known_regressions names ${stray.join(', ')}, which the predecessor draft neither passed nor owed`);
@@ -528,7 +528,7 @@ export const LEDGER_HELP = `ledger:
   retire <id> [<dir>] --by <who> --reason-file <file> [--json]
   Append a fix_ledger row { id, note { ref, verbatim }, at, by, check, bar }, or retire one with a reason.
   --note is corrections[<id>] or versions[v<n>].verdicts[<i>]; the words must be quoted from that note.
-  Every version inherits every row; draft-rig --ledger-report binds the project's own check report.`;
+  Every version inherits every row; record parts --ledger-report binds the project's own check report.`;
 
 export function ledgerCommand(args: string[], now: number): { stdout: string; exit: number } {
   const action = args[0];

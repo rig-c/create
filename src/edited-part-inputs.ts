@@ -68,7 +68,7 @@ export function editedPartInputFindings(_dir: string, draft: JsonObject, manifes
     if (named !== undefined) paths.add(named);
     const at = `${path}.parts.files`;
     findings.push({ code: 'DRAFT_EDITED_PART_UNBOUND', path: at,
-      message: `${at}: draft ${String(draft.id)} parts[${index}] (${String(part.name)}) provenance.edited_part receipt ${named ?? '<invalid file>'} at sha256 ${String(receipt?.sha256 ?? '<invalid sha256>')} has no matching file binding in ${path}.config_inputs; preserve the old draft and record a new draft with draft-rig using parts that declares assemble.edited_parts receipt files` });
+      message: `${at}: draft ${String(draft.id)} parts[${index}] (${String(part.name)}) provenance.edited_part receipt ${named ?? '<invalid file>'} at sha256 ${String(receipt?.sha256 ?? '<invalid sha256>')} has no matching file binding in ${path}.config_inputs; drafts[] is read-only — preserve the historical draft (or restore its recorded config_inputs), and record new edited parts on the current path with rig-create record parts --from <dir> --config <file>` });
   }
   return { findings, paths };
 }

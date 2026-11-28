@@ -80,7 +80,7 @@ export function partEditHoles(ctx: Ctx, firstBarAt: number, correctionImages: Pa
       if (receipts.some(({ receipt, draft }) => reviewedImageAt(ctx.dir, draft, receipt, name, edit.sha256) > edit.at)) return [];
       const path = `derived[${edit.index}]`;
       return [{ code: 'PART_EDIT_UNCOVERED', path,
-        message: `${path}: part ${name} (${edit.path}, sha256 ${edit.sha256}) was edited after a step checkpoint sign-off; review a draft binding these exact part bytes in the Review parts tool and record its new verdict with rig-create parts-review` }];
+        message: `${path}: part ${name} (${edit.path}, sha256 ${edit.sha256}) was edited after a step checkpoint sign-off; numbered parts verdicts are read-only — restore the retained parts-verdict receipt covering these exact part bytes, or record current.parts with rig-create record parts --from <producer out> --config <rig config>` }];
     });
   });
 }

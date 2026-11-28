@@ -437,7 +437,7 @@ function depthBindingFindings(dir: string, version: JsonObject, config: JsonObje
   const path = `versions[v${String(version.n)}].registration.depth`;
   const findings: Finding[] = [];
   const missing = (why: string): void => {
-    const finding = { code: 'RIG_DEPTH_BINDING_MISSING', path, message: `${path}: ${why}; retain rig's depth_sheets.json and, for per-part maps, --depth-manifest and parts' depth-report.json when registering a new rig version` };
+    const finding = { code: 'RIG_DEPTH_BINDING_MISSING', path, message: `${path}: ${why}; numbered rig registrations are read-only — restore the retained depth bindings, or keep rig's depth_sheets.json, the prepare manifest and parts' depth-report.json in tracked paths and record current rig outputs with rig-create record rig --from <dir> --config <file>` };
     (typeof version.at === 'string' && Date.parse(version.at) < Date.parse(HEAD_TURN_SINCE) ? warnings : findings).push(finding);
   };
   const depth = record?.depth;
@@ -536,7 +536,7 @@ function depthBindingFindings(dir: string, version: JsonObject, config: JsonObje
         if (binding === undefined) {
           const bindingPath = `${path}.map_bindings[${String(row.part)}]`;
           const finding = { code: 'RIG_DEPTH_MAP_BINDING_MISSING', path: bindingPath,
-            message: `${bindingPath}: no retained Parts map receipt (DEPTH_MAP_BINDING_ABSENT); re-infer changed prepared inputs, run rig-parts depth-bind immediately after inference, then register with --depth-manifest and --depth-map-binding <map.binding.json> for each map; reuse the existing map and receipt only when inputSha256 is unchanged, never bind an old map to new input` };
+            message: `${bindingPath}: no retained Parts map receipt (DEPTH_MAP_BINDING_ABSENT); numbered rig registrations are read-only — re-infer changed prepared inputs, run rig-parts depth-bind immediately after inference, keep the prepare manifest, each <map.binding.json> and depth-report.json in tracked project paths, and record current rig outputs with rig-create record rig --from <dir> --config <file>; reuse the existing map and receipt only when inputSha256 is unchanged, never bind an old map to new input` };
           const registeredAt = typeof record?.at === 'string' ? record.at : version.at;
           (typeof registeredAt === 'string' && Date.parse(registeredAt) < Date.parse(DEPTH_MAP_BINDING_SINCE) ? warnings : findings).push(finding);
         } else {
@@ -565,7 +565,7 @@ function depthBindingFindings(dir: string, version: JsonObject, config: JsonObje
       }
     }
   } catch (error) {
-    findings.push({ code: 'RIG_DEPTH_BINDING_INVALID', path, message: `${path}: ${String(error)}; restore the exact producer files or register a new rig version` });
+    findings.push({ code: 'RIG_DEPTH_BINDING_INVALID', path, message: `${path}: ${String(error)}; numbered rig registrations are read-only — restore the exact producer files, or record current rig outputs with rig-create record rig --from <dir> --config <file>` });
   }
   return findings;
 }
@@ -588,7 +588,7 @@ export function rigRegistrationFindings(dir: string, project: JsonObject, warnin
       continue;
     }
     const path = `versions[v${String(version.n)}]`;
-    const add = (code: string, field: string, why: string): void => { findings.push({ code, path: `${path}.${field}`, message: `${path}.${field}: ${why}; restore the retained registration inputs or register a new rig version` }); };
+    const add = (code: string, field: string, why: string): void => { findings.push({ code, path: `${path}.${field}`, message: `${path}.${field}: ${why}; numbered rig registrations are read-only — restore the retained registration inputs, or record current rig and motion outputs with rig-create record rig --from <dir> --config <file> and rig-create record motion --from <dir>` }); };
     const record = version.registration;
     if (version.kind !== 'rig' || !isObject(record) || record.kind !== 'frozen-rig/1' || !utcDate(record.at)
       || !isObject(record.toolchain) || (record.toolchain.kind !== 'npm-lock-v3' && record.toolchain.kind !== 'bun-lock') || version.at_basis !== 'not-after') {
@@ -853,7 +853,7 @@ export function depthPlanMoves(project: JsonObject, collection: JsonObject | nul
     : 'when the depth recipe also has a body group, pass --groups head and remove turn.body from the working config, because Parts refuses DEPTH_GROUP_LEFT_OUT otherwise';
   const steps = ["Record the chosen depth route and reason in the turn plan step text. Default per-part sequence: rig-parts depth-prepare --parts <accepted assembled parts> --config <depth recipe> --out <inference directory>",
     "Run the supplied depth model on each prepared image; retain raw rig-parts-map/1 maps (face normals, scalar depth for other parts). Immediately after each inference run rig-parts depth-bind --map <numeric-map.json> --input <prepared.png> --part <name>. Reuse a map and its existing receipt only when the prepared inputSha256 is unchanged. If input changes, re-infer and bind a new map filename; never bind an old map to a freshly prepared input or overwrite a receipt.",
-    `rig-parts depth-apply --parts <accepted assembled parts> --manifest <inference/manifest.json> --config <depth recipe> --rig-config <config.json> --out <mapped directory> (${groupNote}); then rig-parts rig --parts <mapped directory> --config <mapped/config.json> --out <rig directory>. Register with rig-version --parts <mapped directory> --rig <rig directory> --config <mapped/config.json> --depth-manifest <inference/manifest.json> and repeat --depth-map-binding <map.binding.json> for each applied map.`];
+    `rig-parts depth-apply --parts <accepted assembled parts> --manifest <inference/manifest.json> --config <depth recipe> --rig-config <config.json> --out <mapped directory> (${groupNote}); then rig-parts rig --parts <mapped directory> --config <mapped/config.json> --out <rig directory>. Keep <inference/manifest.json>, each <map.binding.json> and <mapped/depth-report.json> in tracked project paths, then check and record with rig-create record rig --from <check/build dir> --config <mapped/config.json>.`];
   return steps.map((act, i) => ({ role: 'agent', field: `plan.steps[turn].moves[${i}]`, awaits: 'versions[].registration.depth', command: null, act }));
 }
 
@@ -988,7 +988,7 @@ export function turnExtraGroupMoves(dir: string, project: JsonObject, collection
   if (extra === null || extra.recorded || step === undefined || step.status === 'done') return [];
   const field = 'plan.steps[turn].status_history[].note';
   return [{ role: 'agent', field, awaits: field, command: null,
-    act: `RIG_TURN_EXTRA_GROUP: the head-only answer leaves dial ${extra.dial} of rig v${extra.version} unused; either remove turn.body from the working config and re-run rig-parts depth-apply --parts <accepted assembled parts> --manifest <inference/manifest.json> --config <depth recipe> --rig-config <config.json> --out <mapped directory> --groups head (Parts refuses DEPTH_GROUP_LEFT_OUT if turn.body remains) and register a new rig version, or keep the depth recipe and record it with the turn step's next status move: rig-create step-status turn <next status> <project dir> --by agent --note-file <file naming ${extra.dial} as unused>` }];
+    act: `RIG_TURN_EXTRA_GROUP: the head-only answer leaves dial ${extra.dial} of rig v${extra.version} unused; either remove turn.body from the working config, re-run rig-parts depth-apply --parts <accepted assembled parts> --manifest <inference/manifest.json> --config <depth recipe> --rig-config <config.json> --out <mapped directory> --groups head (Parts refuses DEPTH_GROUP_LEFT_OUT if turn.body remains) and record current rig outputs with rig-create record rig --from <dir> --config <file>, or keep the depth recipe and record it with the turn step's next status move: rig-create step-status turn <next status> <project dir> --by agent --note-file <file naming ${extra.dial} as unused>` }];
 }
 
 function turnExtraGroupFindings(dir: string, project: JsonObject, warnings: Finding[], collection: JsonObject | null): void {
@@ -1022,7 +1022,7 @@ function turnMissingBodyGroupFindings(dir: string, project: JsonObject, warnings
   warnings.push({
     code: 'RIG_TURN_BODY_MISSING',
     path,
-    message: `${path}: the turn answer asks for head and body (body: true), but rig v${missing.version}'s registered config.turn.body declares no body roles; add turn.body to the working config, re-run rig-parts depth-apply with the body group and rig-parts rig, and register a new rig version, or record a head-only turn answer`,
+    message: `${path}: the turn answer asks for head and body (body: true), but rig v${missing.version}'s registered config.turn.body declares no body roles; add turn.body to the working config, re-run rig-parts depth-apply with the body group and rig-parts rig, and record current rig outputs with rig-create record rig --from <dir> --config <file>, or record a head-only turn answer`,
   });
 }
 

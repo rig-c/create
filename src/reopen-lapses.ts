@@ -21,10 +21,13 @@ function voidingReopen(project: JsonObject, events: readonly Reopen[], stage: st
 }
 
 function signoffRemedy(stage: string, checkpoint: string | null): string {
-  if (checkpoint !== null) return `ask the person to approve checkpoint ${checkpoint} again in the review tool and record it with rig-create signoff ${stage} --checkpoint ${checkpoint}`;
-  if (stage === PARTS_REVIEW) return 'prepare check-parts, structure-snapshot at evidence/structure-<encodedDraft>.json, diff-components and diff-classes, then advance parts-review before publishing the draft; ask for one approved parts-verdict in the review tool and ingest it with rig-create parts-review --from-review <actId> to renew the parts-review signature';
-  if (stage === RIG_REVIEW || stage === DIRECTION_REVIEW) return `ask the person to accept a live version again at ${stage} in the review tool, record it with rig-create review <n> --verdict accepted --review ${stage}, and sign with rig-create signoff ${stage}`;
-  return `ask the person to sign ${stage} again in the review tool and record it with rig-create signoff ${stage}`;
+  if (checkpoint !== null) return `ask the person to approve checkpoint ${checkpoint} again and record it with rig-create signoff ${stage} --checkpoint ${checkpoint} --by <owner> --owner-chat <words file> --said-at <ISO date> --relayed-by <operator>`;
+  if (stage === PARTS_REVIEW) return 'numbered parts approvals are read-only; record or adopt current parts with rig-create record parts --from <producer out> --config <rig config> (or --adopt), run rig-create structure-snapshot, and relay the owner chat sign-off with rig-create signoff parts-review --by <owner> --owner-chat <words file> --said-at <ISO date> --relayed-by <operator>';
+  if (stage === RIG_REVIEW || stage === DIRECTION_REVIEW) {
+    const kind = stage === RIG_REVIEW ? 'rig' : 'direction';
+    return `numbered ${stage} approvals are read-only; record or adopt current ${kind} with rig-create record ${kind} (or --adopt) and relay the owner chat sign-off with rig-create signoff ${stage} --by <owner> --owner-chat <words file> --said-at <ISO date> --relayed-by <operator>`;
+  }
+  return `ask the person to sign ${stage} again and record it with rig-create signoff ${stage}`;
 }
 
 /** One WARN per lapsed approval (the latest record of each), until a live approval of the same kind exists. */
@@ -57,7 +60,7 @@ export function reopenLapseWarnings(project: JsonObject): Finding[] {
     const by = rig === null ? null : voidingReopen(project, events, RIG_REVIEW, Date.parse(rig.at ?? ''));
     if (rig !== null && rig.accepted !== null && by !== null) {
       const path = `${rig.path}.verdicts[${rig.accepted.verdict}]`;
-      out.push({ code: 'REOPEN_VERDICT_LAPSED', path, message: `${path}: the rig-review acceptance of rig v${rig.n} was voided by ${by}; register a new rig version with rig-create rig-version <n>, ask the person to review it in the review tool, and record the acceptance with rig-create review <n> --verdict accepted --review rig-review` });
+      out.push({ code: 'REOPEN_VERDICT_LAPSED', path, message: `${path}: the rig-review acceptance of rig v${rig.n} was voided by ${by}; numbered rig versions and verdicts are read-only — migrate to current outputs with rig-create record rig --from <producer out> --config <rig config> (or --adopt) and rig-create record motion --from <render out>, then relay the owner chat sign-off with rig-create signoff rig-review --by <owner> --owner-chat <words file> --said-at <ISO date> --relayed-by <operator>` });
     }
   }
 
@@ -74,7 +77,7 @@ export function reopenLapseWarnings(project: JsonObject): Finding[] {
   }
   const by = direction === null || directionLive ? null : voidingReopen(project, events, DIRECTION_REVIEW, direction.at);
   if (direction !== null && by !== null) {
-    out.push({ code: 'REOPEN_VERDICT_LAPSED', path: direction.path, message: `${direction.path}: the direction-review acceptance of post v${direction.n} was voided by ${by}; ask the person to review a live post version in the review tool and record the acceptance with rig-create review <n> --verdict accepted --review direction-review` });
+    out.push({ code: 'REOPEN_VERDICT_LAPSED', path: direction.path, message: `${direction.path}: the direction-review acceptance of post v${direction.n} was voided by ${by}; numbered post versions and verdicts are read-only — migrate to current direction with rig-create record direction --from <compose out> --direction specs/direction/direction.json (or --adopt), then relay the owner chat sign-off with rig-create signoff direction-review --by <owner> --owner-chat <words file> --said-at <ISO date> --relayed-by <operator>` });
   }
   return out;
 }

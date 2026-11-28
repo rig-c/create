@@ -3,10 +3,12 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { renderAgentGuide } from '../src/agent-guide.ts';
+import { RETIRED_NUMBERED_COMMANDS } from '../src/cli.ts';
 import { DirectionError, directionBytes } from '../src/direction.ts';
 import { sameArtworkFor } from '../src/init.ts';
 import { readVerbatim } from '../src/record-input.ts';
 import { Refusal } from '../src/refusal.ts';
+import { reopenLapseWarnings } from '../src/reopen-lapses.ts';
 
 const roots: string[] = [];
 function root(): string {
@@ -67,4 +69,39 @@ test('rendered guide fits its byte bar and scopes camera choices to the directio
   expect(guide).toContain('](AGENT-REFERENCE.md)');
   expect(readFileSync(new URL('../docs/AGENT-REFERENCE.md', import.meta.url), 'utf8')).toMatch(/already retained in the accepted\s+assembled parts/);
   expect(`${guide}\n${readFileSync(new URL('../docs/AGENT-REFERENCE.md', import.meta.url), 'utf8')}`).not.toContain('when the plan has a head turn driven by depth');
+});
+
+test('#1122 reopen lapse remedies name surviving routes or read-only status without retired commands', () => {
+  const warnings = reopenLapseWarnings({
+    signoffs: [
+      { stage: 'parts', checkpoint: 'seethrough', by: 'owner', at: '2026-11-10T00:00:00.000Z', verbatim: 'ok' },
+      { stage: 'parts-review', checkpoint: null, by: 'owner', at: '2026-11-10T00:01:00.000Z', verbatim: 'ok' },
+      { stage: 'rig-review', checkpoint: null, by: 'owner', at: '2026-11-10T00:02:00.000Z', verbatim: 'ok' },
+      { stage: 'direction-review', checkpoint: null, by: 'owner', at: '2026-11-10T00:03:00.000Z', verbatim: 'ok' },
+    ],
+    versions: [
+      { n: 1, kind: 'rig', at: '2026-11-10T00:01:30.000Z', verdicts: [{ by: 'owner', at: '2026-11-10T00:01:45.000Z', review: 'rig-review', verdict: 'accepted', verbatim: 'ok' }] },
+      { n: 2, kind: 'post', rig_version: 1, at: '2026-11-10T00:02:30.000Z', verdicts: [{ by: 'owner', at: '2026-11-10T00:02:45.000Z', review: 'direction-review', verdict: 'accepted', verbatim: 'ok' }] },
+    ],
+    reopens: [
+      { stage: 'parts', from_stage: 'accepted', by: 'owner', at: '2026-11-11T00:00:00.000Z', verbatim: 'reopen', steps_before: [] },
+    ],
+  });
+  expect(warnings.map((w) => [w.code, w.path])).toEqual([
+    ['REOPEN_SIGNOFF_LAPSED', 'signoffs[0]'],
+    ['REOPEN_SIGNOFF_LAPSED', 'signoffs[1]'],
+    ['REOPEN_SIGNOFF_LAPSED', 'signoffs[2]'],
+    ['REOPEN_SIGNOFF_LAPSED', 'signoffs[3]'],
+    ['REOPEN_VERDICT_LAPSED', 'versions[v1].verdicts[0]'],
+    ['REOPEN_VERDICT_LAPSED', 'versions[v2].verdicts[0]'],
+  ]);
+  for (const warning of warnings) {
+    for (const retired of Object.keys(RETIRED_NUMBERED_COMMANDS)) {
+      expect(warning.message).not.toContain(`rig-create ${retired}`);
+    }
+    expect(warning.message).not.toContain('--from-review');
+    expect(warning.message).not.toContain('--draft');
+    expect(warning.message).not.toContain('--version');
+    expect(warning.message).toContain('--owner-chat');
+  }
 });

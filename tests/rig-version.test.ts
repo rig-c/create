@@ -1501,7 +1501,8 @@ describe('#514 producer depth bindings in frozen registration reader', () => {
     expect(moves.indexOf('depth-bind')).toBeLessThan(moves.indexOf('depth-apply'));
     expect(moves).toContain('inputSha256 is unchanged');
     expect(moves).toContain('never bind an old map');
-    expect(moves).toContain('--depth-map-binding');
+    expect(moves).toContain('<map.binding.json>');
+    expect(moves).toContain('rig-create record rig');
   });
 
   describe('#563 a head-turn answer and a registered body group', () => {

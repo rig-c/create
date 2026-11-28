@@ -212,7 +212,7 @@ function lapsedAcceptance(project: JsonObject, versions: Versions): string | nul
   const reopen = reopenIndex(project, cutoff);
   const by = amendment >= 0 ? `the amendment at ${when} (amendments[${amendment}])`
     : `the reopen to ${cutoff.stage} at ${when} (reopens[${reopen}])`;
-  return `${rig.path}.verdicts[${rig.accepted.verdict}]: rig v${rig.n} was accepted at ${rig.accepted.at}, but ${by} made it history, so no live rig version is accepted; register a new rig version with rig-create rig-version <n> and accept it with rig-create review <n> --verdict accepted --review rig-review`;
+  return `${rig.path}.verdicts[${rig.accepted.verdict}]: rig v${rig.n} was accepted at ${rig.accepted.at}, but ${by} made it history, so no live rig version is accepted; numbered rig versions and verdicts are read-only — adopt or record current outputs with rig-create record rig --from <producer out> --config <rig config> and rig-create record motion --from <render out>`;
 }
 
 /** Why a post version's `rig_version` is not an accepted rig, or `null` when it is. */

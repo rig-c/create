@@ -190,8 +190,8 @@ export function checkDrafts(dir: string, project: JsonObject, refusals: Finding[
       if (!files.some(f => candidates.includes(String(f.path)))) {
         const field = `${path}.files`;
         const findings = !assembleOnly && Date.parse(raw.at) < Date.parse(DRAFT_STACK_BINDING_SINCE) ? warnings : refusals;
-        const command = assembleOnly ? 'draft-rig' : 'draft-rig --parts';
-        findings.push({ code: 'DRAFT_RIG_STACK_UNBOUND', path: field, message: `${field}: no sha256 binding for ${candidates.join(' or ')}; preserve this record and register a new draft with ${command} and the retained recomposite` });
+        const kind = assembleOnly ? 'parts' : 'rig';
+        findings.push({ code: 'DRAFT_RIG_STACK_UNBOUND', path: field, message: `${field}: no sha256 binding for ${candidates.join(' or ')}; drafts[] is read-only — preserve this historical record and record new ${kind} outputs with rig-create record ${kind} --from <dir> --config <file>` });
       }
     }
     const unavailable = new Set<string>();
@@ -210,21 +210,22 @@ export function checkDrafts(dir: string, project: JsonObject, refusals: Finding[
     const stampBinding = assembleOnly ? stamps[0] : files.find(f => f.path === stampBeside(rigPath));
     const stamp = assembleOnly ? String(stampBinding?.path ?? 'the assemble output root') : stampBeside(rigPath);
     const rebuild = assembleOnly ? 'rig-parts assemble' : 'parts rig';
+    const currentKind = assembleOnly ? 'parts' : 'rig';
     const recorded = `${raw.producer.name}@${raw.producer.version}`;
     let stampedProducer: JsonObject | undefined;
     if (stampBinding === undefined) {
-      if (raw.reuse === undefined) warnings.push({ code: 'DRAFT_PRODUCER_ASSUMED', path: `${path}.producer`, message: `${path}.producer: no rig-run/1 run.json is bound at ${stamp}, so ${recorded} is the installed package assumed when the draft was recorded, not read from its run; record a new draft with draft-rig --reuse <reviewed-draft-id> [--reuse-record <previous-record-sha256>] for exact reviewed parts, or rebuild the draft with ${rebuild} and record it under a new id; the old record is kept` });
+      if (raw.reuse === undefined) warnings.push({ code: 'DRAFT_PRODUCER_ASSUMED', path: `${path}.producer`, message: `${path}.producer: no rig-run/1 run.json is bound at ${stamp}, so ${recorded} is the installed package assumed when the draft was recorded, not read from its run; drafts[] is read-only, so the historical record is kept; rebuild with ${rebuild} and record current outputs with rig-create record ${currentKind} --from <dir> --config <file>` });
     } else if (!unavailable.has(stamp)) {
       try {
         const bytes = readFileSync(fileAt(dir, stamp, root));
         if (sha(bytes) === stampBinding.sha256) {
           stampedProducer = stampProducer(bytes, stamp, assembleOnly);
           if (raw.reuse === undefined && (stampedProducer.name !== raw.producer.name || stampedProducer.version !== raw.producer.version)) {
-            warnings.push({ code: 'DRAFT_PRODUCER_MISMATCH', path: `${path}.producer`, message: `${path}.producer: records ${recorded} but its bound ${stamp} names ${String(stampedProducer.name)}@${String(stampedProducer.version)}; record the draft again with draft-rig under a new id; the old record is kept` });
+            warnings.push({ code: 'DRAFT_PRODUCER_MISMATCH', path: `${path}.producer`, message: `${path}.producer: records ${recorded} but its bound ${stamp} names ${String(stampedProducer.name)}@${String(stampedProducer.version)}; drafts[] is read-only, so the historical record is kept; record current outputs with rig-create record ${currentKind} --from <dir> --config <file>` });
           }
         }
       } catch (error) {
-        if (error instanceof RunRecordError) (!assembleOnly && raw.reuse === undefined ? warnings : refusals).push({ code: error.code, path: `${path}.producer`, message: `${path}.producer: ${error.path}: ${error.why}; restore its valid run.json or rebuild the draft with ${rebuild} and record it under a new id` });
+        if (error instanceof RunRecordError) (!assembleOnly && raw.reuse === undefined ? warnings : refusals).push({ code: error.code, path: `${path}.producer`, message: `${path}.producer: ${error.path}: ${error.why}; drafts[] is read-only — restore its valid run.json, or rebuild with ${rebuild} and record current outputs with rig-create record ${currentKind} --from <dir> --config <file>` });
         // Unreadable, escaping or changed bytes are DRAFT_RIG_FILE above; the producer is not read from them.
       }
     }
@@ -252,7 +253,7 @@ export function checkDrafts(dir: string, project: JsonObject, refusals: Finding[
       }
     } catch (error) { add('DRAFT_RIG_FILE', path, error instanceof Error ? error.message : String(error)); }
     const unbound = draftUnboundInputs(raw);
-    const unrecorded = (why: string): void => { warnings.push({ code: 'DRAFT_CONFIG_INPUTS_UNRECORDED', path: `${path}.config_inputs`, message: `${path}.config_inputs: ${why}; the draft was recorded before ${DRAFT_CONFIG_INPUTS_SINCE} with no config_inputs key, so the parts install that recorded it could not declare its config-named inputs; the record is kept; record a new draft with draft-rig under a new id to bind them` }); };
+    const unrecorded = (why: string): void => { warnings.push({ code: 'DRAFT_CONFIG_INPUTS_UNRECORDED', path: `${path}.config_inputs`, message: `${path}.config_inputs: ${why}; the draft was recorded before ${DRAFT_CONFIG_INPUTS_SINCE} with no config_inputs key, so the parts install that recorded it could not declare its config-named inputs; drafts[] is read-only, so the historical record is kept; record current outputs with rig-create record ${currentKind} --from <dir> --config <file> to bind config-named inputs` }); };
     const configPath = String(raw.config.path);
     try {
       if (!draftFileUnavailable(dir, configPath, root)) {
@@ -273,7 +274,7 @@ export function checkDrafts(dir: string, project: JsonObject, refusals: Finding[
             }
           }
           if (unbound === 'unrecorded') { unrecorded(`config.${ref.at} names ${named}`); continue; }
-          const finding = { code: 'DRAFT_RIG_FILE', path, message: `${path}.config_inputs: missing config.${ref.at} input ${named}; preserve the old draft and record a new draft with draft-rig` };
+          const finding = { code: 'DRAFT_RIG_FILE', path, message: `${path}.config_inputs: missing config.${ref.at} input ${named}; drafts[] is read-only — restore the recorded config_inputs binding or record new outputs with rig-create record ${currentKind} --from <dir> --config <file>` };
           (unbound === 'legacy' ? warnings : refusals).push(finding);
         }
       }
@@ -290,7 +291,7 @@ export function checkDrafts(dir: string, project: JsonObject, refusals: Finding[
         actualParts = files;
         for (const actual of files) {
           if (painting !== null && actual.path === painting && !expected.has(painting)) {
-            warnings.push({ code: 'DRAFT_DECLARED_FILE_UNBOUND', path: `${path}.parts.files`, message: `${path}.parts.files: parts.json declares ${painting} under painting_in_rig but the draft does not bind it; rebuild the draft and record it again with draft-rig` });
+            warnings.push({ code: 'DRAFT_DECLARED_FILE_UNBOUND', path: `${path}.parts.files`, message: `${path}.parts.files: parts.json declares ${painting} under painting_in_rig but the draft does not bind it; drafts[] is read-only, so the historical record is kept; record current parts outputs with rig-create record parts --from <dir> --config <file>` });
             continue;
           }
           if (expected.get(String(actual.path)) !== actual.sha256) throw new Error(`parts inventory changed at ${String(actual.path)}`);

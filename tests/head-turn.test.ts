@@ -24,7 +24,7 @@ test('#514 per-part depth names prepare, the external model and apply before rig
   expect(moves[2]!.act).toContain('--groups head');
   expect(moves[2]!.act).toContain('turn.body');
   expect(moves[2]!.act).toContain('DEPTH_GROUP_LEFT_OUT');
-  expect(moves[2]!.act).toContain('--depth-manifest');
+  expect(moves[2]!.act).toContain('rig-create record rig');
   expect(moves.every(m => m.command === null && m.role === 'agent')).toBe(true);
 });
 test('#514 route metadata in an old answer does not select next moves', () => {

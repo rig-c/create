@@ -90,6 +90,7 @@ import {
   type PlanStep,
 } from './stages.ts';
 import type { Json, JsonObject } from './templates.ts';
+import { SECTIONLESS_POST_ITEMS } from './waypoints.ts';
 import { CURRENT_SCENE_PATH, currentScene, currentSceneRig, plateRegistration, sceneBinding, sceneBytes, SceneError, validateCurrentScene } from './scene.ts';
 import { depthPlanMoves, turnExtraGroupMoves } from './rig-version.ts';
 import { checkRigReport, parseRigCheckReport, RIG_CHECK_REPORT_FILE } from './rig-check-report.ts';
@@ -566,6 +567,15 @@ function interviewQuestionMoves(dir: string, stageItems: Item[], effectiveStage:
       // interview-decision refuses answers without an adopted choice (choice-writers.ts), so a
       // preserved sentence-format delegation keeps the authored-record move it had before.
       const adopted = isObject(item.raw) && isObject(item.raw.choice);
+      if (adopted && SECTIONLESS_POST_ITEMS.includes(item.id)) {
+        moves.push({
+          role: 'agent', field: answerField, awaits: answerField,
+          command: optionCommand(item.id, dir),
+          act: `register a fresh option set for ${item.id}, ask the owner in chat for a concrete choice, then relay it with interview-answer --owner-chat`,
+          unanswered_by_record: decisionField,
+        });
+        continue;
+      }
       moves.push(adopted ? {
         role: 'agent',
         field: answerField,
@@ -588,30 +598,32 @@ function interviewQuestionMoves(dir: string, stageItems: Item[], effectiveStage:
 
 /**
  * New work gets one plan per step (INTERVIEW.md § Step plans).
- * An untouched current post interview also offers option sets for uncovered questions.
+ * Reserved post choices keep their owner route when a direction plan exists.
  * A stage with a registered set or a recorded answer keeps its question moves.
  */
 function stepPlanQuestions(dir: string, project: JsonObject, stageItems: Item[], allowOptions = false): { questionItems: Item[]; moves: NextMove[] } {
   const started = stageItems.some(item => pendingInterviewOptions(item) !== undefined
     || ((item.state.state === 'user' || item.state.state === 'delegated') && !stepPlanValue(project, item, item.state.answer)));
-  const open = stageItems.filter(item => !coveredByStepPlan(project, item));
-  if (started) return { questionItems: open, moves: [] };
+  const uncovered = stageItems.filter(item => !coveredByStepPlan(project, item));
+  const ownerChoices = stageItems.filter(item => SECTIONLESS_POST_ITEMS.includes(item.id) && coveredByStepPlan(project, item));
+  if (started) return { questionItems: [...uncovered, ...ownerChoices], moves: [] };
   // Code reads these values, so a covered question still gets one, stated in the plan's prose.
-  const values = stageItems.filter(item => item.state.state === 'silent' && coveredByStepPlan(project, item) && VALUE_QUESTIONS.includes(item.id))
+  const values = stageItems.filter(item => item.state.state === 'silent' && coveredByStepPlan(project, item)
+    && VALUE_QUESTIONS.includes(item.id) && !SECTIONLESS_POST_ITEMS.includes(item.id))
     .map((item): NextMove => ({
       role: 'agent', field: item.path, awaits: item.path,
       command: `rig-create interview-decision ${shellWord(item.id)} ${shellWord(dir)} --by agent --reasoning-file '<why.md>' --value-file '<value.json>' --plan-quote-file '<plan sentence>'`,
       act: `record the ${item.id} value the ${planStepOfGuide(item.id, item.kind === 'post')} plan states in plain words; the quote file holds that sentence of the plan`,
       unanswered_by_record: item.path,
     }));
-  const steps = new Set(open.filter(item => item.state.state === 'silent').map(item => planStepOfGuide(item.id, item.kind === 'post')));
+  const steps = new Set(uncovered.filter(item => item.state.state === 'silent').map(item => planStepOfGuide(item.id, item.kind === 'post')));
   const moves = PLAN_STEPS.filter(step => steps.has(step)).map((step): NextMove => ({
     role: 'agent', field: 'interview.step_plans', awaits: `interview.step_plans[step=${step}]`,
     command: `rig-create plan propose ${step} ${shellWord(dir)} --file '<plans/${step}.md>' --by agent`,
     act: `write one ${step} plan for the whole figure: what you will do and why, in the owner's language. Propose it at once and talk the direction through in chat or Review comments; record what the person says with plan feedback. Feedback is discussion, not a gate`,
     unanswered_by_record: `interview.step_plans[step=${step}]`,
   }));
-  return { questionItems: allowOptions ? open : open.filter(item => item.state.state !== 'silent'), moves: [...moves, ...values] };
+  return { questionItems: [...(allowOptions ? uncovered : uncovered.filter(item => item.state.state !== 'silent')), ...ownerChoices], moves: [...moves, ...values] };
 }
 
 function interviewPlanMoves(dir: string, project: JsonObject, stageItems: Item[], stage: string, steps: JsonObject[]) {

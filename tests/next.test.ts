@@ -1983,7 +1983,7 @@ test('#557 initial parts-review with many historical drafts reuses global eviden
   for (const [index, path] of paths.entries()) expect(readFileSync(join(dir, path))).toEqual(retained[index]);
 });
 
-test('#596 undecided delegation emits an agent interview-decision move and clears DELEGATION_UNDECIDED', () => {
+test('#1137 reserved post options require a concrete owner pick', () => {
   const dir = postInterviewPlan();
   const file = join(dir, 'project.json');
   const project = JSON.parse(readFileSync(file, 'utf8')) as JsonObject;
@@ -1994,70 +1994,26 @@ test('#596 undecided delegation emits an agent interview-decision move and clear
   const optionArgv = preparePrintedOptions(dir, optionMove.command!, CHAIN_NOW);
   expect(runMainCapture(optionArgv, CHAIN_NOW)).toMatchObject({ code: 0, stderr: '' });
   const setBytes = readFileSync(join(dir, 'evidence/printed-options.json'));
-  const set = JSON.parse(setBytes.toString('utf8')) as JsonObject;
-  const fragment = obj(arr(obj(arr(set.asks)[0]).options).find(opt => obj(opt).kind === 'value')).fragment;
-  expect(runMainCapture([
-    'interview-answer', 'camera_depth', dir,
-    '--set', 'evidence/printed-options.json',
-    '--sha256', sha256(setBytes),
-    '--by', 'user',
-    '--pick', 'camera_depth=auto',
-  ], CHAIN_NOW)).toMatchObject({ code: 0, stderr: '' });
-
-  expect(nextProject(dir, CHAIN_NOW).refusals).toContainEqual(expect.objectContaining({
-    code: 'PLAN_STEP_PREDATES_ANSWER',
-    field: 'plan.steps[camera]',
-  }));
-  expect(runMainCapture(['plan', 'revise', 'camera', dir, '--by', 'agent',
-    '--reason', 'Keep the camera step after reviewing the recorded delegation.'], CHAIN_NOW + 1))
-    .toMatchObject({ code: 0, stderr: '' });
-
-  const signRes = runMainCapture(['signoff', 'post-interview', dir, '--by', 'user', '--verbatim-file', join(dir, 'evidence/approval.txt')], CHAIN_NOW + 1000);
-  expect(signRes.code).toBe(1);
-  expect(signRes.stderr).toContain('DELEGATION_UNDECIDED');
-
-  const report = nextProject(dir, CHAIN_NOW + 1000);
-  const decisionMove = report.moves.find(move => move.field === 'interview.post.items[camera_depth].guide');
-  expect(decisionMove).toMatchObject({
-    role: 'agent',
-    field: 'interview.post.items[camera_depth].guide',
-    awaits: 'interview.post.items[camera_depth].guide.agent_decision',
-  });
-  expect(decisionMove!.command).toContain('rig-create interview-decision camera_depth ');
-  expect(decisionMove!.command).toContain("--by agent --reasoning-file '<file>' --fragment 'camera_depth=<json>'");
-  expect(report.moves.some(move => move.command?.startsWith('rig-create signoff '))).toBe(false);
-
-  const reasonFile = join(dir, 'evidence/camera-reason.txt');
-  const fragmentFile = join(dir, 'evidence/camera-fragment.json');
-  writeFileSync(reasonFile, 'Choose the synthetic fixed camera frame.\n');
-  writeFileSync(fragmentFile, JSON.stringify(fragment));
-  const execArgv = printedArgs(decisionMove!.command!).slice(1).map(arg =>
-    arg === '<file>' ? reasonFile : arg === 'camera_depth=<json>' ? `camera_depth=${fragmentFile}` : arg);
-  expect(runMainCapture(execArgv, CHAIN_NOW + 1000)).toMatchObject({ code: 0, stderr: '' });
-  expect(checkProject(dir, undefined, { now: CHAIN_NOW + 1000, readOnly: true }).refusals).toEqual([]);
+  const before = readFileSync(file);
+  const answer = [
+    'interview-answer', 'camera_depth', dir, '--set', 'evidence/printed-options.json',
+    '--sha256', sha256(setBytes), '--by', 'user', '--pick',
+  ];
+  expect(runMainCapture([...answer, 'camera_depth=auto'], CHAIN_NOW))
+    .toMatchObject({ code: 1, stderr: expect.stringContaining('POST_OWNER_CHOICE_REQUIRED') });
+  expect(readFileSync(file)).toEqual(before);
+  expect(runMainCapture([...answer, 'camera_depth=keep'], CHAIN_NOW)).toMatchObject({ code: 0, stderr: '' });
 });
 
 test('#596 a sentence-format delegation without an adopted choice keeps the authored-record move', () => {
   const dir = postInterviewPlan();
   const file = join(dir, 'project.json');
   const project = JSON.parse(readFileSync(file, 'utf8')) as JsonObject;
-  arr(obj(obj(project.interview).post).items).map(obj).find(item => item.id === 'camera_depth')!.guide = null;
+  arr(obj(obj(project.interview).post).items).map(obj).find(item => item.id === 'camera_depth')!.guide = {
+    delegated: true, by: 'user', at: new Date(CHAIN_NOW).toISOString(), verbatim: 'You choose.',
+    asks: [{ id: 'camera_depth', state: 'delegated' }],
+  };
   writeFileSync(file, `${JSON.stringify(project, null, 2)}\n`);
-  const optionMove = nextProject(dir, CHAIN_NOW).moves.find(move => move.field === 'interview.post.items[camera_depth].guide')!;
-  const optionArgv = preparePrintedOptions(dir, optionMove.command!, CHAIN_NOW);
-  expect(runMainCapture(optionArgv, CHAIN_NOW)).toMatchObject({ code: 0, stderr: '' });
-  const setBytes = readFileSync(join(dir, 'evidence/printed-options.json'));
-  expect(runMainCapture([
-    'interview-answer', 'camera_depth', dir,
-    '--set', 'evidence/printed-options.json',
-    '--sha256', sha256(setBytes),
-    '--by', 'user',
-    '--pick', 'camera_depth=auto',
-  ], CHAIN_NOW)).toMatchObject({ code: 0, stderr: '' });
-  // Strip the adopted choice: the answer now has the preserved sentence-format shape.
-  const recorded = JSON.parse(readFileSync(file, 'utf8')) as JsonObject;
-  delete obj(arr(obj(obj(recorded.interview).post).items).map(obj).find(item => item.id === 'camera_depth')!.guide).choice;
-  writeFileSync(file, `${JSON.stringify(recorded, null, 2)}\n`);
 
   const move = nextProject(dir, CHAIN_NOW + 1000).moves.find(m => m.field === 'interview.post.items[camera_depth].guide');
   expect(move).toMatchObject({ role: 'human', command: null, awaits: 'interview.post.items[camera_depth].guide.agent_decision' });

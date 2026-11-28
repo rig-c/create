@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { EXAMPLE_ANCHOR } from '../scripts/example-time.ts';
 import { amendCommand } from '../src/amend.ts';
 import { asArray, checkProject, isObject } from '../src/check.ts';
+import { interviewDecisionCommand } from '../src/choice-writers.ts';
 import * as cli from '../src/cli.ts';
 import { nextCommand, nextProject, type NextReport } from '../src/next.ts';
 import { OWNER_CHAT_SOURCE } from '../src/owner-chat.ts';
@@ -323,6 +324,29 @@ if (process.argv[2] === '--replay-current-example') {
     mkdirSync(join(dir, 'plans'), { recursive: true });
     writeFileSync(join(dir, 'plans/direction.md'), 'Hold a fixed camera on the painted backdrop for one four-second loop.\n');
     expect(stepPlanCommand(['propose', 'direction', dir, '--file', 'plans/direction.md', '--by', 'agent'], now + 3000).exit).toBe(0);
+    const answeredPost = readFileSync(recordPath);
+    const pendingPost = JSON.parse(answeredPost.toString()) as JsonObject;
+    const postChoices = asArray(((pendingPost.interview as JsonObject).post as JsonObject).items).filter(isObject);
+    for (const item of postChoices) item.guide = null;
+    writeFileSync(recordPath, `${JSON.stringify(pendingPost, null, 2)}\n`);
+    const pendingBytes = readFileSync(recordPath);
+    const pendingReport = nextProject(dir, now + 4000);
+    const choiceIds = ['camera_depth', 'post_timing', 'post_composition'];
+    for (const id of choiceIds) {
+      const decision = [id, dir, '--by', 'agent', '--reasoning-file', words];
+      for (const flags of [
+        ['--value-file', words, '--plan-quote-file', join(dir, 'plans/direction.md')],
+        ['--fragment', `${id}=${words}`],
+      ]) {
+        expect(() => interviewDecisionCommand([...decision, ...flags], now + 4000))
+          .toThrow(expect.objectContaining({ code: 'POST_OWNER_CHOICE_REQUIRED' } satisfies Partial<Refusal>));
+        expect(readFileSync(recordPath)).toEqual(pendingBytes);
+      }
+      expect(commands(pendingReport, `rig-create interview-options ${id}`)).toHaveLength(1);
+    }
+    expect(commands(pendingReport, 'rig-create interview-decision')).toEqual([]);
+    expect(commands(pendingReport, 'rig-create advance post')).toEqual([]);
+    writeFileSync(recordPath, answeredPost);
     const postReport = nextProject(dir, now + 4000);
     const postPlans = planMoves(postReport);
     expect(postPlans).toHaveLength(1);

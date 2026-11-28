@@ -253,6 +253,28 @@ function cli(argv: string[]): { code: number; stderr: string } {
   try { return { code: quiet(() => main(argv, testClock.now())), stderr }; } finally { process.stderr.write = err; }
 }
 
+test('#997 a step-plan value recorded after a dependent step marks that step for revision', () => {
+  const dir = freshProject();
+  const file = join(dir, 'project.json');
+  const project = JSON.parse(readFileSync(file, 'utf8')) as JsonObject;
+  project.stage = 'rigging-interview';
+  writeFileSync(file, JSON.stringify(project));
+  const plan = join(dir, 'rigging.md');
+  const quote = 'Keep the synthetic mesh rigid.';
+  writeFileSync(plan, quote);
+  expect(planCommand(['propose', 'rigging', dir, '--file', plan, '--by', 'agent']).exit).toBe(0);
+  testClock.set(testClock.now() + 1000);
+  expect(cli(['plan', 'add', 'meshes', dir, '--by', 'agent', '--phase', 'rig', '--order', '1',
+    '--does', 'Draft the mesh.', '--produces', 'The synthetic mesh.',
+    '--rests-on', 'meshes', '--bar', 'Keep the synthetic input.', '--checkpoint-proposed', 'false']).code).toBe(0);
+  testClock.set(testClock.now() + 1000);
+  decide(dir, 'meshes', {}, quote);
+  const report = checkProject(dir, undefined, { now: testClock.now() });
+  expect(report.refusals).toContainEqual(expect.objectContaining({
+    code: 'PLAN_STEP_PREDATES_ANSWER', path: 'plan.steps[meshes]',
+  }));
+});
+
 function approvePartsPlan(dir: string): void {
   proposeParts(dir, PARTS_PLAN);
   testClock.set(testClock.now() + 1000);

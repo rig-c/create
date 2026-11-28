@@ -9,7 +9,7 @@ import { dirname, join, resolve } from 'node:path';
 import { isDeepStrictEqual as equal } from 'node:util';
 import { answered, asArray, checkProject, collectItems, collectSignoffs, isObject, loadCollection, collectionAnswer, type Item } from './check.ts';
 import { approvalStageOfGuide, currentStepPlan, planStepOfGuide, STEP_PLAN_SOURCE, stepPlanValue, VALUE_QUESTIONS } from './stages.ts';
-import { WAYPOINT_ASKS } from './waypoints.ts';
+import { SECTIONLESS_POST_ITEMS, WAYPOINT_ASKS } from './waypoints.ts';
 import { collectReopens, liveSignoff } from './reopen.ts';
 import { readProject } from './feedback.ts';
 import { readVerbatim } from './record-input.ts';
@@ -203,6 +203,7 @@ function prepareInterviewAnswer(
   const choice: JsonObject = {spec:CHOICE_SPEC,set:binding,picks};
   if (opts.one['--note-file']) choice.note = readText(opts.one['--note-file']);
   const result = selection(set,choice);
+  if (result.autos.length && SECTIONLESS_POST_ITEMS.includes(item.id)) refusePostOwnerChoice(item.id);
   const answer: JsonObject = {delegated:result.delegated,by:opts.one['--by'],at:new Date(now).toISOString(),verbatim:choiceVerbatim(picks,choice.note),source:opts.one['--source'] ?? 'review questionnaire',choice,asks:result.asks};
   if (chat) { answer.owner_words = chat.owner_words!; answer.said_at = chat.said_at!; answer.relayed_by = chat.relayed_by!; answer.source = chat.source!; }
   if (result.value !== undefined) answer.value = result.value;
@@ -275,6 +276,11 @@ function closeInterviewComment(args: string[], now: number): string {
 }
 
 const INTERVIEW_OWNER_CHAT_REMEDY = 'interview-answer <question> --set <id> --sha256 <hash> --pick <option> --by <owner> --owner-chat <words file> --said-at <ISO date> --relayed-by <operator>';
+
+function refusePostOwnerChoice(id: string): never {
+  const relay = INTERVIEW_OWNER_CHAT_REMEDY.replace('<question>', id).replace('<option>', `${id}=<option>`);
+  refuse('POST_OWNER_CHOICE_REQUIRED', `interview.post.items[${id}].guide: register a set with interview-options ${id}, ask the owner in chat for a concrete choice, then relay it with ${relay}`);
+}
 
 export function interviewAnswerCommand(args: string[], now: number): string { return run(() => {
   if (args.some(arg => arg === '--batch' || arg.startsWith('--batch='))) {
@@ -350,6 +356,8 @@ function stepPlanDecision(opts: Args, now: number): string {
 export function interviewDecisionCommand(args: string[], now: number): string { return run(() => {
   const opts = parse(args,['--by','--reasoning-file','--value-file','--plan-quote-file'],['--fragment']);
   if (opts.positional.length > 2 || !opts.one['--by'] || !opts.one['--reasoning-file']) usage('question, --by and --reasoning-file required');
+  const question = opts.positional[0];
+  if (question !== undefined && SECTIONLESS_POST_ITEMS.includes(question)) refusePostOwnerChoice(question);
   if (opts.one['--value-file'] !== undefined) return stepPlanDecision(opts, now);
   if (opts.one['--plan-quote-file'] !== undefined) usage('--plan-quote-file goes with --value-file');
   const dir = resolve(opts.positional[1] ?? process.cwd());

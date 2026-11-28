@@ -52,7 +52,7 @@ No check reads the sections.
 | `parts` | `rig_type`, `reference`, `seethrough`, `assemble` (everything placed at `interview` in the split order) |
 | `rigging` | `turn`, `bones`, `meshes`, `constraints` and any other rig waypoint |
 | `motion` | `motion` |
-| `direction` | the post items: `camera_depth`, `post_timing`, `post_composition` |
+| `direction` | The plan proposes the direction. Ask the owner in chat for `camera_depth`, `post_timing`, and `post_composition` and relay each concrete pick with `interview-answer --owner-chat`. |
 
 ```
 rig-create plan propose <step> [<project dir>] --file <plan.md> --by <drafter> [--input <path>]...
@@ -93,19 +93,19 @@ does not ask it. A sign-off binds such a question to the plan entry (its step an
 sha256), so proposing changed plan bytes makes that binding stale
 (`SIGNOFF_ANSWERS_STALE`) until the stage is signed again. On a stage the per-question process has not touched, `next`
 proposes `plan propose <step>` for each step still open there instead of option
-sets. At `post-interview` on a project using only current outputs, `next` also
-offers option sets for questions with no covering plan. A stage that already
+sets. At `post-interview` on a project using only current outputs, `next` offers
+option sets for the three owner choices, including when a direction plan is
+already proposed. A stage that already
 holds a registered option set or a recorded answer
 keeps its per-question moves, and every recorded set and answer is still read
 and checked as before ([§ Per-ask choices](#per-ask-choices-interview2)).
 
 Some questions have a value that code reads, so a plan's prose alone is not
-enough for them: `rig_type`, `assemble`, `turn`, `meshes`, `camera_depth`,
-`post_timing` and `post_composition` (the list and each reader are
-`INTERVIEW_VALUE_READERS` in `src/stages.ts`). With an empty value a full-screen
+enough for them: `rig_type`, `assemble`, `turn`, and `meshes` (all value
+readers are listed in `INTERVIEW_VALUE_READERS` in `src/stages.ts`). With an empty value a full-screen
 project skips its CG gates, assemble's projection is not compared with
-`config.json`, no head turn is built, a structure delta is refused, and
-direction and scene citations are refused. Under a step plan the agent states
+`config.json`, no head turn is built, or a structure delta is refused. Direction
+and scene citations use the recorded post choices. Under a step plan the agent states
 each such value in plain words in the plan, then records it as a delegation:
 
 ```

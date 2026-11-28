@@ -1,3 +1,5 @@
+import { pendingCandidateComments } from './candidate-command.ts';
+import { composableOptions } from './compose-value.ts';
 import { isDeepStrictEqual as equal } from 'node:util';
 import { LAST_NUMBERED_CREATE_RELEASE } from './numbered-retirement.ts';
 import { missingPickSignoffSteps, pickSignoffEvidence, requiredInterviewSteps } from './pick-signoff.ts';
@@ -455,11 +457,31 @@ function ownerChatPickMove(dir: string, project: JsonObject, move: NextMove, que
 
 const OPEN_REVIEW_HOST = 'run the first open in the background and share its URL once; later opens publish into the running host and exit';
 
+function candidatePreviewMove(dir: string, project: JsonObject, move: NextMove, meta: PendingQuestionMove): NextMove[] {
+  if (!isObject(project.current)
+    || !isObject(project.current.rig) || !isObject(project.current.motion)) return [];
+  const item = collectItems(project, { collection: loadCollection(dir) }).find(item => item.kind === 'post' && item.id === meta.questionId);
+  const binding = item && pendingInterviewOptions(item);
+  if (!binding) return [];
+  try {
+    const { set } = optionFile(dir, binding);
+    if (set.stage !== 'post-interview' || composableOptions(set).length === 0) return [];
+  } catch { return []; }
+  return [{
+    role: 'agent',
+    field: move.field,
+    awaits: move.awaits,
+    command: `rig-create candidate open ${shellWord(dir)} --question ${shellWord(meta.questionId)} --set ${shellWord(meta.optionSetId)} --reviewer '<reviewer>' --role owner`,
+    act: 'Open the candidate previews for this option set so the owner can look before choosing in chat.',
+  }];
+}
+
 function questionCommands(dir: string, project: JsonObject, move: NextMove, meta: PendingQuestionMove): NextMove[] {
   const root = shellWord(dir);
   return [
     move,
     ...ownerChatPickMove(dir, project, move, meta.questionId),
+    ...candidatePreviewMove(dir, project, move, meta),
     {
       role: 'agent',
       field: move.field,
@@ -491,7 +513,11 @@ function stageQuestionCommands(dir: string, project: JsonObject, questions: { mo
   const names = questions.map(({ meta }) => meta.questionId).join(', ');
   const awaits = questions.map(({ move }) => move.awaits).join(', ');
   return [
-    ...questions.flatMap(({ move, meta }) => [move, ...ownerChatPickMove(dir, project, move, meta.questionId)]),
+    ...questions.flatMap(({ move, meta }) => [
+      move,
+      ...ownerChatPickMove(dir, project, move, meta.questionId),
+      ...candidatePreviewMove(dir, project, move, meta),
+    ]),
     {
       role: 'agent',
       field: 'interview',
@@ -705,7 +731,8 @@ function postCompositionSceneRepairMoves(
       command: null,
       act: `ask the owner in chat for ${questionPath} (option set ${optSetId}), then relay the answer with interview-answer --owner-chat`,
     };
-    return [humanMove, ...ownerChatPickMove(dir, project, humanMove, item.id)];
+    return [humanMove, ...ownerChatPickMove(dir, project, humanMove, item.id),
+      ...candidatePreviewMove(dir, project, humanMove, { stage: effectiveStage, questionId: item.id, optionSetId: optSetId })];
   }
   return [{
     role: 'agent',
@@ -1844,6 +1871,10 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
     ...combined, accepted: finished,
     ...(directionComments.length ? { open_direction_comments: directionComments } : {}),
   }, shellWord, now, currentPath);
+  const candidateComments = pendingCandidateComments(dir).flatMap((comment): NextMove[] => comment.command ? [{
+    role: 'agent', field: 'comments', awaits: 'comments', command: comment.command, act: 'Record the Review comment.',
+  }] : []);
+  if (candidateComments.length) result = { ...result, moves: [...result.moves, ...candidateComments] };
   const recovery = publicationRecoveryMove(dir, report.holes ?? []);
   if (recovery) {
     result = { ...result, moves: [recovery, ...result.moves], awaits: [...new Set([recovery.awaits, ...result.awaits])] };

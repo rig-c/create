@@ -40,6 +40,7 @@ export interface CommentClosure {
 }
 
 export interface NextComment {
+  subject?: JsonObject;
   readonly comment: number;
   readonly act_sha256: string | null;
   readonly source: Json;
@@ -314,6 +315,7 @@ export function projectCommentViews(
       comment: index,
       act_sha256: commentReceiptSha(project, index),
       source: raw.source ?? null,
+      ...(isObject(raw.subject) ? { subject: raw.subject } : {}),
       at: raw.at ?? null,
       by: raw.by ?? null,
       status: commentStatus(dir, raw),

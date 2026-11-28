@@ -673,7 +673,10 @@ export async function fetchReviewAct(
 
 /** Exact #184 identity, discounting verdicts and exact evidence added after this receipt. */
 export function reviewActVersionHash(project: JsonObject, act: ReviewVerdictAct, verdictsBefore?: number): string {
-  const selector = act.source.selector!;
+  const selector = act.source.selector;
+  if (!selector || (selector.kind !== 'rig' && selector.kind !== 'post' && selector.kind !== 'draft' && selector.kind !== 'current')) {
+    return failure('REVIEW_ACT_KIND_MISMATCH', 'a candidate publication cannot bind a version verdict');
+  }
   if (!Array.isArray(project.versions)) return failure('REVIEW_ACT_SOURCE_STALE', 'versions are absent');
   const versions = project.versions.map(raw => {
     if (!object(raw) || !('version' in selector) || raw.n !== selector.version || verdictsBefore === undefined) return raw;

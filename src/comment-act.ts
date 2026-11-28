@@ -1,3 +1,4 @@
+import { candidateRuntimeCommand } from './candidate-command.ts';
 /** Ingest a Review comment-only act (rig-review/act@10, #982) into project.json `comments[]`. */
 import { randomUUID } from 'node:crypto';
 import { closeSync, fsyncSync, openSync, renameSync, rmSync, writeFileSync } from 'node:fs';
@@ -19,7 +20,7 @@ import { readVersions } from './review.ts';
 import type { Json, JsonObject } from './templates.ts';
 
 export const COMMENT_HELP = `comment:
-  rig-create comment --from-review <actId> [<dir>] [--config <path>] [--json]
+  rig-create comment --from-review <actId> [<dir>] [--config <path> | --candidate-job <id>] [--json]
     Records a Review comment-only act (rig-review/act@10) as one comments[] entry: the words and pins,
     the files that were on screen (saw), and the publication's record hash and commit. A mesh-edits
     carrier is applied through Parts like a Request changes mesh edit, with no verdict. A chest-landmarks
@@ -144,6 +145,7 @@ export function commentCommand(args: string[], now: number, hooks: CommentHooks 
   if (args.includes('--close') && !args.includes('--from-review')) return closeCommentCommand(args, now);
   let actId: string | undefined;
   let config: string | undefined;
+  let candidateJob: string | undefined;
   let json = false;
   const positional: string[] = [];
   const usage = (): never => refuse('COMMENT_OPTION_INVALID', `project.json.comments: usage: rig-create comment --from-review <actId> [<dir>] [--config <path>] [--json]`, USAGE_EXIT);
@@ -152,22 +154,47 @@ export function commentCommand(args: string[], now: number, hooks: CommentHooks 
     if (arg === '--json') { if (json) usage(); json = true; }
     else if (arg === '--from-review') { if (actId !== undefined) usage(); actId = args[++i]; if (!actId || actId.startsWith('-')) usage(); }
     else if (arg === '--config') { if (config !== undefined) usage(); config = args[++i]; if (!config || config.startsWith('-')) usage(); }
+    else if (arg === '--candidate-job') { if (candidateJob !== undefined) usage(); candidateJob = args[++i]; if (!candidateJob || candidateJob.startsWith('-')) usage(); }
     else if (arg.startsWith('-')) usage();
     else positional.push(arg);
   }
-  if (actId === undefined || positional.length > 1) usage();
+  if (actId === undefined || positional.length > 1) return usage();
   const root = resolve(positional[0] ?? process.cwd());
-  const release = acquireBoundJobWrite(root);
-  const progress = beginJobProgress(root, 'ingest', 'Reading the Review comment');
+  if (candidateJob !== undefined) {
+    if (config !== undefined) return usage();
+    const child = Bun.spawnSync(candidateRuntimeCommand('comment'), {
+      stdin: Buffer.from(JSON.stringify({ root, jobId: candidateJob, actId, now, json })), stdout: 'pipe', stderr: 'pipe',
+    });
+    if (child.exitCode !== 0) {
+      const message = /^rig-create: ([A-Z][A-Z0-9_]*): ([\s\S]+)$/.exec(child.stderr.toString().trim());
+      return refuse(message?.[1] ?? 'REVIEW_ACT_FETCH_REFUSED', message?.[2] ?? 'project.json.comments: restore the candidate job and retry comment');
+    }
+    return { stdout: child.stdout.toString().trimEnd(), exit: 0 };
+  }
+  return ingestReviewComment(root, { actId, config, json }, now, hooks);
+}
+
+interface CommentRoute {
+  transport: () => ReviewActTransport;
+  verify: (act: CommentOnlyAct) => void;
+}
+
+/** Record a fetched comment using the same immutable receipt and project writer for every job source. */
+export function ingestReviewComment(root: string, { actId, config, json }: { actId: string; config?: string; json: boolean },
+  now: number, hooks: CommentHooks = {}, route?: CommentRoute): { stdout: string; exit: number } {
+  const usage = (): never => refuse('COMMENT_OPTION_INVALID', `project.json.comments: usage: rig-create comment --from-review <actId> [<dir>] [--config <path>] [--json]`, USAGE_EXIT);
+  const release = acquireBoundJobWrite(root, undefined, Boolean(route));
+  const progress = route ? undefined : beginJobProgress(root, 'ingest', 'Reading the Review comment');
   const temporary = join(root, `.rig-create-comment-${randomUUID()}.tmp`);
   const created: string[] = [];
   let discardMesh: (() => void) | undefined;
   let committed = false;
   try {
-    const transport = { ...reviewActTransport(root, actId!), kind: 'comments' as const };
+    const transport = { ...(route ? route.transport() : reviewActTransport(root, actId)), kind: 'comments' as const };
     const bytes = hooks.fetch ? hooks.fetch(transport).bytes : fetchReviewActBytes(transport);
     const act = decodeReviewAct(bytes, 'comments');
-    if (act.jobId !== transport.jobId || act.actId !== transport.actId) refuse('REVIEW_ACT_INVALID', 'project.json.review_acts: fetched comment act differs from the requested identity; fetch the correct act');
+    if (act.jobId !== transport.jobId || act.actId !== transport.actId || act.actId !== actId) refuse('REVIEW_ACT_INVALID', 'project.json.review_acts: fetched comment act differs from the requested identity; fetch the correct act');
+    route?.verify(act);
     if (Date.parse(act.at) > now) refuse('REVIEW_ACT_INVALID', 'project.json.review_acts: act is dated in the future; restore the clock before recording');
     const { file } = readProject(root);
     const original = readFileSync(file);

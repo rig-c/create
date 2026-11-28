@@ -1,3 +1,4 @@
+import { checkCandidateReceipts } from './candidate-check.ts';
 import { ownerChatFinding } from './owner-chat.ts';
 import { ownerLanguageFinding } from './owner-language.ts';
 import { createPinWarning, packageUpgradeFindings, packageUpgradeWarnings } from './package-upgrades.ts';
@@ -1083,6 +1084,7 @@ function checkProjectOnce(projectDirArg: string, candidate: JsonObject | undefin
   if (!hasStageOrder(project)) warnings.push(STAGE_ORDER_LEGACY_FINDING);
   checkInputs(ctx);
   checkChoices(ctx);
+  if (!options.recordPublication && !options.recordReads) checkCandidateReceipts(ctx);
   checkStepPlans(dir, project, refusals, warnings, ctx.items);
   checkComposeValues(ctx);
   const checkChat = (value: Json | undefined, path: string): void => {

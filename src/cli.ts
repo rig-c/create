@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+import { CANDIDATE_HELP, candidateCommand } from './candidate-command.ts';
 import { OWNER_CHAT_FLAGS, OWNER_CHAT_USAGE } from './owner-chat.ts';
 import { packagesCommand } from './packages-upgrade.ts';
 import { DIFF_CLASSES_HELP, diffClassesCommand } from './diff-classes.ts';
@@ -49,6 +50,7 @@ export const BOUND_WRITE_HELP = 'Keep the job host up across bound writes; if it
 const HELP = `rig-create — create and run a rig project
 
 Usage:
+${CANDIDATE_HELP}
   rig-create job open [<dir>] --reviewer <id> --role owner|delegate [--draft <id> | --rig <n> | --current parts|rig|direction | --questions | --question <question>... | --plan]
   rig-create job acts [<dir>] [--json] [--wait [--timeout-ms N]]
                                               list finalized acts and their ingest commands
@@ -324,6 +326,7 @@ export const RETIRED_NUMBERED_COMMANDS: Record<string, string | NumberedWriterRe
 export function main(argv: string[], now: number): number {
   const [first, ...rest] = argv;
   try {
+    if (first === 'candidate') return candidateCommand(rest, now);
     if (first === 'job') {
       const [action, ...args] = rest;
       if (!['open', 'acts', 'reconcile', 'withdraw-act', 'close'].includes(action ?? '')) refuse('JOB_BINDING_INVALID', 'project.json: use job open|acts|reconcile|withdraw-act|close', USAGE_EXIT);

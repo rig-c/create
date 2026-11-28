@@ -50,14 +50,25 @@ export function commentRecord(act: CommentOnlyAct, commit: string | null): JsonO
   return typeof projectHash === 'string' ? { sha256: projectHash, commit } : null;
 }
 
+/** Candidate identity is attested by the selector and survives removal of its package. */
+export function candidateCommentSubject(act: CommentOnlyAct): JsonObject | undefined {
+  const selector = act.source.selector as Record<string, unknown> | null;
+  if (selector?.kind !== 'candidate' || typeof selector.setSha256 !== 'string'
+    || typeof selector.askId !== 'string' || typeof selector.optionId !== 'string' || !fileRow(selector.receipt)) return;
+  return { kind: 'candidate', set_sha256: selector.setSha256, ask_id: selector.askId, option_id: selector.optionId,
+    receipt_sha256: selector.receipt.sha256 };
+}
+
 /** The entry the comment writer appends; check rebuilds it from the retained act. */
 export function commentEntry(act: CommentOnlyAct, by: string, commit: string | null): JsonObject {
   const carriers = act.value.carriers ?? [];
+  const subject = candidateCommentSubject(act);
   return {
     source: commentSource(act), at: act.at, by,
     comments: act.value.comments.map(comment => JSON.parse(JSON.stringify(comment)) as Json),
     saw: commentSaw(act),
     record: commentRecord(act, commit),
+    ...(subject ? { subject } : {}),
     ...(carriers.length ? { carriers: carriers.map(carrier => ({ kind: carrier.kind, file: { path: carrier.file.path, sha256: carrier.file.sha256 },
       edits: carrier.kind === 'mesh-edits' ? carrier.meshEdits.length : carrier.chestLandmarks.length })) } : {}),
   };
@@ -73,7 +84,7 @@ export function commentEntryFinding(entry: JsonObject, act: CommentOnlyAct, by: 
   const commit = record !== null && typeof record === 'object' && !Array.isArray(record) ? record.commit : null;
   if (commit !== null && commit !== declared) return 'record.commit is not the commit its publication declared';
   if (!isDeepStrictEqual(entry, commentEntry(act, by, commit as string | null))) {
-    return 'entry differs from its immutable comment act (source, at, by, comments, saw, record or carriers)';
+    return 'entry differs from its immutable comment act (source, at, by, comments, saw, record, subject or carriers)';
   }
   return null;
 }

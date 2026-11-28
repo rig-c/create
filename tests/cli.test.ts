@@ -21,6 +21,8 @@ test('--help lists init', () => {
   expect(result.stdout).toContain(`job open:\n  --rig <n>      selects a registered rig OR post version; the flag name is shared\n  ${BOUND_WRITE_HELP}`);
   expect(result.stdout).toContain(`job reconcile:\n  ${BOUND_WRITE_HELP}`);
   expect(result.stdout).toContain(`bound writers:\n  ${BOUND_WRITE_HELP}`);
+  expect(result.stdout).toContain('move to any stage and record advances[]; no sign-off is required');
+  expect(result.stdout).not.toContain('authorized by a live signoff');
   expect(result.stdout).toContain(PLAN_HELP);
 });
 

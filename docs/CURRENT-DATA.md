@@ -434,17 +434,15 @@ green. Green means three things:
 The writer never asks. Reason: the HQ bar, and that the comment and act bindings (§3.2
 rows 13, 19) need the published bytes to be in history.
 
-Commit scopes in the final design:
+Commit scopes today:
 
 | Writer | Commits |
 | --- | --- |
+| `init`, `init --collection`, `init --member` | the initial project or collection files (or the new member's files and `collection.json`) |
 | `record parts`, `record rig`, `record motion`, `record direction` | `project.json`, the tracked files of that kind, `.gitignore` when first rewritten |
-| `input add` | `project.json`, the new input |
-| `scene write`, `direction write` (unnumbered) | each writer's generated spec |
-| step-plan writer (#983) | `project.json`, the step-plan spec |
-| `job open` / publish | `project.json` and every tracked file in the publication closure, before publishing |
-| comment ingest (#982) | `project.json`, `evidence/comments/*` |
-| `ledger add` / `retire`, `derived add`, correction writers, `owner-language set`, `packages upgrade` | `project.json` and the files each writes |
+| `scene write`, `direction write` | each writer's generated spec (`specs/direction/scene.json` or `specs/direction/direction.json`) |
+| `job open --current` | `project.json` and every tracked file in the publication closure, before publishing |
+| `plan propose` / `feedback` / `add` / `revise`, `comment --from-review` / `--close`, `input add`, `ledger add` / `retire`, `derived add`, `correction`, `owner-language set`, `packages upgrade` | none (write to the working tree without committing) |
 
 In #1018, `record motion` and `record direction` attempt a commit of
 `project.json` and already tracked paths within their output trees. The
@@ -583,17 +581,17 @@ reader is kept for records that still hold `versions[]` (§6).
 
 | Command | Where | After |
 | --- | --- | --- |
-| `rig-version <n>` and `--answers <v>:<i>`, `--preflight` | `src/cli.ts:118`; `src/rig-version.ts:1476-1730`; `src/version-declarations.ts:44-84` | `record rig`, `record motion`; preflight becomes `record rig --dry-run` |
-| `review-package <n>` | `src/cli.ts:116`; `src/review-package.ts:66-71` | deleted |
-| `republish <rig>` | `src/cli.ts:55`; `src/republish.ts:25-70` | deleted; `job open` publishes current |
+| `rig-version <n>` and `--answers <v>:<i>`, `--preflight` | `src/cli.ts:118`; `src/rig-version.ts:1476-1730`; `src/version-declarations.ts:44-84` | Refuses `NUMBERED_WRITER_REMOVED` (exit 2); use `record rig --from <producer out> --config <rig config>` and `record motion --from <render out>` (`record` has no preflight flag). |
+| `review-package <n>` | `src/cli.ts:116`; `src/review-package.ts:66-71` | Refuses `NUMBERED_WRITER_REMOVED` (exit 2); use `record rig --from <producer out> --config <rig config>`. |
+| `republish <rig>` | `src/cli.ts:55`; `src/republish.ts:25-70` | deleted (`UNKNOWN_COMMAND`, exit 2); `job open --current` publishes current |
 | `job open --rig <n>`, `--draft <id>` | `src/cli.ts:56`, `:338-341` | `job open` (#982 sets what it shows) |
-| `handoff [--rig <n>]` | `src/cli.ts:85`; `src/review.ts` | Public and unchanged in #1018. Removal is grouped with the numbered writers in a follow-up after the §8.6 Review switch. |
-| `review <version> …` | `src/cli.ts:87-89` | comment ingest (#982) |
-| `scene write --rig <R>` | `src/scene-writers.ts` | The numbered form stays public and unchanged in #1018. `scene write . --compose-scene specs/direction/compose-scene.json` binds the current rig model, current motion frames, motion output-set hash and Parts scene. |
-| `direction write <N> --rig <r>` | `src/direction-writers.ts` | The numbered form stays public and unchanged in #1018. `direction write . --file specs/direction/intent.json` writes `specs/direction/direction.json`, followed by compose and `record direction --from <compose out> --direction specs/direction/direction.json`. |
-| `draft-rig <id>`, `--reuse`, `--reuse-record` | `src/cli.ts:108-111`; `src/drafts.ts:359-370` | `record parts` / `record rig`; reuse deleted |
-| `signoff … --version` | `src/signoff.ts:91`, `:203` | deleted (#981) |
-| `version config-lost <n>`, `version outputs-lost <n>` | `src/cli.ts:122`, `:124`; `src/config-lost.ts` | writers deleted; old readers kept |
+| `handoff [--rig <n>]` | `src/cli.ts:85`; `src/review.ts` | Still present; reads numbered `versions[]` (exits 0 on an accepted live numbered rig version; refuses `RIG_VERSION_UNACCEPTED`, exit 1, when none exists). |
+| `review <version> …`, `parts-review` | `src/cli.ts:87-89` | Refuses `NUMBERED_WRITER_REMOVED` (exit 2); comment ingest (#982). |
+| `scene write --rig <R>` | `src/scene-writers.ts` | Refuses `NUMBERED_WRITER_REMOVED` (exit 2). `scene write . --background <path> --citations-file <file>` and `scene write . --compose-scene specs/direction/compose-scene.json` write `specs/direction/scene.json` binding `current.rig` and `current.motion`. |
+| `direction write <N> --rig <r>`, `direction patch` | `src/direction-writers.ts` | Refuses `NUMBERED_WRITER_REMOVED` (exit 2). `direction write . --file specs/direction/intent.json` writes `specs/direction/direction.json`, followed by compose and `record direction --from <compose out> --direction specs/direction/direction.json`. |
+| `draft-rig <id>`, `--reuse`, `--reuse-record` | `src/cli.ts:108-111`; `src/drafts.ts:359-370` | Refuses `NUMBERED_WRITER_REMOVED` (exit 2); use `record parts` / `record rig`; reuse deleted. |
+| `signoff … --version`, `--draft` | `src/signoff.ts:91`, `:203` | Refuses `NUMBERED_WRITER_REMOVED` (exit 2); stage-review `signoff` without `current` also refuses `NUMBERED_WRITER_REMOVED` (#981). |
+| `version config-lost <n>`, `version outputs-lost <n>` | `src/cli.ts:122`, `:124`; `src/config-lost.ts` | writers deleted (`UNKNOWN_COMMAND`, exit 2); old readers kept |
 | `collection pin --member name=version` | `src/cli.ts:76`; `src/pins-check.ts:262-267` | kept in #985; a separate card (Appendix B Q3) |
 
 ### 5.3 CHECKS.md codes

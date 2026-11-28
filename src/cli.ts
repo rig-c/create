@@ -100,7 +100,7 @@ ${INPUT_CLI}  rig-create init <dir> [--no-install]              create a project
   rig-create plan add|revise|remove|replace <id> --by <drafter> [<project dir>]
                                                     draft steps and retain replaced definitions
   rig-create advance <stage> [<project dir>]
-                                                    move to the next stage authorized by a live signoff
+                                                    move to any stage and record advances[]; no sign-off is required
   rig-create step-status <step> <status> --by <who> [<project dir>] [--note-file <path>]
                                                     record an audited forward step status
   rig-create pause --by <who> [--verbatim-file <file>] [<project dir>]

@@ -1353,7 +1353,7 @@ test('#478 answered rigging guides request plan steps before the publishable sig
     expect(before.moves[index]).toMatchObject({
       role: 'agent', field: 'plan.steps', awaits: 'plan.steps', unanswered_by_record: 'plan.steps',
       command: `rig-create plan add ${id} ${dir} --by agent --phase rig --order ${index + 3} --does '<work>' --produces '<result>' --rests-on ${id} --bar '<acceptance bar>' --checkpoint-proposed false`,
-      act: expect.stringContaining('approval at rigging-interview'),
+      act: `author the ${id} plan step at rigging-interview; replace the work, result and acceptance bar placeholders`,
     });
   }
   expect(before.moves.at(-1)).toMatchObject({

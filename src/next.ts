@@ -42,7 +42,7 @@ import {
   validateDiffMapRecord,
 } from './diff-map.ts';
 import { partsStructureSnapshot } from './job-acts.ts';
-import { JOB_BINDING_FILE, readWriterBinding, type CurrentPublicationOutput, type WriterBinding } from './job-outbox.ts';
+import { JOB_BINDING_FILE, pendingPublications, readWriterBinding, type CurrentPublicationOutput, type WriterBinding } from './job-outbox.ts';
 import { beginJobProgress } from './job-writer.ts';
 import { isPartsCheckMove, PARTS_CHECK_FILE, partsCheckFindings, partsCheckRecord } from './parts-check.ts';
 import { isPartsReviewReceipt, latestPartsVerdictStatus, latestRiggingDraftFeedback, recordedPartsVerdict } from './parts-verdict-record.ts';
@@ -1658,6 +1658,22 @@ function ownerLanguageMove(dir: string, report: CheckReport): NextMove | undefin
   };
 }
 
+function publicationRecoveryMove(dir: string, holes: readonly Finding[]): NextMove | undefined {
+  const publication = holes.find(hole => hole.code === 'JOB_PUBLISH_PENDING' || hole.code === 'JOB_PUBLICATION_STALE');
+  if (!publication) return;
+  try {
+    if (!pendingPublications(dir).some(entry => entry.failure)) return;
+  } catch {
+    // Keep the check's findings if the outbox cannot be read again.
+    return;
+  }
+  return {
+    role: 'agent', field: publication.path, awaits: publication.path,
+    command: `rig-create job close ${shellWord(dir)} --retire-refused`,
+    act: 'To abandon the failed publications, archive their receipts. If any unfailed publications remain, reconcile them on the same job.',
+  };
+}
+
 export function nextProject(projectDirArg: string, now: number = Date.now()): NextReport {
   const dir = resolve(projectDirArg);
   const report: CheckReport = checkProject(dir, undefined, { now, readOnly: true, includeRoutedAnswerWarnings: true });
@@ -1810,10 +1826,14 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
   };
   const finished = combined.accepted && (!currentComments || (openVerdicts.size === 0 && openComments.length === 0));
   const directionComments = report.feedback.flatMap(feedback => feedback.open_direction_comment ?? []);
-  const result = withCurrentComments(dir, project, {
+  let result = withCurrentComments(dir, project, {
     ...combined, accepted: finished,
     ...(directionComments.length ? { open_direction_comments: directionComments } : {}),
   }, shellWord, now, currentComments);
+  const recovery = publicationRecoveryMove(dir, report.holes ?? []);
+  if (recovery) {
+    result = { ...result, moves: [recovery, ...result.moves], awaits: [...new Set([recovery.awaits, ...result.awaits])] };
+  }
   if (result.accepted || result.moves.length || result.awaits.length || result.refusals.length) return result;
   const code = 'NEXT_NO_FORWARD_MOVE';
   const message = `project.json.stage: no move was derived at effective stage ${result.effective_stage}; inspect the checked record and report the missing workflow route`;

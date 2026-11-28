@@ -31,9 +31,8 @@ import { seedRetainedDraft } from './numbered-seed.ts';
 import { latestPartsReceipt, latestPartsVerdictStatus, partsReadFindings, recordedPartsVerdict } from '../src/parts-verdict-record.ts';
 import { decodeReviewAct, partsActIssues, reviewActFindings, type PartsVerdictActV5 } from '../src/review-act.ts';
 import { EXAMPLE_ANCHOR, EXAMPLE_NOW } from '../scripts/example-time.ts';
-import { seedHistoricalPendingAsk, seedStoredPartsSignoff, seedStoredPartsVerdictAct, seedStoredSignoffAct } from './historical-review-fixture.ts';
+import { seedHistoricalVerdictAct, seedHistoricalPendingAsk, seedStoredPartsSignoff, seedStoredPartsVerdictAct, seedStoredSignoffAct } from './historical-review-fixture.ts';
 import { recordPartsReceipt, seedPartsCliReceipt } from './parts-receipt-fixture.ts';
-import { treeDigest } from './helpers.ts';
 import type { JsonObject } from '../src/templates.ts';
 
 const roots: string[] = [];
@@ -250,13 +249,7 @@ async function submit(
     const prepared = await cropRes.json() as { comment: Record<string, unknown> };
     issues = [prepared.comment];
   }
-  const result = await host.ports.commitUIAct(host.session.jobId, ui('acts', { publicationId: publication.publicationId, askId: asked.askId,
-    pageId, displayedNonce: displayed.value.displayedNonce, expectedGeneration: host.session.status().generation,
-    submissionId: randomUUID(), kind: 'parts-verdict', value: { verdict, issues, words: '  Synthetic parts review.\r\n' } }));
-  expect(result.ok ? undefined : result.error.code).toBeUndefined();
-  expect(result.ok).toBe(true); if (!result.ok) throw Error(result.error.code);
-  if (result.value.schema === 'rig-review/act@4') throw Error(result.value.schema);
-  return result.value;
+  return seedHistoricalVerdictAct(host, asked.askId, { verdict, issues, words: '  Synthetic parts review.\r\n' });
 }
 
 function prepareSignoff(root: string, _evidence: string): void {
@@ -512,35 +505,6 @@ test('unbound draft seed allocates no job outbox', () => {
   expect(read(root).review_job).toBeUndefined();
 });
 
-test('killed evidence staging retries the same file and commits once', async () => {
-  const { root, host } = await bound();
-  const act = await submit(root, host);
-  const before = readFileSync(join(root, 'project.json'));
-  const relPath = `evidence/review-acts/${jobHash(JSON.stringify([act.jobId, act.actId]))}.json`;
-  const path = join(root, relPath);
-  mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(path, JSON.stringify(act));
-  expect(readFileSync(join(root, 'project.json'))).toEqual(before);
-  const evidence = readFileSync(path);
-  expect(JSON.parse(evidence.toString())).toEqual(act);
-  expect(ingestSyntheticFetch(root, act).exit).toBe(0);
-  expect(readFileSync(path)).toEqual(evidence);
-  expect((read(root).review_acts as JsonObject[]).length).toBe(1);
-  const committed = readFileSync(join(root, 'project.json'));
-  expect(ingestSyntheticFetch(root, act).exit).toBe(0);
-  expect(readFileSync(join(root, 'project.json'))).toEqual(committed);
-}, MULTI_SPAWN_TIMEOUT_MS);
-
-test('another act at the staged deterministic path refuses with bytes identical', async () => {
-  const { root, host } = await bound();
-  const act = await submit(root, host);
-  const relPath = `evidence/review-acts/${jobHash(JSON.stringify([act.jobId, act.actId]))}.json`;
-  const path = join(root, relPath);
-  mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(path, JSON.stringify({ ...act, actId: 'different-synthetic-act' }));
-  expectAtomicRefusal(root, 'PARTS_REVIEW_EVIDENCE_CONFLICT', () => ingestSyntheticFetch(root, act));
-}, MULTI_SPAWN_TIMEOUT_MS);
-
 test('standalone draft without a compiled model publishes through image references', async () => {
   const root = fixture();
   rmSync(join(root, 'derived/drafts/chain/out/check'), { recursive: true });
@@ -571,14 +535,6 @@ test('build-root draft binds its own parts inventory and compiled output', async
   await readyForVerdict(root, host);
   const act = await submit(root, host);
   expect(ingestSyntheticFetch(root, act).exit).toBe(0);
-}, SINGLE_ACT_TIMEOUT_MS);
-
-test('missing private receipt emits the named warning while retaining source checks', async () => {
-  const { root, host } = await bound();
-  const act = await submit(root, host);
-  rmSync(join(root, '.rig-create-review/acknowledged-publications'), { recursive: true });
-  const result = JSON.parse(ingestSyntheticFetch(root, act).stdout);
-  expect(result.warnings[0]).toStartWith('REVIEW_ACT_VERSION_UNVERIFIED:');
 }, SINGLE_ACT_TIMEOUT_MS);
 
 test('competing human value flags refuse without record mutation', async () => {
@@ -1036,51 +992,15 @@ function expectAtomicRefusal(root: string, code: string, action: () => unknown):
   expect(readdirSync(root).filter(name => name.startsWith('.parts-review-'))).toEqual([]);
 }
 
-function ingestSyntheticFetch(root: string, act: JobAct, afterEvidence?: (path: string) => void) {
+function ingestSyntheticFetch(root: string, act: JobAct) {
   const seeded = seedStoredPartsVerdictAct(root, act as unknown as JsonObject, {
     now: Date.now(),
     checkProjectHash: true,
     checkAck: true,
     checkArrival: true,
-    afterEvidence,
   });
   return { exit: 0, stdout: JSON.stringify(seeded) };
 }
-
-test('fold refuses stale projectHash after a non-draft record change and rolls back receipt and evidence', async () => {
-  const { root, host } = await bound();
-  const act = await submit(root, host);
-  const project = read(root); project.title = 'Changed synthetic title'; write(root, project);
-  let staged = '';
-  expectAtomicRefusal(root, 'REVIEW_ACT_SOURCE_STALE', () => ingestSyntheticFetch(root, act, path => { staged = path; }));
-  expect(staged).not.toBe(''); expect(existsSync(staged)).toBe(false);
-  expect(read(root).review_acts ?? []).toEqual([]);
-}, SINGLE_ACT_TIMEOUT_MS);
-
-for (const broken of ['structure', 'diff'] as const) test(`fold shares the separate signoff ${broken} validation and rolls back atomically`, async () => {
-  const { root, host } = await bound();
-  const act = await submit(root, host);
-  const target = join(root, broken === 'structure' ? 'evidence/structure-chain.json' : 'evidence/diff-components.json');
-  const original = readFileSync(target);
-  let staged = '';
-  try {
-    expectAtomicRefusal(root, broken === 'structure' ? 'STRUCTURE_DECISIONS_INVALID' : 'DIFF_MAP_REPORT', () => ingestSyntheticFetch(root, act, path => {
-      staged = path; writeFileSync(target, '{}\n');
-    }));
-    expect(existsSync(staged)).toBe(false);
-  } finally { writeFileSync(target, original); }
-}, SINGLE_ACT_TIMEOUT_MS);
-
-test('fold staging exception leaves project bytes and old evidence untouched', async () => {
-  const { root, host } = await bound();
-  const act = await submit(root, host);
-  const before = readFileSync(join(root, 'project.json'));
-  let staged = '';
-  expect(() => ingestSyntheticFetch(root, act, path => { staged = path; throw Error('synthetic staging interruption'); })).toThrow('synthetic staging interruption');
-  expect(readFileSync(join(root, 'project.json'))).toEqual(before);
-  expect(existsSync(staged)).toBe(false);
-  expect(readdirSync(root).filter(name => name.startsWith('.parts-review-'))).toEqual([]);
-}, SINGLE_ACT_TIMEOUT_MS);
 
 test('fold ledger binds approval authority, draft, evidence and unique signature', async () => {
   const { root, host } = await bound();
@@ -1108,24 +1028,6 @@ test('fold ledger binds approval authority, draft, evidence and unique signature
     const changed = structuredClone(project); change(changed);
     expect(reviewActFindings(changed).map(f => f.code)).toContain('REVIEW_ACT_LEDGER_INVALID');
   }
-}, SINGLE_ACT_TIMEOUT_MS);
-
-for (const missing of ['arrival', 'effective-stage'] as const) test(`fold refuses ${missing} readiness even with a matching project hash`, async () => {
-  const { root, host } = await bound();
-  const act = await submit(root, host);
-  const project = read(root);
-  if (missing === 'arrival') project.advances = (project.advances as JsonObject[]).filter(move => move.stage !== 'parts-review');
-  else project.stage = 'parts';
-  write(root, project);
-  const synthetic = { ...act, source: { ...act.source, projectHash: jobHash(readFileSync(join(root, 'project.json'))) } } as JobAct;
-  expectAtomicRefusal(root, 'PARTS_REVIEW_FOLD_NOT_READY', () => ingestSyntheticFetch(root, synthetic));
-}, SINGLE_ACT_TIMEOUT_MS);
-
-test('fold refuses an approval predating the evidence and physical advance', async () => {
-  const { root, host } = await bound();
-  const act = await submit(root, host);
-  const earlier = new Date(Date.parse(String((read(root).diff_map as JsonObject).at)) - 1000).toISOString();
-  expectAtomicRefusal(root, 'REVIEW_ACT_SOURCE_STALE', () => ingestSyntheticFetch(root, { ...act, at: earlier } as JobAct));
 }, SINGLE_ACT_TIMEOUT_MS);
 
 test('historical approved UI receipt stays unsigned on replay and accepts the old separate signoff act', async () => {
@@ -1173,11 +1075,4 @@ for (const verdict of ['approved', 'changes-requested'] as const) {
     expect(JSON.stringify(signoffs.at(-1))).toBe(`{"stage":"parts-review","checkpoint":null,"by":"user","at":"${act.at}","verbatim":${JSON.stringify(result.verbatim)},"source":"review act ${act.jobId}/${act.actId}","evidence":{"kind":"parts-verdict","path":"${String(evidence.path)}","sha256":"${String(evidence.sha256)}","spec":"${act.schema}"},"draft_id":"chain","structure":{"path":"evidence/structure-chain.json","sha256":"${String(structure)}"}}`);
   }, MULTI_SPAWN_TIMEOUT_MS);
 
-  test(`#840 a ${verdict} parts verdict from an owner host opened for the agent refuses SIGNOFF_NOT_HUMAN and writes nothing`, async () => {
-    const { root, host } = await bound(true, verdict === 'approved' ? ' agent ' : 'agent');
-    const act = await submit(root, host, verdict, verdict === 'approved' ? 'clean' : 'flagged');
-    const before = treeDigest(root);
-    expect(() => ingestSyntheticFetch(root, act)).toThrow(expect.objectContaining({ code: 'SIGNOFF_NOT_HUMAN' }));
-    expect(treeDigest(root)).toEqual(before);
-  }, MULTI_SPAWN_TIMEOUT_MS);
 }

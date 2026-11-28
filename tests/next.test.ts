@@ -24,7 +24,7 @@ import { LAST_NUMBERED_CREATE_RELEASE } from '../src/numbered-retirement.ts';
 import { Refusal, USAGE_EXIT } from '../src/refusal.ts';
 import { EXAMPLE_NOW } from '../scripts/example-time.ts';
 import { planCommand, stepStatusCommand, amendCommand, signoffCommand, testClock } from './clock.ts';
-import { seedStoredPartsVerdictAct, seedStoredVerdict, seedStoredVersionSignoff, selectHistoricalSignoffTarget } from './historical-review-fixture.ts';
+import { seedHistoricalPendingAsk, seedHistoricalVerdictAct, seedStoredPartsVerdictAct, seedStoredVerdict, seedStoredVersionSignoff, selectHistoricalSignoffTarget } from './historical-review-fixture.ts';
 import { plantLegacyReopen, arr, fixture, obj, retimeFixture, retainSignoffs, waypoint } from './fixtures.ts';
 import { ownerChatArgs, tempDir, treeDigest } from './helpers.ts';
 import { seedRetainedDirectionPost, seedRetainedDraft, seedRetainedRigVersion, seedRetainedScene } from './numbered-seed.ts';
@@ -882,63 +882,12 @@ describe('Frozen Bar 5 — Plants (lapsed approval, changed bound input DRAFT_RI
         acknowledgePublication(pending, pub.publicationId, pub.generation, pubReqId, [{ kind: 'parts-verdict', draftId: 'chain' }]);
       });
       const publication = host.session.status().publication!;
-      const session = host.session as unknown as {
-        jobId: string;
-        store: { update(jobId: string, rev: null, fn: (row: { data: { generation: number; publications: Record<string, { retained: { source: unknown } }>; asks: Record<string, unknown> } }) => { data: unknown }): unknown };
-        event(data: unknown, value: object): unknown;
-      };
-      const askId = randomUUID();
-      session.store.update(session.jobId, null, ({ data }) => {
-        const ask = { askId, publicationId: publication.publicationId, subject: { kind: 'parts-verdict', draftId: 'chain' }, source: structuredClone(data.publications[publication.publicationId]!.retained.source), status: 'pending' };
-        data.generation++;
-        data.asks[askId] = ask;
-        session.event(data, { type: 'pending', ask });
-        return { data };
+      const ask = seedHistoricalPendingAsk(host, publication.publicationId, { kind: 'parts-verdict', draftId: 'chain' });
+      const committed = seedHistoricalVerdictAct(host, ask.askId, {
+        verdict: 'approved', comments: [{ text: 'Synthetic API parts review.\n' }],
       });
 
-      const pageId = randomUUID();
-      const uiReq = (route: string, body: object) =>
-        new Request(`${host!.origin}/jobs/${host!.session.jobId}/ui/${route}`, {
-          method: 'POST',
-          headers: {
-            origin: host!.origin,
-            'X-Review-Capability': host!.session.hostCredentials().ui,
-            'content-type': 'application/json',
-          },
-          body: JSON.stringify(body),
-        });
-      const displayed = await host.ports.ackDisplayed(
-        host.session.jobId,
-        uiReq('displayed', {
-          publicationId: publication.publicationId,
-          pageId,
-          sourceHash: publication.source.sourceHash,
-        }),
-      );
-      expect(displayed.ok).toBe(true);
-      if (!displayed.ok) throw new Error(displayed.error.code);
-
-      const committed = await host.ports.commitUIAct(
-        host.session.jobId,
-        uiReq('acts', {
-          publicationId: publication.publicationId,
-          askId,
-          pageId,
-          displayedNonce: displayed.value.displayedNonce,
-          expectedGeneration: host.session.status().generation,
-          submissionId: randomUUID(),
-          kind: 'parts-verdict',
-          value: {
-            verdict: 'approved',
-            issues: [],
-            words: 'Synthetic API parts review.\n',
-          },
-        }),
-      );
-      expect(committed.ok).toBe(true);
-      if (!committed.ok) throw new Error(committed.error.code);
-
-      seedStoredPartsVerdictAct(apiDir, committed.value as unknown as JsonObject, {
+      seedStoredPartsVerdictAct(apiDir, committed as unknown as JsonObject, {
         now: Date.now(),
         checkProjectHash: true,
         checkArrival: true,

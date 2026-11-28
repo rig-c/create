@@ -12,7 +12,7 @@ import { JOB_BINDING_FILE, writePrivateJson, jobHash } from '../src/job-outbox.t
 import { main } from '../src/cli.ts';
 import { currentJobIdentity, partsEnumerator, prepareLiveManifest, readPublished } from '../src/job-publication.ts';
 import { USAGE_EXIT } from '../src/refusal.ts';
-import { seedHistoricalPendingAsk, seedStoredPartsSignoff, seedStoredReviewVerdictAct, seedStoredVersionSignoff } from './historical-review-fixture.ts';
+import { seedHistoricalVerdictAct, seedHistoricalPendingAsk, seedStoredPartsSignoff, seedStoredReviewVerdictAct, seedStoredVersionSignoff } from './historical-review-fixture.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { seedRetainedDraft, seedRetainedRigVersion } from './numbered-seed.ts';
 
@@ -101,24 +101,16 @@ test('writer-only draft, parts approval, new producer build and verdict ingestio
     };
     const publication = await agent('publish', { result: { path, selector: { kind: 'rig', version: 1 } }, freeze: { kind: 'producer-held', holdId: 'cycle-freeze', record: { path: 'project.json', sha256: jobHash(readFileSync(join(dir, 'project.json'))) } } });
     const ask = seedHistoricalPendingAsk(host, String(publication.publicationId), historicalSubject);
-    const request = (route: string, value: object): Request => new Request(`${host!.origin}/jobs/${host!.session.jobId}/ui/${route}`, {
-      method: 'POST', headers: { origin: host!.origin, 'X-Review-Capability': host!.session.hostCredentials().ui, 'content-type': 'application/json' }, body: JSON.stringify(value),
-    });
-    const displayed = await host.ports.ackDisplayed(host.session.jobId, request('displayed', { publicationId: publication.publicationId, pageId: 'cycle-page', sourceHash: obj(publication.source).sourceHash }));
-    if (!displayed.ok) throw Error(displayed.error.code);
     const frames = JSON.parse(readFileSync(join(dir, 'new-idle/frames.json'), 'utf8')) as { sets: { animation: string; dir: string }[] };
     const idle = frames.sets.find(set => set.animation === 'idle')!;
     const firstFrame = readdirSync(join(dir, 'new-idle', idle.dir)).filter(name => /^f\d+\.png$/.test(name)).sort()[0]!;
     const pngPath = join('new-idle', idle.dir, firstFrame);
     const png = readFileSync(join(dir, pngPath));
-    const submitted = await host.ports.commitUIAct(host.session.jobId, request('acts', {
-      publicationId: publication.publicationId, askId: ask.askId, pageId: 'cycle-page', displayedNonce: displayed.value.displayedNonce,
-      expectedGeneration: host.session.status().generation, submissionId: 'cycle-submission', kind: 'review-verdict', value: { stage: 'rig-review', verdict: 'approved', words: 'Approve' },
-      capture: { png: `data:image/png;base64,${png.toString('base64')}`, width: png.readUInt32BE(16), height: png.readUInt32BE(20), camera: 'fixed', framing: 'default', view: 'whole-rig', frame: 0, animation: 'idle', playing: true,
-        binding: { publicationId: publication.publicationId, instanceKey: publication.instanceKey, sourceHash: obj(publication.source).sourceHash, pageId: 'cycle-page', askId: ask.askId, drawGeneration: 1, playerGeneration: 0 } },
-    }));
-    if (!submitted.ok) throw Error(submitted.error.code);
-    const act = submitted.value;
+    const act = seedHistoricalVerdictAct(host, ask.askId, { stage: 'rig-review', verdict: 'approved', words: 'Approve' }, {
+      capture: { png: `data:image/png;base64,${png.toString('base64')}`, frame: 0, animation: 'idle',
+        binding: { publicationId: publication.publicationId, instanceKey: publication.instanceKey,
+          sourceHash: obj(publication.source).sourceHash, pageId: 'cycle-page', askId: ask.askId, drawGeneration: 1, playerGeneration: 0 } },
+    });
     if (act.schema !== 'rig-review/act@6' || !act.still) throw Error('expected displayed comments still');
     const reviewAt = Math.max(now + 4000, Date.parse(act.at));
     const consumer = Bun.spawn([process.execPath, join(import.meta.dir, '../src/cli.ts'), 'review', '1', dir, '--from-review', act.actId], { stdout: 'pipe', stderr: 'pipe' });

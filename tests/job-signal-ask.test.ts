@@ -203,21 +203,20 @@ function seedHistoricalPendingDraftAsk(root: string, publicationId: string, draf
 test.each([
   { mode: 'plain', flags: [] },
   { mode: '--json', flags: ['--json'] },
-])('#833 bound record ($mode) refuses JOB_ASK_PENDING before writing project.json', async ({ flags }) => {
-  const root = await preparedParts();
-  const opening = await open(root);
+])('#833 bound record ($mode) adopts a rig with a retired open ask', async ({ flags }) => {
+  const root = copyCheckpoint('3-rig-review');
+  const opening = await open(root, ['--draft', 'chain']);
   const head = publicationId(root);
   expect(opening.lines).toEqual([`job: draft chain published (publication ${head})`]);
   seedHistoricalPendingDraftAsk(root, head, 'chain');
   const projectFile = join(root, 'project.json');
   const before = readFileSync(projectFile);
-  const refused = await cli(root, ['record', 'parts', root, '--adopt', ...flags]);
-  expect(refused).toMatchObject({
-    exit: 1,
-    stdout: '',
-    stderr: expect.stringMatching(/^rig-create: JOB_ASK_PENDING: /),
-  });
-  expect(readFileSync(projectFile)).toEqual(before);
+  const adopted = await cli(root, ['record', 'rig', root, '--adopt', ...flags]);
+  expect(adopted.exit, adopted.stderr).toBe(0);
+  expect(adopted.stderr).not.toContain('JOB_ASK_PENDING');
+  expect(adopted.stderr).not.toContain('respond in Review');
+  expect(readFileSync(projectFile)).not.toEqual(before);
+  expect(read(root).current).toHaveProperty('rig');
   expect(publicationId(root)).toBe(head);
   expect(pendingPublications(root)).toEqual([]);
 }, 30_000);

@@ -392,9 +392,9 @@ asked in chat and each answer is relayed with `interview-answer --owner-chat`
 using the displayed set hash and explicit option IDs. When the current post has
 a live changes-requested verdict, both question selectors can publish pending
 `post-interview` sets during active `direction-review`, and `next` lists the
-owner-chat picks before it offers the replacement post write. Unrelated open
-asks and finalized acts awaiting ingest still block replacement with
-`JOB_ASK_PENDING`.
+owner-chat picks before it offers the replacement post write. Unanswered
+historical asks are superseded on publication. Finalized acts awaiting
+resolution can still hold a replacement with `JOB_ASK_PENDING`.
 
 Un-ingested finalized `interview-picks` acts on legacy pages are listed by
 `job acts` as unavailable (`SIGNOFF_FROM_REVIEW_REMOVED`), naming the

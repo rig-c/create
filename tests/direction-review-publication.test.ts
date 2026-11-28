@@ -13,7 +13,7 @@ import { advanceCommand, inputCommand, testClock } from './clock.ts';
 import { seedRetainedDirectionPost, seedRetainedScene } from './numbered-seed.ts';
 import { obj } from './fixtures.ts';
 import { tempDir } from './helpers.ts';
-import { seedHistoricalPendingAsk, seedStoredReviewVerdictAct } from './historical-review-fixture.ts';
+import { seedHistoricalVerdictAct, seedHistoricalPendingAsk, seedStoredReviewVerdictAct } from './historical-review-fixture.ts';
 import { isSourceLinkedRun } from './source-only.ts';
 
 afterEach(() => testClock.reset());
@@ -96,23 +96,8 @@ test('#955 a direction post projects an ingested same-job bounce only when Revie
       acknowledgePublication(pending, earlier.publicationId, earlier.generation, requestId, subjects);
     });
     const ask = seedHistoricalPendingAsk(host, earlier.publicationId, subjects[0]);
-    const pageId = 'synthetic-direction-owner-page';
-    const request = (route: string, value: object) => new Request(`${host.origin}/jobs/${jobId}/ui/${route}`, {
-      method: 'POST',
-      headers: { origin: host.origin, 'X-Review-Capability': host.session.hostCredentials().ui, 'content-type': 'application/json' },
-      body: JSON.stringify(value),
-    });
-    const displayed = await host.ports.ackDisplayed(jobId, request('displayed', {
-      publicationId: earlier.publicationId, pageId, sourceHash: earlier.source.sourceHash,
-    }));
-    if (!displayed.ok) throw Error(displayed.error.code);
-    const submitted = await host.ports.commitUIAct(jobId, request('acts', {
-      publicationId: earlier.publicationId, askId: ask.askId, pageId, displayedNonce: displayed.value.displayedNonce,
-      expectedGeneration: host.session.status().generation, submissionId: 'synthetic-bounce-submit',
-      kind: 'review-verdict', value: { stage: 'direction-review', verdict: 'changes-requested', comments: [{ text }] },
-    }));
-    if (!submitted.ok) throw Error(submitted.error.code);
-    const { actId, at } = submitted.value;
+    const { actId, at } = seedHistoricalVerdictAct(host, ask.askId,
+      { stage: 'direction-review', verdict: 'changes-requested', comments: [{ text }] });
     const now = Math.max(testClock.now(), Date.parse(at));
     seedStoredReviewVerdictAct(root, 2, host.session.readActExport(actId, false).toString('utf8'), { now });
     seedRetainedDirectionPost(['write', '3', root, '--file', 'evidence/direction-input.json',

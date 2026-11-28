@@ -4,7 +4,7 @@
   "type": "module",
   "dependencies": {
     "@rig-c/core": "3.11.0",
-    "@rig-c/create": "2.0.0",
+    "@rig-c/create": "2.0.1",
     "@rig-c/parts": "2.63.1"
   }
 }

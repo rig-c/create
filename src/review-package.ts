@@ -19,7 +19,7 @@ function checkBuildIdentity(ctx: Pick<Ctx, 'dir' | 'project' | 'refusals' | 'war
   const findings = version.accepted_parts !== undefined || (Number.isFinite(at) && at >= Date.parse(BUILD_IDENTITY_SINCE)) ? ctx.refusals : ctx.warnings;
   const path = `versions[v${String(version.n)}].review_package`;
   const mismatch = (code: string, field: string, expected: string, actual: string): void => {
-    findings.push({ code, path: `${path}.${field}`, message: `${path}.${field}: package sha256 ${actual} differs from recorded build sha256 ${expected}; preserve the historical package and record a new version from the same config and accepted parts` });
+    findings.push({ code, path: `${path}.${field}`, message: `${path}.${field}: package sha256 ${actual} differs from recorded build sha256 ${expected}; numbered review packages are read-only — restore the historical package or record a current rig build with rig-create record rig --from <dir> --config <file>` });
   };
   const provenance = isObject(version.provenance) ? version.provenance : {};
   const config = isObject(provenance.config) ? provenance.config : {};
@@ -141,10 +141,6 @@ function requireLayout(out: string): void {
   if (!existsSync(model) || !lstatSync(model).isFile()) refuse('REVIEW_PACKAGE_INPUT_MISSING', 'check/build/skeleton.model.json: required compiled model');
 }
 
-function regeneration(n: number, record: JsonObject | null): string {
-  return `rig-create review-package ${n} --config ${word(isObject(record?.config) && typeof record.config.path === 'string' ? record.config.path : '<config>')} --from ${word(typeof record?.from === 'string' ? record.from : '<build out dir>')}`;
-}
-
 /** Hash each selected package, keeping the full project available for receipt validation. */
 export function checkReviewPackages(ctx: Pick<Ctx, 'dir' | 'project' | 'refusals' | 'warnings'>, versionNumber?: number): void {
   for (const version of asArray(ctx.project.versions)) {
@@ -158,7 +154,7 @@ export function checkReviewPackages(ctx: Pick<Ctx, 'dir' | 'project' | 'refusals
     const n = version.n as number;
     const pkg = join(ctx.dir, packagePath(n));
     if (version.review_package === undefined || version.review_package === null) {
-      ctx.warnings.push({ code: 'REVIEW_PACKAGE_MISSING', path, message: `${path}: no package recorded, so the figure mask has no verdict; write it with ${regeneration(n, null)}` });
+      ctx.warnings.push({ code: 'REVIEW_PACKAGE_MISSING', path, message: `${path}: no package recorded, so the figure mask has no verdict; numbered review packages are read-only — record current rig outputs with rig-create record rig --from <dir> --config <file>` });
       continue;
     }
     if (record === null || !isObject(record.config) || typeof record.config.path !== 'string' || typeof record.config.sha256 !== 'string'
@@ -170,7 +166,7 @@ export function checkReviewPackages(ctx: Pick<Ctx, 'dir' | 'project' | 'refusals
     }
     checkBuildIdentity(ctx, version, record);
     if (!packageExists(pkg)) {
-      ctx.warnings.push({ code: 'REVIEW_PACKAGE_MISSING', path, message: `${path}: package absent, so the figure mask has no verdict; regenerate with ${regeneration(n, record)}` });
+      ctx.warnings.push({ code: 'REVIEW_PACKAGE_MISSING', path, message: `${path}: package absent at ${packagePath(n)}, so the figure mask has no verdict; restore the recorded ${packagePath(n)} files or record current rig outputs with rig-create record rig --from <dir> --config <file>` });
       continue;
     }
     try {

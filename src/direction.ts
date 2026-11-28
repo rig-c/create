@@ -29,7 +29,7 @@ export function directionPatchLegacyFinding(path: string): Finding {
   return {
     code: 'DIRECTION_PATCH_LEGACY',
     path,
-    message: `${path}: historical direction-patch binding predates ${DIRECTION_PATCH_SINCE}; preserve the record without reopening the patch file and publish future direction changes with direction write --answers after a review verdict`,
+    message: `${path}: historical direction-patch binding predates ${DIRECTION_PATCH_SINCE}; preserve the historical record without reopening the patch file, and author future direction changes on the current path with rig-create direction write [<dir>] --file <intent.json> and rig-create record direction --from <compose out> --direction specs/direction/direction.json`,
   };
 }
 export const directionHash = (bytes: Uint8Array): string => createHash('sha256').update(bytes).digest('hex');

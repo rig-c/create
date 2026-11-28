@@ -324,7 +324,7 @@ export function optionContext(project: JsonObject, stage: string, at: number, di
   const approval = rigPartsApproval(project, rig);
   if (rig.accepted_parts !== undefined && !approval) fail('RIG_PARTS_APPROVAL_INVALID', `versions[v${String(rig.n)}].accepted_parts: restore the parts approval bound when this rig was registered`);
   const draft = objects(project.drafts).find(d => d.id === approval?.draft_id);
-  if (!draft || !isObject(draft.parts)) fail('INTERVIEW_OPTIONS_STALE', `versions[v${String(rig.n)}]: no retained approved draft parts are available at rig.at ${String(rig.at)}; restore the parts-review approval and draft live at that build date, or register a new rig version after parts-review before drafting post options`);
+  if (!draft || !isObject(draft.parts)) fail('INTERVIEW_OPTIONS_STALE', `versions[v${String(rig.n)}]: no retained approved draft parts are available at rig.at ${String(rig.at)}; restore the parts-review approval and draft live at that build date, or record current rig outputs with rig-create record rig --from <dir> --config <file> before drafting post options`);
   return { kind: 'rig', rig_version: rig.n as Json, signoff_at: signoff.record.at as Json, config: provenance.config, parts: draft.parts };
 }
 

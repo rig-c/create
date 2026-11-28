@@ -575,7 +575,7 @@ export function checkUnrecordedPartRepaints(dir: string, project: JsonObject, re
           refusals.push({
             code: 'DRAFT_PART_REPAINT_UNRECORDED',
             path,
-            message: `${path}: part ${partName} (${String(pf.path)}) binds part-image after bytes (${String(pf.sha256)}) from correction ${String(ref.id)} without a live covering part-image correction record; record a live masked repaint with correction record --path made --stage parts-review --draft ${parentId} --part ${partName} --part-image-file <after.png> --mask-file <mask.png> --tool <text> before recording the draft`,
+            message: `${path}: part ${partName} (${String(pf.path)}) binds part-image after bytes (${String(pf.sha256)}) from correction ${String(ref.id)} without a live covering part-image correction record; drafts[] is read-only — restore the live masked repaint correction record covering draft ${parentId}, or record new edited parts through assemble.edited_parts with rig-create record parts --from <dir> --config <file>`,
           });
         }
       }
@@ -597,7 +597,7 @@ export function checkUnrecordedPartRepaints(dir: string, project: JsonObject, re
       if (!exactCoverage && !refusals.some(f => f.code === 'DRAFT_PART_REPAINT_UNRECORDED' && f.path === path)) {
         const finding = {
           code: 'DRAFT_PART_REPAINT_UNRECORDED', path,
-          message: `${path}: part ${partName} changed from parent draft ${String(parent!.id)} (${String(before.path)}, ${String(before.sha256)}) to draft ${String(draft.id)} (${String(pf.path)}, ${String(pf.sha256)}) with producer-declared provenance.edited_part but without a live correction covering this exact before/after pair; this warning remains the record of the historical gap, which cannot be corrected retroactively because postdated correction records refuse; preserve history; for the next edit only, capture correction record --path made --stage parts-review --draft <next-parent-id> --part ${partName} --part-image-file <after.png> --mask-file <mask.png> --tool <text> before draft-rig`,
+          message: `${path}: part ${partName} changed from parent draft ${String(parent!.id)} (${String(before.path)}, ${String(before.sha256)}) to draft ${String(draft.id)} (${String(pf.path)}, ${String(pf.sha256)}) with producer-declared provenance.edited_part but without a live correction covering this exact before/after pair; this warning remains the record of the historical gap, which cannot be corrected retroactively because postdated correction records refuse; preserve history; drafts[] is read-only, so record future edited parts through assemble.edited_parts with rig-create record parts --from <dir> --config <file>`,
         };
         if (!warnings.some(f => f.code === finding.code && f.path === path && f.message === finding.message)) warnings.push(finding);
       }

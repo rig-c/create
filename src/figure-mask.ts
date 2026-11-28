@@ -103,7 +103,7 @@ export function checkFigureMask(ctx: MaskContext): void {
       const old = !Number.isFinite(at) || at < Date.parse(FIGURE_MASK_INPUTS_SINCE);
       (old ? ctx.warnings : ctx.refusals).push({
         code: old ? 'FIGURE_MASK_INPUTS_LEGACY' : 'FIGURE_MASK_INPUT_UNBOUND', path,
-        message: `${path}: ${detail}; preserve this package and record a new build with review-package to bind the requirements and figure mask`,
+        message: `${path}: ${detail}; numbered review packages are read-only — preserve this historical package (or restore its frozen input bindings), and record new rig builds with rig-create record rig --from <dir> --config <file>`,
       });
     };
     const declaration = checkFigureMaskDeclaration(cfg.value, configPath, requirements => {

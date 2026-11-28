@@ -455,11 +455,14 @@ immediately after each inference, then `depth-apply`; the ordinary
 the producer contract. Reuse an existing map and its receipt only when prepared
 `inputSha256` is unchanged; changed input requires new inference and a new map
 filename. Never bind an old map to freshly prepared input or overwrite a receipt.
-`rig-version --depth-manifest <file> --depth-map-binding <map.binding.json>`
-(repeat the binding flag for each applied map) retains each Parts receipt's raw
-SHA-256 and `rig-parts-depth-map-binding/1` spec as well as the
-prepare manifest with the applied report and rig sheet manifest; all are bound
-by bytes and spec, without redoing producer measurements.
+Keep the prepare manifest, each `<map.binding.json>`
+(`rig-parts-depth-map-binding/1`) and `depth-apply`'s `depth-report.json` in
+tracked project paths, then record the checked rig with
+`record rig --from <dir> --config <file>`, which binds `depth_sheets.json` in
+`current.rig.files` and the build's config and declared run inputs in
+`current.rig.built_from` by SHA-256 without redoing producer measurements
+(historical `versions[].registration.depth` records retain those producer
+manifests and map-binding receipts read-only).
 
 Post `camera_depth` asks only about fixed framing or a camera-box path such as
 a push-in. Historical question text and citations keep their original bytes.

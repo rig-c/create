@@ -113,9 +113,9 @@ A writer validates its whole candidate with `checkProject` and refuses only a
 refusal the record as read did not already carry. The baseline is that check at
 write time and is never stored. Findings match by code and path with
 multiplicity, so a carried code at a new path is new, and the refusal names only
-the new code. `signoff`, `step-status`, `pause`, `resume`, `amend`,
-`draft-rig` and `review` follow this rule; the interview, plan, scene, direction, correction,
-and `rig-version` writers already did. Each writer's own pre-checks are
+the new code. `record`, `signoff`, `step-status`, `pause`, `resume`, `amend`,
+and the interview, plan, scene, direction, and correction writers follow this
+rule (as the historical numbered writers did). Each writer's own pre-checks are
 unchanged, and `check` still reports every carried refusal.
 `advance` still needs 0 refusals: it is the stage boundary. A check that stops
 early (an unreadable record, `SCHEMA_UNKNOWN`, `STAGE_UNKNOWN`) read nothing
@@ -949,28 +949,25 @@ behavior remains until G8 is implemented. Only the per-step rule above keeps
 an unrelated step's approval.
 
 
-`review` accepts `--verbatim-file <file>` (or `-` for stdin) instead of
-`--verbatim`, and `--at <timestamp>` instead of the clock. Repeatable
-`--answers-feedback <version>:<verdict-index>` appends references to the
-reviewed version's `answers_feedback`. Each reference must identify an
-existing verdict of an earlier version and must not duplicate an existing or
-new reference. Both writers refuse `by: agent` case-insensitively.
+`rig-create review` is retired (`NUMBERED_WRITER_REMOVED`, exit 2). Stored
+`versions[].verdicts[]` entries record `verbatim`, `at`, and a non-`agent`
+`by` (case-insensitively), and stored `answers_feedback` entries identify an
+existing verdict of an earlier version without duplicates.
 
 ## Versions
 
-Amendments and historical reopens preserve every version and verdict. A rebuild is a new numbered
-version, never an overwrite of an accepted historical build.
+Amendments and historical reopens preserve every version and verdict. Numbered
+`versions[]` entries are read-only history; new builds record into `current`
+through `record parts`, `record rig`, `record motion` and `record direction`.
 
-After a human bounce, `next` reads check's `FEEDBACK_OPEN` finding and names
-the agent rebuild instead of asking for another verdict or sign-off on the
-bounced version. `rig-version` and `direction write`
-accept repeatable `--answers <version>:<verdict-index>` options, recording
-those entries in the new version's `answers_feedback`. Each entry must name
-an earlier human bounced verdict and must occur only once. Without the needed
-entries the writer refuses `FEEDBACK_UNANSWERED`, leaving `project.json`
-byte-identical. Existing historical references and `review --answers-feedback`
-keep their earlier target rules: any existing verdict on an earlier version.
-After rebuilding, `next` requests the new version's review; no stage or
+After a human bounce on a numbered post adopted into `current.direction`,
+`next` reads check's `FEEDBACK_OPEN` finding and names the rebuild route.
+`record direction` accepts repeatable `--answers-feedback <version>:<verdict-index>`
+options, recording those entries in `current.direction.answers_feedback`.
+In stored numbered `versions[]`, `answers_feedback` entries name an earlier
+human bounced verdict at most once (without the needed entries check reports
+`FEEDBACK_UNANSWERED`), while earlier verdict-appended references retain their
+historical target rule (any existing verdict on an earlier version). No stage or
 human approval is supplied by answering feedback.
 
 A rig version's provenance config, review package and accepted parts must identify the same build.
@@ -1007,8 +1004,7 @@ claimed as delegated. Missing ids on a guide with per-ask coverage warn.
 
 A verdict item with `answer_was: "delegated"` may add `ask: "<ask id>"`.
 The ask must be recorded as delegated in a current or historical answer.
-`rig-create review … --item meshes:delegated --ask meshes=density` writes
-that field. `--ask` is optional, accepts one ask per named item, and is for
+Stored 1.x verdicts wrote at most one optional `ask` per named item for
 delegated feedback. Missing it on a guide with per-ask coverage warns.
 Guides without per-ask coverage gain no finding when these fields are absent.
 
@@ -1018,61 +1014,30 @@ stage.
 
 ### Registering a frozen rig build
 
-Use `rig-version` to bring separately located frozen producer outputs into one
-numbered version. This is a registration operation. Build, registration and
-acceptance have separate dates and writers.
+`rig-create rig-version` (including its `adapter` and `--preflight` modes) is
+retired (`NUMBERED_WRITER_REMOVED`, exit 2). Record new rig and motion builds
+on the current path with `rig-create record rig --from <dir> --config <file>`
+and `rig-create record motion --from <dir>`. `interview --check` continues to
+validate stored `versions[]` entries that carry `registration` (`frozen-rig/1`)
+read-only under the rules below.
 
-Generate the adapter from the frozen config and its referenced requirements
-before registering the build.
+In a stored `frozen-rig/1` entry, build, registration and acceptance carry
+separate dates. Retained files live under `evidence/v<N>/registration/` and bind
+their exact bytes by SHA-256, including any path adapter, lockfile, check report,
+producer run stamps and cited date record. For a visible busy-ground config,
+the config-relative requirements must declare `setup_painting.figure_mask` with
+a path and lowercase SHA-256, verified against the retained mask bytes and
+evidence.
 
-```sh
-rig-create rig-version adapter . --config frozen/config.json --out frozen/path-adapter.json
-```
-
-The adapter command writes the JSON to `--out` and prints the same bytes.
-Paths passed to the command resolve against the project directory. The
-command uses the registration writer's source and target mapping, including
-unchanged relative paths, and leaves an existing adapter with identical bytes
-in place. Give it a fresh output path to save different bytes.
-
-Before building for registration, list every declaration registration reads
-from the config, its requirements and the citations in one run. The preflight
-writes nothing and exits 1 while any refusal remains. For a visible
-busy-ground config, it checks that the config-relative requirements declare
-`setup_painting.figure_mask` with a path and lowercase SHA-256. Registration
-verifies the mask bytes and evidence. A refused registration also
-names every new finding, each with its code:
-
-```sh
-rig-create rig-version 3 . --preflight --config frozen/config.json \
-  --citations frozen/section-citations.json
-```
-
-```sh
-rig-create rig-version 3 . \
-  --parts frozen/assembly/rig --rig frozen/out/rig --build frozen/out/build \
-  --idle frozen/render --config frozen/config.json \
-  --path-adapter frozen/path-adapter.json --compile-report frozen/build-report.json \
-  --toolchain-lock bun.lock \
-  --at-source frozen/dated-record.json --at-pointer /finished_at --by agent \
-  --citations frozen/section-citations.json
-```
-
-Source arguments resolve against the project directory. Absolute arguments may
-name external frozen inputs. The writer retains copies under
-`evidence/v<N>/registration/` and binds their exact bytes by SHA-256. The project
-record refers to those retained paths, including the lock and cited date record.
-
-`rig-version` accepts the `bun.lock` written by `rig-create init` or an npm
-v3 `package-lock.json`. It reads the exact resolved Parts and Core versions into
-`built_with`. Bun registry entries for both packages must include integrity.
 `registration.toolchain` records the kind (`bun-lock` or `npm-lock-v3`) and
-the retained source (`{path,sha256,bytes}`). The explicit `--toolchain-lock`
-argument declares which lock was used for the build. Parts `rig` and `assemble`
-write a `rig-run/1` stamp (parts#1165), and Core `build` writes a `rigc-run/1`
-stamp (core#1718). Each records the package version, run times and output hashes.
+the retained source (`{path,sha256,bytes}`), reading the exact resolved Parts
+and Core versions into `built_with` (Bun registry entries for both packages must
+include integrity). Parts `rig` and `assemble` write a `rig-run/1` stamp
+(parts#1165), and Core `build` writes a `rigc-run/1` stamp (core#1718); each
+records the package version, run times and output hashes.
 
-Repeatable `--run-record <file>` binds at most one producer `run.json` per
+`registration.runs: [{spec,source:{path,sha256,bytes}}]` binds at most one
+producer `run.json` per spec beside `registration.toolchain`. The dispatcher in
 spec beside `--toolchain-lock`, recorded in the order given as
 `registration.runs: [{spec,source:{path,sha256,bytes}}]`. The dispatcher in
 `src/run-record.ts` accepts `rig-run/1` (`@rig-c/parts` `rig` or `assemble`) and
@@ -1122,9 +1087,9 @@ version carries `plate-assemble/`, use
 Every copied output
 gets its actual `path`, `sha256` and `bytes` in `versions[].outputs`.
 `registration.copied` records file and byte totals. Sources are rechecked after
-copying, and the copy is byte-verified before registration. The normal
-`review-package` materializer then creates `derived/review/v<N>/`, using the
-same accepted-parts and config identity checks as its standalone command.
+copying, and the copy is byte-verified before registration. Historical
+packaging materialized `derived/review/v<N>/` with the same config identity
+checks as standalone `review_package` records.
 
 The retained original config and adapter are bound as `registration.config_source`
 and `registration.path_adapter`. Registrations using pointer adaptation declare
@@ -1311,10 +1276,9 @@ perform the following migration on its own decision record.
    references from create-built entries. Retain acceptance stills and genuine
    stage sign-offs. The flag
    supplies no missing review evidence or sign-off.
-5. On the first create-built version, list the earlier feedback it answers in
-   `answers_feedback`, including carried items where relevant. The existing
-   `review --answers-feedback <version>:<verdict-index>` writer can append
-   these references. Keep that version's provenance and interview words.
+5. On the first create-built version, `answers_feedback` lists the earlier
+   feedback it answers, including carried items where relevant. Keep that
+   version's provenance and interview words.
 6. Run `rig-create interview --check <project dir> --json`, resolve the named
    refusals and inspect `rig-create handoff <project dir> --json` before post
    work. The synthetic [migration fixture](https://github.com/rig-c/create/blob/main/tests/data/pre-interview.json)
@@ -1505,22 +1469,17 @@ with the new shape. Malformed bounces on or after it are refused.
 
 ### The package handed to rig review
 
-Before showing a create-built rig version, run from the project directory:
-
-```sh
-rig-create review-package 1 --config evidence/v1/config.json --from outputs/v1/out
-```
-
-The source paths are explicit, project-relative inputs. The command copies the
-config unchanged and the build's `parts.json`, `parts/`, `rig/`, and
-`check/build/` into `derived/review/v1/`, with the config at `config.json` and
-the build files under `out/`. Every config-relative file named by the installed loader is copied at its relative path and included in the frozen inventory, including nested requirements, animations and a file-based control skeleton. The source build must include `rig/rig.json`,
+`rig-create review-package` is retired (`NUMBERED_WRITER_REMOVED`, exit 2);
+record new rig builds with `rig-create record rig --from <dir> --config <file>`
+and open them in Review with `rig-create job open --current rig`. Existing
+numbered rig versions retain their read-only `review_package` records and
+`derived/review/v<N>/` copies, where the config sits at `config.json` and
+the build files under `out/`. Every config-relative file named by the installed loader was copied at its relative path and included in the frozen inventory, including nested requirements, animations and a file-based control skeleton. The packaged build includes `rig/rig.json`,
 `rig/motion.json`, `rig/mesh_report.json` and
 `check/build/skeleton.model.json`. Copies preserve the package when the build
-directory is cleaned. The packager also retains `setup_painting.figure_mask.path` from the frozen requirements at its requirements-relative path, verifies its declared SHA-256, and records its package binding. Each copied file is hashed. The command writes no new
-build and moves no stage.
+directory is cleaned. The package also retains `setup_painting.figure_mask.path` from the frozen requirements at its requirements-relative path with its declared SHA-256 and package binding.
 
-A config's named files are bound build inputs in versions and drafts, with draft inputs recorded separately as optional `config_inputs` path/raw-sha256 bindings while `files` remains outputs. A draft's named input binds at its project path wherever it sits inside the project, and is not copied into `derived/drafts/<id>`; only the draft's config, parts and outputs live under that root. A named input outside the root is a project input, not a regenerable draft artifact, so its absence refuses rather than warning `DRAFT_RIG_UNAVAILABLE`. A named input that is a directory, such as a See-through occluder plate named by `assemble.occluders[i].plate`, binds its producer's `receipt.json` — as `{path: <dir>/receipt.json, sha256, directory: <dir>, spec}` in a draft's `config_inputs`, and by copying and hashing `<dir>/receipt.json` in `review-package` — where `spec` is the installed parts' `PLATE_RECEIPT_SPEC` and the receipt must declare it; the receipt binds the plate's unreferenced sibling images, which create does not copy, hash or re-verify (any sibling explicitly declared as its own config input, such as `assemble.occluders[i].image`, is copied and hashed as that independent input).
+A config's named files are bound build inputs in versions and drafts, with draft inputs recorded separately as optional `config_inputs` path/raw-sha256 bindings while `files` remains outputs. A draft's named input binds at its project path wherever it sits inside the project, and is not copied into `derived/drafts/<id>`; only the draft's config, parts and outputs live under that root. A named input outside the root is a project input, not a regenerable draft artifact, so its absence refuses rather than warning `DRAFT_RIG_UNAVAILABLE`. A named input that is a directory, such as a See-through occluder plate named by `assemble.occluders[i].plate`, binds its producer's `receipt.json` — as `{path: <dir>/receipt.json, sha256, directory: <dir>, spec}` in a draft's `config_inputs`, and as a copied and hashed `<dir>/receipt.json` entry in `review_package.files` — where `spec` is the installed parts' `PLATE_RECEIPT_SPEC` and the receipt must declare it; the receipt binds the plate's unreferenced sibling images, which create does not copy, hash or re-verify (any sibling explicitly declared as its own config input, such as `assemble.occluders[i].image`, is copied and hashed as that independent input).
 
 The version's `review_package` field records `config` (`path`, `sha256`),
 `from` (the declared build directory), `files` (sorted package-relative
@@ -1538,15 +1497,14 @@ the exact copied config. The hash check binds the copies to this version's
 recorded input snapshot. The producer baseline in review determines whether
 those inputs reproduce the inspected rig.
 
-`interview --check` warns with the package command when a rig version has no
-recorded package or when a recorded package is absent after a fresh clone.
-A present package must match the complete recorded file list and hashes.
-Regenerate a missing package from its recorded sources. If an existing
-package differs, the writer refuses replacement so the frozen copy can be
-inspected. A new build shown to the user gets a new version and package.
-Post versions go to direction review, outside this package contract.
-Pre-interview versions retain their existing history and output checks and
-are exempt from review-package warnings.
+`interview --check` warns `REVIEW_PACKAGE_MISSING` when a create-built numbered
+rig version has no recorded package or when its `derived/review/v<N>/` tree is
+absent after a fresh clone. A present package must match the complete recorded
+file list and hashes; restore missing or altered frozen bytes from git history
+rather than rewriting the numbered version. Post versions go to direction
+review, outside this package contract. Pre-interview versions retain their
+existing history and output checks and are exempt from `REVIEW_PACKAGE_MISSING`
+warnings.
 
 The frozen numbered example retains both `review_package` records from the
 public writer and their package bytes. Verify the frozen files and reader
@@ -1650,16 +1608,16 @@ and refine chest structure before asking the production rigging plan. The
 draft's proposed bones and weights are not the person's rigging answers.
 
 ```sh
-rig-create draft-rig <id> [<dir>] --config <path> --from <output dir> [--parts <dir>] [--json]
 rig-create job open [<dir>] --draft <id> --reviewer <reviewer> --role owner
 ```
 
-`job open --draft <id>` opens the recorded draft view-only (`subjects: []`);
-`parts-review` is retired (`NUMBERED_WRITER_REMOVED`, exit 2). See
+`draft-rig` and `parts-review` are retired (`NUMBERED_WRITER_REMOVED`, exit 2);
+new work records `current.parts` with `record parts --from <dir> --config <file>`
+and opens it with `job open --current parts`, while `job open --draft <id>` opens
+an existing recorded draft view-only (`subjects: []`). See
 [the parts-review cycle](#the-parts-are-reviewed-before-rigging).
 
-The recorder reads existing output; it runs no producer or review command.
-It appends `drafts[]` with `{ id, kind: "draft-rig", at, producer: {name,version},
+Stored `drafts[]` entries hold `{ id, kind: "draft-rig", at, producer: {name,version},
 config: {path,sha256}, parts: {path,files:[{path,sha256}]}, files:[{path,sha256}] }`.
 `parts.files` binds `parts.json`, `parts/*` and the raster `parts.json` itself
 declares under `painting_in_rig`; an undeclared file is not bound, and a draft
@@ -1718,8 +1676,8 @@ after parts-review and no later than the rigging-interview sign-off. The
 interview approval must already exist at the version's build time. Otherwise,
 answer the rigging meshes guide, or renew parts-review.
 
-`rig-version` computes `versions[n].provenance.structure_delta` from the
-retained snapshot and config: an ordered list of `{entry, snapshot, version}`,
+On numbered versions, `versions[n].provenance.structure_delta` records the delta
+between the retained snapshot and config: an ordered list of `{entry, snapshot, version}`,
 where `entry` is the snapshot JSON Pointer and the other fields are complete
 declarations (`version: null` means absent). It omits the field when unchanged.
 The check recomputes it and refuses `STRUCTURE_DELTA_MISMATCH` on disagreement.
@@ -1782,8 +1740,8 @@ it. The public writers record signoffs, rig/post review verdicts, the review
 package, immutable input inventory and authored direction. The parts verdict
 is a synthetic review-tool export from `tests/parts-package.ts`, recorded as a producer step.
 `chain.json` names seed declarations covering forward stage movement,
-`plan.steps (setup and status progress)` with `split.parts`, the rig-version
-declaration. Its source inventory is written by `input add`. Each seed
+`plan.steps (setup and status progress)` with `split.parts`, and the frozen rig
+registration declaration. Its source inventory is written by `input add`. Each seed
 declares its consuming command and records that command's step index. Status progress is forward-only,
 and signed plan fields stay bound. Post steps are added after rig-review,
 before the post-interview options.
@@ -1871,7 +1829,7 @@ time; a future source timestamp always refuses.
 
 A result must be distinct, later and changed. Version and draft times bind the
 ordering; for raw parts, create's later closure records the declared response
-and changed inventory without inventing a producer timestamp. A rig-version
+and changed inventory without inventing a producer timestamp. A numbered rig
 made result retains the existing matching `review_origin` chain, including its
 immediate-predecessor constraint. A first rig may still have `review_origin:null`;
 no fake preceding rig is made for stage-1 corrections. `on_items` still names
@@ -1901,11 +1859,11 @@ file and atomic rename. Refusals leave project.json byte-identical. Unrelated
 pre-existing interview holes do not prevent capture, but a writer cannot add a
 new refusal or bypass correction validation.
 
-Stage-1 corrections use parts/drafts outside versions. After changes-requested,
-the agent records an `edited_parts` correction, registers a new draft and
-prepares fresh evidence while staying at parts-review. Its approved verdict
-also records the parts-review signature for that corrected draft and snapshot;
-the unsigned correction loop has a single approval. Production versions
+Stage-1 corrections use parts/drafts outside versions. On the current path,
+rebuilt parts enter through `record parts --from <dir> --config <file>` with a
+fresh `structure-snapshot` and any relayed owner `signoff parts-review` via
+`--owner-chat`. In historical draft loops, an approved verdict recorded the
+parts-review signature for that corrected draft and snapshot. Production versions
 still compare mesh declarations to the accepted snapshot. To change approved
 structure, amend at the owning stage and record a fresh snapshot.
 
@@ -1922,7 +1880,7 @@ stage before recording corrections under a live scoped approval.
 | invalid checked claim | refuse | refuse | no authority | refuse claimed linkage | mismatch refuses | no fabricated gate pass |
 | unsupported | pending/WARN | pending; attempted approval refuses | pass history | pending opaque evidence | pass existing checks | pass existing checks |
 | stage-1 parts/draft overlay | pass retained identity; absent closure bytes refuse | pending until corrected draft/parts is approved | parts-review suffix | identity only | pass approved corrected snapshot | pass / not applicable to parts |
-| rig-version overlay | pass source/result hashes | pending until correction and normal review complete | rig-review suffix | existing citations required | existing snapshot comparison | normal gates required |
+| numbered rig overlay | pass source/result hashes | pending until correction and normal review complete | rig-review suffix | existing citations required | existing snapshot comparison | normal gates required |
 | direction-review post overlay | pass retained declared output | pending until changed output and normal review complete | direction-review suffix | post citations still required | no new rig claim | no new CG claim |
 | validly superseded overlay | pass history validation | pass exclusion from current obligations | pass with a valid human amendment or historical reopen | historical only | historical context | existing historical gates remain |
 
@@ -1940,9 +1898,11 @@ file uses its real byte hash. The frozen legacy example's exact warning set is
 
 ### Masked part-image repaints
 
-When `assemble` levers are exhausted and one part image needs a bounded hand pass
-before `parts rig`, record the edit as a `made` correction at `parts-review` on
-the parent draft before registering the rebuilt draft:
+On the current path, an owner-accepted retouch enters through `assemble.edited_parts`
+and is recorded with `record parts --from <dir> --config <file>` (or `record rig`).
+On historical draft projects where one part image needed a bounded hand pass
+before `parts rig`, `correction record` captured a `made` correction at
+`parts-review` on the parent draft:
 
 ```sh
 rig-create correction record <dir> --id repaint-topwear --path made --stage parts-review \
@@ -1971,8 +1931,8 @@ including the outside texel count). Alpha increases inside the mask are allowed.
 from transparent to opaque; text and JSON command output report the count.
 A present count must match the retained PNGs (`CORRECTION_PART_IMAGE_ALPHA_COUNT`);
 historical records without a count remain readable.
-A later `draft-rig` (new id) whose bound `<parts.path>/parts/<part>.png` matches
-`after.sha256` resolves the correction automatically (or explicitly via
+In stored `drafts[]`, a later draft whose bound `<parts.path>/parts/<part>.png`
+matched `after.sha256` resolved the correction automatically (or explicitly via
 `correction resolve --draft <new-id> --by agent --reasoning-file <file>`). A draft
 whose bound `parts/<part>.png` matches a `part-image` correction's `after.sha256`
 whose correction is withdrawn, superseded, dated after the draft, or on another
@@ -1986,9 +1946,9 @@ parent/before/after pair, `check` WARNs `DRAFT_PART_REPAINT_UNRECORDED`.
 Create never infers a hand edit from byte changes: a fresh split with no edit
 declaration does not WARN. The warning itself remains the record of the
 historical gap. A correction written after the draft cannot repair that gap,
-because postdated correction records refuse. Preserve history; for the next edit
-only, record the masked correction before registering its rebuilt draft. This
-warning introduces no dated refusal or SINCE constant.
+because postdated correction records refuse; preserve the historical draft record
+and record new edits on the current path through `assemble.edited_parts` and
+`record parts`. This warning introduces no dated refusal or SINCE constant.
 
 ### Authored camera direction (create#92)
 
@@ -2007,12 +1967,13 @@ Do not change that list to exempt new work. Existing correction@1 records are
 not migrated or rewritten.
 
 ```sh
-rig-create direction write 5 <dir> --file evidence/authored-direction.json --rig 2
 rig-create direction check 5 <dir> --json
 ```
 
-The writer registers a new post version and never overwrites a previous one.
-The exact input bytes become `evidence/direction/v5.json`, schema
+Numbered `direction write <N>` is retired (`NUMBERED_WRITER_REMOVED`, exit 2);
+current direction specs use `direction write [<dir>] --file <intent.json>` and
+`record direction --from <dir> --direction specs/direction/direction.json`.
+In a stored numbered post version, the input bytes live at `evidence/direction/v5.json`, schema
 `rig-create/direction@1`. `provenance.config`, `provenance.direction`, and one
 `outputs[]` entry all bind that same `{path,sha256}`. It is a direction output,
 not a compiled model or movie. `provenance.sections.camera` and `.timing` carry
@@ -2078,7 +2039,7 @@ path above is allowed in regenerable `derived/`. Clone it when using this gate.
 A direction post on rig `vN` may read frozen idle frames under `outputs/`.
 It reads `outputs/vN/idle/frames.json` only with the path and sha256 of
 `versions[vN].registration.idle`, and any other file under `outputs/vN/idle/`
-only with a `versions[vN].outputs` binding. The bytes stay where `rig-version`
+only with a `versions[vN].outputs` binding. The bytes stay where registration
 froze them; no second copy is retained. Present bytes are verified on every
 write and check. Absent bytes refuse, as the registration check refuses absent
 frozen outputs, so restore `outputs/vN/` before writing or checking the post.
@@ -2094,16 +2055,18 @@ version/path binding and rig model SHA. `readDirection(dir,project,N)` is the
 create reader; `direction check N --json` exposes a checked read. Review never
 writes `project.json` or invokes create.
 
-The walk carries direction feedback through the `review-verdict` act and
-`direction write <N> --file <direction.json> --rig <R> --answers <version>:<verdict>`
-(create#271). The earlier `--direction-patch-file` and `direction patch --patch-file`
-file routes were removed because no producer wrote their patch file: `--direction-patch-file`
-(and resolving an existing direction-patch record) refuses with
-`CORRECTION_DIRECTION_PATCH_FILE_REMOVED`, and `direction patch` / `--patch-file`
-refuses with `DIRECTION_PATCH_FILE_REMOVED`, each pointing to `direction write --answers`
-after a review verdict. In `check`, an existing record with `version.direction_origin.patch`
-or a correction direction patch WARNs with `DIRECTION_PATCH_LEGACY` under
-`DIRECTION_PATCH_SINCE = 2026-11-19T00:00:00Z` and is never refused or reopened.
+On the current path, direction revisions update the scene and direction specs
+(`direction write [<dir>] --file <intent.json>`) and record the composed output
+with `record direction --from <dir> --direction specs/direction/direction.json`
+(passing `--answers-feedback <version>:<verdict>` when answering an adopted
+numbered post bounce). Earlier numbered direction patch routes were retired
+(create#271): `--direction-patch-file` (and resolving an existing
+direction-patch record) refuses with `CORRECTION_DIRECTION_PATCH_FILE_REMOVED`,
+and numbered `direction write` / `direction` patch flags refuse with
+`NUMBERED_WRITER_REMOVED`. In `check`, an existing record with
+`version.direction_origin.patch` or a correction direction patch WARNs with
+`DIRECTION_PATCH_LEGACY` under `DIRECTION_PATCH_SINCE = 2026-11-19T00:00:00Z`
+and is never refused or reopened.
 
 Authored-direction descriptions use
 `rig-create/correction@2`. Other correction records remain
@@ -2203,18 +2166,14 @@ versioned dark retention need post-assemble outputs and are excluded.
 
 ### Targets of review signatures
 
-`signoff rig-review` and `signoff direction-review` accept `--version <n>`.
-Without it, exactly one candidate must exist. Candidates are versions of the
-review's kind with an accepted verdict and no live same-stage signature
-already targeting them. A refusal lists candidates without a recency preference.
-An explicit version must exist with the right kind and an accepted verdict.
-A rig version that a reopen or amendment of `rig-review` or an earlier stage
-made history is no candidate. When that leaves no live rig version accepted,
-`signoff rig-review` refuses before it writes (`RIG_VERSION_UNACCEPTED`),
-naming the lapsed acceptance and its `reopens[]` or `amendments[]` entry;
-register a new rig version and accept it first. A signature recorded before
-this refusal existed is not refused at `rig-review`: `advance` and `handoff`
-stop on it with the same code.
+Numbered `signoff rig-review` / `signoff direction-review` and `--version` are
+retired (`NUMBERED_WRITER_REMOVED`, exit 2); current review signatures bind
+`current.parts`, `current.rig` and `current.direction` via `--owner-chat`.
+`check` and `handoff` continue to validate stored numbered `signoffs[]` targets
+read-only under the rules below. When a reopen or amendment of `rig-review` or
+an earlier stage left no live numbered rig version accepted, `handoff` refuses
+with `RIG_VERSION_UNACCEPTED`, naming the lapsed acceptance and its `reopens[]`
+or `amendments[]` entry.
 
 Each signature records `target.version` and `target.verdict`, the literal
 `versions[i].verdicts[j]` path of the accepted verdict. A rig review adds
@@ -2246,18 +2205,17 @@ A later human bounce makes the earlier bound acceptance stale.
 
 ## Scene composition and direction@2
 
-`scene write --rig <R> --background <path> [--foreground <path>]
-[--background-rect x,y,w,h] [--foreground-rect x,y,w,h]
---citations-file <file> [<dir>]` derives the latest accepted rig,
-live rig-review signoff target, compiled model and stage. It appends
-`scenes[]` entries `{n,path,sha256,at,by}` and immutable
-`evidence/scene/s<N>.json` documents with schema `rig-create/scene@1`.
-New entries record `by:"agent"`. A typed `--by` is refused: human authority
-comes from the current ingested `post_composition` Review choice or its decided
-delegation. Earlier human-authored scenes retain their existing validation;
-no contract date or additional historical warning is introduced.
-The project append commits the scene. Unreferenced files are ignored.
-The latest entry is current. Existing documents stay byte-identical.
+On the current path, `scene write [<dir>] --compose-scene <file>` seals the
+`spine-parts-scene/1` composition at `specs/direction/compose-scene.json`
+before `record direction`. Numbered `scene write` (`--rig`, `--background`,
+`--citations-file`) is retired (`NUMBERED_WRITER_REMOVED`, exit 2), while
+`check` continues to validate stored `scenes[]` entries `{n,path,sha256,at,by}`
+and immutable `evidence/scene/s<N>.json` documents (`rig-create/scene@1`)
+read-only. Stored agent entries carry `by:"agent"`, authorized by the ingested
+`post_composition` choice or its decided delegation; earlier human-authored
+scenes retain their existing validation with no contract date or extra warning.
+Unreferenced files are ignored, the latest entry is current, and existing
+documents stay byte-identical.
 
 The closed document contains `schema`, `n`, `rig`, `frame`, `plates`, `layers`.
 `rig` contains `version`, `acceptance`, `model` and `animation`.
@@ -2549,15 +2507,18 @@ refuses with `JOB_RECORD_COLLECTION_EXTERNAL`.
 This section supersedes earlier saved-verdict command examples and evidence
 requirements in this document.
 
-`signoff parts-review --draft <id>` selects the latest parts-verdict receipt
-for that draft in `review_acts` ledger order. `structure-snapshot --draft <id>`
-only reads the draft/config and does not require or select a verdict. Both
-CLI-read and act receipts participate. The response retained by
-`parts-review` is hash-bound and validated through the same reader in the
-writers and check. The signoff retains its selected response binding and spec.
-A later response does not replace that historical binding. The existing latest
-changes-requested gate still applies. The removed `--evidence` and `--verdict`
-flags exit 2 with `PARTS_VERDICT_FILE_ROUTE_REMOVED` before writing.
+`parts-review` and `signoff parts-review --draft` are retired
+(`NUMBERED_WRITER_REMOVED`, exit 2); on `current.parts`, prepare
+`structure-snapshot` and relay any owner chat sign-off via `--owner-chat`.
+In stored numbered records, a `parts-review` signoff's `draft_id` selected the
+latest parts-verdict receipt for that draft in `review_acts` ledger order, while
+`structure-snapshot --draft <id>` only reads the draft/config and does not
+require or select a verdict. Both CLI-read and act receipts participate,
+hash-bound and validated through the same reader in `check`. The signoff retains
+its selected response binding and spec; a later response does not replace that
+historical binding, and the latest changes-requested gate still applies. The
+removed `--evidence` and `--verdict` flags exit 2 with
+`PARTS_VERDICT_FILE_ROUTE_REMOVED` before writing.
 
 Signatures before `PARTS_VERDICT_RECEIPT_SINCE` retain their legacy file
 bindings and WARN with `PARTS_VERDICT_FILE_LEGACY`. Check never opens their
@@ -2596,9 +2557,9 @@ the owner's words quoted from it, an opaque check id and the bar.
 A retired row stays in the ledger.
 
 The pixel checks are the project's own script. create binds its report and does
-not run or reproduce a check. A draft is recorded with
-`draft-rig ... --ledger-report <file>`, a `rig-create/fix-ledger-report@1`
-report:
+not run or reproduce a check. Historical `drafts[]` entries bound a
+`rig-create/fix-ledger-report@1` report (`draft-rig` is retired; see
+`record parts --ledger-report` below for current builds):
 
 ```
 {"schema": "rig-create/fix-ledger-report@1",
@@ -2610,28 +2571,24 @@ report:
 The report stays under the project outside ignored roots, for example
 `evidence/fix-ledger/`. Build identity is `build.manifest_sha256` against the
 draft's bound `parts.json`; `build.dir` is not identity. Extra keys in a row
-are allowed. The draft records `ledger_report { path, sha256, spec }`,
-`fixes_against`, `fixes` and, when given, `known_regressions [{ id, reason }]`:
+are allowed. Stored drafts record `ledger_report { path, sha256, spec }`,
+`fixes_against`, `fixes` and optional `known_regressions [{ id, reason }]`:
 
 - The report must cover every live row (`DRAFT_LEDGER_INCOMPLETE`).
 - A row the previous draft passed must pass again. `fail`, `unmeasurable` or a
   missing row is a regression (`DRAFT_LEDGER_REGRESSION`), unless
-  `--known-regression <row id>=<reason file>` names it. A known regression
-  stays owed: the next draft passes that row or records it as a known
-  regression again, with its own reason.
+  `known_regressions` names `{ id, reason }`. A known regression stays owed on
+  any subsequent draft in `drafts[]`.
 - `fixes` lists the live rows this report passes that the last draft a person
   saw did not. That draft is the latest earlier one with a parts-review
   receipt, else the previous draft.
 
-To record a reviewer accepting a machine failure on this draft, repeat
-`--accepted-fail <row id>=<reason file>` once per failing row alongside
-`--ledger-report`. The writer reads the reason file relative to the command's
-working directory and stores `accepted_failures [{ id, result: "fail", measured, reason }]`.
-It copies the producer's `measured` JSON value, including `null`, or omits
-`measured` when the report omits it. This also works for report-only rows and
-when the predecessor has no report. `check` shows the FAIL and its reason.
-Live regressions still require `--known-regression`. The owner records their
-verdict through Review.
+Stored drafts that recorded reviewer-accepted machine failures carry
+`accepted_failures [{ id, result: "fail", measured, reason }]` alongside
+`ledger_report`, copying the producer's `measured` JSON value (including `null`,
+or omitting `measured` when the report omits it), including for report-only rows
+and when the predecessor had no report. `check` shows the FAIL and its reason,
+while live regressions still require a matching `known_regressions` entry.
 
 For a producer-backed `current.parts`, use `record parts --ledger-report
 <file>` with the same report schema. The file path is relative to the project.
@@ -2914,12 +2871,16 @@ loop-closure or canvas-containment measurements. A smaller canvas than the
 accepted character's stage is allowed.
 
 ```sh
-rig-create direction write 5 <dir> --file evidence/composed-direction.json --rig 2 --compose-out derived/compose --compose-scene composed.scene.json
 rig-create direction check 5 <dir> --json
 rig-create job open <dir> --rig 5 --reviewer owner --role owner
 ```
 
-The closed `rig-create/direction@3` document contains exactly these fields:
+Numbered composed `direction write <N>` is retired (`NUMBERED_WRITER_REMOVED`,
+exit 2); on the current path, run `scene write --compose-scene <file>`,
+`direction write --file <intent.json>`, and
+`record direction --from <dir> --direction specs/direction/direction.json`.
+In stored numbered posts, the closed `rig-create/direction@3` document contains
+exactly these fields:
 
 | Field | Contents |
 | --- | --- |
@@ -2936,15 +2897,12 @@ Create does not read one, nor `scene.animations.idle.loop`. Compose's green
 check proves closure. The take always repeats.
 
 As with other direction documents, input paths and hashes declare closed file
-bindings. On write, Create fills their final paths and actual raw-byte hashes:
+bindings. Stored @3 posts carry their final paths and actual raw-byte hashes:
 `compose.out` is `outputs/v<N>/compose`; `report`, `check` and `run` are that
 root's `scene.json`, `check/check.json` and `compose-run.json` respectively.
-The writer copies every compose file byte-for-byte, inventories it in the
-post's `outputs[]`, and retains the scene's exact bytes at
-`evidence/compose-src/v<N>/scene.json`, also inventoried. `--compose-scene`
-selects the original scene input; when omitted, its path comes from the input
-binding if present on disk, otherwise the producer report's `scene` path
-(resolved from the project root). Scene plate image strings remain the exact
+Every compose file is inventoried byte-for-byte in the post's `outputs[]`, and
+the scene's exact bytes are retained at `evidence/compose-src/v<N>/scene.json`,
+also inventoried. Scene plate image strings remain the exact
 registered project-relative paths from the cited owner value.
 
 The source scene, report and model must agree with the cited canvas and

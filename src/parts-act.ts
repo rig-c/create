@@ -158,12 +158,12 @@ export function partsActFindings(root: string, project: JsonObject): { code: str
 export function checkPartsActEvidence(root: string, bytes: Buffer, evidenceHash: string, candidate?: JsonObject, options: { requireApproval?: boolean; carry?: boolean } = {}): string {
   const act = decodeReviewAct(bytes.toString('utf8'), 'parts-verdict');
   if (act.source.package.id !== draftPackageIdentity(act.source.selector.id).id && !(options.carry && isRiggingDraftAct(act))) {
-    refuse('PARTS_VERDICT_RECEIPT_INVALID', 'signoffs.parts-review.evidence: act does not bind the parts-review package; review the draft at parts-review');
+    refuse('PARTS_VERDICT_RECEIPT_INVALID', 'signoffs.parts-review.evidence: act does not bind the parts-review package; restore the matching parts-verdict receipt');
   }
   const project = candidate ?? JSON.parse(readFileSync(join(root, 'project.json'), 'utf8')) as JsonObject;
   const receipt = partsActReceipt(project, act);
   if (!receipt || receipt.kind !== 'parts-verdict' || receipt.sha256 !== evidenceHash || receipt.bytes !== bytes.toString('utf8')) {
-    refuse('REVIEW_ACT_LEDGER_INVALID', 'project.json.review_acts: parts evidence has no matching recorded receipt; ingest it with parts-review --from-review');
+    refuse('REVIEW_ACT_LEDGER_INVALID', 'project.json.review_acts: parts evidence has no matching recorded receipt; numbered parts-verdict receipts are read-only — restore the matching receipt in project.json.review_acts');
   }
   // Later plan approvals can fill checkpoints without changing the reviewed draft.
   assertPartsActSource(root, project, act, { comparePlan: false });

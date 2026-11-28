@@ -17,7 +17,7 @@ export function draftRigDirectory(draft: JsonObject): string | undefined {
 }
 
 export function draftRigRequired(path: string, id: Json | undefined): Finding {
-  return { code: 'DRAFT_RIG_REQUIRED', path, message: `${path}: draft ${String(id)} is assemble-only; register a new draft with a rig output using draft-rig` };
+  return { code: 'DRAFT_RIG_REQUIRED', path, message: `${path}: draft ${String(id)} is assemble-only and drafts[] is read-only; select a recorded draft that binds a rig output, or record a current rig build with rig-create record rig --from <dir> --config <file>` };
 }
 
 export function assertDraftHasRig(draft: JsonObject | undefined, path: string): void {

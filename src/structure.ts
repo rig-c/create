@@ -258,7 +258,7 @@ export function previousPartsApproval(dir: string, project: JsonObject, currentD
 
 export function checkStructure(dir: string, project: JsonObject, signoff: JsonObject, path: string, errors: Finding[]): JsonObject | null {
   if (signoff.structure === undefined || signoff.draft_id === undefined) {
-    add(errors, 'STRUCTURE_DECISIONS_MISSING', path, 'parts approval needs --draft and --structure-file, with explicit entries:[] when unchanged'); return null;
+    add(errors, 'STRUCTURE_DECISIONS_MISSING', path, 'numbered parts approvals are read-only and require recorded draft_id and structure bindings; restore those fields or sign current.parts with rig-create structure-snapshot and rig-create signoff parts-review --by <owner> --owner-chat <words file> --said-at <ISO date> --relayed-by <operator>'); return null;
   }
   let snapshot: JsonObject;
   try { snapshot = retainedJson(dir, signoff.structure); } catch (error) { add(errors, 'STRUCTURE_DECISIONS_INVALID', `${path}.structure`, error instanceof Error ? error.message : String(error)); return null; }

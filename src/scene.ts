@@ -226,7 +226,7 @@ export function sceneRigAcceptance(project: JsonObject, n: number): JsonObject {
   const reopens = collectReopens(project, []);
   const signature = collectSignoffs(project, []).filter(value => value.stage === 'rig-review' && value.checkpoint === null && liveSignoff(reopens, value.stage, value.at)
     && isObject(value.record.target) && value.record.target.version === n).sort((a, b) => b.at - a.at)[0];
-  if (!signature || !isObject(signature.record.target)) sceneFail('SCENE_ACCEPTANCE_STALE', 'direction.rig.acceptance', 'sign the accepted rig before direction write --compose-out');
+  if (!signature || !isObject(signature.record.target)) sceneFail('SCENE_ACCEPTANCE_STALE', 'direction.rig.acceptance', 'numbered composed posts are read-only; restore the recorded rig-review signature on the accepted rig');
   const target = signature.record.target;
   const acceptance = { signoff: { stage: 'rig-review', checkpoint: null, at: signature.record.at! }, verdict: target.verdict!, review_package: target.review_package! };
   const rig: JsonObject = { version: n, acceptance };

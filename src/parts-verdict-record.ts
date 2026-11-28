@@ -181,7 +181,7 @@ export function latestPartsVerdictStatus(project: JsonObject, draftId: string): 
 
 export function latestPartsVerdictFinding(project: JsonObject, draftId: string, path: string): Finding | undefined {
   if (latestPartsVerdictStatus(project, draftId) === 'changes-requested') return { code: 'PARTS_VERDICT_LATEST_NOT_APPROVED', path,
-    message: `${path}: draft ${draftId}'s latest parts verdict requests changes; record a newer approved verdict with parts-review before signing` };
+    message: `${path}: draft ${draftId}'s latest parts verdict requests changes; numbered parts verdicts are read-only — restore an approved receipt or record current.parts with rig-create record parts --from <producer out> --config <rig config> and relay owner chat sign-off with rig-create signoff parts-review --by <owner> --owner-chat <words file> --said-at <ISO date> --relayed-by <operator>` };
 }
 
 export function assertPartsCliArgs(args: string[]): void {
@@ -357,7 +357,7 @@ export function recordedPartsFinding(root: string, project: JsonObject, signoff:
     const legacy = error instanceof Refusal && error.code === 'PARTS_VERDICT_RECEIPT_REQUIRED'
       && typeof signoff.at === 'string' && Date.parse(signoff.at) < Date.parse(PARTS_VERDICT_RECEIPT_SINCE);
     return { code: legacy ? 'PARTS_VERDICT_FILE_LEGACY' : error instanceof Refusal ? error.code : 'PARTS_VERDICT_RECEIPT_INVALID', path: `${path}.evidence`,
-      message: legacy ? `${path}.evidence: legacy review-saved file binding is preserved; query the reviewed draft through parts-review and record a new signature`
+      message: legacy ? `${path}.evidence: legacy review-saved file binding is preserved; numbered parts verdicts are read-only — record current.parts with rig-create record parts --from <producer out> --config <rig config>, run rig-create structure-snapshot, and relay any owner chat sign-off with rig-create signoff parts-review --by <owner> --owner-chat <words file> --said-at <ISO date> --relayed-by <operator>`
         : error instanceof Refusal ? error.message : `${path}.evidence: retained API response is unavailable; restore the parts-review receipt and its response` };
   }
 }

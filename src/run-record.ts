@@ -48,7 +48,7 @@ const runTimestamp = (value: Json | undefined): value is string =>
 
 export class RunRecordError extends Error {
   constructor(readonly code: string, readonly path: string, readonly why: string) {
-    super(`${path}: ${why}; retain the producer run.json with --run-record and register a new rig version`);
+    super(`${path}: ${why}; retain the unedited producer run.json and record current rig or motion outputs with rig-create record rig --from <dir> --config <file> or rig-create record motion --from <dir>`);
   }
 }
 
@@ -258,7 +258,7 @@ export function checkRegisteredRuns(
     const finding: Finding = {
       code: 'RUN_RECORD_REQUIRED',
       path: runsPath,
-      message: `${runsPath}: version registered from the toolchain lock alone; retain producer run.json records with --run-record and register a new rig version`,
+      message: `${runsPath}: version registered from the toolchain lock alone; numbered rig registrations are read-only — record current rig and motion outputs with rig-create record rig --from <dir> --config <file> and rig-create record motion --from <dir>`,
     };
     const at = Date.parse(String(record.at));
     if (Number.isFinite(at) && at < Date.parse(RUN_RECORD_SINCE)) warnings.push(finding);
@@ -269,7 +269,7 @@ export function checkRegisteredRuns(
     refusals.push({
       code: 'RUN_RECORD_MALFORMED',
       path: runsPath,
-      message: `${runsPath}: expected a nonempty list of bound producer run records; retain the producer run.json with --run-record and register a new rig version`,
+      message: `${runsPath}: expected a nonempty list of bound producer run records; numbered rig registrations are read-only — restore registration.runs, or record current rig and motion outputs with rig-create record rig --from <dir> --config <file> and rig-create record motion --from <dir>`,
     });
     return runPaths;
   }
@@ -284,7 +284,7 @@ export function checkRegisteredRuns(
       refusals.push({
         code: 'RUN_RECORD_MALFORMED',
         path: entryPath,
-        message: `${entryPath}: expected { spec, source }; restore the retained registration inputs or register a new rig version`,
+        message: `${entryPath}: expected { spec, source }; numbered rig registrations are read-only — restore the retained registration inputs, or record current rig and motion outputs with rig-create record rig --from <dir> --config <file> and rig-create record motion --from <dir>`,
       });
       continue;
     }
@@ -292,7 +292,7 @@ export function checkRegisteredRuns(
       refusals.push({
         code: 'RUN_RECORD_SPEC_UNKNOWN',
         path: `${entryPath}.spec`,
-        message: `${entryPath}.spec: unknown producer run spec ${JSON.stringify(entry.spec ?? null)}; retain a rig-run/1 or rigc-run/1 run.json and register a new rig version`,
+        message: `${entryPath}.spec: unknown producer run spec ${JSON.stringify(entry.spec ?? null)}; numbered rig registrations are read-only — restore the retained rig-run/1 or rigc-run/1 run.json, or record current rig and motion outputs with rig-create record rig --from <dir> --config <file> and rig-create record motion --from <dir>`,
       });
       continue;
     }
@@ -300,7 +300,7 @@ export function checkRegisteredRuns(
       refusals.push({
         code: 'RUN_RECORD_MALFORMED',
         path: `${entryPath}.spec`,
-        message: `${entryPath}.spec: duplicate run record for spec ${entry.spec}; supply at most one --run-record per spec and register a new rig version`,
+        message: `${entryPath}.spec: duplicate run record for spec ${entry.spec}; numbered rig registrations are read-only — restore at most one run record per spec in registration.runs`,
       });
       continue;
     }
@@ -325,7 +325,7 @@ export function checkRegisteredRuns(
       refusals.push({
         code: 'RUN_RECORD_HASH_MISMATCH',
         path: `${entryPath}.source`,
-        message: `${entryPath}.source: ${error instanceof Error ? error.message : String(error)}; restore the retained registration inputs or register a new rig version`,
+        message: `${entryPath}.source: ${error instanceof Error ? error.message : String(error)}; numbered rig registrations are read-only — restore the retained registration inputs, or record current rig and motion outputs with rig-create record rig --from <dir> --config <file> and rig-create record motion --from <dir>`,
       });
       continue;
     }
@@ -341,7 +341,7 @@ export function checkRegisteredRuns(
         refusals.push({
           code: 'RUN_RECORD_MALFORMED',
           path: entryPath,
-          message: `${entryPath}: ${error instanceof Error ? error.message : String(error)}; restore the retained registration inputs or register a new rig version`,
+          message: `${entryPath}: ${error instanceof Error ? error.message : String(error)}; numbered rig registrations are read-only — restore the retained registration inputs, or record current rig and motion outputs with rig-create record rig --from <dir> --config <file> and rig-create record motion --from <dir>`,
         });
       }
     }

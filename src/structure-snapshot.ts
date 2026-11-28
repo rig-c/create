@@ -78,7 +78,7 @@ function writeCurrentSnapshot(file: string, out: string, snapshot: JsonObject, c
 }
 
 export function structureSnapshotCommand(args: string[]): { stdout: string; exit: number } {
-  if (args.some(arg => arg === '--verdict' || arg.startsWith('--verdict='))) refuse('PARTS_VERDICT_FILE_ROUTE_REMOVED', 'project.json.drafts: --verdict was removed; record the API response with parts-review and select it with --draft', USAGE_EXIT);
+  if (args.some(arg => arg === '--verdict' || arg.startsWith('--verdict='))) refuse('PARTS_VERDICT_FILE_ROUTE_REMOVED', 'project.json.drafts: --verdict was removed; numbered parts verdicts are read-only — record current.parts with rig-create record parts --from <producer out> --config <rig config>, run rig-create structure-snapshot, and relay any owner chat signoff with rig-create signoff parts-review --by <owner> --owner-chat <words file> --said-at <ISO date> --relayed-by <operator>', USAGE_EXIT);
   const opts: Record<string, string> = {};
   const positional: string[] = [];
   for (let i = 0; i < args.length; i++) {
@@ -114,13 +114,13 @@ export function structureSnapshotCommand(args: string[]): { stdout: string; exit
   const expectedOut = partsStructureSnapshot(dir, project, draftId).path;
   const out = requestedOut ?? expectedOut;
   const file = outTarget(dir, out);
-  if (!isObject(draft)) refuse('STRUCTURE_SNAPSHOT_DRAFT_UNKNOWN', `drafts[${draftId}]: no recorded draft has this id; record the reviewed draft with draft-rig, then name its id with --draft`);
+  if (!isObject(draft)) refuse('STRUCTURE_SNAPSHOT_DRAFT_UNKNOWN', `drafts[${draftId}]: no recorded draft has this id; drafts[] is read-only — name an existing recorded draft id with --draft, or snapshot current.parts without --draft after rig-create record parts --from <dir> --config <file>`);
   if (requestedOut !== undefined && !isStructureSnapshotOutForDraft(draftId, requestedOut)) {
     refuse('STRUCTURE_SNAPSHOT_OUT_UNREAD', `structure-snapshot --out ${requestedOut}: parts-verdict publication reads only evidence/structure-${encodeURIComponent(draftId)}.json (or -<n>.json) for draft ${draftId}; omit --out or use --out ${expectedOut}`);
   }
   let config: JsonObject;
   try { config = retainedJson(dir, draft.config); } catch (error) {
-    refuse('STRUCTURE_SNAPSHOT_CONFIG_CHANGED', `drafts[${index}].config: ${error instanceof Error ? error.message : String(error)}; the snapshot copies the config the draft recorded, so restore those bytes, or record the changed config as a new draft with draft-rig and review it`);
+    refuse('STRUCTURE_SNAPSHOT_CONFIG_CHANGED', `drafts[${index}].config: ${error instanceof Error ? error.message : String(error)}; drafts[] is read-only and the snapshot copies the config the draft recorded, so restore those bytes, or record changed parts on the current path with rig-create record parts --from <dir> --config <file>`);
   }
 
   const meshes = config.meshes;

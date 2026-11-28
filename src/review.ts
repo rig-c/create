@@ -211,7 +211,7 @@ function lapsedAcceptance(project: JsonObject, versions: Versions): string | nul
   const reopen = reopenIndex(project, cutoff);
   const by = amendment >= 0 ? `the amendment at ${when} (amendments[${amendment}])`
     : `the reopen to ${cutoff.stage} at ${when} (reopens[${reopen}])`;
-  return `${rig.path}.verdicts[${rig.accepted.verdict}]: rig v${rig.n} was accepted at ${rig.accepted.at}, but ${by} made it history, so no live rig version is accepted; register a new rig version with rig-create rig-version <n> and accept it with rig-create review <n> --verdict accepted --review rig-review`;
+  return `${rig.path}.verdicts[${rig.accepted.verdict}]: rig v${rig.n} was accepted at ${rig.accepted.at}, but ${by} made it history; numbered rig versions and verdicts are read-only, so handoff has no live accepted numbered rig`;
 }
 
 // ------------------------------------------------------- interview --check

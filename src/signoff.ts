@@ -178,8 +178,13 @@ function recordSignoff(stage: string, positional: string[], opts: Record<string,
   const { file, project } = preview ? { file: resolve(dir, 'project.json'), project: preview.project } : readProject(dir);
   const isReviewStage = stage === PARTS_REVIEW || stage in SIGNOFF_TARGET_KINDS;
   if (opts['--checkpoint'] === undefined && isReviewStage && project.current === undefined) {
-    const kind = stage === PARTS_REVIEW ? 'parts' : SIGNOFF_TARGET_KINDS[stage];
-    refuseNumberedWriter(`signoff ${stage}`, `record the current output with rig-create record ${kind} (or --adopt) and relay any owner chat signoff with rig-create signoff ${stage} ${OWNER_CHAT_USAGE}`);
+    if (stage === PARTS_REVIEW) {
+      refuseNumberedWriter(`signoff ${stage}`, `record current.parts with rig-create record parts --from <producer out> --config <rig config>, run rig-create structure-snapshot, and relay any owner chat signoff with rig-create signoff parts-review ${OWNER_CHAT_USAGE}`);
+    }
+    if (stage === 'rig-review') {
+      refuseNumberedWriter(`signoff ${stage}`, `record current.rig with rig-create record rig --from <producer out> --config <rig config> and relay any owner chat signoff with rig-create signoff rig-review ${OWNER_CHAT_USAGE}`);
+    }
+    refuseNumberedWriter(`signoff ${stage}`, 'project.json has no current outputs (current.direction requires recorded current.rig, current.motion and post scene/direction) and numbered direction-review sign-offs are read-only');
   }
   const currentPartsTarget = stage === PARTS_REVIEW && project.current !== undefined;
   const currentTarget = project.current !== undefined && (currentPartsTarget || stage in SIGNOFF_TARGET_KINDS);

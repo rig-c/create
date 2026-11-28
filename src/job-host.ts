@@ -445,7 +445,7 @@ export function assertRequestedDraft(root: string, requested?: string, now = Dat
   const project = JSON.parse(bytes.toString('utf8')) as JsonObject;
   const ids = (Array.isArray(project.drafts) ? project.drafts : []).map(draft => (draft as { id?: unknown })?.id).filter((id): id is string => typeof id === 'string');
   if (requested !== undefined && !ids.includes(requested)) {
-    refuse('JOB_DRAFT_UNKNOWN', `project.json.drafts: no recorded draft has id ${requested}; record it with rig-create draft-rig or name a recorded draft`);
+    refuse('JOB_DRAFT_UNKNOWN', `project.json.drafts: no recorded draft has id ${requested}; drafts[] is read-only — name a recorded draft id, or record current outputs with rig-create record parts --from <dir> --config <file> and inspect with rig-create job open --current parts`);
   }
   const stage = checkProject(root, project, { now, readOnly: true }).effective_stage;
   if (requested !== undefined && stage === 'rigging') {

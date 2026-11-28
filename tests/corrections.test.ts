@@ -379,7 +379,7 @@ test('a post-checkpoint part edit stays uncovered until a later verdict binds th
   const uncovered = () => (checkProject(dir).holes ?? []).filter(finding => finding.code === 'PART_EDIT_UNCOVERED');
   const holes = uncovered();
   expect(holes).toEqual([expect.objectContaining({ path: 'derived[0]', message: expect.stringContaining('part torso') })]);
-  expect(holes[0]?.message).toContain('Review parts tool');
+  expect(holes[0]?.message).toContain('rig-create record parts');
   const next = nextProject(dir, testClock.now());
   expect(next.refusals.map(finding => finding.code)).toContain('PART_EDIT_UNCOVERED');
   expect(next.moves.some(move => move.command?.includes('draft-rig'))).toBe(false);
@@ -532,7 +532,7 @@ test('part-image unrecorded changes WARN; known withdrawn/superseded/post-dated 
   expect(unrecorded.warnings[0]!.message).toContain('parent');
   expect(unrecorded.warnings[0]!.message).toContain('warning remains the record of the historical gap');
   expect(unrecorded.warnings[0]!.message).toContain('postdated correction records refuse');
-  expect(unrecorded.warnings[0]!.message).toContain('for the next edit only');
+  expect(unrecorded.warnings[0]!.message).toContain('through assemble.edited_parts with rig-create record parts');
 
   // Plant: a draft binding the after bytes of a withdrawn, superseded, or post-dated part-image correction -> refuses DRAFT_PART_REPAINT_UNRECORDED.
   const { dir: dir2, pngs: pngs2, writeDraft: writeDraft2 } = partImageFixture();

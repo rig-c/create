@@ -562,8 +562,6 @@ Exit `1`. Each names its object in `path`.
 | `VERSION_MALFORMED` | a `versions[]` entry has no integer `n`, a `kind` other than `rig` / `post`, or a rig version has a non-null `rig_version` | fix the entry ([PROJECT.md § Versions](PROJECT.md#versions)) |
 | `STILL_MALFORMED` | an `evidence[]` entry of `kind: "still"` lacks `path` or a 64-hex `sha256`, has a `camera` other than `"fixed"`, or no `frame` ≥ 0 | write it in the still-frame shape ([PROJECT.md § The rig review](PROJECT.md#the-rig-review)); it does not count as a still until it is |
 | `RIG_ACCEPTED_WITHOUT_STILL` | Retired. Earlier Create releases refused accepted rigs without a still-frame record. | Historical still records remain readable. |
-| `POST_ON_UNACCEPTED_RIG` | a post version's `rig_version` is not an integer, names no rig version, names one with no human `accepted` rig-review verdict, or the post version was built (`at`) before that acceptance | build post work on the accepted rig version; `rig-create handoff` names it |
-| `POST_ON_SUPERSEDED_RIG` | the latest post version is on an accepted rig version older than the latest accepted one | redo the post work on the new rig, as a new post version |
 | `PAUSED_UNSIGNED` | `stage` is `paused` with no `{ "stage": "paused" }` sign-off, or `pause` finds no human one dated at or after the latest recorded move | the person who stopped it signs `paused`, then run pause |
 | `PROVENANCE_MISSING` | a `rig` or `post` version has no `provenance.sections` object | write the version's provenance: the config it was built from and, per section, its citations |
 | `SECTION_UNCITED` | a section that needs a citation (§ Provenance) is listed with no entries, or is in the read config and not listed | cite the guide sentence or delegation it rests on; if there is none, ask for one, or take the section out of the config before the version is shown |
@@ -626,11 +624,11 @@ Exit `0` prints the rig version post work is on (with `--json`: `rig_version`,
 | `PROJECT_JSON_MISSING`, `PROJECT_JSON_INVALID` | as above |
 | `HANDOFF_RIG_INVALID` | `--rig` is missing a value or its value does not select a positive integer. Supply a rig version number such as `3` or `v3`, or omit `--rig`. |
 | `HANDOFF_TOO_MANY_ARGUMENTS` | more than one project folder is supplied. Name one folder or use the current folder. |
-| `RIG_VERSION_UNACCEPTED` | no live rig version has an accepted rig-review verdict, or a newer rig version than the accepted one has none. An acceptance that a later reopen or amendment made history is named with that entry |
+| `RIG_VERSION_UNACCEPTED` | no live rig version has an accepted human rig-review verdict, or the latest live rig is newer than the accepted rig. If a reopen or amendment made the last acceptance historical, the message names its verdict and the cutoff entry |
 | `PRE_INTERVIEW_CONFIG_LOST` | handoff would select an accepted pre-interview rig with a declared lost config. Build and accept a new rig with its retained config before post work |
 | `PRE_INTERVIEW_OUTPUTS_LOST` | handoff would select an accepted pre-interview rig with lost outputs. Build and accept a new rig with surviving frozen outputs before post work |
-| `POST_ON_UNACCEPTED_RIG` | `--rig <n>` names no rig version, or one never accepted |
-| `POST_ON_SUPERSEDED_RIG` | `--rig <n>` names a rig version accepted before the current one |
+| `POST_ON_UNACCEPTED_RIG` | `--rig <n>` names no rig version or names a rig version without an accepted human rig-review verdict |
+| `POST_ON_SUPERSEDED_RIG` | `--rig <n>` names a different accepted rig version from the current handoff target |
 
 ## The review command
 
@@ -763,8 +761,7 @@ of the stage the project had reached when that entry was recorded.
 | `SIGNOFF_NOT_HUMAN` | a historical reopen is signed by agent, case-insensitively | restore the original human signature |
 
 Sign-offs and checkpoints at or before their applicable reopen are historical.
-Fresh work on a historical rig is `POST_ON_SUPERSEDED_RIG`. Live handoff
-requires a later build and acceptance when the cutoff covers rig-review.
+Live handoff requires a later build and acceptance when the cutoff covers rig-review.
 A cutoff covering only post work preserves the unaffected rig acceptance.
 
 `REOPEN_SIGNOFF_LAPSED` and `REOPEN_VERDICT_LAPSED` report approvals lapsed by

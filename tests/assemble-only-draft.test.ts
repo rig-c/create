@@ -111,7 +111,7 @@ test('checks stamped assemble output and binds a parts-review CLI receipt withou
   expect(read(dir).stage).toBe(before.stage);
 });
 
-test('next on a numbered project names reassembly before draft registration and publication', () => {
+test('next on a numbered project gives read-only draft guidance', () => {
   const dir = fixture(project => {
     project.stage = 'parts';
     project.versions = arr(project.versions).filter(version => obj(version).kind === 'rig');
@@ -120,8 +120,7 @@ test('next on a numbered project names reassembly before draft registration and 
     for (const raw of arr(obj(project.plan).steps)) obj(raw).status = 'pending';
   });
   const move = nextProject(dir, now).moves.find(move => move.field === 'drafts');
-  expect(move?.act).toMatch(/assemble.*propose --write-config.*assemble again.*job open --draft/);
-  expect(move?.act).toMatch(/assemble again with the written config\. Finalize the assembly inputs.*only then take edited-part baselines/);
+  expect(move).toMatchObject({ command: null, act: expect.stringContaining('Numbered drafts are read-only.') });
 });
 
 test('checks the explicit layout, bound stamp and retained output bytes', () => {

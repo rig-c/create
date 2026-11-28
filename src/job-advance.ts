@@ -36,6 +36,8 @@ export function currentAdvanceOutputFinding(
   if (invalid) return invalid;
   const stale = (checked?.warnings ?? warnings).find(finding => finding.code === 'OUTPUT_STALE' && finding.path === path);
   if (stale) return { ...stale, code: 'JOB_PUBLICATION_INVALID' };
+  // The current checker binds adopted nodes to their retained numbered inventory.
+  if (isObject(node.adopted)) return;
   const root = outputRoot(kind);
   if (currentHash(dir, root) !== node.files_sha256) {
     return { code: 'JOB_PUBLICATION_INVALID', path,

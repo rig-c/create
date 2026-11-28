@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { join } from 'node:path';
 import { readFileSync } from './check-reads.ts';
 import { asArray, asString, collectItems, collectSignoffs, isObject, loadCollection, postNotPassed, type Ctx, type Finding } from './check.ts';
-import { currentShapeFindings } from './current.ts';
+import { currentShapeFindings, isCurrentProject } from './current.ts';
 import { DIRECTION_SCENE_SINCE } from './direction.ts';
 import { DIRECTION_COMPOSE_SPEC } from './direction-compose.ts';
 import { currentScene as currentSceneEntry, SceneError, sceneCurrentAt } from './scene.ts';
@@ -172,12 +172,16 @@ export function directionReviewPostState(dir: string, project: JsonObject, at = 
   const maxVersionN = Math.max(0, ...versions.map(v => (typeof v.n === 'number' ? v.n : 0)));
   const nextPostN = postN ?? maxVersionN + 1;
   const direction = isObject(project.current) ? project.current.direction : undefined;
-  if (postN === null && isObject(direction) && currentShapeFindings('direction', direction).length === 0) {
+  if (isObject(direction) && currentShapeFindings('direction', direction).length === 0) {
     const recordedAt = Date.parse(String(direction.at));
     // Re-recording replaces current.direction; its latest timestamp cannot date the historical move.
-    if ((historicalMove || recordedAt <= at) && liveSignoff(reopens, 'post', recordedAt)) {
+    if ((recordedAt <= at || (historicalMove && postN === null)) && liveSignoff(reopens, 'post', recordedAt)) {
       return { ready: true, latestPost, postN, nextPostN, composed: true, currentScene: undefined, missingScene: false, missing: [] };
     }
+  }
+  if (!historicalMove && isCurrentProject(project)) {
+    return { ready: false, latestPost, postN, nextPostN, composed: true, currentScene: undefined,
+      missingScene: false, missing: ['current.direction'] };
   }
   const composed = postN === null ? composeChoice(project, dir) : composedPost(dir, project, at);
   const contract = isObject(project.direction_contract) ? project.direction_contract : null;
@@ -242,7 +246,9 @@ export function checkDirectionReviewAdvances(ctx: Ctx, forwardWrite = false): vo
   const state = directionReviewPostState(ctx.dir, ctx.project, Number.isFinite(movedAt) ? movedAt : Infinity, { historicalMove: !atMove });
   if (state.ready) return;
   const missing = state.missing.join(', ');
-  const remedy = 'record the current direction with rig-create record direction, or adopt direction with rig-create direction --adopt, write the current scene with rig-create scene write (or compose direction@3) and record the post version with rig-create direction write before advancing to direction-review';
+  const remedy = atMove && isCurrentProject(ctx.project)
+    ? 'write and record the current direction before advancing to direction-review'
+    : 'record the current direction with rig-create record direction, or adopt direction with rig-create direction --adopt, write the current scene with rig-create scene write (or compose direction@3) and record the post version with rig-create direction write before advancing to direction-review';
   if (atMove || !(movedAt < since)) {
     ctx.refusals.push({
       code: 'DIRECTION_REVIEW_POST_MISSING',

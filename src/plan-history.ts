@@ -91,6 +91,11 @@ export function collectPlanReplaced(project: JsonObject, refusals: Finding[]): J
   return entries;
 }
 
+/** The first edit after signing retained the definition that was signed. */
+export function retainedPlanStepAt(entries: readonly JsonObject[], id: unknown, at: number): JsonObject | undefined {
+  return entries.find(entry => (entry.step as JsonObject).id === id && Date.parse(String(entry.at)) > at)?.step as JsonObject | undefined;
+}
+
 /** Only ids with replacement history gain historical hash resolution. Old records are unchanged. */
 export function checkReplacedSignoffs(project: JsonObject, entries: JsonObject[], refusals: Finding[]): void {
   const reopens = collectReopens(project, []);

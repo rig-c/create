@@ -99,3 +99,32 @@ test('#1131 next restores the post plan after a direct advance and direction wri
   expect(commands().some(command => command.startsWith('rig-create direction write '))).toBe(true);
   expect(directionCommand(directionArgs, now++).exit).toBe(0);
 });
+
+test('an optional post approval retains its signed answer and plan while direction cites a new choice', () => {
+  const dir = join(tempDir(), 'project');
+  cpSync(join(import.meta.dir, '../templates/example-current'), dir, { recursive: true });
+  const read = (path: string): JsonObject => JSON.parse(readFileSync(join(dir, path), 'utf8')) as JsonObject;
+  const project = read('project.json');
+  let now = Date.parse(String(obj(arr(project.advances).at(-1)).at)) + 120_000;
+  const options = read('evidence/interview/camera_depth.json');
+  options.id = 'revised-camera-depth';
+  options.drafted_at = new Date(now).toISOString();
+  options.context = optionContext(project, 'post-interview', now, dir);
+  const path = 'evidence/interview/revised-camera-depth.json';
+  const bytes = JSON.stringify(options);
+  writeFileSync(join(dir, path), bytes);
+  interviewOptionsCommand(['camera_depth', dir, '--file', path], now++);
+  const words = join(dir, 'words.txt');
+  writeFileSync(words, 'Use the alternative camera depth.\n');
+  const answer = JSON.parse(interviewAnswerCommand(['camera_depth', dir, '--set', path, '--sha256', sha256(bytes),
+    '--pick', 'camera_depth=alternative', '--by', 'owner', ...ownerChatArgs(words, new Date(now).toISOString())], now++));
+  expect(sceneCommand(['write', dir, '--compose-scene', 'specs/direction/compose-scene.json'], now++).exit).toBe(0);
+  const intent = read('specs/direction/intent.json');
+  obj(obj(intent.citations).camera).quote = answer.verbatim;
+  writeFileSync(join(dir, 'specs/direction/intent-revised.json'), JSON.stringify(intent));
+  expect(directionCommand(['write', dir, '--file', 'specs/direction/intent-revised.json'], now++).exit).toBe(0);
+  expect(planCommand(['revise', 'camera', dir, '--by', 'agent', '--rests-on', 'camera_depth,reference'], now++).exit).toBe(0);
+  expect(directionCommand(['write', dir, '--file', 'specs/direction/intent-revised.json'], now++).exit).toBe(0);
+  expect(read('project.json').signoffs).toEqual(project.signoffs!);
+  expect(nextProject(dir, now).refusals).toEqual([]);
+});

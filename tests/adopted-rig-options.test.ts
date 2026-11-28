@@ -5,9 +5,12 @@ import { EXAMPLE_NOW } from '../scripts/example-time.ts';
 import { interviewAnswerCommand, interviewOptionsCommand } from '../src/choice-writers.ts';
 import { checkProject, collectItems } from '../src/check.ts';
 import { optionContext, sha256 } from '../src/choices.ts';
+import { interviewCommand } from '../src/interview.ts';
+import { nextProject } from '../src/next.ts';
 import { recordCommand } from '../src/record.ts';
 import { sorted } from '../src/step-hash.ts';
 import { TEMPLATES_DIR, type JsonObject } from '../src/templates.ts';
+import { arr, obj } from './fixtures.ts';
 import { tempDir } from './helpers.ts';
 
 const originalSet = 'evidence/interview/post_composition.json';
@@ -34,6 +37,13 @@ test('#1127 registers fresh post-composition options against the adopted rig', (
   expect(JSON.parse(interviewOptionsCommand(['post_composition', dir, '--file', newSet], EXAMPLE_NOW))).toEqual(binding);
   expect(optionContext(read(), 'post-interview', EXAMPLE_NOW, dir)).toEqual(context);
   expect(checkProject(dir, undefined, { now: EXAMPLE_NOW }).refusals).toEqual([]);
+  const signoffIndex = arr(signoffs).findIndex(raw => obj(raw).stage === 'post-interview');
+  const stale = { code: 'SIGNOFF_ANSWERS_STALE', path: `signoffs[${signoffIndex}].answer_hashes[post_composition]` };
+  const composition = (project: JsonObject) => collectItems(project, { collection: null }).find(item => item.id === 'post_composition')!;
+  const inPlace = read();
+  obj(composition(inPlace).raw).verbatim += ' Altered.';
+  expect(checkProject(dir, inPlace, { now: EXAMPLE_NOW }).refusals).toContainEqual(expect.objectContaining(stale));
+
   const words = join(dir, 'owner-words.txt');
   writeFileSync(words, 'Use the synthetic composition.\n');
   interviewAnswerCommand(['post_composition', dir, '--set', newSet, '--sha256', binding.sha256,
@@ -43,10 +53,17 @@ test('#1127 registers fresh post-composition options against the adopted rig', (
   expect(project.signoffs).toEqual(signoffs);
   const item = collectItems(project, { collection: null }).find(item => item.id === 'post_composition');
   expect(item?.raw).toMatchObject({ choice: { set: binding } });
-  // The numbered fixture retains a historical post-interview signoff on the previous answer.
-  expect(checkProject(dir, undefined, { now: EXAMPLE_NOW + 1_000 }).refusals).toEqual([
-    expect.objectContaining({ code: 'SIGNOFF_ANSWERS_STALE', path: expect.stringContaining('.answer_hashes[post_composition]') }),
-  ]);
+  const now = EXAMPLE_NOW + 1_000;
+  expect(interviewCommand(['--check', dir, '--json'], now).exit).toBe(0);
+  expect(nextProject(dir, now).refusals).toEqual([]);
+
+  const numbered = structuredClone(project);
+  delete numbered.current;
+  expect(checkProject(dir, numbered, { now }).refusals).toContainEqual(expect.objectContaining(stale));
+
+  const tampered = structuredClone(project);
+  obj(arr(composition(tampered).record.history).at(-1)).verbatim += ' Altered.';
+  expect(checkProject(dir, tampered, { now }).refusals).toContainEqual(expect.objectContaining(stale));
 });
 
 test.each(['files', 'built_from'] as const)('#1127 rejects changed adopted rig %s before writing', field => {

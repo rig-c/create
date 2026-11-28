@@ -100,7 +100,7 @@ test('a changed signature digest or deleted target without a replacement still r
   expect(checkProject(dir, changed).refusals).toContainEqual(expect.objectContaining({ code: 'SIGNOFF_TARGET_STALE', path }));
 });
 
-test('newer numbered, mixed and missing targets cannot hide the current signature in a mixed project', () => {
+test('a mixed project keeps superseded current targets and still checks numbered and malformed targets', () => {
   const dir = fixture(project => {
     project.stage = stage;
     project.signoffs = arr(project.signoffs).filter(raw => stageIndex(String(obj(raw).stage)) <= stageIndex(stage));
@@ -123,18 +123,16 @@ test('newer numbered, mixed and missing targets cannot hide the current signatur
   testClock.set('2026-11-26T00:00:06Z');
   expect(checker.activeCurrentSignoffTargetPath(project, 'rig')).toBe(currentPath);
   expect(record(dir).exit).toBe(0);
-  const stale = { code: 'SIGNOFF_TARGET_STALE', path: currentPath };
   const targetRefusals = (candidate?: JsonObject) => checkProject(dir, candidate).refusals
     .filter(f => f.code.startsWith('SIGNOFF_TARGET_')).map(({ code, path }) => ({ code, path }));
-  expect(targetRefusals()).toEqual([stale]);
+  expect(targetRefusals()).toEqual([]);
 
   const rebuilt = load(dir);
   arr(rebuilt.signoffs).push({ ...numbered, at: '2026-11-26T00:00:04.000Z', target: { ...obj(numbered.target), ...obj(current.target) } });
-  expect(targetRefusals(rebuilt)).toEqual([stale, { code: 'SIGNOFF_TARGET_STALE', path: `signoffs[${index + 2}].target` }]);
+  expect(targetRefusals(rebuilt)).toEqual([{ code: 'SIGNOFF_TARGET_STALE', path: `signoffs[${index + 2}].target` }]);
   arr(rebuilt.signoffs).push({ ...numbered, at: '2026-11-26T00:00:05.000Z', target: null });
   expect(checker.activeCurrentSignoffTargetPath(rebuilt, 'rig')).toBe(currentPath);
   expect(targetRefusals(rebuilt)).toEqual([
-    stale,
     { code: 'SIGNOFF_TARGET_STALE', path: `signoffs[${index + 2}].target` },
     { code: 'SIGNOFF_TARGET_MISSING', path: `signoffs[${index + 3}].target` },
   ]);

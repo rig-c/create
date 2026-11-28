@@ -228,9 +228,9 @@ test('#1168 census: every CLI command in COMMANDS and JOB_SUBCOMMANDS is account
   // 2. packages upgrade
   const pkgDir = fixture(() => {}, 'example-current/project.json');
   const registry = stagedCreateRegistry();
-  const pkgRepo: Repo = { dir: pkgDir, env: runningCreateVersion() === '2.0.0' ? { ...env, ...registry } : { ...env, ...registry } };
+  const pkgRepo: Repo = { dir: pkgDir, env: { ...env, ...registry } };
   const pkgManifest = JSON.parse(readFileSync(join(pkgDir, 'package.json'), 'utf8')) as JsonObject;
-  (pkgManifest.dependencies as JsonObject)['@rig-c/create'] = '2.0.0';
+  (pkgManifest.dependencies as JsonObject)['@rig-c/create'] = runningCreateVersion();
   delete (pkgManifest.dependencies as JsonObject)['@rig-c/review'];
   writeFileSync(join(pkgDir, 'package.json'), `${JSON.stringify(pkgManifest, null, 2)}\n`);
   expect(run([process.execPath, 'install', '--ignore-scripts'], pkgDir, pkgRepo.env).code).toBe(0);

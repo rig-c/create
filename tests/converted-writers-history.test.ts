@@ -1,20 +1,32 @@
 import { beforeEach, expect, test } from 'bun:test';
-import { cpSync, mkdirSync, readdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
+import { cpSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { JOB_COMMENT_ONLY_ACT_SCHEMA, type JobOwnerHost } from '@rig-c/review/job-host';
+import { JOB_COMMENT_ONLY_ACT_SCHEMA, startJobHost, type JobOwnerHost } from '@rig-c/review/job-host';
+import { asArray, isObject } from '../src/check.ts';
 import { OPTIONS_SPEC, optionContext, sha256 } from '../src/choices.ts';
 import { commentCommand } from '../src/comment-act.ts';
 import { freshProjectRecord, GITIGNORE } from '../src/init.ts';
 import { closeCreateJob, withdrawCreateJobAct } from '../src/job-close.ts';
-import { JOB_BINDING_FILE, jobHash, writePrivateJson } from '../src/job-outbox.ts';
-import { currentJobIdentity } from '../src/job-publication.ts';
+import {
+  acknowledgePublication,
+  enqueuePublication,
+  JOB_BINDING_FILE,
+  jobHash,
+  jobHostStateRoot,
+  readWriterBinding,
+  writePrivateJson,
+} from '../src/job-outbox.ts';
+import { currentJobIdentity, partsEnumerator, prepareLiveManifest, readPublished, readRecordPublished } from '../src/job-publication.ts';
 import { jobRuntimeExecArgv } from '../src/job-writer.ts';
-import { Refusal } from '../src/refusal.ts';
 import type { JsonObject } from '../src/templates.ts';
+import { EXAMPLE_REOPEN_AT } from '../scripts/example-time.ts';
 import { TEST_NOW } from './clock.ts';
 import { checkpointWorkspace } from './checkpoint-evidence-fixture.ts';
+import { copyWithRunningCreatePin } from './copied-create-pin.ts';
 import { fixture } from './fixtures.ts';
 import { gitEnv, run, tempDir, type Run } from './helpers.ts';
+import { meshEdits } from './mesh-edit-fixture.ts';
 
 const PROJECT = 'project.json';
 const UNRELATED = 'unrelated-notes.txt';
@@ -405,7 +417,7 @@ test('#1168 group 3: plan feedback and all plan step writers commit project.json
   expect(fullState(cpRepo)).toEqual(beforeWithdrawReplay);
 });
 
-test('#1168 group 4: comment ingest and comment close commit exact paths, list in history, and leave unrelated/refused/replay states intact', () => {
+test('#1168 group 4: comment ingest and comment close commit exact paths, list in history, and leave unrelated/refused/replay states intact', async () => {
   const repo = makeRepo();
   repo.dir = realpathSync(repo.dir);
   const jobId = 'synthetic-comment-history-job';
@@ -453,7 +465,7 @@ test('#1168 group 4: comment ingest and comment close commit exact paths, list i
   const badAct = { ...act, value: { comments: [] } };
   const beforeBadIngest = fullState(repo);
   expect(() => commentCommand(['--from-review', 'act-comment-1', repo.dir], tick(), { fetch: () => ({ bytes: JSON.stringify(badAct) }) }))
-    .toThrow(Refusal);
+    .toThrow(expect.objectContaining({ code: 'REVIEW_ACT_INVALID' }));
   expect(fullState(repo)).toEqual(beforeBadIngest);
 
   // Dirty project.json refuses before writing.
@@ -491,6 +503,165 @@ test('#1168 group 4: comment ingest and comment close commit exact paths, list i
   const beforeReplayClose = fullState(repo);
   success(cli(repo, ...closeArgs));
   expect(fullState(repo)).toEqual(beforeReplayClose);
+
+  // Mesh-carrying comment act commits project.json, retained act evidence, and written mesh-delta revision files while leaving MM unrelated untouched.
+  const meshRoot = join(tempDir(), 'mesh-comment');
+  copyWithRunningCreatePin(join(import.meta.dir, '../templates/example-chain/checkpoints/3-rig-review'), meshRoot);
+  const meshDir = realpathSync(meshRoot);
+  symlinkSync(join(import.meta.dir, '../node_modules'), join(meshDir, 'node_modules'), 'dir');
+  const meshRepo: Repo = { dir: meshDir, env: repo.env };
+  const workingConfig = 'working/config.json';
+  const frozenConfig = 'evidence/v1/config-source.json';
+  const portableConfig = 'derived/review/v1/config.json';
+  const meshProject = JSON.parse(bytes(meshRepo, PROJECT).toString('utf8')) as JsonObject;
+  const version = (meshProject.versions as JsonObject[])[0]!;
+  const pkg = version.review_package as JsonObject;
+  const rawConfig = JSON.parse(bytes(meshRepo, portableConfig).toString('utf8')) as JsonObject;
+  const bust = { alpha: 0.25, apex_l: [74, 44], apex_r: [54, 44], bone_l: 'body', bone_r: 'body', cleavage: [64, 44] };
+  const torsoMesh = (rawConfig.meshes as JsonObject).torso as JsonObject;
+  (rawConfig.meshes as JsonObject).torso = {
+    r: torsoMesh.r, segments: torsoMesh.segments,
+    contour: { tolerance: 1, margin: 1, spacing: 4, bust },
+  };
+  const portableBytes = `${JSON.stringify(rawConfig, null, 2)}\n`;
+  const workingBytes = `${JSON.stringify(rawConfig)}\n`;
+  put(meshRepo, workingConfig, workingBytes);
+  put(meshRepo, frozenConfig, workingBytes);
+  put(meshRepo, portableConfig, portableBytes);
+  put(meshRepo, 'evidence/v1/config.json', portableBytes);
+  version.registration = { config_source: { path: frozenConfig, sha256: jobHash(workingBytes) } };
+  const configSeal = { path: 'evidence/v1/config.json', sha256: jobHash(portableBytes) };
+  (version.provenance as JsonObject).config = { ...configSeal, bytes: Buffer.byteLength(portableBytes) };
+  pkg.config = configSeal;
+  (pkg.files as JsonObject[]).find(row => row.path === 'config.json')!.sha256 = configSeal.sha256;
+  putJson(meshRepo, PROJECT, meshProject);
+  // Keep derived/ unignored so trackable mesh-delta revisions must be committed by comment ingest itself, not left untracked for baseline.
+  put(meshRepo, '.gitignore', GITIGNORE.replace('/derived/\n', ''));
+  put(meshRepo, UNRELATED, 'initial unrelated\n');
+  git(meshRepo, 'init', '-q');
+  git(meshRepo, 'config', '--local', 'user.name', 'Synthetic Writer');
+  git(meshRepo, 'config', '--local', 'user.email', 'writer@example.test');
+  git(meshRepo, 'add', '--', '.');
+  git(meshRepo, 'commit', '-qm', 'Seed rig-review fixture for mesh comment');
+
+  const hostState = jobHostStateRoot(meshDir);
+  const meshIdentity = currentJobIdentity({
+    root: meshDir, stateDir: hostState, fingerprint: 'rig-create/live-review/1',
+    reviewer: { id: 'synthetic-owner', role: 'owner' },
+    publicationMode: 'record-and-package',
+  }, meshDir);
+  let writerGrant: { jobId: string; origin: string; fetchCapability: string } | undefined;
+  const host = await startJobHost({
+    ...meshIdentity,
+    partsEnumerator,
+    readRecordPublished,
+    readPublished: async input => {
+      const ctx = await readPublished(input);
+      return { ...ctx, subjects: [...ctx.subjects, { kind: 'review-verdict', stage: 'rig-review' }] };
+    },
+    installWriterBinding: grant => {
+      writerGrant = grant;
+    },
+  });
+  writePrivateJson(join(meshDir, JOB_BINDING_FILE), {
+    schema: 'rig-create/job-binding@1',
+    identity: meshIdentity,
+    ...writerGrant!,
+    listenerIncarnation: host.attachment!.listenerIncarnation,
+  }, true);
+  try {
+    const boundRecord = JSON.parse(bytes(meshRepo, PROJECT).toString('utf8')) as JsonObject;
+    boundRecord.review_job = { jobId: host.session.jobId, origin: host.origin };
+    putJson(meshRepo, PROJECT, boundRecord);
+    const livePath = prepareLiveManifest(meshDir, boundRecord, 1);
+    git(meshRepo, 'add', '--', PROJECT, livePath);
+    git(meshRepo, 'commit', '-qm', 'Bind live review job and manifest');
+
+    const selector = { kind: 'rig' as const, version: 1 };
+    const queued = enqueuePublication(meshDir, readWriterBinding(meshDir)!, { path: livePath, selector });
+    const pubRes = await host.ports.handleJobApi(new Request(`${host.origin}/jobs/${host.session.jobId}/api`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${host.session.hostCredentials().agent}`, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        schema: 'rig-review/job-api@2', verb: 'publish', jobId: host.session.jobId,
+        requestId: randomUUID(), expectedGeneration: host.session.status().generation, idempotencyKey: randomUUID(),
+        result: { path: livePath, selector },
+        freeze: { kind: 'producer-held', holdId: 'synthetic-freeze', record: { path: PROJECT, sha256: jobHash(bytes(meshRepo, PROJECT)) } },
+      }),
+    }));
+    const pubJson = await pubRes.json() as { ok: boolean; value: JsonObject };
+    expect(pubJson.ok).toBe(true);
+    const pub = pubJson.value;
+    acknowledgePublication(queued, String(pub.publicationId), Number(pub.generation), 'synthetic-req');
+    rmSync(join(meshDir, '.rig-create-review/outbox'), { recursive: true, force: true });
+
+    const uiHeaders = { origin: host.origin, 'X-Review-Capability': host.session.hostCredentials().ui, 'content-type': 'application/json' };
+    const pageId = 'mesh-comment-page';
+    const displayed = await host.ports.ackDisplayed(host.session.jobId, new Request(`${host.origin}/jobs/${host.session.jobId}/ui/displayed`, {
+      method: 'POST', headers: uiHeaders,
+      body: JSON.stringify({ publicationId: pub.publicationId, pageId, sourceHash: (pub.source as JsonObject).sourceHash }),
+    }));
+    if (!displayed.ok) throw new Error(displayed.error.code);
+
+    const seed = (pub.chestLandmarks as JsonObject[])[0]!;
+    const seedSource = seed.source as JsonObject;
+    const seedFrame = seedSource.frame as JsonObject;
+    const chestEdit = {
+      attachment: seed.attachment, basis: 'setup',
+      bust: { ...bust, apex_l: [75, 44] },
+      skin: seed.skin, slot: seed.slot,
+      source: { frame: { height: seedFrame.height, width: seedFrame.width }, hash: seedSource.hash },
+    };
+    const pubSource = pub.source as JsonObject;
+    const submitted = await host.ports.commitUIAct(host.session.jobId, new Request(`${host.origin}/jobs/${host.session.jobId}/ui/acts`, {
+      method: 'POST', headers: uiHeaders,
+      body: JSON.stringify({
+        publicationId: pub.publicationId,
+        pageId,
+        displayedNonce: displayed.value.displayedNonce,
+        expectedGeneration: host.session.status().generation,
+        submissionId: pageId,
+        kind: 'comments',
+        value: {
+          comments: [{ text: 'Nudge torso hull and landmark.' }],
+          carriers: [
+            { kind: 'mesh-edits', file: pubSource.model, meshEdits: meshEdits(meshDir, pubSource) },
+            { kind: 'chest-landmarks', file: pubSource.model, chestLandmarks: [{ edit: chestEdit, sha256: jobHash(JSON.stringify(chestEdit)) }] },
+          ],
+        },
+      }),
+    }));
+    if (!submitted.ok) throw new Error(submitted.error.code);
+    const meshActId = submitted.value.actId;
+    const meshAt = Math.max(Date.parse(EXAMPLE_REOPEN_AT) + 5_000, Date.parse(submitted.value.at) + 1_000);
+
+    const meshUnrelated = plantUnrelated(meshRepo);
+    const meshParent = head(meshRepo);
+    const beforeCorrections = asArray((JSON.parse(bytes(meshRepo, PROJECT).toString('utf8')) as JsonObject).corrections).length;
+
+    const meshChild = Bun.spawn(
+      [process.execPath, ...jobRuntimeExecArgv(), CLOCKED_CLI, new Date(meshAt).toISOString(), 'comment', '--from-review', meshActId, meshDir, '--config', workingConfig, '--json'],
+      { cwd: meshDir, env: meshRepo.env, stdout: 'pipe', stderr: 'pipe' },
+    );
+    const [meshStdout, meshStderr, meshExit] = await Promise.all([
+      new Response(meshChild.stdout).text(),
+      new Response(meshChild.stderr).text(),
+      meshChild.exited,
+    ]);
+    expect({ exit: meshExit, stderr: meshStderr, ok: meshStdout.length > 0 }).toEqual({ exit: 0, stderr: '', ok: true });
+
+    const afterMeshProject = JSON.parse(bytes(meshRepo, PROJECT).toString('utf8')) as JsonObject;
+    const lastReceipt = asArray(afterMeshProject.review_acts).filter(isObject).at(-1)!;
+    const evidencePath = `evidence/v1/${String(lastReceipt.sha256)}.act.json`;
+    const meshFiles = asArray(afterMeshProject.corrections).slice(beforeCorrections).filter(isObject).flatMap(row =>
+      isObject(row.outcome) ? asArray(row.outcome.written).filter(isObject).map(w => String(w.path)) : []);
+    expect(meshFiles.length).toBeGreaterThan(0);
+
+    assertCommittedStep(meshRepo, meshParent, 'comment ingest', [PROJECT, evidencePath, ...meshFiles], meshUnrelated);
+  } finally {
+    host.stop();
+    rmSync(jobHostStateRoot(meshDir), { recursive: true, force: true });
+  }
 });
 
 test('#1168 group 5: ledger, correction, and diff-classes commit exact paths and leave unrelated/refused/no-op states intact', () => {

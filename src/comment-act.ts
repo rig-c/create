@@ -235,13 +235,18 @@ export function commentCommand(args: string[], now: number, hooks: CommentHooks 
         bytes, sha256, comment: index, ...(bustConfig ? { bust_config: bustConfig } : {}) });
     }
     next.review_acts = nextReceipts;
+    const priorCorrections = asArray(project.corrections).length;
     const mesh = receipt ? undefined : commentMeshAct(act);
     if (mesh) discardMesh = stageReviewMeshDeltaCorrections(root, project, next, mesh, now);
     const problem = reviewActFindings(next)[0] ?? newRefusals(root, project, next, { now })[0];
     if (problem) refuse(problem.code, problem.message);
+    const meshPaths = asArray(next.corrections).slice(priorCorrections).filter(isObject).flatMap(row =>
+      isObject(row.outcome) ? asArray(row.outcome.written).filter(isObject).flatMap(file =>
+        typeof file.path === 'string' ? [file.path] : []) : []);
     const assets = eligibleBoundPaths([
       ...(evidence ? [evidence.path] : []),
       ...(bustConfig ? [bustConfig.path] : []),
+      ...meshPaths,
     ]);
     assertCleanProjectStep(root, ['project.json']);
     assertCleanProjectStep(root, assets, true);

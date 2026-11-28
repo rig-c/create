@@ -9,13 +9,16 @@ import { nextCommand, nextProject, remedyForFinding } from '../src/next.ts';
 import {
   SCENE_CHOICE_MISSING,
   SCENE_CHOICE_MISSING_REMEDY,
+  resolveAgentCitationSpec,
   resolveAnswerValue,
 } from '../src/scene-authority.ts';
+import { validateScene } from '../src/scene.ts';
 import { selectAnswerHashes } from '../src/signoff-answers.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { EXAMPLE_NOW } from '../scripts/example-time.ts';
-import { sceneCommand, testClock } from './clock.ts';
+import { testClock } from './clock.ts';
 import { tempDir } from './helpers.ts';
+import { seedRetainedScene } from './numbered-seed.ts';
 import { sceneFixture } from './scene-fixture.ts';
 
 afterEach(() => testClock.reset());
@@ -47,11 +50,11 @@ test('#1084 a scene choice resolves a stored zero against the retained negative-
   f.save(project);
   expect(f.writeScene().exit).toBe(0);
 });
-test('a mismatched picked plate path refuses without changing the project', () => {
+test('a mismatched picked plate path refuses in validateScene', () => {
   const f = sceneFixture(); const args = f.args(); args[args.indexOf('--background') + 1] = 'foreground.png';
-  const before = readFileSync(join(f.dir, 'project.json'));
-  expect(() => sceneCommand(args)).toThrow(expect.objectContaining({ code: 'SCENE_CHOICE_MISMATCH' }));
-  expect(readFileSync(join(f.dir, 'project.json'))).toEqual(before);
+  seedRetainedScene(args, testClock.now());
+  const doc = JSON.parse(readFileSync(join(f.dir, 'evidence/scene/s1.json'), 'utf8')) as JsonObject;
+  expect(() => validateScene(f.dir, f.load(), doc)).toThrow(expect.objectContaining({ code: 'SCENE_CHOICE_MISMATCH' }));
 });
 test('a pending delegation refuses and a decided delegation supplies exact placement', () => {
   const f = sceneFixture();
@@ -128,9 +131,9 @@ test('a post_composition set without value.scene names interview-options registr
 
   testClock.set(EXAMPLE_NOW);
   const beforeRefusal = readFileSync(projectPath);
-  expect(() => sceneCommand([
-    'write', '--rig', '1', '--background', 'inputs/background.png', '--citations-file', 'evidence/scene-citations.json', dir,
-  ])).toThrow(expect.objectContaining({
+  expect(() => resolveAgentCitationSpec(dir, project, {
+    guide: 'post_composition', asks: ['post_composition'], quote: answer.verbatim,
+  })).toThrow(expect.objectContaining({
     code: SCENE_CHOICE_MISSING,
     message: expect.stringContaining(
       'rig-create interview-options post_composition [<dir>] --file <retained project-relative JSON>',

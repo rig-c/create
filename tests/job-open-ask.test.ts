@@ -10,18 +10,17 @@ import { basename, dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { startJobHost } from '@rig-c/review/job-host';
 import { EXAMPLE_NOW } from '../scripts/example-time.ts';
-import { directionCommand } from '../src/direction-writers.ts';
 import { inputCommand } from '../src/inputs.ts';
 import { askDeclaredSubjects, closeCreateJob, openCreateJob, openDraftPublication, publishPending, reconcileCreateJob, refuseAskOutcomes } from '../src/job-host.ts';
 import { acknowledgePublication, enqueuePublication, failPublication, isRecordResult, jobHash, jobHostStateRoot, jobPrivateRoot, pendingPublications, publicationVersionHash, readAcknowledgedPublication, readWriterBinding, reconcilePublication, type AcknowledgedPublication } from '../src/job-outbox.ts';
 import { draftPublicationContext, prepareDraftManifest, prepareLiveManifest, readPublished } from '../src/job-publication.ts';
 import { agentCall } from '../src/job-acts.ts';
-import { draftPublicationResult, jobRuntimeExecArgv } from '../src/job-writer.ts';
+import { draftPublicationResult, jobRuntimeExecArgv, prepareDraftIntent } from '../src/job-writer.ts';
 import { hostPortRefuses } from '../src/job-host-state.ts';
 import { advanceCommand } from '../src/progress-writers.ts';
-import { sceneCommand } from '../src/scene-writers.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { OWN_NODE_MODULES, PARTS_PACKAGE } from '../src/parts-sections.ts';
+import { seedRetainedDirectionPost, seedRetainedDraft, seedRetainedScene } from './numbered-seed.ts';
 
 const CLI = join(import.meta.dir, '../src/cli.ts');
 const roots: string[] = [];
@@ -695,12 +694,14 @@ test('job open publishes the recorded draft, asks its subjects, and the page act
   const replacementReport = JSON.parse(readFileSync(join(root, 'evidence/diff-components.json'), 'utf8')) as JsonObject;
   (replacementReport.stack as JsonObject).sha256 = jobHash(readFileSync(stack));
   writeFileSync(join(root, 'evidence/next-diff-components.json'), `${JSON.stringify(replacementReport, null, 2)}\n`);
-  const replacement = await cli(root, ['draft-rig', 'next', root, '--config', 'derived/drafts/next/config.json',
+  const replacement = seedRetainedDraft(['next', root, '--config', 'derived/drafts/next/config.json',
     '--from', 'derived/drafts/next/out', '--parts', 'derived/drafts/next/input']);
-  expect({ exit: replacement.exit, stderr: replacement.stderr }).toEqual({ exit: 0, stderr: '' });
-  expect(replacement.stdout).toContain('open page not updated: structure snapshot missing or invalid');
-  expect(replacement.stdout).toContain('DIFF_MAP_STACK_MISMATCH');
-  expect(replacement.stdout).not.toContain('job: asked');
+  expect(replacement.exit).toBe(0);
+  const replacementIntent = prepareDraftIntent(root, readFileSync(join(root, 'project.json')), 'next');
+  expect(replacementIntent.intent).toBeNull();
+  expect(replacementIntent.deferred).toContain('open page not updated: structure snapshot missing or invalid');
+  expect(replacementIntent.deferred).toContain('DIFF_MAP_STACK_MISMATCH');
+  expect(replacementIntent.deferred).not.toContain('job: asked');
   expect((read(root).drafts as JsonObject[]).at(-1)!.id).toBe('next');
   expect(pendingPublications(root)).toEqual([]);
   const unready = await page(root, opening.url, 0);
@@ -793,8 +794,8 @@ function registeredPost(advance = true): string {
     cpSync(join(import.meta.dir, '../templates/example-chain', path), join(root, path));
   }
   inputCommand(['add', 'inputs/background.png', root, '--origin', 'synthetic plate'], EXAMPLE_NOW);
-  sceneCommand(['write', '--rig', '1', '--background', 'inputs/background.png', '--citations-file', 'evidence/scene-citations.json', root], EXAMPLE_NOW);
-  directionCommand(['write', '2', root, '--file', 'evidence/direction-input.json', '--rig', '1'], EXAMPLE_NOW);
+  seedRetainedScene(['write', '--rig', '1', '--background', 'inputs/background.png', '--citations-file', 'evidence/scene-citations.json', root], EXAMPLE_NOW);
+  seedRetainedDirectionPost(['write', '2', root, '--file', 'evidence/direction-input.json', '--rig', '1'], EXAMPLE_NOW);
   if (advance) advanceCommand(['direction-review', root], EXAMPLE_NOW);
   return root;
 }
@@ -819,8 +820,8 @@ test.each(['rig', 'post'] as const)('current project publishes retained %s for v
   expect(readFileSync(file)).toEqual(before);
   if (kind === 'post') {
     const receipt = latestReceipt(root);
-    const writer = await cli(root, ['direction', 'write', '3', root, '--file', 'evidence/direction-input.json', '--rig', '1']);
-    expect(writer).toMatchObject({ exit: 0, stderr: '' });
+    const writer = seedRetainedDirectionPost(['write', '3', root, '--file', 'evidence/direction-input.json', '--rig', '1'], EXAMPLE_NOW);
+    expect(writer).toMatchObject({ exit: 0 });
     expect(writer.stdout).toContain('direction: v3 committed without publishing');
     expect((read(root).versions as JsonObject[]).at(-1)).toMatchObject({ n: 3, kind: 'post', rig_version: 1 });
     expect(latestReceipt(root)).toEqual(receipt);

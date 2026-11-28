@@ -6,21 +6,21 @@ import { EXAMPLE_NOW } from '../scripts/example-time.ts';
 import { amendCommand } from '../src/amend.ts';
 import { checkProject, type Finding } from '../src/check.ts';
 import { main } from '../src/cli.ts';
-import { draftRigCommand } from '../src/drafts.ts';
 import { acknowledgePublication, JOB_BINDING_FILE, jobHash, pendingPublications, publicationVersionHash, writePrivateJson, type WriterBinding } from '../src/job-outbox.ts';
 import { currentJobIdentity, draftPackageIdentity, prepareDraftManifest, readPublished } from '../src/job-publication.ts';
+import { prepareDraftIntent } from '../src/job-writer.ts';
 import { partsActDraftHash } from '../src/parts-act.ts';
 import { latestPartsReceipt, recordedPartsActReceipt, recordedPartsVerdict } from '../src/parts-verdict-record.ts';
 import { refuse } from '../src/refusal.ts';
 import { collectReopens, liveSignoff } from '../src/reopen.ts';
 import { decodeReviewAct, partsVerdictSignoff, reviewActFindings } from '../src/review-act.ts';
 import { checkReviewPackages } from '../src/review-package.ts';
-import { rigVersionCommand } from '../src/rig-version.ts';
 import { selectAnswerHashes } from '../src/signoff-answers.ts';
 import { signoffCommand } from '../src/signoff.ts';
 import { checkStructure, latestPartsApproval, partsApprovalIdentity, rigPartsApproval } from '../src/structure.ts';
 import { structureSnapshotCommand } from '../src/structure-snapshot.ts';
 import type { JsonObject } from '../src/templates.ts';
+import { seedRetainedDraft, seedRetainedRigVersion } from './numbered-seed.ts';
 
 const draft = 'changed';
 const draftRoot = `derived/drafts/${draft}`;
@@ -61,12 +61,14 @@ function fixture(changed = true, bound = changed) {
   cpSync(join(root, 'derived/drafts/chain'), join(root, draftRoot), { recursive: true });
   rmSync(join(root, draftRoot, 'out/check'), { recursive: true });
   if (changed) appendFileSync(join(root, manifest), '\n');
-  const registration = draftRigCommand([draft, root, '--config', `${draftRoot}/config.json`, '--from', `${draftRoot}/out`,
+  const registration = seedRetainedDraft([draft, root, '--config', `${draftRoot}/config.json`, '--from', `${draftRoot}/out`,
     '--parts', `${draftRoot}/input`, '--json'], builtAt);
   expect(registration.exit).toBe(0);
+  const intent = bound ? prepareDraftIntent(root, readFileSync(file(root)), draft) : { intent: null };
   structureSnapshotCommand([root, '--draft', draft]);
   expect(checkProject(root, undefined, { now: builtAt }).refusals).toEqual([]);
-  return { root, binding, registration: JSON.parse(registration.stdout) as JsonObject };
+  return { root, binding, registration: { ...JSON.parse(registration.stdout) as JsonObject,
+    ...(intent.deferred ? { publication: { status: 'deferred', lines: [intent.deferred] } } : {}) } };
 }
 
 async function retainVerdict(root: string, binding: WriterBinding, verdict: 'approved' | 'changes-requested' = 'approved', at = reviewedAt) {
@@ -343,7 +345,7 @@ async function crossDraft(differentImage = false) {
   cpSync(join(root, draftRoot), join(root, targetRoot), { recursive: true });
   if (differentImage) appendFileSync(join(root, targetParts, 'parts/face.png'), '\n');
   // The owner saw these bytes on the source draft before the target got its own registration.
-  expect(draftRigCommand([targetId, root, '--config', `${targetRoot}/config.json`, '--from', `${targetRoot}/out`,
+  expect(seedRetainedDraft([targetId, root, '--config', `${targetRoot}/config.json`, '--from', `${targetRoot}/out`,
     '--parts', targetParts], reviewedAt + 100).exit).toBe(0);
   structureSnapshotCommand([root, '--draft', targetId]);
   expect(amendCommand(amendmentArgs(root, targetManifest, targetId), amendedAt).exit).toBe(0);
@@ -374,7 +376,7 @@ function rigRegistration(root: string) {
     '--toolchain-lock': 'package-lock.json', '--run-record': 'run.json', '--at-source': 'at-source.json',
     '--check-report': 'check.json', '--citations': 'citations.json',
   };
-  return (parts: string) => rigVersionCommand(['2', root, ...Object.entries(inputs).flatMap(([flag, path]) => [flag, `${source}/${path}`]),
+  return (parts: string) => seedRetainedRigVersion(['2', root, ...Object.entries(inputs).flatMap(([flag, path]) => [flag, `${source}/${path}`]),
     '--rig', rig, '--parts', parts, '--config', `${targetRoot}/config.json`, '--at-pointer', '/finished_at', '--by', 'synthetic-agent', '--json'], at);
 }
 

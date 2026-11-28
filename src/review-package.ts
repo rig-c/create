@@ -1,20 +1,14 @@
 import { configInputReferences, configInputsLegacy, DIRECTORY_INPUT_RECEIPT, plateReceiptSpec, receiptSpec, type ConfigInputsWarning } from './config-inputs.ts';
-import { DirectionError, objects as directionObjects, readDirection } from './direction.ts';
 /** Frozen producer inputs in review's fixed discovery layout (create#38). */
 import { createHash } from 'node:crypto';
-import { closeSync, openSync, mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { existsSync, lstatSync, readFileSync, readdirSync, realpathSync } from './check-reads.ts';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 
-import { asArray, isObject, readJsonObject, type Ctx } from './check.ts';
-import { draftVersionFindings } from './drafts.ts';
-import { assembleOnlyDraftPath, assembleOnlyDraftTarget, assertDraftHasRig } from './draft-layout.ts';
-import { Refusal, refuse, USAGE_EXIT } from './refusal.ts';
-import { assertNotScratchBinding } from './scratch-bindings.ts';
-import { assertRigVersionDate, rigVersionDateFinding } from './rig-version-date.ts';
-import { beginJobProgress } from './job-writer.ts';
-import type { Json, JsonObject } from './templates.ts';
+import { asArray, isObject, type Ctx } from './check.ts';
+import { refuse } from './refusal.ts';
+import { rigVersionDateFinding } from './rig-version-date.ts';
+import type { JsonObject } from './templates.ts';
 
 const hash = (bytes: Buffer): string => createHash('sha256').update(bytes).digest('hex');
 export const BUILD_IDENTITY_SINCE = '2026-11-06T00:00:00Z';
@@ -93,6 +87,7 @@ export function reviewConfigInputs(record: JsonObject, dir: string, n: number, m
     return [{ path: name, sha256: null }];
   });
 }
+
 export function reviewHandoffInputs(record: JsonObject, dir: string, n: number, named = reviewConfigInputs(record, dir, n)): JsonObject[] {
   const base = asArray(record.files).filter((file): file is JsonObject => isObject(file) && typeof file.path === 'string'
     && (file.path === 'config.json' || file.path.startsWith('out/') && !file.path.startsWith('out/check/')));
@@ -106,16 +101,6 @@ function packageExists(path: string): boolean {
   }
 }
 
-/** Check each existing ancestor before creating the next directory. */
-function makePackageParent(dir: string): void {
-  let parent = dir;
-  for (const name of ['derived', 'review']) {
-    parent = join(parent, name);
-    if (!packageExists(parent)) mkdirSync(parent);
-    if (!lstatSync(parent).isDirectory()) refuse('REVIEW_PACKAGE_PATH_INVALID', 'derived/review requires real directories without symlinks');
-  }
-}
-
 function validFiles(value: JsonObject['files']): boolean {
   if (!Array.isArray(value) || value.length === 0) return false;
   let previous = '';
@@ -126,23 +111,6 @@ function validFiles(value: JsonObject['files']): boolean {
     previous = entry.path;
   }
   return value.some((entry) => isObject(entry) && entry.path === 'config.json');
-}
-
-function sourceFiles(out: string, imagePaths: readonly string[]): FileHash[] {
-  const files = required.flatMap((entry) => entry === 'parts.json'
-    ? [{ path: entry, sha256: hash(readFileSync(join(out, entry))) }]
-    : filesAt(join(out, entry)).map((file) => ({ ...file, path: `${entry}/${file.path}` })));
-  const seen = new Set(files.map(file => file.path));
-  for (const path of imagePaths) {
-    const copiedTree = required.some(entry => entry !== 'parts.json' && path.startsWith(`${entry}/`));
-    if (seen.has(path) || copiedTree) continue;
-    const absolute = resolve(out, path);
-    if (!inside(out, absolute) || path.split('/').some(segment => !segment || segment === '.' || segment === '..')
-      || realpathSync(absolute) !== absolute || !lstatSync(absolute).isFile()) refuse('REVIEW_PACKAGE_PATH_INVALID', `${path}: restore the retained regular image before packaging`);
-    files.push({ path, sha256: hash(readFileSync(absolute)) });
-    seen.add(path);
-  }
-  return files;
 }
 
 /** Reject symlinks throughout the copied tree, including otherwise-contained ones. */
@@ -227,270 +195,5 @@ export function checkReviewPackages(ctx: Pick<Ctx, 'dir' | 'project' | 'refusals
       };
       reviewConfigInputs(record, ctx.dir, n, missing, unavailable);
     } catch (error) { ctx.refusals.push({ code: 'REVIEW_PACKAGE_INPUT_INVALID', path, message: `${path}: ${error instanceof Error ? error.message : String(error)}; restore the frozen package config` }); }
-  }
-}
-
-export const REVIEW_PACKAGE_HELP = `review-package <n> [<project dir>] --config <path> --from <build out dir> [--json]
-  Copy frozen producer inputs into derived/review/v<n>; record hashes and the open command.
-  Source paths are relative to the project and must stay inside it. Run the open command there.`;
-
-export function reviewPackageCommand(args: string[]): { stdout: string; exit: number } {
-  return packageCommand(args);
-}
-
-/** Prepare the normal package against a candidate, without publishing project.json. */
-export function prepareRigReviewPackage(args: string[], project: JsonObject, imagePaths?: readonly string[]): void {
-  packageCommand(args, project, imagePaths);
-}
-
-function packageCommand(args: string[], candidate?: JsonObject, imagePaths?: readonly string[]): { stdout: string; exit: number } {
-  const positional: string[] = [];
-  const options: Record<string, string> = {};
-  let json = false;
-  for (let i = 0; i < args.length; i++) {
-    const arg = args[i] as string;
-    if (arg === '--json') json = true;
-    else if (arg === '--config' || arg === '--from') {
-      const value = args[++i];
-      if (!value || value.startsWith('--') || options[arg] !== undefined) refuse('REVIEW_PACKAGE_USAGE', `${arg} needs one value`, USAGE_EXIT);
-      options[arg] = value;
-    } else if (arg.startsWith('-')) refuse('UNKNOWN_OPTION', `review-package does not take ${arg}`, USAGE_EXIT);
-    else positional.push(arg);
-  }
-  const n = Number(positional[0]?.replace(/^v/, ''));
-  if (!Number.isSafeInteger(n) || n < 1 || positional.length > 2 || !options['--config'] || !options['--from']) refuse('REVIEW_PACKAGE_USAGE', REVIEW_PACKAGE_HELP, USAGE_EXIT);
-  const dir = realpathSync(resolve(positional[1] ?? process.cwd()));
-  const projectFile = join(dir, 'project.json');
-  if (!existsSync(projectFile)) refuse('PROJECT_JSON_MISSING', 'project.json is absent');
-  const lock = `${projectFile}.review-package.lock`;
-  let descriptor: number;
-  try { descriptor = openSync(lock, 'wx'); } catch { refuse('REVIEW_PACKAGE_BUSY', 'another package writer holds the project lock'); }
-  // The first milestone waits for the package lock: a refused write leaves the project untouched.
-  const progress = candidate === undefined ? beginJobProgress(dir, 'build', 'Preparing the review package') : undefined;
-  try {
-    const original = readFileSync(projectFile, 'utf8');
-    const read = readJsonObject(projectFile);
-    if (!read.ok) refuse('PROJECT_JSON_INVALID', read.error);
-    const project = candidate ?? read.value;
-    if (project.schema !== 'rig-create/project@0') refuse('SCHEMA_UNKNOWN', 'review-package reads rig-create/project@0');
-    assertDraftHasRig(assembleOnlyDraftTarget(project, positional[0]) ?? assembleOnlyDraftPath(dir, project, options['--from']), 'project.json.versions');
-    const version = asArray(project.versions).find((v) => isObject(v) && v.n === n);
-    if (!isObject(version)) refuse('REVIEW_PACKAGE_VERSION_UNKNOWN', `no version ${n}`);
-    assertRigVersionDate(version);
-    const draftProblem = draftVersionFindings(dir, { ...project, versions: [version] })[0];
-    if (draftProblem !== undefined) refuse(draftProblem.code, draftProblem.message);
-    if (version.kind !== 'rig' || version.pre_interview === true) refuse('REVIEW_PACKAGE_VERSION_INVALID', 'review packages are for create-built rig versions');
-    const source = (value: string): string => {
-      const file = resolve(dir, value);
-      if (isAbsolute(value) || !inside(dir, file)) refuse('REVIEW_PACKAGE_PATH_INVALID', `${value}: expected a project-relative source`);
-      if (!existsSync(file)) refuse('REVIEW_PACKAGE_INPUT_MISSING', `${value}: source absent`);
-      const canonical = realpathSync(file);
-      if (!inside(dir, canonical)) refuse('REVIEW_PACKAGE_PATH_INVALID', `${value}: source resolves outside the project`);
-      return canonical;
-    };
-    const declaredDraft = draftVersionFindings(dir, { ...project, versions: [{ kind: 'rig', source_dir: options['--from'], config: { path: options['--config'] } }] })[0];
-    if (declaredDraft !== undefined) refuse(declaredDraft.code, declaredDraft.message);
-    const config = source(options['--config']);
-    const from = source(options['--from']);
-    if (!lstatSync(config).isFile() || !lstatSync(from).isDirectory()) refuse('REVIEW_PACKAGE_INPUT_INVALID', 'config must be a file and --from a directory');
-    requireLayout(from);
-    const configBytes = readFileSync(config);
-    try { if (!isObject(JSON.parse(configBytes.toString()))) throw new Error(); } catch { refuse('REVIEW_PACKAGE_INPUT_INVALID', 'config must be a JSON object'); }
-    let named: { path: string; source: string; bytes: Buffer }[];
-    const directories = new Set<string>();
-    try {
-      named = configInputReferences(dir, JSON.parse(configBytes.toString())).map(ref => {
-        const path = relative(dirname(config), resolve(dirname(config), ref.value)).split(sep).join('/');
-        if (isAbsolute(ref.value) || !path || path.split('/').some(part => part === '..' || part === '.' || part === '')) refuse('REVIEW_PACKAGE_PATH_INVALID', `config.${ref.at}: ${ref.value} cannot be retained inside the package; use a config-relative input inside its directory`);
-        const file = source(relative(dir, resolve(dirname(config), ref.value)));
-        if (lstatSync(file).isDirectory()) {
-          const receipt = join(file, DIRECTORY_INPUT_RECEIPT);
-          const bound = `${path}/${DIRECTORY_INPUT_RECEIPT}`;
-          if (!existsSync(receipt) || !lstatSync(receipt).isFile()) {
-            refuse('REVIEW_PACKAGE_INPUT_INVALID', `config.${ref.at}: named input directory ${path} holds no regular-file ${DIRECTORY_INPUT_RECEIPT}; a directory input binds its producer's receipt, such as a comfy plate --mode occluder output`);
-          }
-          const bytes = readFileSync(receipt);
-          const spec = plateReceiptSpec(dir);
-          const declared = receiptSpec(bytes);
-          if (declared !== spec) {
-            refuse('REVIEW_PACKAGE_INPUT_INVALID', `config.${ref.at}: ${bound} declares spec ${JSON.stringify(declared)}; a directory input binds a ${spec} receipt, such as a comfy plate --mode occluder output`);
-          }
-          directories.add(path);
-          return { path: bound, source: receipt, bytes };
-        }
-        if (!lstatSync(file).isFile()) refuse('REVIEW_PACKAGE_INPUT_INVALID', `config.${ref.at}: ${path} must be a regular file`);
-        return { path, source: file, bytes: readFileSync(file) };
-      });
-    } catch (error) { if (error instanceof Refusal) throw error; refuse('REVIEW_PACKAGE_INPUT_INVALID', `versions[v${n}].review_package.config: ${error instanceof Error ? error.message : String(error)}`); }
-    // Registered builds retain adapter-relocated runtime inputs as well as the
-    // loader's three config-file declarations. Preserve them on regeneration.
-    if (isObject(version.registration) && version.registration.kind === 'frozen-rig/1') {
-      const configDir = relative(dir, dirname(config)).split(sep).join('/');
-      const prefix = `${configDir}/`;
-      const runFiles = new Set(asArray(version.registration.runs).flatMap(r => isObject(r) && isObject(r.source) && typeof r.source.path === 'string' ? [r.source.path] : []));
-      const toolchain = version.registration.toolchain;
-      const lockPath = isObject(toolchain) && isObject(toolchain.source) ? toolchain.source.path : undefined;
-      const metadataNames = new Set(['at-source.json', 'compile-report.json', 'config-source.json', 'requirements-source.json', 'config.json', 'package-lock.json', 'path-adapter.json', 'citations.json']);
-      for (const binding of asArray(version.registration.files)) {
-        if (!isObject(binding) || typeof binding.path !== 'string' || !binding.path.startsWith(prefix)) continue;
-        const rel = binding.path.slice(prefix.length);
-        if (binding.path === lockPath || metadataNames.has(rel) || runFiles.has(binding.path)) continue;
-        if ([...directories].some(d => rel.startsWith(`${d}/`)) && !named.some(input => input.path === rel)) continue;
-        const file = source(binding.path);
-        const bytes = readFileSync(file);
-        if (hash(bytes) !== binding.sha256) refuse('REVIEW_PACKAGE_SOURCE_CHANGED', `${binding.path}: registered runtime input changed`);
-        const path = relative(dirname(config), file).split(sep).join('/');
-        const existing = named.find(input => input.path === path);
-        if (existing && !existing.bytes.equals(bytes)) refuse('REVIEW_PACKAGE_INPUT_INVALID', `${path}: runtime input collides with a named input`);
-        if (!existing) named.push({ path, source: file, bytes });
-      }
-    }
-    const configObject = JSON.parse(configBytes.toString()) as JsonObject;
-    if (typeof configObject.requirements === 'string') {
-      const requirementsPath = relative(dirname(config), resolve(dirname(config), configObject.requirements)).split(sep).join('/');
-      const requirements = named.find(input => input.path === requirementsPath);
-      if (requirements) {
-        let document: Json;
-        try { document = JSON.parse(requirements.bytes.toString()); }
-        catch { refuse('REVIEW_PACKAGE_INPUT_INVALID', `${requirements.path}: restore readable requirements JSON`); }
-        const setup = isObject(document) && isObject(document.setup_painting) ? document.setup_painting : {};
-        if (setup.figure_mask !== undefined) {
-          const mask = setup.figure_mask;
-          if (!isObject(mask) || typeof mask.path !== 'string' || !mask.path.trim()
-            || typeof mask.sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(mask.sha256)) {
-            refuse('FIGURE_MASK_MISSING', `${requirements.path}: declare setup_painting.figure_mask {path, sha256} before packaging`);
-          }
-          const maskFile = resolve(dirname(config), dirname(requirements.path), mask.path);
-          const maskPath = relative(dirname(config), maskFile).split(sep).join('/');
-          if (isAbsolute(mask.path) || !maskPath || maskPath.split('/').some(part => part === '..' || part === '.' || part === '')) {
-            refuse('REVIEW_PACKAGE_PATH_INVALID', `${requirements.path}: figure mask ${mask.path} must stay inside the config directory`);
-          }
-          let current = dirname(config);
-          for (const part of maskPath.split('/')) {
-            current = join(current, part);
-            if (existsSync(current) && lstatSync(current).isSymbolicLink()) refuse('REVIEW_PACKAGE_PATH_INVALID', `${maskPath}: retain a figure mask without symlinks`);
-          }
-          let regularFile = false;
-          try { regularFile = lstatSync(maskFile).isFile(); } catch { /* Missing paths are refused below. */ }
-          if (!regularFile) refuse('FIGURE_MASK_CHANGED', `${maskPath}: restore the declared mask as a readable PNG file before packaging`);
-          let bytes: Buffer;
-          try { bytes = readFileSync(maskFile); }
-          catch { refuse('FIGURE_MASK_CHANGED', `${maskPath}: cannot read the declared mask; restore its PNG before packaging`); }
-          if (hash(bytes) !== mask.sha256) refuse('FIGURE_MASK_CHANGED', `${maskPath}: bytes differ from the declared sha256; restore the mask or record its corrected declaration before packaging`);
-          if (maskPath === 'config.json' && !bytes.equals(configBytes)) refuse('REVIEW_PACKAGE_INPUT_INVALID', `${maskPath}: figure mask collides with the packaged config`);
-          const existing = named.find(input => input.path === maskPath);
-          if (existing && !existing.bytes.equals(bytes)) refuse('REVIEW_PACKAGE_INPUT_INVALID', `${maskPath}: figure mask collides with a named input`);
-          if (!existing) named.push({ path: maskPath, source: maskFile, bytes });
-        }
-        const legacyUnadaptedReg = isObject(version.registration) && version.registration.kind === 'frozen-rig/1' && version.registration.requirements_source === undefined;
-        if (setup.backdrop !== undefined && !legacyUnadaptedReg) {
-          const backdrop = setup.backdrop;
-          if (!isObject(backdrop) || typeof backdrop.path !== 'string' || !backdrop.path.trim()
-            || typeof backdrop.sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(backdrop.sha256)) {
-            refuse('REVIEW_PACKAGE_INPUT_INVALID', `${requirements.path}: declare setup_painting.backdrop {path, sha256} before packaging`);
-          }
-          const backdropFile = resolve(dirname(config), dirname(requirements.path), backdrop.path);
-          const backdropPath = relative(dirname(config), backdropFile).split(sep).join('/');
-          if (isAbsolute(backdrop.path) || !backdropPath || backdropPath.split('/').some(part => part === '..' || part === '.' || part === '')) {
-            refuse('REVIEW_PACKAGE_PATH_INVALID', `${requirements.path}: backdrop ${backdrop.path} must stay inside the config directory`);
-          }
-          let current = dirname(config);
-          for (const part of backdropPath.split('/')) {
-            current = join(current, part);
-            if (existsSync(current) && lstatSync(current).isSymbolicLink()) refuse('REVIEW_PACKAGE_PATH_INVALID', `${backdropPath}: retain a backdrop without symlinks`);
-          }
-          let regularFile = false;
-          try { regularFile = lstatSync(backdropFile).isFile(); } catch { /* Missing paths are refused below. */ }
-          if (!regularFile) refuse('REVIEW_PACKAGE_INPUT_INVALID', `${backdropPath}: restore the declared backdrop as a readable PNG file before packaging`);
-          let bytes: Buffer;
-          try { bytes = readFileSync(backdropFile); }
-          catch { refuse('REVIEW_PACKAGE_INPUT_INVALID', `${backdropPath}: cannot read the declared backdrop; restore its PNG before packaging`); }
-          if (hash(bytes) !== backdrop.sha256) refuse('REVIEW_PACKAGE_INPUT_INVALID', `${backdropPath}: bytes differ from the declared sha256; restore the backdrop or record its corrected declaration before packaging`);
-          if (backdropPath === 'config.json' && !bytes.equals(configBytes)) refuse('REVIEW_PACKAGE_INPUT_INVALID', `${backdropPath}: backdrop collides with the packaged config`);
-          const existing = named.find(input => input.path === backdropPath);
-          if (existing && !existing.bytes.equals(bytes)) refuse('REVIEW_PACKAGE_INPUT_INVALID', `${backdropPath}: backdrop collides with a named input`);
-          if (!existing) named.push({ path: backdropPath, source: backdropFile, bytes });
-        }
-      }
-    }
-    // A compiled model already cited by an authored take cannot be rebound by packaging.
-    for (const post of directionObjects(project.versions)) {
-      if (post.kind !== 'post' || post.rig_version !== n || !isObject(post.provenance) || post.provenance.direction === undefined) continue;
-      try {
-        const document = readDirection(dir, project, post.n, false);
-        const expected = ((document.rig as JsonObject).model as JsonObject).sha256;
-        if (hash(readFileSync(join(from, 'check/build/skeleton.model.json'))) !== expected) refuse('DIRECTION_RIG_STALE', `versions[v${n}].review_package: this model is bound by a direction document; preserve it and author a new rig version`);
-      } catch (error) { if (error instanceof DirectionError) refuse(error.code, error.message); throw error; }
-    }
-    // Regeneration uses the existing declaration, preserving historical packages
-    // that omitted sibling images. New registration supplies official rows.
-    const recordedFiles = isObject(version.review_package) ? asArray(version.review_package.files) : [];
-    const namedPaths = new Set(named.map(input => input.path));
-    const retainedImages = imagePaths ?? recordedFiles.filter(isObject).flatMap(file =>
-      typeof file.path === 'string' && file.path.startsWith('out/') && !namedPaths.has(file.path) ? [file.path.slice(4)] : []);
-    const inputs = sourceFiles(from, retainedImages);
-    progress?.('Copying and verifying the package files', { i: 1, n: 2 });
-    const pkg = join(dir, packagePath(n));
-    makePackageParent(dir);
-    const scratch = mkdtempSync(join(dirname(pkg), `.v${n}-`));
-    let published = false;
-    try {
-      writeFileSync(join(scratch, 'config.json'), configBytes);
-      for (const input of named) {
-        const dest = join(scratch, input.path);
-        mkdirSync(dirname(dest), { recursive: true });
-        writeFileSync(dest, input.bytes);
-      }
-      for (const entry of required) {
-        if (entry !== 'parts.json') mkdirSync(join(scratch, 'out', entry), { recursive: true });
-      }
-      for (const file of inputs) {
-        const bytes = readFileSync(join(from, file.path));
-        if (hash(bytes) !== file.sha256) refuse('REVIEW_PACKAGE_SOURCE_CHANGED', `${file.path}: source changed during copy`);
-        const dest = join(scratch, 'out', file.path);
-        if (existsSync(dest) && !readFileSync(dest).equals(bytes)) refuse('REVIEW_PACKAGE_INPUT_INVALID', `${file.path}: config input collides with a producer output`);
-        mkdirSync(dirname(dest), { recursive: true });
-        writeFileSync(dest, bytes);
-      }
-      if (!isDeepStrictEqual(sourceFiles(from, retainedImages), inputs) || hash(readFileSync(config)) !== hash(configBytes)) {
-        refuse('REVIEW_PACKAGE_SOURCE_CHANGED', 'producer inputs changed during copy');
-      }
-      for (const input of named) if (!readFileSync(input.source).equals(input.bytes)) refuse('REVIEW_PACKAGE_SOURCE_CHANGED', `${input.path}: config input changed during copy`);
-      const files = filesAt(scratch);
-      assertNotScratchBinding(relative(dir, config), `versions[v${n}].review_package.config.path`);
-      assertNotScratchBinding(relative(dir, from), `versions[v${n}].review_package.from`);
-      const record: JsonObject = { config: { path: relative(dir, config), sha256: hash(configBytes) }, from: relative(dir, from), files: files.map((f) => ({ ...f })), open: openCommand(n) };
-      const identity = { dir, project, refusals: [] as Ctx['refusals'], warnings: [] as Ctx['warnings'] };
-      checkBuildIdentity(identity, version, record);
-      if (identity.refusals[0]) refuse(identity.refusals[0].code, identity.refusals[0].message);
-      try { reviewConfigInputs(record, dir, n, undefined, undefined, scratch); }
-      catch (error) { refuse('REVIEW_PACKAGE_INPUT_INVALID', `versions[v${n}].review_package: ${error instanceof Error ? error.message : String(error)}`); }
-      if (packageExists(pkg)) {
-        if (lstatSync(pkg).isSymbolicLink() || realpathSync(pkg) !== pkg) refuse('REVIEW_PACKAGE_PATH_INVALID', 'existing package must have no symlink parents');
-        if (!isDeepStrictEqual(filesAt(pkg), files)) refuse('REVIEW_PACKAGE_EXISTS', 'existing package differs; preserve it and inspect the recorded version before regenerating');
-      } else {
-        renameSync(scratch, pkg);
-        published = true;
-      }
-      if (readFileSync(projectFile, 'utf8') !== original) refuse('REVIEW_PACKAGE_RECORD_CHANGED', 'project.json changed during copying; retry from the current record');
-      version.review_package = record;
-      if (candidate !== undefined) {
-        published = false;
-        return { stdout: JSON.stringify(record), exit: 0 };
-      }
-      const pending = join(scratch, 'project.json');
-      mkdirSync(scratch, { recursive: true });
-      writeFileSync(pending, `${JSON.stringify(project, null, 2)}\n`);
-      renameSync(pending, projectFile);
-      published = false;
-      progress?.('Review package ready', { i: 2, n: 2 });
-      return { stdout: json ? JSON.stringify(record, null, 2) : `review-package: v${n} copied; ${openCommand(n)}`, exit: 0 };
-    } finally {
-      if (published) rmSync(pkg, { recursive: true });
-      rmSync(scratch, { recursive: true, force: true });
-    }
-  } finally {
-    closeSync(descriptor);
-    rmSync(lock);
   }
 }

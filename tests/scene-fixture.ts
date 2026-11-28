@@ -8,7 +8,8 @@ import { reviewPackageHash } from '../src/signoff-target.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { directionFixture } from './direction-fixture.ts';
 import { tempDir } from './helpers.ts';
-import { inputCommand, sceneCommand, testClock } from './clock.ts';
+import { inputCommand, testClock } from './clock.ts';
+import { seedRetainedScene } from './numbered-seed.ts';
 
 export const PLATE_WORDS = 'Place the background behind the rig and the foreground in front.';
 export function sceneFixture(animations = ['idle']) {
@@ -57,7 +58,7 @@ export function sceneFixture(animations = ['idle']) {
   };
   designate(false);
   const args = (hasForeground = false) => ['write', '--rig', '1', '--background', 'background.png', ...(hasForeground ? ['--foreground', 'foreground.png'] : []), '--citations-file', hasForeground ? 'citations.json' : 'background-citation.json', dir];
-  const writeScene = (foreground = false) => { if (foreground) designate(true); return sceneCommand(args(foreground)); };
+  const writeScene = (foreground = false) => { if (foreground) designate(true); return seedRetainedScene(args(foreground), testClock.now()); };
   const seedHistoricalScene = (rect = model.stage): void => {
     const p = f.load();
     const binding = sceneRig(dir, p, 1);

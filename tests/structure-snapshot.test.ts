@@ -11,7 +11,8 @@ import { structureSnapshotCommand } from '../src/structure-snapshot.ts';
 import { locateParts } from '../src/parts-sections.ts';
 import { assertPartsReadDraft, decodePartsRead } from '../src/parts-verdict-record.ts';
 import type { JsonObject } from '../src/templates.ts';
-import { advanceCommand, checkProject, diffClassesCommand, draftRigCommand, main, signoffCommand, stepStatusCommand, testClock } from './clock.ts';
+import { advanceCommand, checkProject, diffClassesCommand, main, signoffCommand, stepStatusCommand, testClock } from './clock.ts';
+import { seedRetainedDraft } from './numbered-seed.ts';
 import { EXAMPLE_DIFF_REPORT } from './diff-fixture.ts';
 import { plantLegacyReopen, arr, fixture, obj, rehashSignoffs, step, supersede, waypoint } from './fixtures.ts';
 import { EXAMPLE_VERDICT, writeReviewedInput } from './parts-package.ts';
@@ -63,7 +64,7 @@ function draft(dir: string, id: string, config: JsonObject, input?: Record<strin
 export function configFileReferences() { return [{ at: 'assemble.edited_parts.receipts[0].file', value: ${JSON.stringify(`${editedDir}/${file}`)} }]; }
 `);
   }
-  draftRigCommand([id, dir, '--config', `${root}/config.json`, '--from', `${root}/out`, '--parts', `${root}/input`]);
+  seedRetainedDraft([id, dir, '--config', `${root}/config.json`, '--from', `${root}/out`, '--parts', `${root}/input`], testClock.now());
 }
 
 /** A new-order project at parts-review with the labelled draft `shape` recorded, as in tests/structure.test.ts. */

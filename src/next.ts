@@ -93,7 +93,7 @@ import {
 } from './stages.ts';
 import type { Json, JsonObject } from './templates.ts';
 import { CURRENT_SCENE_PATH, currentScene, currentSceneRig, plateRegistration, sceneBinding, sceneBytes, sceneRig, SceneError, validateCurrentScene } from './scene.ts';
-import { depthPlanMoves, nextRigRegistrationNumber, NO_DRAFT_VERDICT, rigRegistrationCommand, RIG_VERSION_INPUTS, turnExtraGroupMoves } from './rig-version.ts';
+import { depthPlanMoves, turnExtraGroupMoves } from './rig-version.ts';
 import { checkVersionDeclarations, type VersionDeclaration } from './version-declarations.ts';
 import { checkRigReport, parseRigCheckReport, RIG_CHECK_REPORT_FILE } from './rig-check-report.ts';
 import { validateRunRecord } from './run-record.ts';
@@ -107,6 +107,35 @@ import { adoptedRigInventoryMatches, currentOutputMove, withStaleOutputs } from 
 export const NEXT_SCHEMA = 'rig-create/next@1';
 
 const BASELINES_AFTER_FINAL_ASSEMBLE = 'Finalize the assembly inputs (turn.depths and constraints.physics included), assemble again, and only then take edited-part baselines (from_sha256); a baseline from an earlier assembly refuses ASSEMBLE_EDITED_PART_BASELINE.';
+const RIG_VERSION_INPUTS = '--parts <dir> --rig <dir> --build <dir> --idle <dir> --config <file> --path-adapter <file> --compile-report <file> --check-report <check.json> --toolchain-lock <file> --run-record <run.json> --at-source <file> --at-pointer <pointer> --by <agent>';
+const NO_DRAFT_VERDICT = '--no-draft-verdict';
+
+function rigRegistrationCommand(args: readonly string[]): string {
+  return ['rig-create', 'rig-version', ...args].map(shellWord).join(' ');
+}
+
+function nextRigRegistrationNumber(dir: string, start: number): number | undefined {
+  const destinations = (n: number): [string, string, string] => [
+    `outputs/v${n}`,
+    `evidence/v${n}/registration`,
+    `derived/review/v${n}`,
+  ];
+  const destinationExists = (target: string): boolean => {
+    let current = dir;
+    for (const part of target.split('/')) {
+      current = join(current, part);
+      if (existsSync(current) && (lstatSync(current).isSymbolicLink() || !lstatSync(current).isDirectory())) {
+        throw Error(`invalid destination parent ${target}`);
+      }
+    }
+    return existsSync(join(dir, target));
+  };
+  try {
+    for (let n = start; Number.isSafeInteger(n); n++) {
+      if (destinations(n).every(target => !destinationExists(target))) return n;
+    }
+  } catch { /* An invalid or unreadable destination prevents a safe suggestion. */ }
+}
 
 export const NEXT_HELP = `next [<project dir>] [--json]
   Derive the next moves and whose they are (agent | producer | human) from project.json.

@@ -10,7 +10,8 @@ import type { JsonObject } from '../src/templates.ts';
 import { externalMaskEvidence } from './external-receipt-fixture.ts';
 import { cli, gitEnv, tempDir } from './helpers.ts';
 import { sceneFixture } from './scene-fixture.ts';
-import { checkProject, derivedCommand, inputCommand, sceneCommand, testClock } from './clock.ts';
+import { checkProject, derivedCommand, inputCommand, testClock } from './clock.ts';
+import { seedRetainedScene } from './numbered-seed.ts';
 
 const load = createRequire(import.meta.url);
 const { publishPlate } = load('@rig-c/parts/src/plate.ts') as typeof import('../node_modules/@rig-c/parts/src/plate.ts');
@@ -436,7 +437,7 @@ test('producer receipt records through derived add and registers a new scene thr
   expect(selectedBaseline).toEqual(baseline);
   const args = f.args();
   args[args.indexOf('--background') + 1] = 'plate/plate.png';
-  expect(sceneCommand(args).exit).toBe(0);
+  expect(seedRetainedScene(args, testClock.now()).exit).toBe(0);
   expect(checkProject(f.dir).refusals).toEqual(baseline);
   const ctx = { dir: f.dir, project: f.load(), refusals: [] as Finding[], warnings: [] as Finding[] };
   checkPreparedInputs(ctx);

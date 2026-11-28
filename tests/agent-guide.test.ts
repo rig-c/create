@@ -46,11 +46,14 @@ const GUIDE_HEADINGS = [
  */
 const GUIDE_MAX_BYTES = 10_000;
 
-test('#543 the guide records an owner-accepted retouch through the existing draft writer', () => {
+test('#543 the guide records an owner-accepted retouch through the current record writers', () => {
   const guide = renderAgentGuide();
-  expect(guide).toContain("An owner-accepted retouch enters through parts' `assemble.edited_parts` block and is recorded by `draft-rig`");
+  expect(guide).toContain("An owner-accepted retouch enters through parts' `assemble.edited_parts` block and is recorded by `record parts --from <dir> --config <file>` or `record rig --from <dir> --config <file>`");
+  expect(guide).not.toContain('`draft-rig`');
   expect(guide).toContain(createDocUrl(RETOUCH_HANDOFF_LINK.path, RETOUCH_HANDOFF_LINK.anchor));
-  expect(Buffer.byteLength(guide)).toBeLessThanOrEqual(GUIDE_MAX_BYTES);
+  expect(Buffer.byteLength(guide)).toBeLessThan(GUIDE_MAX_BYTES);
+  expect(reference).toContain('`record rig --from <dir> --config <file>`');
+  expect(reference).not.toContain('`rig-version --depth-manifest`');
 });
 
 test('#691 the editor rung documents the four retouch hand-off points and the guide links its anchor', () => {

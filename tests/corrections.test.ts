@@ -16,8 +16,9 @@ import { stepHash } from '../src/step-hash.ts';
 import { locateParts } from '../src/parts-sections.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { correctionFixture, correctionCommentsFixture, commentsReviewRunner, COMMENTS_APPLY_ID } from './correction-fixture.ts';
-import { advanceCommand, checkCorrections, checkProject, assertCorrectionApproval, correctionCommand, derivedCommand, diffClassesCommand, draftRigCommand, signoffCommand, testClock } from './clock.ts';
+import { advanceCommand, checkCorrections, checkProject, assertCorrectionApproval, correctionCommand, derivedCommand, diffClassesCommand, signoffCommand, testClock } from './clock.ts';
 import { clockedCli } from './helpers.ts';
+import { seedRetainedDraft } from './numbered-seed.ts';
 import { nextProject } from '../src/next.ts';
 
 const requireCore = createRequire(import.meta.url);
@@ -84,7 +85,7 @@ test('contained symlinks and traversal are refused before capture',()=>{const f=
 
 test('stage-1 described drafts use public draft inventory and bind the corrected approval draft',()=>{
  const dir=projectFixture();roots.push(join(dir,'..'));testClock.set(new Date('2026-12-01T07:00:00Z'));writeFileSync(join(dir,'words.txt'),'Refine the draft mesh.');writeFileSync(join(dir,'reasoning.txt'),'Declared corrected draft, not a measured build.');plantLegacyReopen(dir, 'parts-review', { by: 'reviewer', wordsFile: join(dir,'words.txt') });correctionCommand(['--adopt',dir]);
- const draft=(id:string,hour:string)=>{const root=`derived/drafts/${id}`;mkdirSync(join(dir,root,'input/parts'),{recursive:true});mkdirSync(join(dir,root,'out'),{recursive:true});for(const[path,bytes]of Object.entries({'config.json':'{}','input/parts.json':'{}','input/recomposite_rig.png':'synthetic stack bytes','input/parts/piece.png':'synthetic bytes','out/rig.json':'{}','out/motion.json':'{}','out/mesh_report.json':'{}','out/skeleton.model.json':JSON.stringify({synthetic:id})}))writeFileSync(join(dir,root,path),bytes);testClock.set(new Date(`2026-12-01T${hour}:00:00Z`));draftRigCommand([id,dir,'--config',`${root}/config.json`,'--from',`${root}/out`,'--parts',`${root}/input`]);};
+ const draft=(id:string,hour:string)=>{const root=`derived/drafts/${id}`;mkdirSync(join(dir,root,'input/parts'),{recursive:true});mkdirSync(join(dir,root,'out'),{recursive:true});for(const[path,bytes]of Object.entries({'config.json':'{}','input/parts.json':'{}','input/recomposite_rig.png':'synthetic stack bytes','input/parts/piece.png':'synthetic bytes','out/rig.json':'{}','out/motion.json':'{}','out/mesh_report.json':'{}','out/skeleton.model.json':JSON.stringify({synthetic:id})}))writeFileSync(join(dir,root,path),bytes);testClock.set(new Date(`2026-12-01T${hour}:00:00Z`));seedRetainedDraft([id,dir,'--config',`${root}/config.json`,'--from',`${root}/out`,'--parts',`${root}/input`],testClock.now());};
  draft('before','08');testClock.set(new Date('2026-12-01T09:00:00Z'));correctionCommand(['record',dir,'--id','draft-fix','--path','described','--stage','parts-review','--draft','before','--by','reviewer','--verbatim-file',join(dir,'words.txt')]);draft('after','10');testClock.set(new Date('2026-12-01T11:00:00Z'));correctionCommand(['resolve','draft-fix',dir,'--draft','after','--by','agent','--reasoning-file',join(dir,'reasoning.txt')]);const p=load(dir);expect(check(dir).refusals).toEqual([]);expect(correctionApprovalFindings(p,'parts-review',{draft_id:'before',at:'2026-12-01T12:00:00Z'}).map(f=>f.code)).toEqual(['CORRECTION_OUTCOME']);expect(correctionApprovalFindings(p,'parts-review',{draft_id:'after',at:'2026-12-01T12:00:00Z'})).toEqual([]);
 });
 
@@ -106,7 +107,7 @@ function mixedStageOne(source:'parts'|'draft', target:'parts'|'draft', partsChan
     const files={'config.json':'{}','input/parts.json':'{}','input/recomposite_rig.png':'synthetic stack bytes','input/parts/piece.png':part,'out/rig.json':'{}','out/motion.json':'{}','out/mesh_report.json':'{}','out/skeleton.model.json':model};
     for(const[path,bytes]of Object.entries(files))writeFileSync(join(dir,root,path),bytes);
     testClock.set(new Date(`2026-12-01T${hour}:00:00Z`));
-    draftRigCommand([id,dir,'--config',`${root}/config.json`,'--from',`${root}/out`,'--parts',`${root}/input`]);
+    seedRetainedDraft([id,dir,'--config',`${root}/config.json`,'--from',`${root}/out`,'--parts',`${root}/input`],testClock.now());
     const entry=(load(dir).drafts as JsonObject[]).find(d=>d.id===id)!;
     const parts=entry.parts as JsonObject;
     const inventory=(parts.files as JsonObject[]).slice();
@@ -280,7 +281,7 @@ export function configFileReferences(config) {
     testClock.set(new Date(`2026-11-06T${hour}:00:00Z`));
     return [id, dir, '--config', `${draftRoot}/config.json`, '--from', `${draftRoot}/out`, '--parts', `${draftRoot}/input`];
   };
-  const writeDraft = (id: string, hour: string, topwearBytes: Uint8Array) => draftRigCommand(stageDraft(id, hour, topwearBytes));
+  const writeDraft = (id: string, hour: string, topwearBytes: Uint8Array) => seedRetainedDraft(stageDraft(id, hour, topwearBytes), testClock.now());
   writeDraft('parent', '02', pngs.before);
   return { dir, pngs, writeDraft, stageDraft };
 }
@@ -329,7 +330,10 @@ test('part-image positive control and round trip: masked repaint records, resolv
   expect(checkProject(dir).warnings.map(w => w.code)).toEqual(['CORRECTION_OPEN']);
   expect(correctionApprovalFindings(load(dir), 'parts-review', { draft_id: 'parent', at: '2026-11-06T02:45:00Z' }).map(f => f.code)).toEqual(['CORRECTION_PENDING']);
   // A later draft that does not bind the repainted after bytes refuses check as CORRECTION_PENDING.
-  rejected(dir, 'CORRECTION_PENDING', () => writeDraft('unfixed', '03', pngs.before));
+  const beforeUnfixed = readFileSync(join(dir, 'project.json'));
+  writeDraft('unfixed', '03', pngs.before);
+  expect(checkProject(dir).refusals.map(f => f.code)).toContain('CORRECTION_PENDING');
+  writeFileSync(join(dir, 'project.json'), beforeUnfixed);
 
   // Registering the new draft with the repainted part resolves the correction and makes check clean (0 refusals, 0 warnings).
   writeDraft('repainted', '03', pngs.after);
@@ -437,9 +441,8 @@ test('part-image on a draft with no compiled model (parts rig output): records t
   planted.corrections = [...(planted.corrections as JsonObject[]), { schema: 'rig-create/correction@1', id: 'described-planted', path: 'described', by: 'reviewer', at: '2026-11-06T02:30:00Z', verbatim: 'Smooth the torso edge.', stage: 'parts-review', on: structuredClone(on), artifact: { kind: 'description' }, outcome: null, resolves: null }];
   expect(check(dir, planted).refusals.map(f => f.code)).toEqual(['CORRECTION_MALFORMED']);
 
-  // The rebuilt draft, recorded by the draft-rig CLI, binds the after bytes and resolves the correction.
-  const drafted = cli(dir, ['draft-rig', ...stageDraft('repainted', '03', pngs.after)]);
-  expect(drafted.stderr).toBe('');
+  // The rebuilt draft binds the after bytes and resolves the correction.
+  const drafted = seedRetainedDraft(stageDraft('repainted', '03', pngs.after), testClock.now());
   expect(drafted.exit).toBe(0);
   expect(checkProject(dir)).toMatchObject({ refusals: [], warnings: [] });
   const checked = cli(dir, ['interview', '--check', dir]);
@@ -544,8 +547,11 @@ test('part-image unrecorded changes WARN; known withdrawn/superseded/post-dated 
   const withdrawnProject = load(dir2);
   ((withdrawnProject.corrections as JsonObject[])[0] as JsonObject).verdict = 'withdrawn';
   writeFileSync(join(dir2, 'project.json'), `${JSON.stringify(withdrawnProject, null, 2)}\n`);
-  // Writer refuses to record a draft that still binds the withdrawn correction's after bytes.
-  rejected(dir2, 'DRAFT_PART_REPAINT_UNRECORDED', () => writeDraft2('uses-withdrawn-after', '03', pngs2.after));
+  // Check refuses a draft that still binds the withdrawn correction's after bytes.
+  const beforeWithdrawnAfter = readFileSync(join(dir2, 'project.json'));
+  writeDraft2('uses-withdrawn-after', '03', pngs2.after);
+  expect(checkProject(dir2).refusals.map(f => f.code)).toContain('DRAFT_PART_REPAINT_UNRECORDED');
+  writeFileSync(join(dir2, 'project.json'), beforeWithdrawnAfter);
 
   // And if a draft was recorded before the correction was withdrawn or before the correction timestamp, checkProject refuses by name.
   const restoredProject = load(dir2);
@@ -577,7 +583,7 @@ test('changed auxiliary depth maps never become parts, including on a producer-d
   const { dir, pngs, writeDraft, stageDraft } = partImageFixture({ edited: true, depth: true });
   const args = stageDraft('depth-only', '03', pngs.before);
   writeFileSync(join(dir, 'derived/drafts/depth-only/input/parts/torso_depth.png'), pngs.after);
-  expect(draftRigCommand(args).exit).toBe(0);
+  expect(seedRetainedDraft(args, testClock.now()).exit).toBe(0);
   expect(checkProject(dir)).toMatchObject({ refusals: [], warnings: [] });
   expect(writeDraft('edited-colour-and-depth', '04', pngs.after).exit).toBe(0);
   const report = checkProject(dir);
@@ -674,7 +680,7 @@ test('legacy-order project with a resolved part-image correction on a model-less
     '--mask-file', 'evidence/repaint/mask.png',
     '--tool', 'hand pass',
   ]).exit).toBe(0);
-  expect(cli(dir, ['draft-rig', ...stageDraft('repainted', '03', pngs.after)]).exit).toBe(0);
+  expect(seedRetainedDraft(stageDraft('repainted', '03', pngs.after), testClock.now()).exit).toBe(0);
   recordPartsReceipt(dir, 'parent', Date.parse('2026-11-06T02:15:00Z'));
   recordPartsReceipt(dir, 'repainted', Date.parse('2026-11-06T03:15:00Z'));
   writeFileSync(join(dir, 'words.txt'), 'Approve the repainted parts.\n');

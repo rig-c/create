@@ -1,5 +1,5 @@
 import { checkExampleParts } from '../scripts/generate-example-parts.ts';
-import { draftRigCommand } from '../src/drafts.ts';
+import { seedRetainedDraft } from './numbered-seed.ts';
 import { checkInputs } from '../src/inputs.ts';
 import { planCommand } from '../src/plan-writers.ts';
 import { checkpointProblem } from '../src/signable.ts';
@@ -586,7 +586,7 @@ test('#676 job open --draft publishes a writer-recorded assemble-only draft and 
   const project = JSON.parse(readFileSync(recordPath, 'utf8')) as JsonObject;
   delete project.drafts;
   writeFileSync(recordPath, JSON.stringify(project));
-  expect(draftRigCommand(['chain', root, '--config', `${draftRoot}/config.json`, '--from', assembled], now).exit).toBe(0);
+  expect(seedRetainedDraft(['chain', root, '--config', `${draftRoot}/config.json`, '--from', assembled], now).exit).toBe(0);
   expect(JSON.parse(readFileSync(recordPath, 'utf8'))).toMatchObject({ drafts: [
     { id: 'chain', layout: 'assemble-only', parts: { path: parts } },
   ] });

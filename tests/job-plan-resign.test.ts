@@ -11,6 +11,7 @@ import type { JsonObject } from '../src/templates.ts';
 import { arr, obj, waypoint } from './fixtures.ts';
 import { seedStoredReviewVerdictAct } from './historical-review-fixture.ts';
 import { tempDir } from './helpers.ts';
+import { seedRetainedRigVersion } from './numbered-seed.ts';
 
 const checkpoint = join(import.meta.dir, '../templates/example-chain/checkpoints/3-rig-review');
 const remesh = join(import.meta.dir, '../templates/example-remesh');
@@ -217,13 +218,13 @@ test('#820 a routed motion comment can be re-signed in Review and cited by the n
       const motionCitation = { entry: 'motion', guide: 'motion', quote: comment };
       citations.motion = [...arr(citations.motion), motionCitation];
       writeFileSync(join(f.root, evidence, 'citations.json'), JSON.stringify(citations));
-      const registered = JSON.parse(await f.success('rig-version', '2', f.root,
+      const registered = JSON.parse(seedRetainedRigVersion(['2', f.root,
         '--parts', `${producer}/out`, '--rig', `${producer}/out/rig`, '--build', `${producer}/out/check/build`, '--idle', `${producer}/idle`,
         '--config', `${evidence}/config-source.json`, '--path-adapter', `${evidence}/path-adapter.json`,
         '--compile-report', `${evidence}/compile-report.json`, '--toolchain-lock', `${evidence}/package-lock.json`,
         '--check-report', `${evidence}/check.json`, '--run-record', `${evidence}/rigc-run-1.json`,
         '--at-source', `${evidence}/at-source.json`, '--at-pointer', '/finished_at',
-        '--by', 'agent', '--answers', '1:0', '--citations', `${evidence}/citations.json`, '--json')) as JsonObject;
+        '--by', 'agent', '--answers', '1:0', '--citations', `${evidence}/citations.json`, '--json'], Date.now()).stdout) as JsonObject;
       expect(registered).toMatchObject({ n: 2, kind: 'rig', answers_feedback: [{ version: 1, verdict: 0 }] });
       expect(arr(obj(obj(registered.provenance).sections).motion)).toContainEqual(motionCitation);
       expect(arr(f.load().versions).at(-1)).toEqual(registered);

@@ -14,10 +14,11 @@
   Reuse a map and its existing receipt only when the prepared `inputSha256`
   is unchanged. Changed input needs new inference and a new map filename;
   never bind an old map to freshly prepared input or overwrite its receipt.
-  Retain the prepare manifest with `rig-version --depth-manifest` and repeat
-  `--depth-map-binding <map.binding.json>` for every applied map; registration
-  binds their raw bytes and `rig-parts-depth-map-binding/1` spec alongside
-  `depth-report.json` and rig's `depth_sheets.json` by SHA-256.
+  Keep the prepare manifest, each `<map.binding.json>` (`rig-parts-depth-map-binding/1`)
+  and `depth-apply`'s `depth-report.json` in tracked project paths, then record
+  the checked rig with `record rig --from <dir> --config <file>`, which binds
+  `depth_sheets.json` in `current.rig.files` and the build's config and declared
+  run inputs in `current.rig.built_from` by SHA-256.
   The layer alternative requires sheets already retained in the accepted
   assembled parts, bound alongside the existing `config.depth` images:
   `assemble` consumes `config.depth`, so declaring it after acceptance cannot

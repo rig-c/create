@@ -159,7 +159,7 @@ export function configInputsLegacy(at: unknown): boolean {
  * Drafts recorded before this date with no `config_inputs` key, on a config
  * that names inputs, WARN DRAFT_CONFIG_INPUTS_UNRECORDED: the config is bound
  * by sha256, so the absent key came from an install that could not declare the
- * inputs, which draft-rig refuses from this date (DRAFT_PARTS_INSTALL_BEHIND).
+ * inputs before Create 1.27.0 enforced install parity on draft recording.
  */
 export const DRAFT_CONFIG_INPUTS_SINCE = '2026-11-09T00:00:00Z';
 /**

@@ -20,12 +20,12 @@ import { commentCommand } from '../src/comment-act.ts';
 import { recordCommand } from '../src/record.ts';
 import { readVersions } from '../src/review.ts';
 import { formatNext, nextProject } from '../src/next.ts';
-import { reviewPackageCommand } from '../src/review-package.ts';
 import { selectSignoffTarget } from '../src/signoff-target.ts';
 import { stepHash } from '../src/step-hash.ts';
 import type { JsonObject } from '../src/templates.ts';
-import { advanceCommand, checkProject, directionCommand, inputCommand, planCommand, sceneCommand, signoffCommand, stepStatusCommand, testClock } from './clock.ts';
+import { advanceCommand, checkProject, inputCommand, planCommand, signoffCommand, stepStatusCommand, testClock } from './clock.ts';
 import { seedStoredSignoffAct, seedStoredVerdict, seedStoredVersionSignoff, selectHistoricalSignoffTarget } from './historical-review-fixture.ts';
+import { seedRetainedDirectionPost, seedRetainedReviewPackage, seedRetainedRigVersion, seedRetainedScene } from './numbered-seed.ts';
 import { composeFixture, composeRunFixture } from './direction-compose-fixture.ts';
 import { plantLegacyReopen, fixture } from './fixtures.ts';
 import { clockedCli, staleRecordPlant, treeDigest } from './helpers.ts';
@@ -70,8 +70,8 @@ async function published(checkpoint = '3-rig-review', n = 1, role: 'owner' | 'de
       cpSync(join(import.meta.dir, '../templates/example-chain', path), join(root, path));
     }
     inputCommand(['add', 'inputs/background.png', root, '--origin', 'synthetic plate']);
-    sceneCommand(['write', '--rig', '1', '--background', 'inputs/background.png', '--citations-file', 'evidence/scene-citations.json', root]);
-    directionCommand(['write', '2', root, '--file', 'evidence/direction-input.json', '--rig', '1']);
+    seedRetainedScene(['write', '--rig', '1', '--background', 'inputs/background.png', '--citations-file', 'evidence/scene-citations.json', root], testClock.now());
+    seedRetainedDirectionPost(['write', '2', root, '--file', 'evidence/direction-input.json', '--rig', '1'], testClock.now());
     advanceCommand(['direction-review', root]);
   }
   if (generation === 2) {
@@ -289,8 +289,8 @@ test('#888 signoff rig-review and handoff require acceptance of the latest live 
   const register = (dir: string, n: number) => {
     const inputs = { parts: 'parts', rig: 'rig', build: `build-${n}`, idle: `idle-${n}`, config: 'config.json', 'path-adapter': 'adapter.json',
       'compile-report': `compile-${n}.json`, 'toolchain-lock': 'toolchain.json', citations: 'citations.json', 'run-record': `build-${n}/run.json`, 'at-source': `build-${n}/run.json` };
-    success(dir, ['rig-version', String(n), dir, ...Object.entries(inputs).flatMap(([flag, file]) => [`--${flag}`, `build-input/${file}`]),
-      '--at-pointer', '/finished_at', '--by', 'registrant']);
+    expect(seedRetainedRigVersion([String(n), dir, ...Object.entries(inputs).flatMap(([flag, file]) => [`--${flag}`, `build-input/${file}`]),
+      '--at-pointer', '/finished_at', '--by', 'registrant'], testClock.now()).exit).toBe(0);
   };
   const accept = async (dir: string, n: number) => {
     // The retained two-subject publication records a verdict without folding a signature into it.
@@ -436,7 +436,7 @@ async function reopenedRig(legacySubjects = false) {
   putProject(first.root, reopened);
   const config = (second.provenance as JsonObject).config as JsonObject;
   const from = (seed.review_package as JsonObject).from as string;
-  expect(reviewPackageCommand(['2', first.root, '--config', String(config.path), '--from', from]).exit).toBe(0);
+  expect(seedRetainedReviewPackage(['2', first.root, '--config', String(config.path), '--from', from]).exit).toBe(0);
   const current = await published('3-rig-review', 1, 'owner', 'Approve the replacement synthetic rig.', 'approved', 1, legacySubjects,
     { root: first.root, rigVersion: 2 });
   expect(current.act.source.selector).toEqual({ kind: 'rig', version: 2 });
@@ -1056,7 +1056,7 @@ test('#776 next prints only the current rig chest edit and skips superseded work
   ((second.provenance as JsonObject).config as JsonObject).path = configPath;
   versions.push(second);
   putProject(root, project);
-  expect(reviewPackageCommand(['2', root, '--config', configPath, '--from', 'outputs/v2/out']).exit).toBe(0);
+  expect(seedRetainedReviewPackage(['2', root, '--config', configPath, '--from', 'outputs/v2/out']).exit).toBe(0);
   rmSync(join(root, workingConfig));
 
   const beforeEdit = nextProject(root, testClock.now());
@@ -1578,7 +1578,7 @@ async function publishedComposed(extraValue?: Parameters<typeof published>[8]) {
     citations[key!] = { guide: id!, asks: [id!], quote: (items.find(i => i.id === id)!.raw as JsonObject).verbatim! };
   }
   writeFileSync(join(root, 'evidence/composed-direction.json'), JSON.stringify(doc));
-  directionCommand(['write', '5', root, '--file', 'evidence/composed-direction.json', '--rig', '2', '--compose-out', 'compose-out', '--compose-scene', 'compose.scene.json']);
+  seedRetainedDirectionPost(['write', '5', root, '--file', 'evidence/composed-direction.json', '--rig', '2', '--compose-out', 'compose-out', '--compose-scene', 'compose.scene.json'], testClock.now());
   advanceCommand(['direction-review', root]);
   return published('4-direction-post', 5, 'owner', '  Synthetic composed approval.\r\n', 'approved', 1, false, { root, rigVersion: 2 }, extraValue);
 }

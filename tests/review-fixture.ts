@@ -3,9 +3,9 @@ import { mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'nod
 import { dirname, join, posix } from 'node:path';
 import { createHash } from 'node:crypto';
 import { asArray, isObject } from '../src/check.ts';
-import { reviewPackageCommand } from '../src/review-package.ts';
 import { latestPartsApproval } from '../src/structure.ts';
 import type { JsonObject } from '../src/templates.ts';
+import { seedRetainedReviewPackage } from './numbered-seed.ts';
 
 const legacyPartPackages = new Map<string, { records: JsonObject[]; files: Record<string, Uint8Array> }>();
 
@@ -53,7 +53,7 @@ export function materializeLegacyPartPackages(dir: string, project: JsonObject, 
   for (const version of rigs) {
     const pkg = version.review_package as JsonObject;
     const config = pkg.config as JsonObject;
-    const record = JSON.parse(reviewPackageCommand([String(version.n), dir, '--config', String(config.path), '--from', String(pkg.from), '--json']).stdout) as JsonObject;
+    const record = JSON.parse(seedRetainedReviewPackage([String(version.n), dir, '--config', String(config.path), '--from', String(pkg.from), '--json']).stdout) as JsonObject;
     version.review_package = record;
     records.push(structuredClone(record));
     for (const entry of asArray(record.files).filter(isObject)) {
@@ -145,7 +145,7 @@ export function repackageFixtureVersion(dir: string, n: number): string {
   // Config-drift controls deliberately retain their mismatched historical binding.
   if (createHash('sha256').update(bytes).digest('hex') !== config.sha256) return dir;
   rmSync(join(dir, `derived/review/v${n}`), { recursive: true });
-  reviewPackageCommand([String(n), dir, '--config', String(config.path), '--from', String(version.review_package.from)]);
+  seedRetainedReviewPackage([String(n), dir, '--config', String(config.path), '--from', String(version.review_package.from)]);
   const signed = JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')) as JsonObject;
   refreshFixtureTargets(signed);
   writeFileSync(join(dir, 'project.json'), `${JSON.stringify(signed, null, 2)}\n`);

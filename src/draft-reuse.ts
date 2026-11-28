@@ -1,8 +1,6 @@
-/** Create-owned evidence for reusing a reviewed parts inventory. */
-import { createHash, randomUUID } from 'node:crypto';
-import { closeSync, fsyncSync, linkSync, mkdirSync, openSync, rmSync, writeFileSync } from 'node:fs';
-import { lstatSync, realpathSync } from './check-reads.ts';
-import { join } from 'node:path';
+/** Create-owned reader checks for retained draft-reuse records. */
+import { createHash } from 'node:crypto';
+import { realpathSync } from './check-reads.ts';
 import { isDeepStrictEqual } from 'node:util';
 import { asArray, isObject, PROJECT_SCHEMA, type Finding } from './check.ts';
 import { publicationFile } from './job-publication.ts';
@@ -34,24 +32,6 @@ function parseRecord(bytes: Buffer, digest: string, path: string): JsonObject {
   catch { return fail('DRAFT_REUSE_SOURCE', path, 'the previous record is invalid JSON'); }
   if (!isObject(value) || value.schema !== PROJECT_SCHEMA) fail('DRAFT_REUSE_SOURCE', path, `the previous record must be ${PROJECT_SCHEMA}`);
   return value;
-}
-
-/** Find the exact project blob among this project's reachable commits. Git is used only by the writer. */
-function historicalRecord(dir: string, digest: string, path: string): Buffer {
-  const git = (args: string[]) => Bun.spawnSync(['git', '--no-replace-objects', '--literal-pathspecs', ...args], { cwd: dir, stdout: 'pipe', stderr: 'pipe' });
-  const prefix = git(['rev-parse', '--show-prefix']);
-  if (prefix.exitCode !== 0) fail('DRAFT_REUSE_SOURCE', path, 'cannot resolve project.json in the git work tree');
-  const file = `${prefix.stdout.toString('utf8').replace(/\n$/, '')}project.json`;
-  const blobs = git(['rev-list', '--objects', '--full-history', 'HEAD', '--', 'project.json']);
-  if (blobs.exitCode === 0) {
-    for (const line of blobs.stdout.toString('utf8').split('\n')) {
-      const split = line.indexOf(' ');
-      if (split < 0 || line.slice(split + 1) !== file) continue;
-      const result = git(['cat-file', 'blob', line.slice(0, split)]);
-      if (result.exitCode === 0 && sha(result.stdout) === digest) return Buffer.from(result.stdout);
-    }
-  }
-  return fail('DRAFT_REUSE_SOURCE', path, `git history for project.json does not hold restart sha256 ${digest}; use a clone with the complete project history`);
 }
 
 type PartFile = { path: string; sha256: string };
@@ -146,54 +126,6 @@ function reviewedSource(dir: string, project: JsonObject, id: string, path: stri
       }
     },
   };
-}
-
-export function prepareDraftReuse(dir: string, project: JsonObject, draft: JsonObject, sourceId: string, recordSha: string | undefined, manifest: Buffer | undefined): {
-  producer: JsonObject; reuse: JsonObject; snapshot?: Buffer;
-} {
-  const path = `drafts[${String(draft.id)}].reuse`;
-  if (sourceId === draft.id) fail('DRAFT_REUSE_SOURCE', path, 'use a new draft id distinct from the source id');
-  const previous = recordSha === undefined ? undefined : restartSource(project, recordSha, path);
-  const snapshot = previous === undefined ? undefined : historicalRecord(dir, previous.sha256, path);
-  const record = snapshot !== undefined && previous !== undefined ? parseRecord(snapshot, previous.sha256, path) : project;
-  const source = reviewedSource(dir, record, sourceId, path, manifest);
-  sameInventory(source.parts, relativeInventory(draft.parts as JsonObject, path), path);
-  if (manifest === undefined) fail('DRAFT_REUSE_MISMATCH', path, 'parts.json is unavailable');
-  const reuse: JsonObject = { draft_id: sourceId, review_sha256: source.reviewSha, parts: source.parts,
-    seethrough: layerSources(manifest, source.parts, path), ...(previous === undefined ? {} : { previous_record: previous }) };
-  source.validate();
-  return { producer: source.producer, reuse, ...(snapshot === undefined ? {} : { snapshot }) };
-}
-
-/** A previous record is stored by raw SHA so check's file closure can be copied without git. */
-export function retainDraftReuseRecord(dir: string, bytes: Buffer): void {
-  const digest = sha(bytes);
-  const path = `${recordDirectory}/${digest}.json`;
-  const sync = (file: string): void => {
-    const fd = openSync(file, 'r');
-    try { fsyncSync(fd); } finally { closeSync(fd); }
-  };
-  try {
-    const root = realpathSync(dir);
-    let parent = root;
-    for (const name of recordDirectory.split('/')) {
-      const next = join(parent, name);
-      try { mkdirSync(next); sync(parent); }
-      catch (error) { if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error; }
-      if (!lstatSync(next).isDirectory()) throw new Error('snapshot directory is not a real directory');
-      parent = next;
-    }
-    const temp = join(parent, `.reuse-${randomUUID()}.tmp`);
-    try {
-      const fd = openSync(temp, 'wx', 0o600);
-      try { writeFileSync(fd, bytes); fsyncSync(fd); } finally { closeSync(fd); }
-      try { linkSync(temp, join(root, path)); sync(parent); }
-      catch (error) { if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error; }
-    } finally { rmSync(temp, { force: true }); }
-    if (!publicationFile(root, path).equals(bytes)) throw new Error('existing snapshot has different bytes');
-  } catch (error) {
-    fail('DRAFT_REUSE_SOURCE', path, error instanceof Error ? error.message : String(error));
-  }
 }
 
 export function checkDraftReuse(

@@ -10,7 +10,8 @@ import { nextCommand, type NextReport } from '../src/next.ts';
 import { recordCommand } from '../src/record.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { amendCommand, checkProject, correctionCommand, directionCommand, interviewAnswerCommand, interviewOptionsCommand,
-  planCommand, rigVersionCommand, sceneCommand, signoffCommand, stepStatusCommand, TEST_NOW, testClock } from './clock.ts';
+  planCommand, sceneCommand, signoffCommand, stepStatusCommand, TEST_NOW, testClock } from './clock.ts';
+import { seedRetainedDirectionPost, seedRetainedRigVersion } from './numbered-seed.ts';
 import { composeRunFixture } from './direction-compose-fixture.ts';
 import { arr, obj } from './fixtures.ts';
 import { ownerChatArgs, tempDir } from './helpers.ts';
@@ -66,7 +67,7 @@ test('#1106 next routes a live numbered direction bounce through current outputs
     expect(amendCommand(['direction-review', dir, '--kind', 'motion-track', '--target', 'camera', '--change', input,
       '--by', 'user', ...ownerChatArgs(words)]).exit).toBe(0);
     testClock.set(TEST_NOW + 1_000);
-    expect(directionCommand(['write', '3', dir, '--file', input, '--rig', '1']).exit).toBe(0);
+    expect(seedRetainedDirectionPost(['write', '3', dir, '--file', input, '--rig', '1'], testClock.now()).exit).toBe(0);
     const bounce = join(dir, 'evidence/direction-bounce.txt');
     writeFileSync(bounce, 'Hold the wide view longer before the push-in.\n');
     testClock.set(TEST_NOW + 2_000);
@@ -211,12 +212,12 @@ test('#1111 next routes an adopted direction redo and its offered writer closes 
     tick();
     const citationsPath = 'evidence/direction-rig-citations.json';
     put(citationsPath, obj(obj(obj(arr(read().versions)[0]).provenance).sections));
-    expect(rigVersionCommand(['3', dir, '--parts', join(source, 'out'), '--rig', join(source, 'out/rig'),
+    expect(seedRetainedRigVersion(['3', dir, '--parts', join(source, 'out'), '--rig', join(source, 'out/rig'),
       '--build', join(source, 'out/check/build'), '--idle', join(source, 'idle'), '--config', join(evidence, 'config-source.json'),
       '--path-adapter', join(evidence, 'path-adapter.json'), '--compile-report', join(evidence, 'compile-report.json'),
       '--toolchain-lock', join(evidence, 'package-lock.json'), '--check-report', join(evidence, 'check.json'),
       '--run-record', join(evidence, 'rigc-run-1.json'), '--at-source', join(evidence, 'at-source.json'),
-      '--at-pointer', '/finished_at', '--citations', citationsPath, '--by', 'agent']).exit).toBe(0);
+      '--at-pointer', '/finished_at', '--citations', citationsPath, '--by', 'agent'], testClock.now()).exit).toBe(0);
     tick();
     writeFileSync(words, 'Approve the rebuilt synthetic rig.\n');
     seedStoredVerdict(dir, 3, { review: 'rig-review', verdict: 'accepted', by: 'user',
@@ -306,7 +307,7 @@ test('#1111 next routes an adopted direction redo and its offered writer closes 
         check: placeholder(`${frozen}/check/check.json`), run: placeholder(`${frozen}/compose-run.json`) },
       model: placeholder(`${frozen}/check/build/skeleton.model.json`) });
     tick();
-    expect(directionCommand(['write', '4', dir, '--file', intent, '--rig', '3', '--compose-out', out, '--compose-scene', scenePath]).exit).toBe(0);
+    expect(seedRetainedDirectionPost(['write', '4', dir, '--file', intent, '--rig', '3', '--compose-out', out, '--compose-scene', scenePath], testClock.now()).exit).toBe(0);
     for (const [section] of postGoals) for (const status of ['in-progress', 'at-checkpoint', 'done']) {
       tick();
       expect(stepStatusCommand([section, status, dir, '--by', 'agent']).exit).toBe(0);

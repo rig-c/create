@@ -78,16 +78,3 @@ export function checkVersionDeclarations(projectDir: string, project: JsonObject
   });
   return { version: label, cg, declarations, registration_only: [], refusals, warnings };
 }
-
-/** One line per declaration and finding, for the preflight's human report. */
-export function formatDeclarations(report: DeclarationReport, config: string): string[] {
-  const lines = [`rig-version ${report.version.replace(/^versions\[(.*)\]$/, '$1')} preflight: ${config}${report.cg ? ' (CG build)' : ''}; nothing is written`];
-  for (const d of report.declarations) lines.push(`  ${d.status.padEnd(7)} ${d.path}${d.codes.length ? ` (${d.codes.join(', ')})` : ''}`);
-  for (const r of report.refusals) lines.push(`  REFUSED ${r.code}: ${r.message}`);
-  for (const w of report.warnings) lines.push(`  warning ${w.code}: ${w.message}`);
-  const n = (count: number, word: string): string => `${count} ${word}${count === 1 ? '' : 's'}`;
-  lines.push(report.refusals.length === 0
-    ? `ok: ${n(report.warnings.length, 'warning')}; rig-version refuses none of these declarations`
-    : `${n(report.refusals.length, 'refusal')}, ${n(report.warnings.length, 'warning')}; declare each, rebuild once if the config or requirements changed, then register`);
-  return lines;
-}

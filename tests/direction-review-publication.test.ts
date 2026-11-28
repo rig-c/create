@@ -8,9 +8,9 @@ import { readProject } from '../src/feedback.ts';
 import { askDeclaredSubjects, closeCreateJob, openCreateJob } from '../src/job-host.ts';
 import { acknowledgePublication, enqueuePublication, jobHash, jobHostStateRoot, pendingPublications, readWriterBinding, reconcilePublication } from '../src/job-outbox.ts';
 import { prepareLiveManifest, readPublished } from '../src/job-publication.ts';
-import { jobRuntimeExecArgv } from '../src/job-writer.ts';
 import type { JsonObject } from '../src/templates.ts';
-import { advanceCommand, directionCommand, inputCommand, sceneCommand, testClock } from './clock.ts';
+import { advanceCommand, inputCommand, testClock } from './clock.ts';
+import { seedRetainedDirectionPost, seedRetainedScene } from './numbered-seed.ts';
 import { obj } from './fixtures.ts';
 import { tempDir } from './helpers.ts';
 import { seedStoredReviewVerdictAct } from './historical-review-fixture.ts';
@@ -28,8 +28,8 @@ function authoredPost(camera: 'fixed' | 'moving'): string {
   }
   testClock.set(EXAMPLE_REOPEN_AT);
   expect(inputCommand(['add', 'inputs/background.png', root, '--origin', 'synthetic plate']).exit).toBe(0);
-  expect(sceneCommand(['write', '--rig', '1', '--background', 'inputs/background.png',
-    '--citations-file', 'evidence/scene-citations.json', root]).exit).toBe(0);
+  expect(seedRetainedScene(['write', '--rig', '1', '--background', 'inputs/background.png',
+    '--citations-file', 'evidence/scene-citations.json', root], testClock.now()).exit).toBe(0);
 
   const path = 'evidence/direction-input.json';
   const doc = JSON.parse(readFileSync(join(example, path), 'utf8')) as JsonObject;
@@ -40,7 +40,7 @@ function authoredPost(camera: 'fixed' | 'moving'): string {
   // Equal endpoints catch a classifier that misses motion at an interior key.
   authoredCamera.keys = [first!, { time: 2, box: middleBox, easing: 'smoothstep' }, { ...last!, box }];
   writeFileSync(join(root, path), JSON.stringify(doc));
-  expect(directionCommand(['write', '2', root, '--file', path, '--rig', '1']).exit).toBe(0);
+  expect(seedRetainedDirectionPost(['write', '2', root, '--file', path, '--rig', '1'], testClock.now()).exit).toBe(0);
   return root;
 }
 
@@ -70,14 +70,6 @@ async function publishPost(host: JobOwnerHost, { record, result }: ReturnType<ty
 type PostPublication = Awaited<ReturnType<typeof publishPost>>;
 function publicationContent({ publicationId: _, generation: __, previousPublicationId: ___, interview, ...rest }: PostPublication) {
   return JSON.stringify({ ...rest, interview: interview && { ...interview, evaluatedAt: '' } });
-}
-
-async function runDirectionWriter(expression: string, root: string, actId: string, now: number) {
-  const child = Bun.spawn([process.execPath, ...jobRuntimeExecArgv(), '-e', expression, root, actId, String(now)], {
-    cwd: import.meta.dir, stderr: 'pipe',
-  });
-  const [exit, stderr] = await Promise.all([child.exited, new Response(child.stderr).text()]);
-  expect({ exit, stderr }).toEqual({ exit: 0, stderr: '' });
 }
 
 test('#955 a direction post projects an ingested same-job bounce only when Review supports it', async () => {
@@ -124,13 +116,8 @@ test('#955 a direction post projects an ingested same-job bounce only when Revie
     const { actId, at } = submitted.value;
     const now = Math.max(testClock.now(), Date.parse(at));
     seedStoredReviewVerdictAct(root, 2, host.session.readActExport(actId, false).toString('utf8'), { now });
-    await runDirectionWriter(`
-      import { directionCommand } from '../src/direction-writers.ts';
-      const [root, , now] = process.argv.slice(-3);
-      const result = directionCommand(['write', '3', root, '--file', 'evidence/direction-input.json',
-        '--rig', '1', '--answers', '2:0'], Number(now));
-      process.exitCode = result.exit;
-    `, root, actId, now + 1000);
+    seedRetainedDirectionPost(['write', '3', root, '--file', 'evidence/direction-input.json',
+      '--rig', '1', '--answers', '2:0'], now + 1000);
     expect(pendingPublications(root)).toEqual([]);
     const actual = await readPublished(postRequest(root, 3));
     expect(host.session.status().publication?.publicationId).toBe(earlier.publicationId);

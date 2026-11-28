@@ -10,7 +10,8 @@ import type { JsonObject } from '../src/templates.ts';
 import { correctionFixture } from './correction-fixture.ts';
 import { arr, fixture, obj, PARTS_REVIEW_LAPSES, plantLegacyReopen } from './fixtures.ts';
 import { tempDir } from './helpers.ts';
-import { checkProject, correctionCommand, draftRigCommand, testClock } from './clock.ts';
+import { checkProject, correctionCommand, testClock } from './clock.ts';
+import { seedRetainedDraft } from './numbered-seed.ts';
 
 const roots: string[] = [];
 function scratch(): string { const dir = tempDir(); roots.push(dir); return dir; }
@@ -84,7 +85,7 @@ test('a parts-review made correction records and resolves against the reopened e
   const manifest = readFileSync(join(dir, 'derived/drafts/corrected/input/parts.json'));
   ledgerReport.build = { dir: 'derived/drafts/corrected/out', manifest_sha256: createHash('sha256').update(manifest).digest('hex') };
   writeFileSync(join(dir, 'evidence/fix-ledger/corrected.json'), `${JSON.stringify(ledgerReport, null, 2)}\n`);
-  draftRigCommand(['corrected', dir, '--config', 'derived/drafts/corrected/config.json', '--from', 'derived/drafts/corrected/out', '--parts', 'derived/drafts/corrected/input', '--ledger-report', 'evidence/fix-ledger/corrected.json']);
+  seedRetainedDraft(['corrected', dir, '--config', 'derived/drafts/corrected/config.json', '--from', 'derived/drafts/corrected/out', '--parts', 'derived/drafts/corrected/input', '--ledger-report', 'evidence/fix-ledger/corrected.json'], testClock.now());
   writeFileSync(join(dir, 'reasoning.txt'), 'Declare the synthetic corrected draft.');
   testClock.set(new Date(at + 3000));
   expect(correctionCommand(['resolve', 'example-fix', dir, '--by', 'agent', '--reasoning-file', join(dir, 'reasoning.txt'), '--draft', 'corrected']).exit).toBe(0);

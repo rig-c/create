@@ -13,6 +13,7 @@ import { sceneCommand } from '../src/scene-writers.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { checkCorrections, checkProject, correctionCommand, directionCommand, signoffCommand, testClock } from './clock.ts';
 import { tempDir } from './helpers.ts';
+import { seedRetainedDirectionPost } from './numbered-seed.ts';
 
 afterEach(() => testClock.reset());
 
@@ -374,7 +375,7 @@ test('adopted current.direction binds its legacy direction document on record an
   const p0 = JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')) as JsonObject;
   expect(JSON.parse(numbered.stdout).on).toEqual(directionPostIdentity(dir, p0, 3));
   testClock.set(new Date('2026-11-06T10:05:00Z'));
-  expect(directionCommand(['write', '4', dir, '--file', 'evidence/input.json', '--rig', '1']).exit).toBe(0);
+  expect(seedRetainedDirectionPost(['write', '4', dir, '--file', 'evidence/input.json', '--rig', '1'], testClock.now()).exit).toBe(0);
   testClock.set(new Date('2026-11-06T10:10:00Z'));
   expect(correctionCommand([
     'resolve', 'legacy-versioned', dir, '--version', '4', '--by', 'agent', '--reasoning-file', join(dir, 'reasoning.txt'),

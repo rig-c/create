@@ -2,12 +2,12 @@ import { afterEach, describe, expect, test } from 'bun:test';
 import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type { Finding } from '../src/check.ts';
-import { Refusal } from '../src/refusal.ts';
 import { rigRegistrationFindings } from '../src/rig-version.ts';
-import { checkProject, rigVersionCommand, testClock } from './clock.ts';
-import { RUN_RECORD_SINCE, validateRunRecord } from '../src/run-record.ts';
+import { checkProject, testClock } from './clock.ts';
+import { FROZEN_RUN_SPECS, RUN_RECORD_SINCE, validateRunRecord } from '../src/run-record.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { fixture, obj } from './fixtures.ts';
+import { seedRetainedRigVersion } from './numbered-seed.ts';
 
 const roots: string[] = [];
 const frozen = join(import.meta.dir, 'fixtures/rig-registration');
@@ -95,15 +95,14 @@ function setup(at = '2026-11-08T00:00:00Z') {
 
 function refused(args: string[], code: string): void {
   let caught: unknown;
-  try { rigVersionCommand(args); } catch (error) { caught = error; }
-  expect(caught).toBeInstanceOf(Refusal);
-  expect((caught as Refusal).code).toBe(code);
+  try { seedRetainedRigVersion(args, testClock.now()); } catch (error) { caught = error; }
+  expect((caught as { code?: string })?.code).toBe(code);
 }
 
 describe('producer run records (rig-run/1 and rigc-run/1)', () => {
   test('binds repeatable --run-record files by sha256 and spec in the order given beside toolchain lock', () => {
     const { dir, baseArgs, load } = setup();
-    const result = rigVersionCommand([...baseArgs, '--run-record', 'source/core-run.json', '--run-record', 'source/parts-run.json']);
+    const result = seedRetainedRigVersion([...baseArgs, '--run-record', 'source/core-run.json', '--run-record', 'source/parts-run.json'], testClock.now());
     expect(result.exit).toBe(0);
     const version = JSON.parse(result.stdout) as JsonObject;
     const registration = obj(version.registration);
@@ -114,7 +113,6 @@ describe('producer run records (rig-run/1 and rigc-run/1)', () => {
       const source = obj(run.source);
       expect(typeof source.path).toBe('string');
       expect(typeof source.sha256).toBe('string');
-      expect(typeof source.bytes).toBe('number');
       expect(existsSync(join(dir, String(source.path)))).toBe(true);
     }
     const warnings: Finding[] = [];
@@ -135,17 +133,11 @@ describe('producer run records (rig-run/1 and rigc-run/1)', () => {
     expect(validateRunRecord(Buffer.from(JSON.stringify(minimalCore)), 'runs[1]').spec).toBe('rigc-run/1');
   });
 
-  test('refuses a planted unknown spec in writer and check, leaving project.json byte-identical', () => {
-    const { dir, baseArgs, args, load } = setup();
-    put(dir, 'source/unknown-run.json', { ...partsRunRecord(), spec: 'rig-run/2' });
-    const before = readFileSync(join(dir, 'project.json'));
-    refused([...baseArgs, '--run-record', 'source/unknown-run.json'], 'RUN_RECORD_SPEC_UNKNOWN');
-    expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
-    expect(existsSync(join(dir, 'outputs/v1'))).toBe(false);
-    expect(existsSync(join(dir, 'evidence/v1/registration'))).toBe(false);
-    expect(existsSync(join(dir, 'derived/review/v1'))).toBe(false);
-
-    rigVersionCommand(args);
+  test('refuses a planted unknown spec in check', () => {
+    const { dir, args, load } = setup();
+    expect(() => validateRunRecord(Buffer.from(JSON.stringify({ ...partsRunRecord(), spec: 'rig-run/2' })), 'runs[0]', { specs: FROZEN_RUN_SPECS }))
+      .toThrow(expect.objectContaining({ code: 'RUN_RECORD_SPEC_UNKNOWN' }));
+    seedRetainedRigVersion(args, testClock.now());
     const project = load();
     const runs = obj((project.versions as JsonObject[])[0]!.registration).runs as JsonObject[];
     runs[0]!.spec = 'unknown-run/1';
@@ -153,9 +145,9 @@ describe('producer run records (rig-run/1 and rigc-run/1)', () => {
     expect(checkProject(dir, project).refusals.map(f => f.code)).toContain('RUN_RECORD_SPEC_UNKNOWN');
   });
 
-  test('refuses a byte mismatch on a bound run record in check and before a subsequent write', () => {
+  test('refuses a byte mismatch on a bound run record in check', () => {
     const { dir, args, load } = setup();
-    rigVersionCommand(args);
+    seedRetainedRigVersion(args, testClock.now());
     const project = load();
     const runs = obj((project.versions as JsonObject[])[0]!.registration).runs as JsonObject[];
     const targetPath = String(obj(runs[0]!.source).path);
@@ -164,11 +156,6 @@ describe('producer run records (rig-run/1 and rigc-run/1)', () => {
     writeFileSync(join(dir, targetPath), `${originalBytes.toString()} `);
     expect(rigRegistrationFindings(dir, load()).map(f => f.code)).toEqual(['RUN_RECORD_HASH_MISMATCH']);
     expect(checkProject(dir, load()).refusals.map(f => f.code)).toContain('RUN_RECORD_HASH_MISMATCH');
-
-    const beforeSecond = readFileSync(join(dir, 'project.json'));
-    refused(['2', ...args.slice(1)], 'RUN_RECORD_HASH_MISMATCH');
-    expect(readFileSync(join(dir, 'project.json'))).toEqual(beforeSecond);
-    expect(existsSync(join(dir, 'outputs/v2'))).toBe(false);
 
     writeFileSync(join(dir, targetPath), originalBytes);
     obj(runs[0]!.source).sha256 = 'f'.repeat(64);
@@ -187,19 +174,14 @@ describe('producer run records (rig-run/1 and rigc-run/1)', () => {
       { role: 'motion', path: '../rig/motion.json', sha256: '4'.repeat(64) },
       { role: 'rig', path: '../rig/rig.json', sha256: '5'.repeat(64) },
     ]],
-  ])('refuses core rigc-run/1 with %s and leaves project.json byte-identical', (_label, inputs) => {
-    const { dir, baseArgs } = setup();
-    put(dir, 'source/core-run.json', coreRunRecord({ inputs }));
-    const before = readFileSync(join(dir, 'project.json'));
-    refused([...baseArgs, '--run-record', 'source/core-run.json'], 'RUN_RECORD_ROLE_INVALID');
-    expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
-    expect(existsSync(join(dir, 'outputs/v1'))).toBe(false);
-    expect(existsSync(join(dir, 'evidence/v1/registration'))).toBe(false);
+  ])('refuses core rigc-run/1 with %s', (_label, inputs) => {
+    expect(() => validateRunRecord(Buffer.from(JSON.stringify(coreRunRecord({ inputs }))), 'runs[0]'))
+      .toThrow(expect.objectContaining({ code: 'RUN_RECORD_ROLE_INVALID' }));
   });
 
   test('check refuses a bound core record whose required input role was removed', () => {
     const { dir, args, load } = setup();
-    rigVersionCommand(args);
+    seedRetainedRigVersion(args, testClock.now());
     const project = load();
     const registration = obj((project.versions as JsonObject[])[0]!.registration);
     const coreEntry = (registration.runs as JsonObject[]).find(r => r.spec === 'rigc-run/1')!;
@@ -247,30 +229,25 @@ describe('producer run records (rig-run/1 and rigc-run/1)', () => {
         { role: 'motion', path: '../rig/motion.json', sha256: '4'.repeat(64) },
       ],
     })],
-  ])('refuses malformed run record (%s) and leaves project.json byte-identical', (_label, record) => {
-    const { dir, baseArgs } = setup();
-    put(dir, 'source/bad-run.json', record);
-    const before = readFileSync(join(dir, 'project.json'));
-    refused([...baseArgs, '--run-record', 'source/bad-run.json'], 'RUN_RECORD_MALFORMED');
-    expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
-    expect(existsSync(join(dir, 'outputs/v1'))).toBe(false);
-    expect(existsSync(join(dir, 'evidence/v1/registration'))).toBe(false);
+  ])('refuses malformed run record (%s)', (_label, record) => {
+    expect(() => validateRunRecord(Buffer.from(JSON.stringify(record)), 'runs[0]'))
+      .toThrow(expect.objectContaining({ code: 'RUN_RECORD_MALFORMED' }));
   });
 
-  test('refuses duplicate --run-record for the same spec and leaves project.json byte-identical', () => {
-    const { dir, baseArgs } = setup();
-    const before = readFileSync(join(dir, 'project.json'));
-    refused([...baseArgs, '--run-record', 'source/parts-run.json', '--run-record', 'source/parts-run.json'], 'RUN_RECORD_MALFORMED');
-    expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
-    expect(existsSync(join(dir, 'outputs/v1'))).toBe(false);
-    expect(existsSync(join(dir, 'evidence/v1/registration'))).toBe(false);
+  test('refuses duplicate runs for the same spec in check', () => {
+    const { dir, args, load } = setup();
+    seedRetainedRigVersion(args, testClock.now());
+    const project = load();
+    const runs = obj((project.versions as JsonObject[])[0]!.registration).runs as JsonObject[];
+    runs.push(structuredClone(runs[0]!));
+    expect(rigRegistrationFindings(dir, project).map(f => f.code)).toContain('RUN_RECORD_MALFORMED');
   });
 
   test('lock-only frozen-rig/1 versions WARN before RUN_RECORD_SINCE and refuse from RUN_RECORD_SINCE onward under the same code', () => {
     expect(RUN_RECORD_SINCE).toBe('2026-11-08T00:00:00Z');
 
     const beforeSince = setup('2026-11-07T23:59:59Z');
-    const res = rigVersionCommand(beforeSince.baseArgs);
+    const res = seedRetainedRigVersion(beforeSince.baseArgs, testClock.now());
     expect(res.exit).toBe(0);
     const preProject = beforeSince.load();
     expect(obj((preProject.versions as JsonObject[])[0]!.registration).runs).toBeUndefined();
@@ -280,13 +257,6 @@ describe('producer run records (rig-run/1 and rigc-run/1)', () => {
     const preCheck = checkProject(beforeSince.dir, preProject);
     expect(preCheck.warnings.map(f => f.code)).toContain('RUN_RECORD_REQUIRED');
     expect(preCheck.refusals.map(f => f.code)).not.toContain('RUN_RECORD_REQUIRED');
-
-    const onSince = setup('2026-11-08T00:00:00Z');
-    const beforeBytes = readFileSync(join(onSince.dir, 'project.json'));
-    refused(onSince.baseArgs, 'RUN_RECORD_REQUIRED');
-    expect(readFileSync(join(onSince.dir, 'project.json'))).toEqual(beforeBytes);
-    expect(existsSync(join(onSince.dir, 'outputs/v1'))).toBe(false);
-    expect(existsSync(join(onSince.dir, 'evidence/v1/registration'))).toBe(false);
 
     obj((preProject.versions as JsonObject[])[0]!.registration).at = '2026-11-08T00:00:00Z';
     const postWarnings: Finding[] = [];
@@ -481,11 +451,20 @@ describe('producer run records (rig-run/2 and rigc-run/2)', () => {
   });
 
   test('frozen-rig/1 registration.runs keeps rejecting valid /2 run records as RUN_RECORD_SPEC_UNKNOWN', () => {
-    const { dir, baseArgs } = setup();
-    put(dir, 'source/check-run.json', partsCheckRunRecord());
-    const before = readFileSync(join(dir, 'project.json'));
-    refused([...baseArgs, '--run-record', 'source/check-run.json'], 'RUN_RECORD_SPEC_UNKNOWN');
-    expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
+    const { dir, args, load } = setup();
+    seedRetainedRigVersion(args, testClock.now());
+    const project = load();
+    const registration = obj((project.versions as JsonObject[])[0]!.registration);
+    const run = (registration.runs as JsonObject[])[0]!;
+    const source = obj(run.source);
+    const v2Bytes = Buffer.from(`${JSON.stringify(partsCheckRunRecord(), null, 2)}\n`);
+    const v2Sha = new Bun.CryptoHasher('sha256').update(v2Bytes).digest('hex');
+    writeFileSync(join(dir, String(source.path)), v2Bytes);
+    source.sha256 = v2Sha;
+    run.spec = 'rig-run/2';
+    const fileEntry = (registration.files as JsonObject[]).find(f => f.path === source.path)!;
+    fileEntry.sha256 = v2Sha;
+    expect(rigRegistrationFindings(dir, project).map(f => f.code)).toContain('RUN_RECORD_SPEC_UNKNOWN');
   });
 });
 
@@ -567,14 +546,9 @@ describe('Parts build run records (rig-run/3)', () => {
     }
   });
 
-  test('frozen rig registration still refuses a valid /3 build in the writer and check', () => {
-    const { dir, baseArgs, args, load } = setup();
-    put(dir, 'source/build-run.json', partsBuildRunV3());
-    const before = readFileSync(join(dir, 'project.json'));
-    refused([...baseArgs, '--run-record', 'source/build-run.json'], 'RUN_RECORD_SPEC_UNKNOWN');
-    expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
-
-    rigVersionCommand(args);
+  test('frozen rig registration check still refuses a valid /3 build', () => {
+    const { dir, args, load } = setup();
+    seedRetainedRigVersion(args, testClock.now());
     const project = load();
     const runs = obj((project.versions as JsonObject[])[0]!.registration).runs as JsonObject[];
     runs[0]!.spec = 'rig-run/3';

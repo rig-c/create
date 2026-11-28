@@ -11,7 +11,8 @@ import { checkDrafts } from '../src/drafts.ts';
 import { fixture } from './fixtures.ts';
 import type { Finding } from '../src/check.ts';
 import type { JsonObject } from '../src/templates.ts';
-import { correctionCommand, checkCorrections, draftRigCommand, testClock } from './clock.ts';
+import { correctionCommand, checkCorrections, testClock } from './clock.ts';
+import { seedRetainedDraft } from './numbered-seed.ts';
 
 const roots: string[] = [];
 const DRAFT_PACKAGE = 'evidence/out/check';
@@ -198,7 +199,7 @@ for (const legacy of [false, true]) test(`draft writer binds files and ${legacy 
   const dir = fixture(); const root = 'derived/drafts/named';
   mkdirSync(join(dir, root, 'out'), { recursive: true }); mkdirSync(join(dir, root, 'input/parts'), { recursive: true });
   for (const [path, bytes] of Object.entries({ 'config.json': '{"requirements":"requirements.json","motion":{"animations_from":"animation.json"},"generation":{"control":{"skeleton":"skeleton.json"}}}', 'requirements.json': '{}', 'animation.json': '{}', 'skeleton.json': '{}', 'input/parts.json': '{}', 'input/recomposite_rig.png': 'synthetic stack bytes', 'input/parts/piece.png': 'synthetic', 'out/rig.json': '{}', 'out/motion.json': '{}', 'out/mesh_report.json': '{}', 'out/run.json': RIG_STAMP })) writeFileSync(join(dir, root, path), bytes);
-  const result = draftRigCommand(['named', dir, '--config', `${root}/config.json`, '--from', `${root}/out`, '--parts', `${root}/input`, '--json']);
+  const result = seedRetainedDraft(['named', dir, '--config', `${root}/config.json`, '--from', `${root}/out`, '--parts', `${root}/input`, '--json'], testClock.now());
   const record = JSON.parse(result.stdout); expect(record.config_inputs.map((f: {path: string}) => f.path)).toEqual(['requirements.json', 'animation.json', 'skeleton.json'].map(p => `${root}/${p}`));
   const p = JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8'));
   // An absent key from CONFIG_INPUTS_SINCE to DRAFT_CONFIG_INPUTS_SINCE is DRAFT_CONFIG_INPUTS_UNRECORDED; "current" is at or after both.

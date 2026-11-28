@@ -6,7 +6,8 @@ import { DIRECTION_COMPOSE_SPEC, composeRoot, composeScenePath } from '../src/di
 import { reviewPackageHash } from '../src/signoff-target.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { sceneFixture, PLATE_WORDS } from './scene-fixture.ts';
-import { directionCommand } from './clock.ts';
+import { testClock } from './clock.ts';
+import { seedRetainedDirectionPost } from './numbered-seed.ts';
 
 /** The producer records consumed bytes, including check.json which Create does not compare. */
 export function composeRunFixture(dir: string, project: JsonObject, rigN: number, scene: JsonObject, scenePath = 'compose.scene.json'): JsonObject {
@@ -87,9 +88,9 @@ export function composeFixture(placement?: { offset: [number, number]; scale?: n
     compose: { scene: placeholder(composeScenePath(n)), out: root, report: placeholder(`${root}/scene.json`), check: placeholder(`${root}/check/check.json`), run: placeholder(`${root}/compose-run.json`) },
     model: placeholder(`${root}/check/build/skeleton.model.json`), take: { duration: 4, loop: true },
     citations: { ...(f.doc.citations as JsonObject), composition: { guide: 'post_composition', asks: ['post_composition'], quote: PLATE_WORDS } } };
-  const publish = (hooks?: Parameters<typeof directionCommand>[1]) => {
+  const publish = () => {
     put('evidence/compose-direction.json', doc);
-    return directionCommand(['write', '2', f.dir, '--file', 'evidence/compose-direction.json', '--rig', '1', '--compose-out', 'compose-out', '--compose-scene', 'compose.scene.json'], hooks);
+    return seedRetainedDirectionPost(['write', '2', f.dir, '--file', 'evidence/compose-direction.json', '--rig', '1', '--compose-out', 'compose-out', '--compose-scene', 'compose.scene.json'], testClock.now());
   };
   return { ...f, doc, value, scene, report, model, run, put, publish };
 }

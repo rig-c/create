@@ -33,6 +33,7 @@ const reference = readFileSync(join(REPO, 'docs', AGENT_REFERENCE), 'utf8');
 const GUIDE_HEADINGS = [
   '# Agent guide',
   '## Start here',
+  '### Pause',
   '## The order, and what you may not do',
   "## The user's four steps",
   '## Before you ask, plan or show',
